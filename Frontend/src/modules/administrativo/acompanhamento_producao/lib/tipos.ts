@@ -94,7 +94,7 @@ export interface TerceirizadoSolicitacao {
   unit: string;
   quantityKg?: number | null;
   quantityUn?: number | null;
-  status: 'SOLICITADO' | 'APROVADO' | 'VINCULADO' | 'CANCELADO';
+  status: 'SOLICITADO' | 'APROVADO' | 'VINCULADO' | 'EM_FABRICACAO' | 'ENTREGUE' | 'FINALIZADO' | 'CANCELADO';
   loteNumber?: string | null;
   fornecedor?: string | null;
   previsaoEntrega?: string | null;
@@ -108,6 +108,10 @@ export interface TerceirizadoSolicitacao {
   aprovacaoMateriaPrimaEm?: string | null;
   createdAt: string;
   vinculadoEm?: string | null;
+  statusEm?: string | null;
+  canceladoEm?: string | null;
+  canceladoPor?: string | null;
+  finalizadoEm?: string | null;
 }
 
 export interface ProgramacaoEnvaseItem {

@@ -1900,7 +1900,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     if (!editTerceirizadoLote) return;
     setSavingTerceirizado(true);
     try {
-      await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(editTerceirizadoLote.loteNumber)}/terceirizado`, {
+      await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(editTerceirizadoLote.loteNumber)}/terceirizado?confirmar=true`, {
         method: 'POST',
         body: JSON.stringify({
           isTerceirizado: true,
@@ -1955,7 +1955,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   const handleReturnToInterno = async (loteNumber: string) => {
     setLotes(prev => prev.map(l => l.loteNumber === loteNumber ? { ...l, isTerceirizado: false } : l));
     try {
-      await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(loteNumber)}/terceirizado`, {
+      await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(loteNumber)}/terceirizado?confirmar=true`, {
         method: 'POST',
         body: JSON.stringify({ isTerceirizado: false })
       });
@@ -1975,7 +1975,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     setIsBatchUpdating(true);
     try {
       for (const num of loteNumbers) {
-        await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(num)}/terceirizado`, {
+        await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(num)}/terceirizado?confirmar=true`, {
           method: 'POST',
           body: JSON.stringify({ isTerceirizado: true })
         });
@@ -2172,7 +2172,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
     setSavingSolicitacao(true);
     try {
-      await apiJson('/api/administrativo/terceirizados/solicitacoes', {
+      await apiJson('/api/administrativo/terceirizados/solicitacoes?confirmar=true', {
         method: 'POST',
         body: JSON.stringify({
           productCode: solicProductCode.trim(),
@@ -2190,7 +2190,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       });
       if (solicLoteNumber.trim()) {
         try {
-          await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(solicLoteNumber.trim())}/terceirizado`, {
+          await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(solicLoteNumber.trim())}/terceirizado?confirmar=true`, {
             method: 'POST',
             body: JSON.stringify({ isTerceirizado: true })
           });
@@ -2227,7 +2227,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     const previous = [...solicitacoes];
     setSolicitacoes(prev => prev.map(s => s.id === solicId ? { ...s, previsaoEntrega: dateVal } : s));
     try {
-      await apiJson(`/api/administrativo/terceirizados/solicitacoes/${solicId}/previsao`, {
+      await apiJson(`/api/administrativo/terceirizados/solicitacoes/${solicId}/previsao?confirmar=true`, {
         method: 'POST',
         body: JSON.stringify({
           previsaoEntrega: dateVal,
@@ -2251,7 +2251,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   const handleToggleAprovacao = async (solicId: number, tipo: 'embalagem' | 'materia_prima', currentValue: boolean) => {
     try {
       const updated = await apiJson<TerceirizadoSolicitacao>(
-        `/api/administrativo/terceirizados/solicitacoes/${solicId}/aprovar`,
+        `/api/administrativo/terceirizados/solicitacoes/${solicId}/aprovar?confirmar=true`,
         {
           method: 'POST',
           body: JSON.stringify({
@@ -2377,14 +2377,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
     setSavingVinculo(true);
     try {
-      await apiJson(`/api/administrativo/terceirizados/solicitacoes/${showVincularModal.id}/vincular`, {
+      await apiJson(`/api/administrativo/terceirizados/solicitacoes/${showVincularModal.id}/vincular?confirmar=true`, {
         method: 'POST',
         body: JSON.stringify({
           loteNumber: vincularLoteInput.trim()
         })
       });
       try {
-        await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(vincularLoteInput.trim())}/terceirizado`, {
+        await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(vincularLoteInput.trim())}/terceirizado?confirmar=true`, {
           method: 'POST',
           body: JSON.stringify({ isTerceirizado: true })
         });
@@ -2404,18 +2404,18 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     }
   };
 
-  // Excluir Solicitação
+  // Cancelar Solicitação (não apaga: fica como Cancelada)
   const handleDeleteSolicitacao = async (id: number) => {
-    if (!window.confirm("Deseja realmente excluir esta solicitação?")) return;
+    if (!window.confirm("Deseja cancelar esta solicitação? Ela ficará como Cancelada e sairá da fila do Planejamento.")) return;
     try {
-      await apiJson(`/api/administrativo/terceirizados/solicitacoes/${id}`, {
+      await apiJson(`/api/administrativo/terceirizados/solicitacoes/${id}?confirmar=true`, {
         method: 'DELETE'
       });
-      showToast("Solicitação excluída com sucesso.");
+      showToast("Solicitação cancelada.");
       fetchSolicitacoes();
     } catch (e) {
-      console.error("Erro ao excluir solicitação:", e);
-      showToast("Falha ao excluir solicitação.", "error");
+      console.error("Erro ao cancelar solicitação:", e);
+      showToast("Falha ao cancelar solicitação.", "error");
     }
   };
 
@@ -2423,7 +2423,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   const handleDesvincularSolicitacao = async (id: number, loteNumber?: string | null) => {
     if (!window.confirm(`Deseja desvincular o lote ${loteNumber ? '#' + loteNumber : ''} desta solicitação? Ela retornará para o status SOLICITADO.`)) return;
     try {
-      await apiJson(`/api/administrativo/terceirizados/solicitacoes/${id}/desvincular`, {
+      await apiJson(`/api/administrativo/terceirizados/solicitacoes/${id}/desvincular?confirmar=true`, {
         method: 'POST'
       });
       showToast("Lote desvinculado com sucesso.");
@@ -3484,7 +3484,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     const newValue = !currentValue;
     setLotes(prev => prev.map(l => l.loteNumber === loteNumber ? { ...l, isTerceirizado: newValue } : l));
     try {
-      await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(loteNumber)}/terceirizado`, {
+      await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(loteNumber)}/terceirizado?confirmar=true`, {
         method: 'POST',
         body: JSON.stringify({ isTerceirizado: newValue })
       });
@@ -4323,7 +4323,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         return 'Pendente';
       }
       case 'status':
-        return s.status === 'VINCULADO' ? 'Vinculado ao ERP' : (s.aprovacaoEmbalagem && s.aprovacaoMateriaPrima ? 'Aprovado' : 'Aguardando Aprovação');
+        switch (s.status) {
+          case 'EM_FABRICACAO': return 'Em fabricação externa';
+          case 'ENTREGUE': return 'Entregue';
+          case 'FINALIZADO': return 'Finalizado';
+          case 'CANCELADO': return 'Cancelado';
+          case 'VINCULADO': return 'Vinculado ao ERP';
+          default: return s.aprovacaoEmbalagem && s.aprovacaoMateriaPrima ? 'Aprovado' : 'Aguardando Aprovação';
+        }
       case 'loteNumber':
         return s.loteNumber || 'Não vinculado';
       default:
@@ -7049,7 +7056,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                     type="button"
                                     onClick={() => handleDeleteSolicitacao(solic.id)}
                                     className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                    title="Excluir solicitação"
+                                    title="Cancelar solicitação"
                                   >
                                     <X className="h-3.5 w-3.5" />
                                   </button>

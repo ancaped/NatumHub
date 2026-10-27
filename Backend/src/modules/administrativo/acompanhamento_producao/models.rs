@@ -275,7 +275,7 @@ pub struct TerceirizadoSolicitacaoItem {
     pub unit: String,
     pub quantity_kg: Option<f64>,
     pub quantity_un: Option<f64>,
-    pub status: String, // 'SOLICITADO', 'APROVADO', 'VINCULADO', 'CANCELADO'
+    pub status: String, // ver `store::STATUS_TERCEIRIZADO`
     pub lote_number: Option<String>,
     pub fornecedor: Option<String>,
     pub previsao_entrega: Option<String>,
@@ -289,9 +289,13 @@ pub struct TerceirizadoSolicitacaoItem {
     pub aprovacao_materia_prima_em: Option<String>,
     pub created_at: String,
     pub vinculado_em: Option<String>,
+    pub status_em: Option<String>,
+    pub cancelado_em: Option<String>,
+    pub cancelado_por: Option<String>,
+    pub finalizado_em: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTerceirizadoSolicitacaoPayload {
     pub product_code: String,
@@ -493,3 +497,18 @@ pub struct ReorderProgramacaoRotulagemPayload {
 }
 
 
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusTerceirizadoPayload {
+    pub status: String,
+    pub motivo: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelarTerceirizadoQuery {
+    #[serde(default)]
+    pub confirmar: bool,
+    pub motivo: Option<String>,
+}

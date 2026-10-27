@@ -210,21 +210,35 @@ pub struct ToggleTerceirizadoPayload {
     pub is_terceirizado: bool,
 }
 
+/// Resposta das escritas em 2 passos: o `RespostaAcao` padrão (`previa`, `acao`, `resultado`, `confirmar`) e,
+/// por compatibilidade com a tela, os campos do resultado também na raiz.
+fn corpo_acao(r: &crate::core::acao::RespostaAcao<serde_json::Value>) -> Response {
+    let mut corpo = serde_json::to_value(r).unwrap_or_else(|_| json!({}));
+    if let Some(res) = r.resultado.as_object() {
+        for (k, v) in res {
+            if corpo.get(k).is_none() {
+                corpo[k] = v.clone();
+            }
+        }
+    }
+    corpo["success"] = json!(true);
+    ok(corpo)
+}
+
 pub async fn toggle_terceirizado(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
+    Query(c): Query<Confirmar>,
     Json(payload): Json<ToggleTerceirizadoPayload>,
 ) -> Result<Response, ErroApi> {
     exigir_edicao(&ctx)?;
-    store::set_lote_terceirizado(state.db.pool(), &lote_number, payload.is_terceirizado)
-        .await
-        .map_err(|e| interno("Erro ao alterar terceirizado", e))?;
-    Ok(ok(json!({ "success": true, "message": "Classificação terceirizado atualizada com sucesso!" })))
+    let r = store::alterar_lote_terceirizado(state.db.pool(), &lote_number, payload.is_terceirizado, &autor(&ctx), c.confirmar).await?;
+    Ok(corpo_acao(&r))
 }
 
 // -------------------------------------------------------------
-// Terceirizados: Solicitações
+// Terceirizados: Solicitações (todas as escritas em 2 passos: `?confirmar=true` grava)
 // -------------------------------------------------------------
 
 pub async fn get_terceirizados_solicitacoes(
@@ -242,96 +256,98 @@ pub async fn get_terceirizados_solicitacoes(
 pub async fn create_terceirizados_solicitacao(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
     Json(mut payload): Json<CreateTerceirizadoSolicitacaoPayload>,
 ) -> Result<Response, ErroApi> {
     exigir_edicao(&ctx)?;
-    payload.solicitado_por = Some(autor(&ctx));
-    let id = store::create_terceirizados_solicitacao(state.db.pool(), &payload)
-        .await
-        .map_err(|e| interno("Erro ao criar solicitação", e))?;
-    Ok((
-        StatusCode::CREATED,
-        Json(json!({ "success": true, "id": id, "message": "Solicitação criada com sucesso!" })),
-    )
-        .into_response())
+    let quem = autor(&ctx);
+    payload.solicitado_por = Some(quem.clone());
+    let r = store::criar_solicitacao_terceirizado(state.db.pool(), &payload, &quem, c.confirmar).await?;
+    let mut resp = corpo_acao(&r);
+    if c.confirmar {
+        *resp.status_mut() = StatusCode::CREATED;
+    }
+    Ok(resp)
 }
 
 pub async fn vincular_terceirizado_solicitacao(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
+    Query(c): Query<Confirmar>,
     Json(payload): Json<VincularTerceirizadoPayload>,
 ) -> Result<Response, ErroApi> {
     exigir_edicao(&ctx)?;
-    store::vincular_terceirizado_lote(state.db.pool(), id, &payload.lote_number)
-        .await
-        .map_err(|e| interno("Erro ao vincular lote", e))?;
-    Ok(ok(json!({ "success": true, "message": "Lote vinculado com sucesso!" })))
+    let r = store::vincular_terceirizado_lote(state.db.pool(), id, &payload.lote_number, &autor(&ctx), c.confirmar).await?;
+    Ok(corpo_acao(&r))
 }
 
 pub async fn desvincular_terceirizado_solicitacao(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
+    Query(c): Query<Confirmar>,
 ) -> Result<Response, ErroApi> {
     exigir_edicao(&ctx)?;
-    store::desvincular_terceirizado_lote(state.db.pool(), id)
-        .await
-        .map_err(|e| interno("Erro ao desvincular lote", e))?;
-    Ok(ok(json!({ "success": true, "message": "Lote desvinculado com sucesso!" })))
+    let r = store::desvincular_terceirizado_lote(state.db.pool(), id, &autor(&ctx), c.confirmar).await?;
+    Ok(corpo_acao(&r))
 }
 
+/// `DELETE` não apaga mais: cancela a solicitação (fica como CANCELADO).
 pub async fn delete_terceirizados_solicitacao(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
+    Query(q): Query<super::models::CancelarTerceirizadoQuery>,
 ) -> Result<Response, ErroApi> {
     exigir_edicao(&ctx)?;
-    store::delete_terceirizados_solicitacao(state.db.pool(), id)
-        .await
-        .map_err(|e| interno("Erro ao remover solicitação", e))?;
-    Ok(ok(json!({ "success": true, "message": "Solicitação removida com sucesso!" })))
+    let r = store::cancelar_solicitacao_terceirizado(state.db.pool(), id, q.motivo.as_deref(), &autor(&ctx), q.confirmar).await?;
+    Ok(corpo_acao(&r))
+}
+
+pub async fn status_terceirizado_solicitacao(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<i64>,
+    Query(c): Query<Confirmar>,
+    Json(payload): Json<super::models::StatusTerceirizadoPayload>,
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    let r = store::mudar_status_terceirizado(
+        state.db.pool(),
+        id,
+        payload.status.trim(),
+        payload.motivo.as_deref(),
+        &autor(&ctx),
+        c.confirmar,
+    )
+    .await?;
+    Ok(corpo_acao(&r))
 }
 
 pub async fn aprovar_terceirizado_solicitacao(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
+    Query(c): Query<Confirmar>,
     Json(payload): Json<super::models::AprovarTerceirizadoPayload>,
 ) -> Result<Response, ErroApi> {
     exigir_edicao(&ctx)?;
-    let aprovador = autor(&ctx);
-    let item = store::aprovar_terceirizado_solicitacao(
-        state.db.pool(),
-        id,
-        &payload.tipo,
-        payload.aprovado,
-        &aprovador,
-    )
-    .await
-    .map_err(|e| interno("Erro ao aprovar etapa", e))?;
-    Ok((StatusCode::OK, Json(item)).into_response())
+    let r = store::aprovar_terceirizado_solicitacao(state.db.pool(), id, &payload.tipo, payload.aprovado, &autor(&ctx), c.confirmar).await?;
+    Ok(corpo_acao(&r))
 }
 
 pub async fn update_terceirizado_previsao(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
+    Query(c): Query<Confirmar>,
     Json(payload): Json<super::models::UpdateTerceirizadoPrevisaoPayload>,
 ) -> Result<Response, ErroApi> {
     exigir_edicao(&ctx)?;
-    let updated_by = autor(&ctx);
-    let item = store::update_terceirizado_previsao(
-        state.db.pool(),
-        id,
-        payload.previsao_entrega.as_deref(),
-        Some(&updated_by),
-    )
-    .await
-    .map_err(|e| interno("Erro ao atualizar previsão da solicitação", e))?;
-    Ok((StatusCode::OK, Json(item)).into_response())
+    let r = store::update_terceirizado_previsao(state.db.pool(), id, payload.previsao_entrega.as_deref(), &autor(&ctx), c.confirmar).await?;
+    Ok(corpo_acao(&r))
 }
-
 
 pub async fn lookup_produto_terceirizado(
     State(state): State<Arc<AppState>>,

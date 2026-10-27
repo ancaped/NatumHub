@@ -1185,29 +1185,6 @@ pub async fn save_lote_timestamps(
     Ok(())
 }
 
-pub async fn set_lote_terceirizado(
-    pool: &PgPool,
-    lote_number: &str,
-    is_terceirizado: bool,
-) -> Result<(), String> {
-    sqlx::query(
-        r#"
-        INSERT INTO lote_custom_status (lote_number, custom_status, is_terceirizado, updated_at)
-        VALUES ($1, 'Aberto', $2, NOW())
-        ON CONFLICT (lote_number) DO UPDATE SET
-            is_terceirizado = EXCLUDED.is_terceirizado,
-            updated_at = NOW()
-        "#
-    )
-    .bind(lote_number)
-    .bind(is_terceirizado)
-    .execute(pool)
-    .await
-    .map_err(|e| format!("Erro ao alterar flag terceirizado: {e}"))?;
-
-    Ok(())
-}
-
 pub async fn get_lote_history(
     pool: &PgPool,
     lote_number: &str,
@@ -1243,19 +1220,56 @@ pub async fn get_lote_history(
 }
 
 // -------------------------------------------------------------
-// Terceirizados: Solicitações e Auto-Vínculo
+// Terceirizados: Solicitações
 // -------------------------------------------------------------
 
-pub async fn auto_vincular_solicitacoes(_pool: &PgPool) -> Result<i64, String> {
-    // Vínculo automático desativado: agora é 100% manual pelo supervisor
-    Ok(0)
+/// Ciclo de status da solicitação (a regra mora aqui; a tela só mostra).
+/// `CANCELADO` vale a partir de qualquer um, menos `FINALIZADO` e `CANCELADO`.
+pub const STATUS_TERCEIRIZADO: [&str; 7] =
+    ["SOLICITADO", "APROVADO", "VINCULADO", "EM_FABRICACAO", "ENTREGUE", "FINALIZADO", "CANCELADO"];
+
+/// Dá para ir de `de` para `para`? Só o passo seguinte do ciclo, ou cancelar.
+pub fn transicao_permitida(de: &str, para: &str) -> bool {
+    let pos = |s: &str| STATUS_TERCEIRIZADO[..6].iter().position(|x| *x == s);
+    if para == "CANCELADO" {
+        return pos(de).is_some() && de != "FINALIZADO";
+    }
+    match (pos(de), pos(para)) {
+        (Some(a), Some(b)) => b == a + 1,
+        _ => false,
+    }
 }
 
-pub async fn list_terceirizados_solicitacoes(pool: &PgPool) -> Result<Vec<TerceirizadoSolicitacaoItem>, String> {
-    let _ = auto_vincular_solicitacoes(pool).await;
+/// Já saiu da fase de aprovação/vínculo: aprovar, vincular e desvincular são recusados.
+fn status_travado(s: &str) -> bool {
+    matches!(s, "EM_FABRICACAO" | "ENTREGUE" | "FINALIZADO" | "CANCELADO")
+}
 
-    let rows = sqlx::query(
-        r#"
+fn rotulo_status(s: &str) -> &str {
+    match s {
+        "SOLICITADO" => "solicitada",
+        "APROVADO" => "aprovada",
+        "VINCULADO" => "vinculada a um lote",
+        "EM_FABRICACAO" => "em fabricação externa",
+        "ENTREGUE" => "entregue",
+        "FINALIZADO" => "finalizada",
+        "CANCELADO" => "cancelada",
+        outro => outro,
+    }
+}
+
+fn recusar_se_travada(status: &str, o_que: &str) -> Result<(), ErroApi> {
+    if status_travado(status) {
+        Err(ErroApi::conflito(format!(
+            "Não é possível {o_que}: a solicitação está {}.",
+            rotulo_status(status)
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+const SQL_SOLICITACOES: &str = r#"
         SELECT 
             s.id,
             s.product_code,
@@ -1277,30 +1291,37 @@ pub async fn list_terceirizados_solicitacoes(pool: &PgPool) -> Result<Vec<Tercei
             s.aprovacao_materia_prima_por,
             to_char(s.aprovacao_materia_prima_em, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS aprovacao_materia_prima_em,
             to_char(s.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-            to_char(s.vinculado_em, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS vinculado_em
+            to_char(s.vinculado_em, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS vinculado_em,
+            to_char(s.status_em, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS status_em,
+            to_char(s.cancelado_em, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS cancelado_em,
+            s.cancelado_por,
+            to_char(s.finalizado_em, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS finalizado_em
         FROM terceirizados_solicitacoes s
         LEFT JOIN produtos p ON s.product_code = p.codigo
+        WHERE ($1::bigint IS NULL OR s.id = $1)
         ORDER BY s.created_at DESC, s.id DESC
-        "#
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("Erro ao consultar solicitações de terceirizados: {e}"))?;
+"#;
+
+async fn ler_solicitacoes(
+    conn: &mut sqlx::PgConnection,
+    id: Option<i64>,
+) -> Result<Vec<TerceirizadoSolicitacaoItem>, String> {
+    let rows = sqlx::query(SQL_SOLICITACOES)
+        .bind(id)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(|e| format!("Erro ao consultar solicitações de terceirizados: {e}"))?;
 
     let mut items = Vec::new();
     for row in rows {
-        let qty: f64 = row.try_get::<f64, _>("quantity").unwrap_or(0.0);
-        let qty_kg: Option<f64> = row.try_get::<Option<f64>, _>("quantity_kg").ok().flatten();
-        let qty_un: Option<f64> = row.try_get::<Option<f64>, _>("quantity_un").ok().flatten();
-
         items.push(TerceirizadoSolicitacaoItem {
             id: row.get("id"),
             product_code: row.get("product_code"),
             product_description: row.get("product_description"),
-            quantity: qty,
+            quantity: row.try_get::<f64, _>("quantity").unwrap_or(0.0),
             unit: row.get("unit"),
-            quantity_kg: qty_kg,
-            quantity_un: qty_un,
+            quantity_kg: row.try_get::<Option<f64>, _>("quantity_kg").ok().flatten(),
+            quantity_un: row.try_get::<Option<f64>, _>("quantity_un").ok().flatten(),
             status: row.get("status"),
             lote_number: row.get("lote_number"),
             fornecedor: row.get("fornecedor"),
@@ -1315,67 +1336,195 @@ pub async fn list_terceirizados_solicitacoes(pool: &PgPool) -> Result<Vec<Tercei
             aprovacao_materia_prima_em: row.get("aprovacao_materia_prima_em"),
             created_at: row.get("created_at"),
             vinculado_em: row.get("vinculado_em"),
+            status_em: row.get("status_em"),
+            cancelado_em: row.get("cancelado_em"),
+            cancelado_por: row.get("cancelado_por"),
+            finalizado_em: row.get("finalizado_em"),
         });
     }
     Ok(items)
 }
 
-pub async fn create_terceirizados_solicitacao(
+pub async fn list_terceirizados_solicitacoes(pool: &PgPool) -> Result<Vec<TerceirizadoSolicitacaoItem>, String> {
+    let mut conn = pool.acquire().await.map_err(|e| format!("Erro ao abrir conexão: {e}"))?;
+    ler_solicitacoes(&mut conn, None).await
+}
+
+/// A solicitação como a tela a vê, lida dentro da transação (enxerga o que ainda não foi confirmado).
+async fn item_tx(tx: &mut Tx<'_>, id: i64) -> Result<serde_json::Value, ErroApi> {
+    let item = ler_solicitacoes(&mut **tx, Some(id))
+        .await
+        .map_err(ErroApi::interno)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| ErroApi::nao_encontrado("Solicitação não encontrada."))?;
+    serde_json::to_value(item).map_err(|e| ErroApi::interno(e.to_string()))
+}
+
+/// Trava a linha e devolve `(status, lote_number)`.
+async fn travar_solicitacao(tx: &mut Tx<'_>, id: i64) -> Result<(String, Option<String>), ErroApi> {
+    sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT status, lote_number FROM terceirizados_solicitacoes WHERE id = $1 FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| ErroApi::nao_encontrado("Solicitação não encontrada."))
+}
+
+async fn marcar_lote_terceirizado_tx(tx: &mut Tx<'_>, lote: &str) -> Result<(), ErroApi> {
+    sqlx::query(
+        r#"
+        INSERT INTO lote_custom_status (lote_number, custom_status, is_terceirizado, updated_at)
+        VALUES ($1, 'Aberto', TRUE, NOW())
+        ON CONFLICT (lote_number) DO UPDATE SET is_terceirizado = TRUE, updated_at = NOW()
+        "#,
+    )
+    .bind(lote)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Desmarca "terceirizado" só desse lote, e só se nenhuma outra solicitação ativa continuar apontando para ele.
+async fn desmarcar_lote_terceirizado_tx(tx: &mut Tx<'_>, lote: &str, id: i64) -> Result<(), ErroApi> {
+    sqlx::query(
+        r#"
+        UPDATE lote_custom_status
+        SET is_terceirizado = FALSE, updated_at = NOW()
+        WHERE lote_number = $1
+        AND NOT EXISTS (
+            SELECT 1 FROM terceirizados_solicitacoes ts
+            WHERE ts.id != $2 AND ts.status != 'CANCELADO' AND ts.lote_number = $1
+        )
+        "#,
+    )
+    .bind(lote)
+    .bind(id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn auditar_terceirizado(
+    pool: &PgPool,
+    confirmar: bool,
+    autor: &str,
+    acao: &str,
+    alvo: &str,
+    detalhe: serde_json::Value,
+) {
+    if confirmar {
+        crate::modules::producao::auditoria::registrar(pool, autor, acao, alvo, detalhe).await;
+    }
+}
+
+pub async fn criar_solicitacao_terceirizado(
     pool: &PgPool,
     payload: &CreateTerceirizadoSolicitacaoPayload,
-) -> Result<i64, String> {
-    let prev_date = payload.previsao_entrega.as_deref()
-        .filter(|s| !s.trim().is_empty())
-        .and_then(|s| chrono::NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d").ok());
-
-    let lote_num_clean = payload.lote_number.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let initial_status = if lote_num_clean.is_some() { "VINCULADO" } else { "SOLICITADO" };
-
-    let row = sqlx::query(
-        r#"
-        INSERT INTO terceirizados_solicitacoes (
-            product_code, product_description, quantity, unit,
-            quantity_kg, quantity_un,
-            fornecedor, previsao_entrega, observacoes, solicitado_por,
-            status, lote_number, vinculado_em, created_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CASE WHEN $12 IS NOT NULL THEN NOW() ELSE NULL END, NOW())
-        RETURNING id
-        "#
-    )
-    .bind(&payload.product_code)
-    .bind(&payload.product_description)
-    .bind(payload.quantity)
-    .bind(payload.unit.as_deref().unwrap_or("UN"))
-    .bind(payload.quantity_kg)
-    .bind(payload.quantity_un)
-    .bind(&payload.fornecedor)
-    .bind(prev_date)
-    .bind(&payload.observacoes)
-    .bind(&payload.solicitado_por)
-    .bind(initial_status)
-    .bind(lote_num_clean)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| format!("Erro ao criar solicitação de terceirizado: {e}"))?;
-
-    let new_id: i64 = row.get("id");
-
-    // Só marca quando há lote vinculado (sem lote não se marcam lotes históricos do produto).
-    if let Some(lote) = lote_num_clean {
-        let _ = sqlx::query(
-            r#"
-            INSERT INTO lote_custom_status (lote_number, custom_status, is_terceirizado, updated_at)
-            VALUES ($1, 'Aberto', TRUE, NOW())
-            ON CONFLICT (lote_number) DO UPDATE SET is_terceirizado = TRUE, updated_at = NOW()
-            "#
-        )
-        .bind(lote)
-        .execute(pool)
-        .await;
+    autor: &str,
+    confirmar: bool,
+) -> Result<RespostaAcao<serde_json::Value>, ErroApi> {
+    if payload.product_code.trim().is_empty() {
+        return Err(ErroApi::invalido("Informe o produto da solicitação."));
     }
+    let p = payload.clone();
+    let resposta = executar_em_2_passos(pool, "criar_solicitacao_terceirizado", confirmar, move |tx| {
+        Box::pin(async move {
+            let prev_date = p
+                .previsao_entrega
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .and_then(|s| chrono::NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d").ok());
+            let lote = p.lote_number.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+            let status = if lote.is_some() { "VINCULADO" } else { "SOLICITADO" };
 
-    Ok(new_id)
+            let id: i64 = sqlx::query_scalar(
+                r#"
+                INSERT INTO terceirizados_solicitacoes (
+                    product_code, product_description, quantity, unit,
+                    quantity_kg, quantity_un,
+                    fornecedor, previsao_entrega, observacoes, solicitado_por,
+                    status, lote_number, vinculado_em, status_em, created_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                        CASE WHEN $12::text IS NOT NULL THEN NOW() ELSE NULL END, NOW(), NOW())
+                RETURNING id
+                "#,
+            )
+            .bind(&p.product_code)
+            .bind(&p.product_description)
+            .bind(p.quantity)
+            .bind(p.unit.as_deref().unwrap_or("UN"))
+            .bind(p.quantity_kg)
+            .bind(p.quantity_un)
+            .bind(&p.fornecedor)
+            .bind(prev_date)
+            .bind(&p.observacoes)
+            .bind(&p.solicitado_por)
+            .bind(status)
+            .bind(lote.as_deref())
+            .fetch_one(&mut **tx)
+            .await?;
+
+            // Só marca quando há lote vinculado (sem lote não se marcam lotes históricos do produto).
+            if let Some(l) = lote.as_deref() {
+                marcar_lote_terceirizado_tx(tx, l).await?;
+            }
+
+            // A solicitação entra na fila do Planejamento.
+            let fila_id = uuid::Uuid::new_v4().to_string();
+            let descricao = p
+                .product_description
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(p.product_code.as_str())
+                .to_string();
+            let quantidade = p.quantity_un.filter(|q| *q > 0.0).unwrap_or(p.quantity);
+            sqlx::query(
+                r#"
+                INSERT INTO producao_fila_demandas (
+                    id, codigo_produto, descricao, quantidade, unidade, quantidade_kg,
+                    origem_demanda, observacoes, terceirizado_solicitacao_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, 'terceirizado', $7, $8)
+                "#,
+            )
+            .bind(&fila_id)
+            .bind(p.product_code.trim())
+            .bind(&descricao)
+            .bind(quantidade)
+            .bind(p.unit.as_deref().unwrap_or("un"))
+            .bind(p.quantity_kg)
+            .bind(format!("Solicitação de terceirizado #{id}"))
+            .bind(id)
+            .execute(&mut **tx)
+            .await?;
+
+            Ok(serde_json::json!({
+                "id": id,
+                "status": status,
+                "loteNumber": lote,
+                "fila": {
+                    "id": fila_id,
+                    "origemDemanda": "terceirizado",
+                    "aviso": "O item entrará na fila do Planejamento.",
+                },
+                "message": "Solicitação criada com sucesso!",
+            }))
+        })
+    })
+    .await?;
+    auditar_terceirizado(
+        pool,
+        confirmar,
+        autor,
+        "criar_solicitacao_terceirizado",
+        &resposta.resultado["id"].to_string(),
+        serde_json::json!({ "produto": payload.product_code, "quantidade": payload.quantity, "resultado": resposta.resultado }),
+    )
+    .await;
+    Ok(resposta)
 }
 
 pub async fn aprovar_terceirizado_solicitacao(
@@ -1383,151 +1532,134 @@ pub async fn aprovar_terceirizado_solicitacao(
     id: i64,
     tipo: &str,
     aprovado: bool,
-    aprovado_por: &str,
-) -> Result<TerceirizadoSolicitacaoItem, String> {
-    if tipo == "embalagem" {
-        if aprovado {
-            sqlx::query(
-                "UPDATE terceirizados_solicitacoes 
-                 SET aprovacao_embalagem = TRUE, aprovacao_embalagem_por = $1, aprovacao_embalagem_em = NOW() 
-                 WHERE id = $2"
-            )
-            .bind(aprovado_por)
-            .bind(id)
-            .execute(pool)
-            .await
-            .map_err(|e| format!("Erro ao aprovar embalagem: {e}"))?;
-        } else {
-            sqlx::query(
-                "UPDATE terceirizados_solicitacoes 
-                 SET aprovacao_embalagem = FALSE, aprovacao_embalagem_por = NULL, aprovacao_embalagem_em = NULL 
-                 WHERE id = $1"
-            )
-            .bind(id)
-            .execute(pool)
-            .await
-            .map_err(|e| format!("Erro ao revogar aprovação de embalagem: {e}"))?;
-        }
-    } else if tipo == "materia_prima" {
-        if aprovado {
-            sqlx::query(
-                "UPDATE terceirizados_solicitacoes 
-                 SET aprovacao_materia_prima = TRUE, aprovacao_materia_prima_por = $1, aprovacao_materia_prima_em = NOW() 
-                 WHERE id = $2"
-            )
-            .bind(aprovado_por)
-            .bind(id)
-            .execute(pool)
-            .await
-            .map_err(|e| format!("Erro ao aprovar matéria-prima: {e}"))?;
-        } else {
-            sqlx::query(
-                "UPDATE terceirizados_solicitacoes 
-                 SET aprovacao_materia_prima = FALSE, aprovacao_materia_prima_por = NULL, aprovacao_materia_prima_em = NULL 
-                 WHERE id = $1"
-            )
-            .bind(id)
-            .execute(pool)
-            .await
-            .map_err(|e| format!("Erro ao revogar aprovação de matéria-prima: {e}"))?;
-        }
-    } else {
-        return Err(format!("Tipo de aprovação inválido: {tipo}"));
-    }
+    autor: &str,
+    confirmar: bool,
+) -> Result<RespostaAcao<serde_json::Value>, ErroApi> {
+    let (col, col_por, col_em) = match tipo {
+        "embalagem" => ("aprovacao_embalagem", "aprovacao_embalagem_por", "aprovacao_embalagem_em"),
+        "materia_prima" => ("aprovacao_materia_prima", "aprovacao_materia_prima_por", "aprovacao_materia_prima_em"),
+        outro => return Err(ErroApi::invalido(format!("Tipo de aprovação inválido: {outro}"))),
+    };
+    let quem = autor.to_string();
+    let resposta = executar_em_2_passos(pool, "aprovar_terceirizado", confirmar, move |tx| {
+        Box::pin(async move {
+            let (status, _) = travar_solicitacao(tx, id).await?;
+            recusar_se_travada(&status, "alterar as aprovações")?;
+            if aprovado {
+                sqlx::query(&format!(
+                    "UPDATE terceirizados_solicitacoes SET {col} = TRUE, {col_por} = $1, {col_em} = NOW() WHERE id = $2"
+                ))
+                .bind(&quem)
+                .bind(id)
+                .execute(&mut **tx)
+                .await?;
+            } else {
+                sqlx::query(&format!(
+                    "UPDATE terceirizados_solicitacoes SET {col} = FALSE, {col_por} = NULL, {col_em} = NULL WHERE id = $1"
+                ))
+                .bind(id)
+                .execute(&mut **tx)
+                .await?;
+            }
 
-    // Verifica se ambas as aprovações estão concluídas para avançar a solicitação
-    let check: Option<(bool, bool, String, Option<String>)> = sqlx::query_as(
-        "SELECT COALESCE(aprovacao_embalagem, false), COALESCE(aprovacao_materia_prima, false), status, lote_number
-         FROM terceirizados_solicitacoes WHERE id = $1"
+            // Com as duas aprovações a solicitação sobe para APROVADO; se uma sai, volta para SOLICITADO.
+            let (emb, mat, lote): (bool, bool, Option<String>) = sqlx::query_as(
+                "SELECT COALESCE(aprovacao_embalagem, false), COALESCE(aprovacao_materia_prima, false), lote_number \
+                 FROM terceirizados_solicitacoes WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_one(&mut **tx)
+            .await?;
+            let novo = if lote.is_some() {
+                None // já vinculado: preserva VINCULADO
+            } else if emb && mat {
+                Some("APROVADO")
+            } else if status == "APROVADO" {
+                Some("SOLICITADO")
+            } else {
+                None
+            };
+            if let Some(novo) = novo {
+                if novo != status {
+                    sqlx::query("UPDATE terceirizados_solicitacoes SET status = $2, status_em = NOW() WHERE id = $1")
+                        .bind(id)
+                        .bind(novo)
+                        .execute(&mut **tx)
+                        .await?;
+                }
+            }
+            item_tx(tx, id).await
+        })
+    })
+    .await?;
+    auditar_terceirizado(
+        pool,
+        confirmar,
+        autor,
+        "aprovar_terceirizado",
+        &id.to_string(),
+        serde_json::json!({ "tipo": tipo, "aprovado": aprovado, "status": resposta.resultado["status"] }),
     )
-    .bind(id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    if let Some((emb, mat, status_atual, lote_num)) = check {
-        if lote_num.is_some() {
-            // Se já vinculado ao lote, preserva VINCULADO
-        } else if emb && mat {
-            // Ambas aprovações ok -> parte para a etapa APROVADO
-            let _ = sqlx::query("UPDATE terceirizados_solicitacoes SET status = 'APROVADO' WHERE id = $1")
-                .bind(id)
-                .execute(pool)
-                .await;
-        } else if status_atual == "APROVADO" {
-            // Se uma aprovação foi removida, retorna para SOLICITADO
-            let _ = sqlx::query("UPDATE terceirizados_solicitacoes SET status = 'SOLICITADO' WHERE id = $1")
-                .bind(id)
-                .execute(pool)
-                .await;
-        }
-    }
-
-    let items = list_terceirizados_solicitacoes(pool).await?;
-    items.into_iter().find(|s| s.id == id).ok_or_else(|| "Solicitação não encontrada".to_string())
+    .await;
+    Ok(resposta)
 }
 
 pub async fn update_terceirizado_previsao(
     pool: &PgPool,
     id: i64,
     previsao_entrega: Option<&str>,
-    _updated_by: Option<&str>,
-) -> Result<TerceirizadoSolicitacaoItem, String> {
+    autor: &str,
+    confirmar: bool,
+) -> Result<RespostaAcao<serde_json::Value>, ErroApi> {
     let prev_date = previsao_entrega
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-
-    let row = sqlx::query(
-        r#"
-        UPDATE terceirizados_solicitacoes
-        SET previsao_entrega = $1
-        WHERE id = $2
-        RETURNING lote_number
-        "#
+    let resposta = executar_em_2_passos(pool, "alterar_previsao_terceirizado", confirmar, move |tx| {
+        Box::pin(async move {
+            travar_solicitacao(tx, id).await?;
+            let lote_number: Option<String> = sqlx::query_scalar(
+                "UPDATE terceirizados_solicitacoes SET previsao_entrega = $1 WHERE id = $2 RETURNING lote_number",
+            )
+            .bind(prev_date)
+            .bind(id)
+            .fetch_one(&mut **tx)
+            .await?;
+            if let Some(lote) = lote_number {
+                if let Some(date_val) = prev_date {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO lote_custom_status (lote_number, data_previsao, updated_at)
+                        VALUES ($1, $2, NOW())
+                        ON CONFLICT (lote_number) DO UPDATE
+                        SET data_previsao = $2, updated_at = NOW()
+                        "#,
+                    )
+                    .bind(&lote)
+                    .bind(date_val.format("%Y-%m-%d").to_string())
+                    .execute(&mut **tx)
+                    .await?;
+                } else {
+                    sqlx::query("UPDATE lote_custom_status SET data_previsao = NULL, updated_at = NOW() WHERE lote_number = $1")
+                        .bind(&lote)
+                        .execute(&mut **tx)
+                        .await?;
+                }
+            }
+            item_tx(tx, id).await
+        })
+    })
+    .await?;
+    auditar_terceirizado(
+        pool,
+        confirmar,
+        autor,
+        "alterar_previsao_terceirizado",
+        &id.to_string(),
+        serde_json::json!({ "previsaoEntrega": prev_date.map(|d| d.format("%Y-%m-%d").to_string()) }),
     )
-    .bind(prev_date)
-    .bind(id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| format!("Erro ao atualizar previsão de entrega: {e}"))?
-    .ok_or_else(|| "Solicitação não encontrada".to_string())?;
-
-    let lote_number: Option<String> = row.get("lote_number");
-    if let Some(ref lote) = lote_number {
-        if let Some(date_val) = prev_date {
-            let date_str = date_val.format("%Y-%m-%d").to_string();
-            let _ = sqlx::query(
-                r#"
-                INSERT INTO lote_custom_status (lote_number, data_previsao, updated_at)
-                VALUES ($1, $2, NOW())
-                ON CONFLICT (lote_number) DO UPDATE
-                SET data_previsao = $2, updated_at = NOW()
-                "#
-            )
-            .bind(lote)
-            .bind(&date_str)
-            .execute(pool)
-            .await;
-        } else {
-            let _ = sqlx::query(
-                r#"
-                UPDATE lote_custom_status
-                SET data_previsao = NULL, updated_at = NOW()
-                WHERE lote_number = $1
-                "#
-            )
-            .bind(lote)
-            .execute(pool)
-            .await;
-        }
-    }
-
-    let items = list_terceirizados_solicitacoes(pool).await?;
-    items
-        .into_iter()
-        .find(|s| s.id == id)
-        .ok_or_else(|| "Solicitação não encontrada após atualização".to_string())
+    .await;
+    Ok(resposta)
 }
 
 pub async fn lookup_produto_terceirizado(
@@ -1622,126 +1754,237 @@ pub async fn vincular_terceirizado_lote(
     pool: &PgPool,
     id: i64,
     lote_number: &str,
-) -> Result<(), String> {
-    sqlx::query(
-        r#"
-        UPDATE terceirizados_solicitacoes
-        SET lote_number = $1, status = 'VINCULADO', vinculado_em = NOW()
-        WHERE id = $2
-        "#
+    autor: &str,
+    confirmar: bool,
+) -> Result<RespostaAcao<serde_json::Value>, ErroApi> {
+    let lote = lote_number.trim().to_string();
+    if lote.is_empty() {
+        return Err(ErroApi::invalido("Informe o lote."));
+    }
+    let lote_tx = lote.clone();
+    let resposta = executar_em_2_passos(pool, "vincular_terceirizado_lote", confirmar, move |tx| {
+        Box::pin(async move {
+            let (status, _) = travar_solicitacao(tx, id).await?;
+            recusar_se_travada(&status, "vincular o lote")?;
+            sqlx::query(
+                "UPDATE terceirizados_solicitacoes SET lote_number = $1, status = 'VINCULADO', vinculado_em = NOW(), status_em = NOW() WHERE id = $2",
+            )
+            .bind(&lote_tx)
+            .bind(id)
+            .execute(&mut **tx)
+            .await?;
+            marcar_lote_terceirizado_tx(tx, &lote_tx).await?;
+            item_tx(tx, id).await
+        })
+    })
+    .await?;
+    auditar_terceirizado(
+        pool,
+        confirmar,
+        autor,
+        "vincular_terceirizado_lote",
+        &id.to_string(),
+        serde_json::json!({ "lote": lote }),
     )
-    .bind(lote_number)
-    .bind(id)
-    .execute(pool)
-    .await
-    .map_err(|e| format!("Erro ao vincular lote à solicitação: {e}"))?;
-
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO lote_custom_status (lote_number, custom_status, is_terceirizado, updated_at)
-        VALUES ($1, 'Aberto', TRUE, NOW())
-        ON CONFLICT (lote_number) DO UPDATE SET
-            is_terceirizado = TRUE,
-            updated_at = NOW()
-        "#
-    )
-    .bind(lote_number)
-    .execute(pool)
     .await;
-
-    Ok(())
+    Ok(resposta)
 }
 
 pub async fn desvincular_terceirizado_lote(
     pool: &PgPool,
     id: i64,
-) -> Result<(), String> {
-    let old_lote: Option<String> = sqlx::query_scalar(
-        "SELECT lote_number FROM terceirizados_solicitacoes WHERE id = $1"
-    )
-    .bind(id)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
-
-    sqlx::query(
-        r#"
-        UPDATE terceirizados_solicitacoes
-        SET lote_number = NULL, vinculado_em = NULL,
-            status = CASE WHEN COALESCE(aprovacao_embalagem, false) AND COALESCE(aprovacao_materia_prima, false)
-                          THEN 'APROVADO' ELSE 'SOLICITADO' END
-        WHERE id = $1
-        "#
-    )
-    .bind(id)
-    .execute(pool)
-    .await
-    .map_err(|e| format!("Erro ao desvincular lote da solicitação: {e}"))?;
-
-    if let Some(lote) = old_lote {
-        let _ = sqlx::query(
-            r#"
-            UPDATE lote_custom_status
-            SET is_terceirizado = FALSE, updated_at = NOW()
-            WHERE lote_number = $1
-            AND NOT EXISTS (
-                SELECT 1 FROM terceirizados_solicitacoes ts
-                WHERE ts.id != $2 AND ts.status != 'CANCELADO' AND ts.lote_number = $1
+    autor: &str,
+    confirmar: bool,
+) -> Result<RespostaAcao<serde_json::Value>, ErroApi> {
+    let resposta = executar_em_2_passos(pool, "desvincular_terceirizado_lote", confirmar, move |tx| {
+        Box::pin(async move {
+            let (status, old_lote) = travar_solicitacao(tx, id).await?;
+            recusar_se_travada(&status, "desvincular o lote")?;
+            sqlx::query(
+                r#"
+                UPDATE terceirizados_solicitacoes
+                SET lote_number = NULL, vinculado_em = NULL, status_em = NOW(),
+                    status = CASE WHEN COALESCE(aprovacao_embalagem, false) AND COALESCE(aprovacao_materia_prima, false)
+                                  THEN 'APROVADO' ELSE 'SOLICITADO' END
+                WHERE id = $1
+                "#,
             )
-            "#
-        )
-        .bind(&lote)
-        .bind(id)
-        .execute(pool)
-        .await;
-    }
-
-    Ok(())
+            .bind(id)
+            .execute(&mut **tx)
+            .await?;
+            if let Some(lote) = old_lote.as_deref() {
+                desmarcar_lote_terceirizado_tx(tx, lote, id).await?;
+            }
+            let mut item = item_tx(tx, id).await?;
+            item["loteAnterior"] = serde_json::json!(old_lote);
+            Ok(item)
+        })
+    })
+    .await?;
+    auditar_terceirizado(
+        pool,
+        confirmar,
+        autor,
+        "desvincular_terceirizado_lote",
+        &id.to_string(),
+        serde_json::json!({ "lote": resposta.resultado["loteAnterior"] }),
+    )
+    .await;
+    Ok(resposta)
 }
 
-/// Exclui a solicitação e desmarca "terceirizado" só do lote vinculado a ela, e só se nenhuma outra solicitação
-/// ativa continuar apontando para esse lote. Os demais lotes do mesmo produto não são tocados.
-pub async fn delete_terceirizados_solicitacao(
+/// Muda o status da solicitação (EM_FABRICACAO, ENTREGUE, FINALIZADO ou CANCELADO) respeitando
+/// `transicao_permitida`. Cancelar desmarca só o lote vinculado e tira da fila do Planejamento o item pendente.
+pub async fn mudar_status_terceirizado(
     pool: &PgPool,
     id: i64,
-) -> Result<(), String> {
-    let mut tx = pool.begin().await.map_err(|e| format!("Erro ao iniciar a exclusão: {e}"))?;
-    let lote: Option<String> = sqlx::query_scalar(
-        "SELECT lote_number FROM terceirizados_solicitacoes WHERE id = $1 FOR UPDATE"
-    )
-    .bind(id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|e| format!("Erro ao ler a solicitação de terceirizado: {e}"))?
-    .flatten();
-
-    sqlx::query("DELETE FROM terceirizados_solicitacoes WHERE id = $1")
-        .bind(id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| format!("Erro ao deletar solicitação de terceirizado: {e}"))?;
-
-    if let Some(lote) = lote {
-        sqlx::query(
-            r#"
-            UPDATE lote_custom_status
-            SET is_terceirizado = FALSE, updated_at = NOW()
-            WHERE lote_number = $1
-            AND NOT EXISTS (
-                SELECT 1 FROM terceirizados_solicitacoes ts
-                WHERE ts.status != 'CANCELADO' AND ts.lote_number = $1
+    novo_status: &str,
+    motivo: Option<&str>,
+    autor: &str,
+    confirmar: bool,
+) -> Result<RespostaAcao<serde_json::Value>, ErroApi> {
+    let acao: &'static str = match novo_status {
+        "EM_FABRICACAO" | "ENTREGUE" | "FINALIZADO" => "alterar_status_terceirizado",
+        "CANCELADO" => "cancelar_solicitacao_terceirizado",
+        outro => {
+            return Err(ErroApi::invalido(format!(
+                "Status inválido para esta ação: {outro}. Use EM_FABRICACAO, ENTREGUE, FINALIZADO ou CANCELADO \
+                 (aprovar e vincular têm ação própria)."
+            )))
+        }
+    };
+    let novo = novo_status.to_string();
+    let motivo_txt = motivo.map(str::trim).unwrap_or("").to_string();
+    let quem = autor.to_string();
+    let (novo_tx, motivo_tx) = (novo.clone(), motivo_txt.clone());
+    let resposta = executar_em_2_passos(pool, acao, confirmar, move |tx| {
+        Box::pin(async move {
+            let (atual, lote) = travar_solicitacao(tx, id).await?;
+            if !transicao_permitida(&atual, &novo_tx) {
+                return Err(ErroApi::conflito(format!(
+                    "Transição inválida: a solicitação está {} e não pode ir para {}.",
+                    rotulo_status(&atual),
+                    rotulo_status(&novo_tx)
+                )));
+            }
+            sqlx::query(
+                r#"
+                UPDATE terceirizados_solicitacoes SET
+                    status = $2::text,
+                    status_em = NOW(),
+                    finalizado_em = CASE WHEN $2::text = 'FINALIZADO' THEN NOW() ELSE finalizado_em END,
+                    cancelado_em = CASE WHEN $2::text = 'CANCELADO' THEN NOW() ELSE cancelado_em END,
+                    cancelado_por = CASE WHEN $2::text = 'CANCELADO' THEN $3::text ELSE cancelado_por END,
+                    observacoes = CASE WHEN $2::text = 'CANCELADO' AND $4::text <> ''
+                                       THEN CONCAT_WS(E'\n', NULLIF(observacoes, ''), 'Cancelado: ' || $4::text)
+                                       ELSE observacoes END
+                WHERE id = $1
+                "#,
             )
-            "#
-        )
-        .bind(&lote)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| format!("Erro ao desmarcar o lote terceirizado: {e}"))?;
-    }
+            .bind(id)
+            .bind(&novo_tx)
+            .bind(&quem)
+            .bind(&motivo_tx)
+            .execute(&mut **tx)
+            .await?;
 
-    tx.commit().await.map_err(|e| format!("Erro ao confirmar a exclusão: {e}"))?;
-    Ok(())
+            let mut retirados: Vec<String> = Vec::new();
+            if novo_tx == "CANCELADO" {
+                if let Some(l) = lote.as_deref() {
+                    desmarcar_lote_terceirizado_tx(tx, l, id).await?;
+                }
+                retirados = sqlx::query_scalar(
+                    "DELETE FROM producao_fila_demandas WHERE terceirizado_solicitacao_id = $1 RETURNING id",
+                )
+                .bind(id)
+                .fetch_all(&mut **tx)
+                .await?;
+            }
+            let mut item = item_tx(tx, id).await?;
+            item["statusAnterior"] = serde_json::json!(atual);
+            item["filaRetirados"] = serde_json::json!(retirados);
+            Ok(item)
+        })
+    })
+    .await?;
+    auditar_terceirizado(
+        pool,
+        confirmar,
+        autor,
+        acao,
+        &id.to_string(),
+        serde_json::json!({
+            "de": resposta.resultado["statusAnterior"], "para": novo,
+            "motivo": motivo_txt, "filaRetirados": resposta.resultado["filaRetirados"],
+        }),
+    )
+    .await;
+    Ok(resposta)
+}
+
+/// Cancelar não apaga: a solicitação fica como CANCELADO (é o que `DELETE` na rota passa a fazer).
+pub async fn cancelar_solicitacao_terceirizado(
+    pool: &PgPool,
+    id: i64,
+    motivo: Option<&str>,
+    autor: &str,
+    confirmar: bool,
+) -> Result<RespostaAcao<serde_json::Value>, ErroApi> {
+    mudar_status_terceirizado(pool, id, "CANCELADO", motivo, autor, confirmar).await
+}
+
+/// Marca ou desmarca um lote como terceirizado (2 passos + auditoria).
+pub async fn alterar_lote_terceirizado(
+    pool: &PgPool,
+    lote_number: &str,
+    is_terceirizado: bool,
+    autor: &str,
+    confirmar: bool,
+) -> Result<RespostaAcao<serde_json::Value>, ErroApi> {
+    let lote = lote_number.trim().to_string();
+    if lote.is_empty() {
+        return Err(ErroApi::invalido("Informe o lote."));
+    }
+    let lote_tx = lote.clone();
+    let resposta = executar_em_2_passos(pool, "marcar_lote_terceirizado", confirmar, move |tx| {
+        Box::pin(async move {
+            let antes: Option<bool> =
+                sqlx::query_scalar("SELECT is_terceirizado FROM lote_custom_status WHERE lote_number = $1")
+                    .bind(&lote_tx)
+                    .fetch_optional(&mut **tx)
+                    .await?
+                    .flatten();
+            sqlx::query(
+                r#"
+                INSERT INTO lote_custom_status (lote_number, custom_status, is_terceirizado, updated_at)
+                VALUES ($1, 'Aberto', $2, NOW())
+                ON CONFLICT (lote_number) DO UPDATE SET
+                    is_terceirizado = EXCLUDED.is_terceirizado,
+                    updated_at = NOW()
+                "#,
+            )
+            .bind(&lote_tx)
+            .bind(is_terceirizado)
+            .execute(&mut **tx)
+            .await?;
+            Ok(serde_json::json!({
+                "lote": lote_tx,
+                "antes": antes.unwrap_or(false),
+                "depois": is_terceirizado,
+            }))
+        })
+    })
+    .await?;
+    auditar_terceirizado(
+        pool,
+        confirmar,
+        autor,
+        "marcar_lote_terceirizado",
+        &lote,
+        serde_json::json!({ "antes": resposta.resultado["antes"], "depois": is_terceirizado }),
+    )
+    .await;
+    Ok(resposta)
 }
 
 // -------------------------------------------------------------
@@ -2862,6 +3105,28 @@ mod tests {
             "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS vinculado_em TIMESTAMPTZ",
             "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS aprovacao_embalagem BOOLEAN DEFAULT FALSE",
             "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS aprovacao_materia_prima BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS status_em TIMESTAMPTZ",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS cancelado_em TIMESTAMPTZ",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS cancelado_por TEXT",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS finalizado_em TIMESTAMPTZ",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS quantity_kg NUMERIC",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS quantity_un NUMERIC",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS unit TEXT DEFAULT 'UN'",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS product_description TEXT",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS fornecedor TEXT",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS previsao_entrega DATE",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS observacoes TEXT",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS solicitado_por TEXT",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS aprovacao_embalagem_por TEXT",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS aprovacao_embalagem_em TIMESTAMPTZ",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS aprovacao_materia_prima_por TEXT",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS aprovacao_materia_prima_em TIMESTAMPTZ",
+            "CREATE TABLE IF NOT EXISTS producao_fila_demandas (id TEXT PRIMARY KEY, codigo_produto TEXT NOT NULL, descricao TEXT NOT NULL, \
+             quantidade NUMERIC(12, 3) NOT NULL, unidade TEXT NOT NULL DEFAULT 'un', quantidade_kg NUMERIC(12, 3), origem_demanda TEXT NOT NULL, \
+             linha_envase TEXT, base_codigo TEXT, base_nome TEXT, observacoes TEXT, prioridade INTEGER DEFAULT 1, \
+             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)",
+            "ALTER TABLE producao_fila_demandas ADD COLUMN IF NOT EXISTS terceirizado_solicitacao_id BIGINT",
             "CREATE TABLE IF NOT EXISTS producao_auditoria (id BIGSERIAL PRIMARY KEY, quando TIMESTAMPTZ NOT NULL DEFAULT NOW(), \
              usuario TEXT NOT NULL, acao TEXT NOT NULL, alvo TEXT NOT NULL DEFAULT '', detalhe JSONB NOT NULL DEFAULT '{}'::jsonb)",
         ] {
@@ -3138,7 +3403,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
-    async fn excluir_solicitacao_so_desmarca_o_lote_vinculado() {
+    async fn cancelar_solicitacao_so_desmarca_o_lote_vinculado() {
         let pool = pool_de_teste().await;
         limpar_lotes(&pool, &["TST-ACP-T1", "TST-ACP-T2", "TST-ACP-T3"]).await;
         sqlx::query("DELETE FROM terceirizados_solicitacoes WHERE product_code = 'TST-ACP-PROD'").execute(&pool).await.unwrap();
@@ -3154,8 +3419,8 @@ mod tests {
         sqlx::query("INSERT INTO terceirizados_solicitacoes (product_code, quantity, lote_number, status) VALUES ('TST-ACP-PROD', 1, 'TST-ACP-T3', 'VINCULADO')")
             .execute(&pool).await.unwrap();
 
-        delete_terceirizados_solicitacao(&pool, s1).await.unwrap();
-        delete_terceirizados_solicitacao(&pool, s3a).await.unwrap();
+        cancelar_solicitacao_terceirizado(&pool, s1, None, "t", true).await.unwrap();
+        cancelar_solicitacao_terceirizado(&pool, s3a, None, "t", true).await.unwrap();
         let marca = |l: &'static str| {
             let pool = pool.clone();
             async move {
@@ -3163,7 +3428,7 @@ mod tests {
                     .bind(l).fetch_one(&pool).await.unwrap().unwrap_or(false)
             }
         };
-        assert!(!marca("TST-ACP-T1").await, "o lote da solicitação excluída é desmarcado");
+        assert!(!marca("TST-ACP-T1").await, "o lote da solicitação cancelada é desmarcado");
         assert!(marca("TST-ACP-T2").await, "outro lote do mesmo produto não é tocado");
         assert!(marca("TST-ACP-T3").await, "lote com outra solicitação ativa continua marcado");
         sqlx::query("DELETE FROM terceirizados_solicitacoes WHERE product_code = 'TST-ACP-PROD'").execute(&pool).await.unwrap();
@@ -3186,7 +3451,7 @@ mod tests {
             ids.push(id);
         }
         for id in &ids {
-            desvincular_terceirizado_lote(&pool, *id).await.unwrap();
+            desvincular_terceirizado_lote(&pool, *id, "t", true).await.unwrap();
         }
         let st: Vec<(String, Option<String>)> = sqlx::query_as(
             "SELECT status, lote_number FROM terceirizados_solicitacoes WHERE id = ANY($1) ORDER BY product_code",
@@ -3196,5 +3461,131 @@ mod tests {
         assert_eq!(st[1], ("SOLICITADO".to_string(), None));
         sqlx::query("DELETE FROM terceirizados_solicitacoes WHERE product_code LIKE 'TST-DESV-%'").execute(&pool).await.unwrap();
         limpar_lotes(&pool, &["TST-DESV-LOTE"]).await;
+    }
+
+    fn payload_terc(cod: &str, lote: Option<&str>) -> CreateTerceirizadoSolicitacaoPayload {
+        serde_json::from_value(json!({
+            "productCode": cod, "productDescription": "TESTE TERC 500ML", "quantity": 10, "unit": "UN",
+            "quantityKg": 5.0, "quantityUn": 10.0, "loteNumber": lote
+        }))
+        .unwrap()
+    }
+
+    async fn limpar_terc(pool: &PgPool, prefixo: &str) {
+        sqlx::query("DELETE FROM producao_fila_demandas WHERE terceirizado_solicitacao_id IN (SELECT id FROM terceirizados_solicitacoes WHERE product_code LIKE $1)")
+            .bind(format!("{prefixo}%")).execute(pool).await.unwrap();
+        sqlx::query("DELETE FROM terceirizados_solicitacoes WHERE product_code LIKE $1")
+            .bind(format!("{prefixo}%")).execute(pool).await.unwrap();
+    }
+
+    #[test]
+    fn transicoes_de_status_do_terceirizado() {
+        let ciclo = ["SOLICITADO", "APROVADO", "VINCULADO", "EM_FABRICACAO", "ENTREGUE", "FINALIZADO"];
+        for w in ciclo.windows(2) {
+            assert!(transicao_permitida(w[0], w[1]), "{} -> {}", w[0], w[1]);
+            assert!(!transicao_permitida(w[1], w[0]), "{} -> {} não volta", w[1], w[0]);
+        }
+        assert!(!transicao_permitida("VINCULADO", "ENTREGUE"), "não pula etapa");
+        assert!(!transicao_permitida("SOLICITADO", "FINALIZADO"));
+        for de in &ciclo[..5] {
+            assert!(transicao_permitida(de, "CANCELADO"), "{de} -> CANCELADO");
+        }
+        assert!(!transicao_permitida("FINALIZADO", "CANCELADO"));
+        assert!(!transicao_permitida("CANCELADO", "CANCELADO"));
+        assert!(!transicao_permitida("CANCELADO", "SOLICITADO"));
+        assert!(!transicao_permitida("XYZ", "CANCELADO"));
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn criar_terceirizado_so_grava_com_confirmar_e_entra_na_fila() {
+        let pool = pool_de_teste().await;
+        limpar_terc(&pool, "TST-TF-").await;
+        let contar = |pool: PgPool| async move {
+            let s: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM terceirizados_solicitacoes WHERE product_code = 'TST-TF-A'")
+                .fetch_one(&pool).await.unwrap();
+            let f: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM producao_fila_demandas WHERE codigo_produto = 'TST-TF-A' AND origem_demanda = 'terceirizado'")
+                .fetch_one(&pool).await.unwrap();
+            (s, f)
+        };
+        let previa = criar_solicitacao_terceirizado(&pool, &payload_terc("TST-TF-A", None), "t", false).await.unwrap();
+        assert!(previa.previa);
+        assert!(previa.resultado["fila"]["aviso"].as_str().unwrap().contains("fila do Planejamento"));
+        assert_eq!(contar(pool.clone()).await, (0, 0), "sem confirmar não grava nada");
+
+        let r = criar_solicitacao_terceirizado(&pool, &payload_terc("TST-TF-A", None), "t", true).await.unwrap();
+        let id = r.resultado["id"].as_i64().unwrap();
+        assert_eq!(contar(pool.clone()).await, (1, 1));
+        let (obs, sol, qtd): (String, i64, f64) = sqlx::query_as(
+            "SELECT observacoes, terceirizado_solicitacao_id, quantidade::float8 FROM producao_fila_demandas WHERE codigo_produto = 'TST-TF-A'",
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!((obs, sol, qtd), (format!("Solicitação de terceirizado #{id}"), id, 10.0));
+        let aud: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM producao_auditoria WHERE acao = 'criar_solicitacao_terceirizado' AND alvo = $1")
+            .bind(id.to_string()).fetch_one(&pool).await.unwrap();
+        assert_eq!(aud, 1);
+        limpar_terc(&pool, "TST-TF-").await;
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn cancelar_terceirizado_nao_apaga_e_tira_da_fila() {
+        let pool = pool_de_teste().await;
+        limpar_terc(&pool, "TST-TC-").await;
+        limpar_lotes(&pool, &["TST-TC-LOTE"]).await;
+        let r = criar_solicitacao_terceirizado(&pool, &payload_terc("TST-TC-A", Some("TST-TC-LOTE")), "t", true).await.unwrap();
+        let id = r.resultado["id"].as_i64().unwrap();
+
+        let previa = cancelar_solicitacao_terceirizado(&pool, id, Some("desistiu"), "t", false).await.unwrap();
+        assert!(previa.previa);
+        let st: String = sqlx::query_scalar("SELECT status FROM terceirizados_solicitacoes WHERE id = $1").bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!(st, "VINCULADO", "prévia não grava");
+
+        cancelar_solicitacao_terceirizado(&pool, id, Some("desistiu"), "t", true).await.unwrap();
+        let (st, obs, por): (String, Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT status, observacoes, cancelado_por FROM terceirizados_solicitacoes WHERE id = $1",
+        ).bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!(st, "CANCELADO", "a linha continua, como cancelada");
+        assert_eq!(obs.as_deref(), Some("Cancelado: desistiu"));
+        assert_eq!(por.as_deref(), Some("t"));
+        let na_fila: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM producao_fila_demandas WHERE terceirizado_solicitacao_id = $1")
+            .bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!(na_fila, 0);
+        let marca: Option<bool> = sqlx::query_scalar("SELECT is_terceirizado FROM lote_custom_status WHERE lote_number = 'TST-TC-LOTE'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(marca, Some(false));
+
+        let e = cancelar_solicitacao_terceirizado(&pool, id, None, "t", true).await.unwrap_err();
+        assert_eq!(e.status, axum::http::StatusCode::CONFLICT, "cancelar de novo é recusado");
+        limpar_terc(&pool, "TST-TC-").await;
+        limpar_lotes(&pool, &["TST-TC-LOTE"]).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn status_do_terceirizado_recusa_pular_etapa_e_trava_vinculo() {
+        let pool = pool_de_teste().await;
+        limpar_terc(&pool, "TST-TS-").await;
+        limpar_lotes(&pool, &["TST-TS-LOTE"]).await;
+        let r = criar_solicitacao_terceirizado(&pool, &payload_terc("TST-TS-A", Some("TST-TS-LOTE")), "t", true).await.unwrap();
+        let id = r.resultado["id"].as_i64().unwrap();
+
+        let e = mudar_status_terceirizado(&pool, id, "ENTREGUE", None, "t", true).await.unwrap_err();
+        assert_eq!(e.status, axum::http::StatusCode::CONFLICT, "VINCULADO -> ENTREGUE é recusado");
+        mudar_status_terceirizado(&pool, id, "EM_FABRICACAO", None, "t", true).await.unwrap();
+
+        let e = desvincular_terceirizado_lote(&pool, id, "t", true).await.unwrap_err();
+        assert_eq!(e.status, axum::http::StatusCode::CONFLICT, "em fabricação não desvincula");
+        let e = vincular_terceirizado_lote(&pool, id, "OUTRO", "t", true).await.unwrap_err();
+        assert_eq!(e.status, axum::http::StatusCode::CONFLICT);
+        let e = aprovar_terceirizado_solicitacao(&pool, id, "embalagem", true, "t", true).await.unwrap_err();
+        assert_eq!(e.status, axum::http::StatusCode::CONFLICT);
+
+        mudar_status_terceirizado(&pool, id, "ENTREGUE", None, "t", true).await.unwrap();
+        mudar_status_terceirizado(&pool, id, "FINALIZADO", None, "t", true).await.unwrap();
+        let fim: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar("SELECT finalizado_em FROM terceirizados_solicitacoes WHERE id = $1")
+            .bind(id).fetch_one(&pool).await.unwrap();
+        assert!(fim.is_some());
+        limpar_terc(&pool, "TST-TS-").await;
+        limpar_lotes(&pool, &["TST-TS-LOTE"]).await;
     }
 }
