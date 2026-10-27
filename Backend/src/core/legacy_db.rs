@@ -3223,18 +3223,23 @@ WHERE {so2_date_filter};
             poi_ccheg.push(poi.c_chegada.clone());
         }
         const POI_CHUNK: usize = 500;
+        // Item sem cabeçalho (pedido criado no ERP entre a consulta do cabeçalho e a dos itens) fica para o
+        // próximo sync em vez de derrubar a transação pela FK.
+        let mut poi_sem_cabecalho: u64 = 0;
         for chunk_start in (0..poi_preg.len()).step_by(POI_CHUNK) {
             let end = (chunk_start + POI_CHUNK).min(poi_preg.len());
-            sqlx::query(
+            let inseridos = sqlx::query(
                 r#"
                 INSERT INTO purchase_order_items (
                     n_pedido_registro, n_pedido, c_referencia, n_qtde, n_preco, n_chegou,
                     c_descricao, c_unidade, n_valor_total, n_registro, c_chegada
                 )
-                SELECT * FROM UNNEST(
+                SELECT v.* FROM UNNEST(
                     $1::int4[], $2::int4[], $3::text[], $4::float8[], $5::float8[], $6::float8[],
                     $7::text[], $8::text[], $9::float8[], $10::int4[], $11::text[]
-                )
+                ) AS v(n_pedido_registro, n_pedido, c_referencia, n_qtde, n_preco, n_chegou,
+                       c_descricao, c_unidade, n_valor_total, n_registro, c_chegada)
+                WHERE EXISTS (SELECT 1 FROM purchase_orders po WHERE po.n_registro = v.n_pedido_registro)
                 "#,
             )
             .bind(&poi_preg[chunk_start..end])
@@ -3250,9 +3255,13 @@ WHERE {so2_date_filter};
             .bind(&poi_ccheg[chunk_start..end])
             .execute(&mut *tx)
             .await?;
+            poi_sem_cabecalho += (end - chunk_start) as u64 - inseridos.rows_affected();
             if end % 1000 == 0 || end == poi_preg.len() {
                 eprintln!("[ERP Sync]   purchase_order_items {end}/{}", poi_preg.len());
             }
+        }
+        if poi_sem_cabecalho > 0 {
+            eprintln!("[ERP Sync]   purchase_order_items sem cabeçalho (ficam para o próximo sync): {poi_sem_cabecalho}");
         }
     }
 
@@ -3383,16 +3392,21 @@ WHERE {so2_date_filter};
             soi_lote.push(soi.c_lote.clone());
         }
         const SOI_CHUNK: usize = 500;
+        // Mesmo cuidado dos itens de compra: item cujo pedido ainda não tem cabeçalho fica para o próximo sync.
+        let mut soi_sem_cabecalho: u64 = 0;
         for chunk_start in (0..soi_ped.len()).step_by(SOI_CHUNK) {
             let end = (chunk_start + SOI_CHUNK).min(soi_ped.len());
-            sqlx::query(
+            let inseridos = sqlx::query(
                 r#"
                 INSERT INTO sales_order_items (
                     n_pedido, d_pedido, n_registro, c_cod_prod, n_qtde, n_qtde_fat, n_preco, c_lote
                 )
-                SELECT * FROM UNNEST(
+                SELECT v.* FROM UNNEST(
                     $1::int4[], $2::text[], $3::int4[], $4::text[], $5::int4[], $6::int4[],
                     $7::float8[], $8::text[]
+                ) AS v(n_pedido, d_pedido, n_registro, c_cod_prod, n_qtde, n_qtde_fat, n_preco, c_lote)
+                WHERE EXISTS (
+                    SELECT 1 FROM sales_orders so WHERE so.n_pedido = v.n_pedido AND so.d_pedido = v.d_pedido
                 )
                 "#,
             )
@@ -3406,9 +3420,13 @@ WHERE {so2_date_filter};
             .bind(&soi_lote[chunk_start..end])
             .execute(&mut *tx)
             .await?;
+            soi_sem_cabecalho += (end - chunk_start) as u64 - inseridos.rows_affected();
             if end % 2000 == 0 || end == soi_ped.len() {
                 eprintln!("[ERP Sync]   sales_order_items {end}/{}", soi_ped.len());
             }
+        }
+        if soi_sem_cabecalho > 0 {
+            eprintln!("[ERP Sync]   sales_order_items sem cabeçalho (ficam para o próximo sync): {soi_sem_cabecalho}");
         }
     }
 
