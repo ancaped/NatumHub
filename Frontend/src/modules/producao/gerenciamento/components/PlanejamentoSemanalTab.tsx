@@ -30,7 +30,7 @@ import { VincularLoteDrawer } from './planejamento/VincularLoteDrawer';
 import { AgendarDrawer } from './planejamento/AgendarDrawer';
 import { ReatoresDrawer } from './planejamento/ReatoresDrawer';
 import type { DiaSemana, ScheduleModalItem, LinkLoteModalItem, EditQtyModalItem, TechnicalModalItem, HeuristicStats } from './planejamento/tiposDrawers';
-import { diasPermitidos, ordenarReatoresPorCaber } from '../../lib/heuristicaPlanejamento';
+import { planejarSemana } from '../../lib/heuristicaPlanejamento';
 import { eBase } from '../../../geral/lib/regrasProduto';
 
 export interface ReatorConfig {
@@ -96,9 +96,9 @@ const DEFAULT_REATORES: ReatorConfig[] = [
   { id: 'R_1000_MISTO', nome: 'Reator 1000kg (Caldeira - Produção Mista)', capacidade_kg: 1000, tipo: 'caldeira', ordem: 2, ativo: true },
   { id: 'R_500', nome: 'Reator 500kg (Caldeira - Quente/Frio)', capacidade_kg: 500, tipo: 'caldeira', ordem: 3, ativo: true },
   { id: 'R_200', nome: 'Reator 200kg (Caldeira - Quente/Frio)', capacidade_kg: 200, tipo: 'caldeira', ordem: 4, ativo: true },
-  { id: 'R_100', nome: 'Reator 100kg (Resistência - Máx 1/dia)', capacidade_kg: 100, tipo: 'resistencia', ordem: 5, ativo: true },
+  { id: 'R_100', nome: 'Reator 100kg (Resistência)', capacidade_kg: 100, tipo: 'resistencia', ordem: 5, ativo: true },
   { id: 'R_40', nome: 'Reator 40kg (Produção Quente)', capacidade_kg: 40, tipo: 'quente', ordem: 6, ativo: true },
-  { id: 'BOMBONAS', nome: 'Bombonas (50kg, 100kg, 200kg)', capacidade_kg: 200, tipo: 'bombona', ordem: 7, ativo: true },
+  { id: 'BOMBONAS', nome: 'Bombonas', capacidade_kg: 200, tipo: 'bombona', ordem: 7, ativo: true },
 ];
 
 export function isPastEndOfDay(scheduleDateIso?: string | null): boolean {
@@ -242,7 +242,29 @@ async function mensagemErroServidor(res: Response, padrao: string): Promise<stri
   return padrao;
 }
 
-/** Regras de chão de fábrica aplicadas no modal, no arraste e na sugestão. */
+/** Item da fila de demandas com os dados do produto (cálculo do Gerenciamento) por baixo. */
+function candidatoDaFila(f: any, p: any): any {
+  const code = f.codigoProduto || f.codigo_produto;
+  const batchMatch = (f.observacoes || '').match(/\[batch:([^\]]+)\]/i);
+  return {
+    ...p,
+    _filaId: f.id,
+    _isFromFila: true,
+    _batchGroupId: batchMatch ? batchMatch[1].trim() : null,
+    codigo: code,
+    descricao: f.descricao,
+    producao_recomendada: f.quantidade,
+    quantidade: f.quantidade,
+    quantidade_kg: f.quantidadeKg || f.quantidade_kg,
+    origem_demanda: f.origemDemanda || f.origem_demanda,
+    base_codigo: f.baseCodigo || f.base_codigo,
+    base: f.baseNome || f.base_nome,
+    unidade: f.unidade || 'un',
+    observacoes: f.observacoes
+  };
+}
+
+/** Regras de chão de fábrica aplicadas no modal, no arraste e na sugestão. A capacidade limita só a batelada; não há limite de ordens por dia no reator. */
 export function validarAlocacao(opts: {
   reatorId: string;
   dateStr: string;
@@ -259,17 +281,6 @@ export function validarAlocacao(opts: {
     }
   } else if (reator && opts.kg > Number(reator.capacidade_kg) + 0.05) {
     return `A massa de ${opts.kg} kg passa da capacidade de ${reator.capacidade_kg} kg deste reator.`;
-  }
-  if (opts.reatorId === 'R_100') {
-    const ocupado = opts.plannedItems.some(i =>
-      i.reator_id === 'R_100' &&
-      i.ordem_status !== 'cancelado' &&
-      (i.data_planejada || '').split('T')[0] === date &&
-      !opts.ignoreIds?.has(i.id)
-    );
-    if (ocupado) {
-      return 'O Reator 100kg funciona por resistência e aceita no máximo 1 produção por dia.';
-    }
   }
   return null;
 }
@@ -377,6 +388,7 @@ export function PlanejamentoSemanalTab({
   }, [onShowDetails]);
 
   // Modal de Otimização Automática (Heurística)
+  const [sugerindo, setSugerindo] = useState(false);
   const [heuristicModalOpen, setHeuristicModalOpen] = useState(false);
   const [heuristicProposal, setHeuristicProposal] = useState<PlanejamentoItem[]>([]);
   const [heuristicStats, setHeuristicStats] = useState<HeuristicStats>({ totalBatches: 0, totalKg: 0, groupedBases: 0, avoidedHolidays: 0, caldeiraDays: 0 });
@@ -578,27 +590,7 @@ export function PlanejamentoSemanalTab({
         const obs = (f.observacoes || '').toLowerCase();
         return code.includes(q) || desc.includes(q) || obs.includes(q);
       })
-      .map(f => {
-        const code = f.codigoProduto || f.codigo_produto;
-        const p = prodMap.get(code) || {};
-        const batchMatch = (f.observacoes || '').match(/\[batch:([^\]]+)\]/i);
-        return {
-          ...p,
-          _filaId: f.id,
-          _isFromFila: true,
-          _batchGroupId: batchMatch ? batchMatch[1].trim() : null,
-          codigo: code,
-          descricao: f.descricao,
-          producao_recomendada: f.quantidade,
-          quantidade: f.quantidade,
-          quantidade_kg: f.quantidadeKg || f.quantidade_kg,
-          origem_demanda: f.origemDemanda || f.origem_demanda,
-          base_codigo: f.baseCodigo || f.base_codigo,
-          base: f.baseNome || f.base_nome,
-          unidade: f.unidade || 'un',
-          observacoes: f.observacoes
-        };
-      });
+      .map(f => candidatoDaFila(f, prodMap.get(f.codigoProduto || f.codigo_produto) || {}));
 
     const combined = [...mappedFila];
 
@@ -660,12 +652,8 @@ export function PlanejamentoSemanalTab({
       }
     }
 
-    const activeReatoresCount = reatores.filter(r => r.ativo).length;
-    const availableSlots = activeReatoresCount * 5;
-    const occupancyRate = availableSlots > 0 ? Math.round((totalBatches / availableSlots) * 100) : 0;
-
-    return { totalKg, totalBatches, occupancyRate, envaseDayLoad, caldeiraItems };
-  }, [plannedItems, reatores]);
+    return { totalKg, totalBatches, envaseDayLoad, caldeiraItems };
+  }, [plannedItems]);
 
   const devolverParaFila = async (itens: PlanejamentoItem[], observacoes?: string) => {
     const payload = itens
@@ -1789,391 +1777,159 @@ export function PlanejamentoSemanalTab({
     printHtmlViaIframe(html);
   };
 
-  // 2. IMPRESSÃO DO RELATÓRIO CONSOLIDADO DE MATÉRIAS-PRIMAS E EMBALAGENS (A4 RETRATO)
-  const handleRunHeuristic = () => {
-    // 1. Coleta apenas itens ATIVOS com necessidade ou programados
-    const candidates = demandCandidates.filter(p => {
-      const efp = p.estoque_futuro_com_producao ?? p.estoque_futuro ?? 0;
-      return efp < 50 || p.is_producao_programada === 1 || p.is_producao_programada === true;
-    });
-
-    if (candidates.length === 0) {
-      avisar("Nenhum produto com necessidade crítica ou programada no filtro atual. Experimente selecionar 'Todas as Linhas'.", 'info');
-      return;
-    }
-
-    // Ordena: primeiro os com maior gravidade de ruptura (menor EFP)
-    candidates.sort((a, b) => {
-      const efpA = a.estoque_futuro_com_producao ?? a.estoque_futuro ?? 0;
-      const efpB = b.estoque_futuro_com_producao ?? b.estoque_futuro ?? 0;
-      return efpA - efpB;
-    });
-
-    const validDays = weekDays.filter(d => !d.holiday);
-    const avoidedHolidaysCount = weekDays.filter(d => d.holiday).length;
-
-    const proposed: PlanejamentoItem[] = [];
-    const occupiedSlots = new Set<string>(); // para reatores com 1 slot por dia
-    const bombonaSlotsCount: Record<string, number> = {}; // dataStr -> count (suporta até 4 bateladas/dia)
-    for (const existing of plannedItems) {
-      if (existing.reator_id === 'BOMBONAS') {
-        bombonaSlotsCount[existing.data_planejada] = (bombonaSlotsCount[existing.data_planejada] || 0) + 1;
-      } else {
-        occupiedSlots.add(`${existing.reator_id}_${existing.data_planejada}`);
+  // Sugestão da semana. Parte da lista "Tudo p/ Produzir Hoje" do Gerenciamento (mesma fonte e critério: segment=needed),
+  // do mais urgente (estoque futuro menor) ao menos, sem limite de envase e sem limite diário por reator.
+  // A capacidade do reator limita só o tamanho de cada batelada; a regra de distribuição está em `planejarSemana`.
+  const handleRunHeuristic = async () => {
+    setSugerindo(true);
+    try {
+      const res = await apiFetch('/products?segment=needed&include_all_regimes=true&sort=efp&order=asc&page=1&limit=9999');
+      if (!res.ok) {
+        avisar('Não foi possível ler a lista "Tudo p/ Produzir Hoje" do Gerenciamento.', 'erro');
+        return;
       }
-    }
-    const diasOcupados = new Set<string>(plannedItems.map(i => i.data_planejada));
-    const diasExclusivos = new Set<string>();
-    let groupedBasesCount = 0;
-    const daysWithCaldeira = new Set<string>();
+      const lista: any[] = (await res.json()).items || [];
 
-    // 2. Agrupamento por Base/Família (reduz lavagens e aproveita tanques)
-    const baseGroups: Record<string, any[]> = {};
-    const unbasedProducts: any[] = [];
-
-    for (const cand of candidates) {
-      if (cand.base && cand.base.trim() !== '') {
-        const b = cand.base.trim().toUpperCase();
-        if (!baseGroups[b]) baseGroups[b] = [];
-        baseGroups[b].push(cand);
-      } else {
-        unbasedProducts.push(cand);
+      // Produto já planejado nesta semana não entra de novo; item na fila de demandas usa a quantidade da fila.
+      const jaPlanejados = new Set(plannedItems.map(i => i.codigo_produto));
+      const filaPorCodigo = new Map<string, any[]>();
+      for (const f of filaDemandas) {
+        const cod = f.codigoProduto || f.codigo_produto;
+        if (!filaPorCodigo.has(cod)) filaPorCodigo.set(cod, []);
+        filaPorCodigo.get(cod)!.push(f);
       }
-    }
-
-    const allOrderedCandidates: any[] = [];
-    Object.keys(baseGroups).forEach(bKey => {
-      const list = baseGroups[bKey];
-      if (list.length > 1) groupedBasesCount += list.length;
-      allOrderedCandidates.push(...list);
-    });
-    allOrderedCandidates.push(...unbasedProducts);
-
-    // 3. Distribuição inteligente por Reator com regras Quente/Frio, Shampoos e Bombonas
-    for (const prod of allOrderedCandidates) {
-      const procInfo = getProductProcessType(prod);
-      const colorInfo = getProductColorInfo(prod);
-      const producaoMinKg = Number(prod.producao_minima_kg) || 0;
-      const reqMassKg = Math.max(procInfo.reqQtyKg, producaoMinKg);
-      const usouMinimo = producaoMinKg > 0 && producaoMinKg > procInfo.reqQtyKg;
-      const reqUnits = procInfo.reqUnits;
-      const descExcl = (prod.descricao || '').toUpperCase();
-      const exclusivo: boolean = prod.exclusivo_no_dia ?? descExcl.includes('AOX');
-      const diasPermitidosProd = diasPermitidos(validDays, exclusivo, diasOcupados, diasExclusivos);
-      const marcar = (dateStr: string) => {
-        diasOcupados.add(dateStr);
-        if (exclusivo) diasExclusivos.add(dateStr);
-        if (usouMinimo) {
-          const ult = proposed[proposed.length - 1];
-          if (ult) ult.observacoes = `${ult.observacoes || ''} | mín. ${producaoMinKg} kg`;
-        }
-      };
-
-      // Linha de envase sugerida
-      const desc = (prod.descricao || '').toUpperCase();
-      let envLine = 'L1';
-      if (desc.includes('MASC') || desc.includes('POTE')) envLine = 'L2';
-      else if (desc.includes('POMADA') || desc.includes('OLEO') || desc.includes('SERUM')) envLine = 'L3';
-
-      let scheduled = false;
-
-      // CENÁRIO A: Shampoos de Grande Volume (>= 450kg) ou bases de shampoo agrupadas -> Reator 1000kg (Exclusivo Shampoos)
-      if (procInfo.isShampoo && reqMassKg >= 450) {
-        const rShampoo = reatores.find(r => (r.id === 'R_1000_SHAMPOO' || r.id === 'R_1000') && r.ativo);
-        if (rShampoo) {
-          for (const day of diasPermitidosProd) {
-            const slotKey = `${rShampoo.id}_${day.dateStr}`;
-            if (!occupiedSlots.has(slotKey)) {
-              occupiedSlots.add(slotKey);
-              daysWithCaldeira.add(day.dateStr);
-
-              const plannedKg = Math.min(1000, Math.max(1, Math.round(reqMassKg)));
-              const plannedUnits = procInfo.unitWeightKg ? Math.round(plannedKg / procInfo.unitWeightKg) : null;
-
-              proposed.push({
-                id: `HEUR_${currentWeekKey}_${rShampoo.id}_${day.dateStr}_${prod.codigo}`,
-                week_key: currentWeekKey,
-                data_planejada: day.dateStr,
-                reator_id: rShampoo.id,
-                codigo_produto: prod.codigo,
-                descricao: prod.descricao,
-                quantidade_planejada: plannedKg,
-                unidade: 'kg',
-                base_codigo: prod.base || null,
-                base_nome: prod.base || null,
-                linha_envase: envLine,
-                observacoes: `Reator Shampoo | ${plannedKg} kg${plannedUnits == null ? '' : ` | ~${plannedUnits.toLocaleString('pt-BR')} un`}`,
-                ordem_status: 'planejado',
-                fisico_confirmado_massa: false,
-                fisico_confirmado_embalagem: false,
-                fisico_confirmado_rotulo: false,
-                recipiente_detalhe: 'Reator 1000kg',
-                cor_tag: colorInfo.tag,
-                ordem_sequencia: 1,
-                processo_termico: 'frio'
-              });
-              marcar(day.dateStr);
-              scheduled = true;
-              break;
-            }
-          }
-        }
+      const candidates: any[] = [];
+      for (const p of lista) {
+        if (jaPlanejados.has(p.codigo)) continue;
+        const filas = filaPorCodigo.get(p.codigo);
+        if (filas && filas.length > 0) filas.forEach(f => candidates.push(candidatoDaFila(f, p)));
+        else candidates.push(p);
       }
 
-      if (scheduled) continue;
-
-      // CENÁRIO B0: Produções Quentes Pequenas (<= 45kg) -> Prioridade no Reator 40kg (Produção Quente)
-      if (procInfo.isQuente && reqMassKg <= 45) {
-        const r40 = reatores.find(r => r.id === 'R_40' && r.ativo);
-        if (r40) {
-          for (const day of diasPermitidosProd) {
-            const slotKey = `${r40.id}_${day.dateStr}`;
-            if (!occupiedSlots.has(slotKey)) {
-              occupiedSlots.add(slotKey);
-              daysWithCaldeira.add(day.dateStr);
-
-              const plannedKg = Math.min(40, Math.max(reqMassKg, 20));
-              const plannedUnits = procInfo.unitWeightKg ? Math.round(plannedKg / procInfo.unitWeightKg) : null;
-
-              proposed.push({
-                id: `HEUR_${currentWeekKey}_${r40.id}_${day.dateStr}_${prod.codigo}`,
-                week_key: currentWeekKey,
-                data_planejada: day.dateStr,
-                reator_id: r40.id,
-                codigo_produto: prod.codigo,
-                descricao: prod.descricao,
-                quantidade_planejada: plannedKg,
-                unidade: 'kg',
-                base_codigo: prod.base || null,
-                base_nome: prod.base || null,
-                linha_envase: envLine,
-                observacoes: `Reator 40kg (Produção Quente)${plannedUnits == null ? '' : ` | ~${plannedUnits.toLocaleString('pt-BR')} un`}`,
-                ordem_status: 'planejado',
-                fisico_confirmado_massa: false,
-                fisico_confirmado_embalagem: false,
-                fisico_confirmado_rotulo: false,
-                recipiente_detalhe: 'Reator 40kg',
-                cor_tag: colorInfo.tag,
-                ordem_sequencia: 1,
-                processo_termico: 'quente'
-              });
-              marcar(day.dateStr);
-              scheduled = true;
-              break;
-            }
-          }
-        }
+      if (candidates.length === 0) {
+        avisar('Nenhum produto da lista "Tudo p/ Produzir Hoje" para planejar (os que já estão na semana não entram de novo).', 'info');
+        return;
       }
 
-      if (scheduled) continue;
+      const validDays = weekDays.filter(d => !d.holiday);
+      const avoidedHolidaysCount = weekDays.filter(d => d.holiday).length;
 
-      // CENÁRIO B: Quentes pequenos (< 200kg) batidas na bombona com água da caldeira!
-      // Regra: Aproveita caldeira já ligada ou agrupa na bombona
-      if (procInfo.isQuente && reqMassKg < 200 && procInfo.canBombona) {
-        const bombonaReator = reatores.find(r => r.id === 'BOMBONAS' && r.ativo);
-        if (bombonaReator) {
-          const sortedDays = [...diasPermitidosProd].sort((a, b) => {
-            const aHasCaldeira = daysWithCaldeira.has(a.dateStr) ? 0 : 1;
-            const bHasCaldeira = daysWithCaldeira.has(b.dateStr) ? 0 : 1;
-            return aHasCaldeira - bHasCaldeira;
-          });
-
-          for (const day of sortedDays) {
-            const currentDayBombonas = bombonaSlotsCount[day.dateStr] || 0;
-            if (currentDayBombonas < 4) {
-              bombonaSlotsCount[day.dateStr] = currentDayBombonas + 1;
-              daysWithCaldeira.add(day.dateStr);
-
-              const bombonaCap = reqMassKg <= 60 ? 50 : (reqMassKg <= 120 ? 100 : 200);
-              const recip = `Bombona ${bombonaCap}kg`;
-              const plannedKg = Math.max(bombonaCap, Math.round(reqMassKg));
-              const plannedUnits = procInfo.unitWeightKg ? Math.round(plannedKg / procInfo.unitWeightKg) : null;
-
-              proposed.push({
-                id: `HEUR_${currentWeekKey}_BOMBONAS_${day.dateStr}_${prod.codigo}`,
-                week_key: currentWeekKey,
-                data_planejada: day.dateStr,
-                reator_id: 'BOMBONAS',
-                codigo_produto: prod.codigo,
-                descricao: prod.descricao,
-                quantidade_planejada: plannedKg,
-                unidade: 'kg',
-                base_codigo: prod.base || null,
-                base_nome: prod.base || null,
-                linha_envase: envLine,
-                observacoes: `Água Quente Caldeira (Bombona)${plannedUnits == null ? '' : ` | ~${plannedUnits.toLocaleString('pt-BR')} un`}`,
-                ordem_status: 'planejado',
-                fisico_confirmado_massa: false,
-                fisico_confirmado_embalagem: false,
-                fisico_confirmado_rotulo: false,
-                recipiente_detalhe: recip,
-                cor_tag: colorInfo.tag,
-                ordem_sequencia: 1,
-                processo_termico: 'agua_caldeira'
-              });
-              marcar(day.dateStr);
-              scheduled = true;
-              break;
-            }
-          }
-        }
-      }
-
-      if (scheduled) continue;
-
-      // CENÁRIO C: Produtos a frio de base pronta (Condicionador / Leave-in / Shampoos <= 200kg)
-      if (!procInfo.isQuente && procInfo.canBombona && reqMassKg <= 200) {
-        const bombonaReator = reatores.find(r => r.id === 'BOMBONAS' && r.ativo);
-        if (bombonaReator) {
-          for (const day of diasPermitidosProd) {
-            const currentDayBombonas = bombonaSlotsCount[day.dateStr] || 0;
-            if (currentDayBombonas < 4) {
-              bombonaSlotsCount[day.dateStr] = currentDayBombonas + 1;
-              const bombonaCap = reqMassKg <= 60 ? 50 : (reqMassKg <= 120 ? 100 : 200);
-              const recip = `Bombona ${bombonaCap}kg`;
-              const plannedKg = Math.max(bombonaCap, Math.round(reqMassKg));
-              const plannedUnits = procInfo.unitWeightKg ? Math.round(plannedKg / procInfo.unitWeightKg) : null;
-
-              proposed.push({
-                id: `HEUR_${currentWeekKey}_BOMBONAS_${day.dateStr}_${prod.codigo}`,
-                week_key: currentWeekKey,
-                data_planejada: day.dateStr,
-                reator_id: 'BOMBONAS',
-                codigo_produto: prod.codigo,
-                descricao: prod.descricao,
-                quantidade_planejada: plannedKg,
-                unidade: 'kg',
-                base_codigo: prod.base || null,
-                base_nome: prod.base || null,
-                linha_envase: envLine,
-                observacoes: `Mistura a Frio (Base Pronta)${plannedUnits == null ? '' : ` | ~${plannedUnits.toLocaleString('pt-BR')} un`}`,
-                ordem_status: 'planejado',
-                fisico_confirmado_massa: false,
-                fisico_confirmado_embalagem: false,
-                fisico_confirmado_rotulo: false,
-                recipiente_detalhe: recip,
-                cor_tag: colorInfo.tag,
-                ordem_sequencia: 1,
-                processo_termico: 'frio'
-              });
-              marcar(day.dateStr);
-              scheduled = true;
-              break;
-            }
-          }
-        }
-      }
-
-      if (scheduled) continue;
-
-      // CENÁRIO D: Alocação nos Reatores Fixos (R_1000_MISTO, R_500, R_200, R_100)
-      const compatibleReatores = reatores.filter(r => {
-        if (!r.ativo) return false;
-        if (r.id === 'BOMBONAS') return false;
-        if (r.id === 'R_1000_SHAMPOO' || r.id === 'R_1000') return false; // Exclusivo de shampoo (já alocado no cenário A)
-
-        // R_1000_MISTO (caldeira - produção mista de grande porte)
-        if (r.id === 'R_1000_MISTO') {
-          return reqMassKg >= 600;
-        }
-
-        // R_500 (caldeira)
-        if (r.id === 'R_500') {
-          return reqMassKg >= 250 && reqMassKg <= 700;
-        }
-
-        // R_200 (caldeira)
-        if (r.id === 'R_200') {
-          return reqMassKg >= 120 && reqMassKg <= 300;
-        }
-
-        // R_100 usa resistência (apenas 1 por dia)
-        if (r.id === 'R_100') {
-          return reqMassKg >= 60 && reqMassKg <= 140;
-        }
-
-        // R_40 (Produção Quente de pequeno porte)
-        if (r.id === 'R_40') {
-          return procInfo.isQuente && reqMassKg <= 50;
-        }
-
-        return false;
+      const infos = candidates.map((prod, idx) => {
+        const procInfo = getProductProcessType(prod);
+        const producaoMinKg = Number(prod.producao_minima_kg) || 0;
+        const kg = Math.max(procInfo.reqQtyKg, producaoMinKg);
+        const descExcl = (prod.descricao || '').toUpperCase();
+        const desc = descExcl;
+        let envLine = 'L1';
+        if (desc.includes('MASC') || desc.includes('POTE')) envLine = 'L2';
+        else if (desc.includes('POMADA') || desc.includes('OLEO') || desc.includes('SERUM')) envLine = 'L3';
+        return {
+          chave: `${prod.codigo}#${idx}`,
+          prod,
+          procInfo,
+          colorInfo: getProductColorInfo(prod),
+          producaoMinKg,
+          usouMinimo: producaoMinKg > 0 && producaoMinKg > procInfo.reqQtyKg,
+          envLine,
+          perfil: {
+            codigo: `${prod.codigo}#${idx}`,
+            kg,
+            isQuente: procInfo.isQuente,
+            isShampoo: procInfo.isShampoo,
+            canBombona: procInfo.canBombona,
+            exclusivo: Boolean(prod.exclusivo_no_dia ?? descExcl.includes('AOX')),
+          },
+        };
       });
 
-      // Menor reator em que caiba; depois os que não comportam, do maior para o menor
-      const reatoresOrdenados = ordenarReatoresPorCaber(compatibleReatores, reqMassKg);
-
-      for (const reator of reatoresOrdenados) {
-        for (const day of diasPermitidosProd) {
-          const slotKey = `${reator.id}_${day.dateStr}`;
-
-          // Se for R_100, valida trava rígida de 1 por dia
-          if (reator.id === 'R_100') {
-            const countIn100 = proposed.filter(p => p.data_planejada === day.dateStr && p.reator_id === 'R_100').length;
-            if (countIn100 >= 1) continue;
-          }
-
-          if (!occupiedSlots.has(slotKey)) {
-            occupiedSlots.add(slotKey);
-
-            if (procInfo.isQuente) {
-              daysWithCaldeira.add(day.dateStr);
-            }
-
-            const plannedQty = Math.min(reator.capacidade_kg, Math.max(reqMassKg, Math.round(reator.capacidade_kg * 0.8)));
-            const plannedUnits = procInfo.unitWeightKg ? Math.round(plannedQty / procInfo.unitWeightKg) : null;
-
-            proposed.push({
-              id: `HEUR_${currentWeekKey}_${reator.id}_${day.dateStr}_${prod.codigo}`,
-              week_key: currentWeekKey,
-              data_planejada: day.dateStr,
-              reator_id: reator.id,
-              codigo_produto: prod.codigo,
-              descricao: prod.descricao,
-              quantidade_planejada: plannedQty,
-              unidade: 'kg',
-              base_codigo: prod.base || null,
-              base_nome: prod.base || null,
-              linha_envase: envLine,
-              observacoes: (procInfo.isQuente 
-                ? (reator.id === 'R_100' ? 'Resistência (100kg - Máx 1/dia)' : (reator.id === 'R_40' ? 'Reator 40kg (Quente)' : 'Requer Caldeira (Quente)')) 
-                : 'Processo a Frio') + `${plannedUnits == null ? '' : ` | ~${plannedUnits.toLocaleString('pt-BR')} un`}`,
-              ordem_status: 'planejado',
-              fisico_confirmado_massa: false,
-              fisico_confirmado_embalagem: false,
-              fisico_confirmado_rotulo: false,
-              recipiente_detalhe: `Reator ${reator.capacidade_kg}kg`,
-              cor_tag: colorInfo.tag,
-              ordem_sequencia: 1,
-              processo_termico: procInfo.isQuente ? (reator.id === 'R_100' ? 'resistencia' : (reator.id === 'R_40' ? 'quente' : 'caldeira')) : 'frio'
-            });
-            marcar(day.dateStr);
-            scheduled = true;
-            break;
-          }
-        }
-        if (scheduled) break;
+      const cargaKgPorDia: Record<string, number> = {};
+      for (const it of plannedItems) {
+        cargaKgPorDia[it.data_planejada] = (cargaKgPorDia[it.data_planejada] || 0) + Number(it.quantidade_planejada || 0);
       }
+      const plano = planejarSemana({
+        perfis: infos.map(i => i.perfil),
+        reatores,
+        dias: validDays,
+        cargaKgPorDia,
+        diasOcupados: new Set(plannedItems.map(i => i.data_planejada)),
+      });
+
+      const infoPorChave = new Map(infos.map(i => [i.chave, i]));
+      const proposed: PlanejamentoItem[] = plano.bateladas.map(b => {
+        const info = infoPorChave.get(b.codigo)!;
+        const { prod, procInfo, colorInfo } = info;
+        const unidades = procInfo.unitWeightKg ? Math.round(b.kg / procInfo.unitWeightKg) : null;
+        const base = b.cenario === 'shampoo'
+          ? `Reator Shampoo | ${b.kg} kg`
+          : b.cenario === 'r40' ? 'Reator 40kg (Produção Quente)'
+          : b.cenario === 'bombona_quente' ? 'Água Quente Caldeira (Bombona)'
+          : b.cenario === 'bombona_frio' ? 'Mistura a Frio (Base Pronta)'
+          : !procInfo.isQuente ? 'Processo a Frio'
+          : b.reatorId === 'R_100' ? 'Resistência (100kg)' : 'Requer Caldeira (Quente)';
+        const partes = b.partes > 1 ? ` | batelada ${b.parte}/${b.partes}` : '';
+        const minimo = info.usouMinimo && b.parte === 1 ? ` | mín. ${info.producaoMinKg} kg` : '';
+        return {
+          id: `HEUR_${currentWeekKey}_${b.reatorId}_${b.dateStr}_${prod.codigo}_${info.chave.split('#')[1]}_${b.parte}`,
+          week_key: currentWeekKey,
+          data_planejada: b.dateStr,
+          reator_id: b.reatorId,
+          codigo_produto: prod.codigo,
+          descricao: prod.descricao,
+          quantidade_planejada: b.kg,
+          unidade: 'kg',
+          base_codigo: prod.base || null,
+          base_nome: prod.base || null,
+          linha_envase: info.envLine,
+          observacoes: `${base}${unidades == null ? '' : ` | ~${unidades.toLocaleString('pt-BR')} un`}${partes}${minimo}`,
+          ordem_status: 'planejado',
+          fisico_confirmado_massa: false,
+          fisico_confirmado_embalagem: false,
+          fisico_confirmado_rotulo: false,
+          recipiente_detalhe: b.recipiente,
+          cor_tag: colorInfo.tag,
+          ordem_sequencia: 1,
+          processo_termico: b.processoTermico,
+        } as PlanejamentoItem;
+      });
+
+      const aceitas = proposed.filter(item => !validarAlocacao({
+        reatorId: item.reator_id,
+        dateStr: item.data_planejada,
+        kg: Number(item.quantidade_planejada) || 0,
+        reatores,
+        plannedItems,
+      }));
+
+      const basesContadas = new Map<string, number>();
+      for (const c of candidates) {
+        const b = (c.base || '').trim().toUpperCase();
+        if (b) basesContadas.set(b, (basesContadas.get(b) || 0) + 1);
+      }
+      let groupedBasesCount = 0;
+      basesContadas.forEach(n => { if (n > 1) groupedBasesCount += n; });
+
+      if (aceitas.length === 0) {
+        avisar('Não foi possível encaixar nenhum produto: confira os reatores ativos e os dias úteis da semana.', 'info');
+        return;
+      }
+      if (plano.semLugar.length > 0) {
+        avisar(`${plano.semLugar.length} produto(s) ficaram de fora: sem reator compatível ou sem dia livre (exclusivo).`, 'info');
+      }
+      setHeuristicProposal(aceitas);
+      setHeuristicStats({
+        totalBatches: aceitas.length,
+        totalKg: aceitas.reduce((acc, i) => acc + Number(i.quantidade_planejada || 0), 0),
+        groupedBases: groupedBasesCount,
+        avoidedHolidays: avoidedHolidaysCount,
+        caldeiraDays: plano.diasCaldeira.size
+      });
+      setHeuristicModalOpen(true);
+    } catch (e) {
+      console.warn('Erro ao montar a sugestão:', e);
+      avisar('Falha de conexão ao montar a sugestão.', 'erro');
+    } finally {
+      setSugerindo(false);
     }
-
-    const aceitas = proposed.filter(item => !validarAlocacao({
-      reatorId: item.reator_id,
-      dateStr: item.data_planejada,
-      kg: Number(item.quantidade_planejada) || 0,
-      reatores,
-      plannedItems: [...plannedItems, ...proposed.filter(p => p.id !== item.id && p.data_planejada === item.data_planejada && p.reator_id === item.reator_id)],
-    }));
-
-    const totalKg = aceitas.reduce((acc, i) => acc + Number(i.quantidade_planejada || 0), 0);
-    setHeuristicProposal(aceitas);
-    setHeuristicStats({
-      totalBatches: aceitas.length,
-      totalKg,
-      groupedBases: groupedBasesCount,
-      avoidedHolidays: avoidedHolidaysCount,
-      caldeiraDays: daysWithCaldeira.size
-    });
-    setHeuristicModalOpen(true);
   };
 
   // Aplicar proposta da Heurística
@@ -2181,9 +1937,9 @@ export function PlanejamentoSemanalTab({
     try {
       const kgPorFila = new Map<string, number>();
       for (const item of heuristicProposal) {
-        const cand = demandCandidates.find((c: any) => c.codigo === item.codigo_produto && c._filaId);
-        if (!cand) continue;
-        kgPorFila.set(cand._filaId, (kgPorFila.get(cand._filaId) || 0) + (Number(item.quantidade_planejada) || 0));
+        const fila = filaDemandas.find((f: any) => (f.codigoProduto || f.codigo_produto) === item.codigo_produto);
+        if (!fila) continue;
+        kgPorFila.set(fila.id, (kgPorFila.get(fila.id) || 0) + (Number(item.quantidade_planejada) || 0));
       }
       const consumirFila = Array.from(kgPorFila.entries())
         .filter(([filaId]) => filaDemandas.some((f: any) => f.id === filaId))
@@ -2270,12 +2026,6 @@ export function PlanejamentoSemanalTab({
             <span className="text-zinc-500 font-sans">Caldeira:</span>
             <strong className="text-zinc-800 font-bold">{weekStats.caldeiraItems}</strong>
           </div>
-          <div className="px-2.5 py-1 bg-zinc-50 border border-zinc-200 rounded-md flex items-center gap-1.5">
-            <span className="text-zinc-500 font-sans">Ocupação:</span>
-            <strong className={`font-bold ${weekStats.occupancyRate > 90 ? 'text-amber-600' : 'text-emerald-600'}`}>
-              {weekStats.occupancyRate}%
-            </strong>
-          </div>
         </div>
 
         {/* Hierarquia de Ações (HSL Zinc) */}
@@ -2313,11 +2063,12 @@ export function PlanejamentoSemanalTab({
 
           <button
             onClick={handleRunHeuristic}
+            disabled={sugerindo}
             className="bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-            title="Sugerir sequência otimizada de produção para a semana"
+            title="Sugerir a semana a partir da lista Tudo p/ Produzir Hoje do Gerenciamento, por urgência"
           >
             <Sparkles size={14} className="text-zinc-500" />
-            <span>Sugerir Sequência</span>
+            <span>{sugerindo ? 'Montando…' : 'Sugerir Sequência'}</span>
           </button>
 
           </>
@@ -2411,7 +2162,7 @@ export function PlanejamentoSemanalTab({
                         {reator.id === 'BOMBONAS' ? (
                           <Package size={16} className="text-zinc-500 mt-0.5"><title>Bombonas Móveis de Mistura</title></Package>
                         ) : reator.id === 'R_100' ? (
-                          <Zap size={16} className="text-zinc-500 mt-0.5"><title>Aquecimento por Resistência (Máx 1/dia)</title></Zap>
+                          <Zap size={16} className="text-zinc-500 mt-0.5"><title>Aquecimento por Resistência</title></Zap>
                         ) : reator.id === 'R_40' ? (
                           <Flame size={16} className="text-zinc-500 mt-0.5"><title>Reator 40kg (Produção Quente)</title></Flame>
                         ) : (reator.id === 'R_1000_SHAMPOO' || reator.id === 'R_1000') ? (
@@ -2425,9 +2176,9 @@ export function PlanejamentoSemanalTab({
                         )}
                         <div className="flex flex-col">
                           <span className="font-bold text-zinc-900 text-xs leading-tight">{reator.nome}</span>
-                          <span className="text-[10px] text-zinc-500 mt-0.5">
-                            {reator.id === 'BOMBONAS' ? '50kg, 100kg e 200kg' : `Capacidade: ${reator.capacidade_kg} kg`}
-                          </span>
+                          {reator.id !== 'BOMBONAS' && (
+                            <span className="text-[10px] text-zinc-500 mt-0.5">Capacidade: {reator.capacidade_kg} kg</span>
+                          )}
                         </div>
                       </div>
                       <div className="text-[10px] mt-1.5 flex flex-wrap gap-1">
@@ -2443,7 +2194,7 @@ export function PlanejamentoSemanalTab({
                         )}
                         {reator.id === 'R_100' && (
                           <span className="px-1.5 py-0.2 rounded font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-                            Resistência (1/dia)
+                            Resistência
                           </span>
                         )}
                         {reator.id === 'R_40' && (
@@ -2732,6 +2483,13 @@ export function PlanejamentoSemanalTab({
                                           );
                                         })}
                                       </div>
+                                    )}
+
+                                    {/* Bombona: o tamanho da ordem aparece como selo (Bombona 50 kg, 100 kg, 200 kg) */}
+                                    {batch.primaryItem.reator_id === 'BOMBONAS' && batch.primaryItem.recipiente_detalhe && (
+                                      <span className="self-start px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 text-[10px] font-semibold border border-zinc-200">
+                                        {batch.primaryItem.recipiente_detalhe.replace(/(\d)kg/i, '$1 kg')}
+                                      </span>
                                     )}
 
                                     {/* Envase previsto (dias até o envase definidos no produto) */}

@@ -140,9 +140,9 @@ export function ReatoresDrawer({
                   >
                     <option value="caldeira_shampoo">🧴 Reator Exclusivo Shampoo (A Frio / Agitação)</option>
                     <option value="caldeira">🔥 Caldeira (Produção Mista Quente/Frio)</option>
-                    <option value="resistencia">⚡ Resistência Elétrica (Máx 1 batelada/dia)</option>
+                    <option value="resistencia">⚡ Resistência Elétrica</option>
                     <option value="quente">♨️ Produção Quente (R-40 / Pomadas / Ceras)</option>
-                    <option value="bombona">🛢️ Bombonas Móveis (50kg, 100kg, 200kg)</option>
+                    <option value="bombona">🛢️ Bombonas Móveis</option>
                     <option value="frio">❄️ A Frio Simples</option>
                     <option value="misto">⚖️ Misto Geral</option>
                   </select>

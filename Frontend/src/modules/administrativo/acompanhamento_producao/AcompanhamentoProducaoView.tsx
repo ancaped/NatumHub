@@ -2030,15 +2030,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     return await handleSelectStatusChange(loteNumber, newStatus);
   };
 
-  const handleOpenEsperaModal = (
-    loteNumber: string,
-    etapa?: 'pesagem' | 'producao' | 'rotulagem' | 'envase',
-    _initialMotivo?: string
-  ) => {
-    const existing = lotes.find(l => l.loteNumber === loteNumber);
-    if (existing) handleOpenPauseModal(existing, etapa);
-  };
-
   const handleSelectStatusChange = async (loteNumber: string, newStatus: string) => {
     return await executeStatusUpdate(loteNumber, newStatus, null);
   };
@@ -7473,14 +7464,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           >
                             <Undo2 className="h-3.5 w-3.5" />
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEsperaModal(lote.loteNumber, 'pesagem')}
-                            className="p-1.5 bg-zinc-100 hover:bg-amber-100 hover:text-amber-900 text-zinc-600 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-                            title="Colocar pesagem em espera"
-                          >
-                            <PauseCircle className="h-3.5 w-3.5" />
-                          </button>
                         </div>
                       </div>
                     );
@@ -7797,14 +7780,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               >
                                 <Play className="h-3.5 w-3.5 fill-white text-white" />
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEsperaModal(lote.loteNumber, 'pesagem')}
-                                className="py-1.5 px-2.5 bg-zinc-100 hover:bg-orange-100 hover:text-orange-900 text-zinc-600 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center"
-                                title="Pausar lote (ex: falta de insumo)"
-                              >
-                                <PauseCircle className="h-3.5 w-3.5" />
-                              </button>
                             </>
                           )}
                         </div>
@@ -8097,14 +8072,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleOpenEsperaModal(lote.loteNumber, 'producao')}
-                            className="py-1.5 px-2.5 bg-zinc-100 hover:bg-amber-100 hover:text-amber-900 text-zinc-600 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center"
-                            title="Aguardar Laudo QC / Colocar em Espera na Produção"
-                          >
-                            <PauseCircle className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
                             onClick={() => {
                               setProducaoOrderOverrides(prev => {
                                 const next = prev.filter(x => x !== lote.loteNumber);
@@ -8359,14 +8326,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             title={isCaldeiraConcluida ? "Desmarcar realização da caldeira" : "Concluir caldeira (marcar planejamento como realizado)"}
                           >
                             <CheckCircle2 className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEsperaModal(lote.loteNumber, 'producao')}
-                            className="py-1.5 px-2.5 bg-zinc-100 hover:bg-amber-100 hover:text-amber-900 text-zinc-600 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center"
-                            title="Colocar em Espera na Caldeira"
-                          >
-                            <PauseCircle className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       </div>
@@ -8729,14 +8688,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 title="Iniciar processo térmico diretamente no Quadro de Caldeira"
                               >
                                 <Flame className="h-3.5 w-3.5 fill-white text-white" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEsperaModal(lote.loteNumber, 'producao')}
-                                className="py-1.5 px-2.5 bg-zinc-100 hover:bg-orange-100 hover:text-orange-900 text-zinc-600 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center"
-                                title="Pausar lote na produção (ex: falta de insumo)"
-                              >
-                                <PauseCircle className="h-3.5 w-3.5" />
                               </button>
                             </>
                           )}

@@ -61,7 +61,7 @@ export function SugestaoDrawer({
         </div>
 
         <p className="text-xs text-zinc-500">
-          A heurística priorizou apenas produtos ativos, dimensionou os tanques estritamente de acordo com a necessidade (sem superdimensionar) e separou processos que requerem caldeira dos processos a frio.
+          Parte da lista "Tudo p/ Produzir Hoje" do Gerenciamento, do mais urgente ao menos. Cada batelada vai para um reator compatível com capacidade suficiente (o produto é dividido se passar da maior capacidade); não há limite de ordens por dia no mesmo reator nem limite de envase.
         </p>
 
         {/* Tabela com a lista de bateladas sugeridas */}

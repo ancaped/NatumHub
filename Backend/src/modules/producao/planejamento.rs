@@ -300,8 +300,8 @@ fn chave_grupo_planejamento(id: &str, batch_id: Option<&str>, lote_erp: Option<&
 }
 
 /// Regras duras do chão de fábrica, as mesmas de `validarAlocacao` no front, aplicadas depois do upsert
-/// (dentro da transação) para enxergar a batelada inteira: massa do grupo <= capacidade do reator e
-/// R-100 com no máximo 1 produção por dia.
+/// (dentro da transação) para enxergar a batelada inteira: massa do grupo <= capacidade do reator.
+/// A capacidade limita só o tamanho de cada batelada; não há limite de produções por dia no mesmo reator.
 async fn validar_alocacoes_planejamento(
     conn: &mut sqlx::PgConnection,
     itens: &[PlanejamentoItemDto],
@@ -369,11 +369,6 @@ async fn validar_alocacoes_planejamento(
                 };
                 return Err(ErroApi::regra(msg));
             }
-        }
-        if reator_id == "R_100" && grupos.len() > 1 && grupos.values().any(|g| g.1) {
-            return Err(ErroApi::regra(
-                "O Reator 100kg funciona por resistência e aceita no máximo 1 produção por dia.".to_string(),
-            ));
         }
     }
     Ok(())
@@ -1237,6 +1232,35 @@ mod tests {
         assert_eq!(ler_fila(&pool, &fila_id).await, Some((200.0, 100.0)), "fila intacta após rollback");
 
         sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1").bind(&fila_id).execute(&pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn reator_aceita_varias_ordens_no_dia_e_limita_so_a_batelada() {
+        let pool = pool_teste().await;
+        sqlx::query("INSERT INTO producao_reatores_config (id, nome, capacidade_kg, ativo) VALUES ('R_100', 'R100', 100, TRUE) ON CONFLICT (id) DO NOTHING")
+            .execute(&pool)
+            .await
+            .ok();
+        let week = format!("teste-{}", uuid::Uuid::new_v4());
+
+        // três produções diferentes no mesmo reator e dia, cada uma dentro da capacidade: aceita
+        let mut itens: Vec<PlanejamentoItemDto> = (0..3).map(|i| {
+            let mut it = item(&format!("{week}-{i}"), "2026-10-23");
+            it.week_key = week.clone();
+            it.quantidade_planejada = 90.0;
+            it
+        }).collect();
+        gravar_planejamento(&pool, &mut itens, &[], "teste").await.expect("várias ordens no mesmo reator/dia");
+
+        // uma batelada acima da capacidade continua recusada
+        let mut grande = vec![item(&format!("{week}-grande"), "2026-10-24")];
+        grande[0].week_key = week.clone();
+        grande[0].quantidade_planejada = 150.0;
+        let e = gravar_planejamento(&pool, &mut grande, &[], "teste").await.unwrap_err();
+        assert_eq!(e.codigo, "regra_violada");
+
+        limpar_teste(&pool, &week).await;
     }
 
     async fn status_do_lote(pool: &PgPool, lote: &str) -> Option<String> {
