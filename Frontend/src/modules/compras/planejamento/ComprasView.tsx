@@ -8,7 +8,6 @@ import ItemRegistry from './components/ItemRegistry';
 import { ProdutosCompraTab } from './components/ProdutosCompraTab';
 import { PrintListTab } from './components/PrintListTab';
 import { ListasAcompanhamentoTab } from './components/ListasAcompanhamentoTab';
-import { SolicitationTab } from './components/SolicitationTab';
 import { SimulationTab } from './components/SimulationTab';
 import { ItensSemelhantesTab } from './components/ItensSemelhantesTab';
 import { Package, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers, Printer, ClipboardList, EyeOff, Calculator, ClipboardCheck } from 'lucide-react';
@@ -81,7 +80,6 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes },
           { id: 'itens_semelhantes', label: 'Itens Semelhantes', icon: Layers },
           ...getSubcategoryNavItems('cat_mp'),
-          { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
@@ -94,7 +92,6 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         items = [
           { id: 'embalagens', label: 'Embalagens', icon: Layers },
           ...getSubcategoryNavItems('cat_emb'),
-          { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
@@ -107,7 +104,6 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         items = [
           { id: 'coloracao', label: 'Coloração', icon: Palette },
           ...getSubcategoryNavItems('cat_coloracao'),
-          { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
@@ -120,7 +116,6 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         items = [
           { id: 'apoio', label: 'Material de Apoio', icon: Tag },
           ...getSubcategoryNavItems('cat_apoio'),
-          { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
@@ -144,7 +139,6 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'coloracao', label: 'Coloração', icon: Palette },
           { id: 'apoio', label: 'Material de Apoio', icon: Tag },
           ...getSubcategoryNavItems(null),
-          { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
@@ -219,12 +213,6 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         {navItems.some(i => i.id === 'listas_acompanhamento') && (
           <div className={activeTab !== 'listas_acompanhamento' ? 'hidden' : ''}>
             <ListasAcompanhamentoTab active={activeTab === 'listas_acompanhamento'} mode={mode} />
-          </div>
-        )}
-
-        {navItems.some(i => i.id === 'solicitation') && (
-          <div className={activeTab !== 'solicitation' ? 'hidden' : ''}>
-            <SolicitationTab active={activeTab === 'solicitation'} />
           </div>
         )}
 

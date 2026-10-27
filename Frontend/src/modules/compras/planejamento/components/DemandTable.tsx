@@ -1285,6 +1285,15 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       <td className="px-4 py-3 text-right">
                         {demand.semControle ? (
                           <span className="text-zinc-300" title="Sem controle de estoque: não recomendado para compra">-</span>
+                        ) : demand.recommendedQty <= 0 ? (
+                          (demand.qtdAteObjetivo ?? 0) > 0 ? (
+                            <span title="Fora do gatilho: quanto falta para chegar ao objetivo (não entra em Recomendados)">
+                              <span className="font-medium text-zinc-400">{(demand.qtdAteObjetivo ?? 0).toLocaleString('pt-BR')}</span>
+                              <span className="text-xs text-zinc-400 ml-1">{demand.unit}</span>
+                            </span>
+                          ) : (
+                            <span className="text-zinc-300">—</span>
+                          )
                         ) : (
                           <>
                             <span className="font-bold text-zinc-900 text-base">{demand.recommendedQty.toLocaleString('pt-BR')}</span>

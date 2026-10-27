@@ -200,6 +200,10 @@ pub struct DemandResult {
     pub future_stock_forecast: f64,
     pub estimated_duration_days: f64,
     pub recommended_qty: f64,
+    /// Quanto falta para a previsão futura chegar ao objetivo (mesmo cálculo e arredondamento da
+    /// recomendação, mas sem a trava do gatilho). Serve para mostrar em cinza nos itens fora do gatilho.
+    #[serde(default)]
+    pub qtd_ate_objetivo: f64,
     pub urgency: String,
     pub notes: Option<String>,
     pub last_supplier_invoice: Option<String>,
@@ -358,6 +362,23 @@ pub struct CategorySpend {
     pub item_count: i32,
 }
 
+/// Pedido do ERP atribuído a um item de lista de compra (número = `n_registro`).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ErpPedidoAtribuido {
+    pub numero: i32,
+    pub data: Option<String>,
+    pub fornecedor: Option<String>,
+    /// Quantidade do item no pedido do ERP.
+    pub qtd: f64,
+    /// Parte desse pedido que coube a este item de lista.
+    pub qtd_atribuida: f64,
+    pub chegou: f64,
+    pub previsao: Option<String>,
+    /// Pedido não finalizado e ainda com saldo a chegar.
+    pub aberto: bool,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PurchaseRequestBatchItem {
@@ -383,6 +404,9 @@ pub struct PurchaseRequestBatchItem {
     pub erp_pedido_chegou: Option<f64>,
     pub erp_previsao_entrega: Option<String>,
     pub erp_synced_at: Option<String>,
+    /// Todos os pedidos do ERP atribuídos ao item (o mais antigo primeiro).
+    #[serde(default)]
+    pub erp_pedidos: Vec<ErpPedidoAtribuido>,
     pub created_at: String,
 }
 

@@ -1,6 +1,8 @@
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
+use std::collections::HashMap;
 use crate::modules::compras::planejamento::models::*;
+use super::atribuicao_pedidos;
 
 /// Gera o próximo número de lote sequencial amigável, ex: "LOTE #001", "LOTE #002"
 async fn get_next_lote_numero(pool: &PgPool) -> Result<String, String> {
@@ -142,6 +144,9 @@ pub async fn get_purchase_request_batches_query(
 
     let rows = q.fetch_all(&pool).await.map_err(|e| format!("Erro ao buscar lotes: {e}"))?;
 
+    // Atribuição dos pedidos do ERP às listas (uma vez para todas, é FIFO entre listas).
+    let atribuicoes = atribuicao_pedidos::carregar(&pool).await.unwrap_or_default();
+
     let mut batches = Vec::new();
     for r in rows {
         let batch_id: String = r.get("id");
@@ -156,7 +161,7 @@ pub async fn get_purchase_request_batches_query(
         let total_items: i64 = r.get("total_items");
 
         // Busca itens para calcular correlação com ERP em tempo real
-        let items = get_batch_items_with_erp(&pool, &batch_id, &created_at).await.unwrap_or_default();
+        let items = get_batch_items_with_erp(&pool, &batch_id, &atribuicoes).await.unwrap_or_default();
         let items_with_order = items.iter().filter(|i| i.erp_pedido_numero.is_some()).count() as i64;
         let items_completed = items.iter().filter(|i| i.status == "entregue").count() as i64;
 
@@ -191,11 +196,12 @@ pub async fn get_purchase_request_batches_query(
     Ok(batches)
 }
 
-/// Busca os itens de um lote cruzando em tempo real com pedidos de compra do ERP
+/// Busca os itens de um lote com os pedidos do ERP atribuídos a cada um
+/// (regras em `atribuicao_pedidos`).
 async fn get_batch_items_with_erp(
     pool: &PgPool,
     batch_id: &str,
-    batch_created_at: &str,
+    atribuicoes: &HashMap<String, Vec<ErpPedidoAtribuido>>,
 ) -> Result<Vec<PurchaseRequestBatchItem>, String> {
     let rows = sqlx::query(
         "SELECT 
@@ -214,13 +220,6 @@ async fn get_batch_items_with_erp(
     .map_err(|e| format!("Erro ao buscar itens do lote: {e}"))?;
 
     let mut items = Vec::new();
-
-    // Data de corte para pedidos ERP: a partir da data de criação do lote (ou pedidos abertos recentes)
-    let date_cutoff = if batch_created_at.len() >= 10 {
-        &batch_created_at[..10]
-    } else {
-        "2020-01-01"
-    };
 
     for r in rows {
         let id: String = r.get("id");
@@ -247,50 +246,18 @@ async fn get_batch_items_with_erp(
         let erp_synced_at: Option<String> = r.get("erp_synced_at");
         let created_at: String = r.get("created_at");
 
-        let clean_code = item_code.replace('.', "").trim().to_string();
-
-        // Consulta ERP em tempo real para verificar se o pedido foi lançado após a solicitação
-        // Nº do pedido no ERP = n_registro (n_pedido é só a sequência do dia).
-        let erp_match = sqlx::query(
-            "SELECT 
-                po.n_registro AS n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, po.d_previsao, po.c_status
-             FROM purchase_order_items poi
-             JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
-             WHERE (REPLACE(poi.c_referencia, '.', '') = $1 OR poi.c_referencia = $2)
-               AND TRIM(COALESCE(po.c_status, '')) <> 'C'
-               AND (po.d_pedido >= $3 OR poi.n_qtde > poi.n_chegou)
-             ORDER BY po.d_pedido DESC, po.n_registro DESC
-             LIMIT 1"
-        )
-        .bind(&clean_code)
-        .bind(&item_code)
-        .bind(date_cutoff)
-        .fetch_optional(pool)
-        .await
-        .unwrap_or(None);
-
+        let erp_pedidos = atribuicoes.get(&id).cloned().unwrap_or_default();
         let mut item_status = db_status.clone();
 
-        if let Some(erp_row) = erp_match {
-            let p_num: i32 = erp_row.get("n_pedido");
-            let p_date: Option<String> = erp_row.get("d_pedido");
-            let p_fornec: Option<String> = erp_row.get("c_nome_f");
-            let p_qtd: f64 = erp_row.get("n_qtde");
-            let p_chegou: f64 = erp_row.get("n_chegou");
-            let p_prev: Option<String> = erp_row.get("d_previsao");
-
-            erp_pedido_numero = Some(p_num);
-            erp_pedido_data = p_date;
-            erp_fornecedor = p_fornec;
-            erp_pedido_qtd = Some(p_qtd);
-            erp_pedido_chegou = Some(p_chegou);
-            erp_previsao_entrega = p_prev;
-
-            if p_chegou >= quantity_requested || (p_qtd > 0.0 && p_chegou >= p_qtd) {
-                item_status = "entregue".to_string();
-            } else {
-                item_status = "pedido_gerado".to_string();
-            }
+        // Os campos únicos mostram o pedido mais recente atribuído ao item.
+        if let Some(ultimo) = erp_pedidos.last() {
+            erp_pedido_numero = Some(ultimo.numero);
+            erp_pedido_data = ultimo.data.clone();
+            erp_fornecedor = ultimo.fornecedor.clone();
+            erp_pedido_qtd = Some(ultimo.qtd);
+            erp_pedido_chegou = Some(ultimo.chegou);
+            erp_previsao_entrega = ultimo.previsao.clone();
+            item_status = atribuicao_pedidos::situacao_do_item(quantity_requested, &erp_pedidos).to_string();
         }
 
         items.push(PurchaseRequestBatchItem {
@@ -316,6 +283,7 @@ async fn get_batch_items_with_erp(
             erp_pedido_chegou,
             erp_previsao_entrega,
             erp_synced_at,
+            erp_pedidos,
             created_at,
         });
     }
@@ -348,7 +316,8 @@ pub async fn get_purchase_request_batch_detail_query(
     let created_at: String = r.get("created_at");
     let updated_at: String = r.get("updated_at");
 
-    let items = get_batch_items_with_erp(&pool, &batch_id, &created_at).await?;
+    let atribuicoes = atribuicao_pedidos::carregar(&pool).await?;
+    let items = get_batch_items_with_erp(&pool, &batch_id, &atribuicoes).await?;
     let total_items = items.len() as i64;
     let items_with_order = items.iter().filter(|i| i.erp_pedido_numero.is_some()).count() as i64;
     let items_completed = items.iter().filter(|i| i.status == "entregue").count() as i64;
@@ -430,17 +399,18 @@ pub async fn delete_purchase_request_batch_query(
     Ok(())
 }
 
-/// Retorna resumo de todos os itens com solicitações em andamento (últimos 90 dias e não cancelados/entregues)
+/// Retorna resumo de todos os itens com solicitações em andamento (últimos 90 dias e não cancelados/entregues).
+/// O selo "Pedido ERP" só aparece enquanto o pedido atribuído ao item está aberto
+/// (não finalizado e com saldo a chegar); pedido finalizado ou já entregue tira o item do resumo.
 pub async fn get_active_requested_items_summary_query(
     pool: PgPool,
 ) -> Result<Vec<ActiveRequestedItemSummary>, String> {
     let rows = sqlx::query(
         "SELECT 
-            i.item_code, i.item_description, i.quantity_requested,
+            i.id, i.item_code, i.item_description, i.quantity_requested,
             b.id as batch_id, b.lote_numero, b.modulo, b.created_at::text,
             EXTRACT(DAY FROM (CURRENT_TIMESTAMP - b.created_at))::int as days_ago,
-            i.status, i.erp_pedido_numero, i.erp_pedido_data, i.erp_fornecedor,
-            i.erp_pedido_qtd, i.erp_pedido_chegou, i.erp_previsao_entrega
+            i.status
          FROM purchase_request_items i
          JOIN purchase_request_batches b ON i.batch_id = b.id
          WHERE b.status <> 'cancelado' 
@@ -452,9 +422,11 @@ pub async fn get_active_requested_items_summary_query(
     .await
     .map_err(|e| format!("Erro ao consultar itens solicitados ativos: {e}"))?;
 
+    let atribuicoes = atribuicao_pedidos::carregar(&pool).await?;
     let mut result = Vec::new();
 
     for r in rows {
+        let item_id: String = r.get("id");
         let item_code: String = r.get("item_code");
         let item_description: String = r.get("item_description");
         let quantity_requested: f64 = r.get("quantity_requested");
@@ -464,56 +436,27 @@ pub async fn get_active_requested_items_summary_query(
         let created_at: String = r.get("created_at");
         let days_ago: i32 = r.try_get("days_ago").unwrap_or(0);
         let mut status: String = r.get("status");
-        let mut erp_pedido_numero: Option<i32> = r.get("erp_pedido_numero");
-        let mut erp_pedido_data: Option<String> = r.get("erp_pedido_data");
-        let mut erp_fornecedor: Option<String> = r.get("erp_fornecedor");
-        let mut erp_pedido_qtd: Option<f64> = r.get("erp_pedido_qtd");
-        let mut erp_pedido_chegou: Option<f64> = r.get("erp_pedido_chegou");
-        let mut erp_previsao_entrega: Option<String> = r.get("erp_previsao_entrega");
+        let mut erp_pedido_numero: Option<i32> = None;
+        let mut erp_pedido_data: Option<String> = None;
+        let mut erp_fornecedor: Option<String> = None;
+        let mut erp_pedido_qtd: Option<f64> = None;
+        let mut erp_pedido_chegou: Option<f64> = None;
+        let mut erp_previsao_entrega: Option<String> = None;
 
-        // Se ainda não tem pedido gravado, tenta cruzamento com ERP em tempo real
-        if erp_pedido_numero.is_none() {
-            let clean_code = item_code.replace('.', "").trim().to_string();
-            let date_cutoff = if created_at.len() >= 10 { &created_at[..10] } else { "2020-01-01" };
-
-            let erp_match = sqlx::query(
-                "SELECT po.n_registro AS n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, po.d_previsao
-                 FROM purchase_order_items poi
-                 JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
-                 WHERE (REPLACE(poi.c_referencia, '.', '') = $1 OR poi.c_referencia = $2)
-                   AND TRIM(COALESCE(po.c_status, '')) <> 'C'
-                   AND (po.d_pedido >= $3 OR poi.n_qtde > poi.n_chegou)
-                 ORDER BY po.d_pedido DESC, po.n_registro DESC
-                 LIMIT 1"
-            )
-            .bind(&clean_code)
-            .bind(&item_code)
-            .bind(date_cutoff)
-            .fetch_optional(&pool)
-            .await
-            .unwrap_or(None);
-
-            if let Some(erp_row) = erp_match {
-                let p_num: i32 = erp_row.get("n_pedido");
-                let p_date: Option<String> = erp_row.get("d_pedido");
-                let p_fornec: Option<String> = erp_row.get("c_nome_f");
-                let p_qtd: f64 = erp_row.get("n_qtde");
-                let p_chegou: f64 = erp_row.get("n_chegou");
-                let p_prev: Option<String> = erp_row.get("d_previsao");
-
-                erp_pedido_numero = Some(p_num);
-                erp_pedido_data = p_date;
-                erp_fornecedor = p_fornec;
-                erp_pedido_qtd = Some(p_qtd);
-                erp_pedido_chegou = Some(p_chegou);
-                erp_previsao_entrega = p_prev;
-
-                if p_chegou >= quantity_requested || (p_qtd > 0.0 && p_chegou >= p_qtd) {
-                    status = "entregue".to_string();
-                } else {
-                    status = "pedido_gerado".to_string();
-                }
+        let pedidos = atribuicoes.get(&item_id).cloned().unwrap_or_default();
+        if !pedidos.is_empty() {
+            status = atribuicao_pedidos::situacao_do_item(quantity_requested, &pedidos).to_string();
+            // Só o pedido aberto mais recente aparece; sem pedido aberto o item já não está em espera.
+            let Some(aberto) = pedidos.iter().rev().find(|p| p.aberto) else { continue };
+            if status == "entregue" {
+                continue;
             }
+            erp_pedido_numero = Some(aberto.numero);
+            erp_pedido_data = aberto.data.clone();
+            erp_fornecedor = aberto.fornecedor.clone();
+            erp_pedido_qtd = Some(aberto.qtd);
+            erp_pedido_chegou = Some(aberto.chegou);
+            erp_previsao_entrega = aberto.previsao.clone();
         }
 
         result.push(ActiveRequestedItemSummary {

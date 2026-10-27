@@ -6,6 +6,7 @@ mod quotations;
 mod suppliers;
 mod custom_configs;
 mod purchase_lists;
+pub mod atribuicao_pedidos;
 
 pub use categories::*;
 pub use items::*;

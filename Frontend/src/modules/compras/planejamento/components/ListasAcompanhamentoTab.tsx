@@ -7,6 +7,7 @@ import {
   X, Layers, Boxes, Palette, Tag, Package, ExternalLink, Calendar, User, FileText, Settings
 } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
+import { ReportHeader, BotaoAcao, ReportTabs, FilterBar, FiltroSelect, StatusBadge } from '../../../geral/components/ui/ReportKit';
 
 interface ListasAcompanhamentoTabProps {
   active?: boolean;
@@ -100,7 +101,6 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all' }: ListasA
     try {
       const data = await api.getPurchaseLists({
         modulo: moduleFilter === 'ALL' ? undefined : moduleFilter,
-        status: statusFilter === 'ALL' ? undefined : statusFilter,
         search: search.trim() ? search.trim() : undefined,
       });
       setBatches(data);
@@ -115,7 +115,7 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all' }: ListasA
     if (active) {
       loadBatches();
     }
-  }, [active, moduleFilter, statusFilter]);
+  }, [active, moduleFilter]);
 
   // Listen to external updates
   useEffect(() => {
@@ -511,6 +511,7 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all' }: ListasA
 
   const filteredBatches = useMemo(() => {
     return batches.filter(b => {
+      if (statusFilter !== 'ALL' && b.status !== statusFilter) return false;
       if (search.trim()) {
         const q = search.toLowerCase();
         const matchLote = b.loteNumero.toLowerCase().includes(q);
@@ -521,46 +522,24 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all' }: ListasA
       }
       return true;
     });
-  }, [batches, search]);
+  }, [batches, search, statusFilter]);
 
   return (
     <div className="flex flex-col gap-4 h-[calc(100vh-12.25rem)] animate-in fade-in duration-200">
-      {/* Top Header Card */}
-      <div className="bg-white p-4 rounded-xl border border-zinc-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
-        <div className="text-left">
-          <h3 className="font-extrabold text-zinc-900 text-lg flex items-center gap-2">
-            <ClipboardList className="h-5 w-5 text-zinc-800" />
-            Acompanhamento de Solicitações & Lotes de Compras
-          </h3>
-          <p className="text-xs text-zinc-500 mt-0.5">
-            Rastreamento de listas enviadas, status de atendimento e cruzamento automático com pedidos de compra do ERP.
-          </p>
-        </div>
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={() => setShowColumnConfig(!showColumnConfig)}
-            className={cn(
-              "text-xs border px-3 py-2 rounded-lg font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs",
-              showColumnConfig 
-                ? "bg-zinc-900 text-white border-zinc-900" 
-                : "border-zinc-200 text-zinc-700 hover:bg-zinc-50 bg-white"
-            )}
-            title="Escolher quais colunas serão impressas no relatório"
-          >
-            <Settings className="h-3.5 w-3.5" />
-            Configurar Colunas de Impressão
-          </button>
-
-          <button 
-            onClick={loadBatches} 
-            disabled={loading}
-            className="text-xs border border-zinc-200 text-zinc-700 px-3.5 py-2 rounded-lg font-bold hover:bg-zinc-50 flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-            Atualizar
-          </button>
-        </div>
-      </div>
+      <ReportHeader
+        titulo="Acompanhamento de listas de compra"
+        subtitulo="Listas enviadas, status de atendimento e cruzamento com os pedidos de compra do ERP."
+        acoes={
+          <>
+            <BotaoAcao onClick={() => setShowColumnConfig(!showColumnConfig)} title="Escolher quais colunas serão impressas no relatório">
+              <Settings size={13} /> Colunas de impressão
+            </BotaoAcao>
+            <BotaoAcao onClick={loadBatches} disabled={loading}>
+              <RefreshCw size={13} className={cn(loading && 'animate-spin')} /> Atualizar
+            </BotaoAcao>
+          </>
+        }
+      />
 
       {/* Column Customization Panel */}
       {showColumnConfig && (
@@ -602,131 +581,32 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all' }: ListasA
         </div>
       )}
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 shrink-0">
-        <div 
-          onClick={() => setStatusFilter('ALL')}
-          className={cn(
-            "bg-white p-3 rounded-xl border shadow-2xs cursor-pointer transition-all text-left",
-            statusFilter === 'ALL' ? "border-zinc-900 ring-1 ring-zinc-900" : "border-zinc-200 hover:border-zinc-300"
-          )}
-        >
-          <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Total de Lotes</div>
-          <div className="text-xl font-extrabold text-zinc-900 mt-0.5">{kpis.total}</div>
-          <div className="text-[10px] text-zinc-500 mt-0.5">Listas emitidas</div>
-        </div>
+      <ReportTabs
+        ativa={statusFilter}
+        onChange={setStatusFilter}
+        abas={[
+          { id: 'pendente', label: 'Aguardando pedido ERP', contagem: kpis.pendentes },
+          { id: 'parcial', label: 'Parcialmente comprado', contagem: kpis.parciais },
+          { id: 'atendido', label: 'Pedidos lançados', contagem: kpis.atendidos },
+          { id: 'concluido', label: 'Concluídos', contagem: kpis.concluidos },
+          { id: 'ALL', label: 'Todos', contagem: kpis.total },
+        ]}
+      />
 
-        <div 
-          onClick={() => setStatusFilter('pendente')}
-          className={cn(
-            "bg-amber-50/50 p-3 rounded-xl border shadow-2xs cursor-pointer transition-all text-left",
-            statusFilter === 'pendente' ? "border-amber-600 ring-1 ring-amber-600" : "border-amber-200 hover:border-amber-300"
-          )}
-        >
-          <div className="text-[10px] font-bold uppercase tracking-wider text-amber-700 flex items-center gap-1">
-            <Clock className="h-3 w-3" /> Aguardando Pedido ERP
-          </div>
-          <div className="text-xl font-extrabold text-amber-900 mt-0.5">{kpis.pendentes}</div>
-          <div className="text-[10px] text-amber-700 mt-0.5">Sem pedido lançado</div>
-        </div>
-
-        <div 
-          onClick={() => setStatusFilter('parcial')}
-          className={cn(
-            "bg-blue-50/50 p-3 rounded-xl border shadow-2xs cursor-pointer transition-all text-left",
-            statusFilter === 'parcial' ? "border-blue-600 ring-1 ring-blue-600" : "border-blue-200 hover:border-blue-300"
-          )}
-        >
-          <div className="text-[10px] font-bold uppercase tracking-wider text-blue-700 flex items-center gap-1">
-            <RefreshCw className="h-3 w-3" /> Parcialmente Comprado
-          </div>
-          <div className="text-xl font-extrabold text-blue-900 mt-0.5">{kpis.parciais}</div>
-          <div className="text-[10px] text-blue-700 mt-0.5">Parte com pedido ERP</div>
-        </div>
-
-        <div 
-          onClick={() => setStatusFilter('atendido')}
-          className={cn(
-            "bg-teal-50/50 p-3 rounded-xl border shadow-2xs cursor-pointer transition-all text-left",
-            statusFilter === 'atendido' ? "border-teal-600 ring-1 ring-teal-600" : "border-teal-200 hover:border-teal-300"
-          )}
-        >
-          <div className="text-[10px] font-bold uppercase tracking-wider text-teal-700 flex items-center gap-1">
-            <CheckCircle2 className="h-3 w-3" /> Pedidos Lançados
-          </div>
-          <div className="text-xl font-extrabold text-teal-900 mt-0.5">{kpis.atendidos}</div>
-          <div className="text-[10px] text-teal-700 mt-0.5">Todos itens com pedido</div>
-        </div>
-
-        <div 
-          onClick={() => setStatusFilter('concluido')}
-          className={cn(
-            "bg-emerald-50/50 p-3 rounded-xl border shadow-2xs cursor-pointer transition-all text-left",
-            statusFilter === 'concluido' ? "border-emerald-600 ring-1 ring-emerald-600" : "border-emerald-200 hover:border-emerald-300"
-          )}
-        >
-          <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
-            <Package className="h-3 w-3" /> Concluídos
-          </div>
-          <div className="text-xl font-extrabold text-emerald-900 mt-0.5">{kpis.concluidos}</div>
-          <div className="text-[10px] text-emerald-700 mt-0.5">Mercadorias entregues</div>
-        </div>
-      </div>
-
-      {/* Filter bar */}
-      <div className="bg-white p-3 rounded-xl border border-zinc-200 shadow-sm flex flex-wrap items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-2 flex-1 min-w-[260px]">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-            <input
-              type="text"
-              placeholder="Buscar por lote, item, título ou observação..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none"
-            />
-          </div>
-          <span className="text-xs text-zinc-500 font-semibold">{filteredBatches.length} lotes encontrados</span>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Módulo Filter */}
-          <div className="flex items-center gap-1 bg-zinc-100 p-1 rounded-lg">
-            {[
-              { id: 'ALL', label: 'Todos' },
-              { id: 'materia_prima', label: 'Matéria-Prima' },
-              { id: 'embalagens', label: 'Embalagens' },
-              { id: 'coloracao', label: 'Coloração' },
-              { id: 'apoio', label: 'Apoio' },
-            ].map(m => (
-              <button
-                key={m.id}
-                onClick={() => setModuleFilter(m.id)}
-                className={cn(
-                  "px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer",
-                  moduleFilter === m.id ? "bg-white text-zinc-900 shadow-2xs" : "text-zinc-500 hover:text-zinc-900"
-                )}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Status Filter */}
-          <select
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-            className="bg-white border border-zinc-200 text-xs rounded-lg px-2.5 py-1.5 font-bold text-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-900 cursor-pointer"
-          >
-            <option value="ALL">Status: Todos</option>
-            <option value="pendente">Aguardando Pedido ERP</option>
-            <option value="parcial">Parcialmente Comprado</option>
-            <option value="atendido">Todos Pedidos Lançados</option>
-            <option value="concluido">Concluídos</option>
-            <option value="cancelado">Cancelados</option>
-          </select>
-        </div>
-      </div>
+      <FilterBar busca={search} onBusca={setSearch} placeholder="Buscar por lote, título, solicitante ou observação...">
+        <FiltroSelect
+          value={moduleFilter}
+          onChange={setModuleFilter}
+          opcoes={[
+            { valor: 'ALL', rotulo: 'Módulo: Todos' },
+            { valor: 'materia_prima', rotulo: 'Matéria-Prima' },
+            { valor: 'embalagens', rotulo: 'Embalagens' },
+            { valor: 'coloracao', rotulo: 'Coloração' },
+            { valor: 'apoio', rotulo: 'Apoio' },
+          ]}
+        />
+        <span className="text-xs text-zinc-500 font-semibold">{filteredBatches.length} lotes</span>
+      </FilterBar>
 
       {/* Main Table Panel */}
       <div className="flex-1 bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col min-h-0">
@@ -822,29 +702,19 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all' }: ListasA
 
                         <div className="mt-1.5 flex items-center gap-2">
                           {batch.status === 'pendente' && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                              <Clock className="h-3 w-3" /> Aguardando Pedido no ERP
-                            </span>
+                            <StatusBadge variante="aguardando"><Clock size={11} /> Aguardando pedido no ERP</StatusBadge>
                           )}
                           {batch.status === 'parcial' && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200">
-                              <RefreshCw className="h-3 w-3" /> Parcialmente Lançado ({batch.itemsWithOrder}/{batch.totalItems})
-                            </span>
+                            <StatusBadge variante="ordem"><RefreshCw size={11} /> Parcialmente lançado ({batch.itemsWithOrder}/{batch.totalItems})</StatusBadge>
                           )}
                           {batch.status === 'atendido' && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-200">
-                              <CheckCircle2 className="h-3 w-3" /> Pedidos ERP Lançados
-                            </span>
+                            <StatusBadge variante="saudavel"><CheckCircle2 size={11} /> Pedidos ERP lançados</StatusBadge>
                           )}
                           {batch.status === 'concluido' && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-                              <Package className="h-3 w-3" /> Concluído / Entregue
-                            </span>
+                            <StatusBadge variante="abundante"><Package size={11} /> Concluído / entregue</StatusBadge>
                           )}
                           {batch.status === 'cancelado' && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-zinc-100 text-zinc-600 border border-zinc-200">
-                              <X className="h-3 w-3" /> Cancelado
-                            </span>
+                            <StatusBadge variante="descontinuado"><X size={11} /> Cancelado</StatusBadge>
                           )}
 
                           {batch.observacoes && (
@@ -955,7 +825,7 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all' }: ListasA
                                     <th className="py-2 px-3 text-right">Média Mês</th>
                                     <th className="py-2 px-3 text-center">Meta</th>
                                     <th className="py-2 px-3 text-right">Qtd Solicitada</th>
-                                    <th className="py-2 px-3">Status no ERP</th>
+                                    <th className="py-2 px-3">Pedidos no ERP</th>
                                     <th className="py-2 px-3">Previsão / Fornecedor</th>
                                   </tr>
                                 </thead>
@@ -988,26 +858,28 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all' }: ListasA
                                           {item.quantityRequested.toLocaleString('pt-BR')} <span className="text-[9px] text-zinc-400 font-sans">{item.unit}</span>
                                         </td>
 
-                                        {/* Status ERP */}
+                                        {/* Pedidos do ERP atribuídos ao item */}
                                         <td className="py-2.5 px-3">
-                                          {hasOrder ? (
-                                            <div>
-                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200">
-                                                <Package className="h-3 w-3" /> Pedido ERP #{item.erpPedidoNumero}
-                                              </span>
-                                              <div className="text-[10px] text-zinc-500 mt-0.5">
-                                                Qtd Comprada: <strong>{item.erpPedidoQtd?.toLocaleString('pt-BR')}</strong> {item.unit}
-                                                {item.erpPedidoChegou !== undefined && item.erpPedidoChegou !== null && item.erpPedidoChegou > 0 && (
-                                                  <span className="text-emerald-700 ml-1">
-                                                    (Entregue: {item.erpPedidoChegou.toLocaleString('pt-BR')})
+                                          {(item.erpPedidos ?? []).length > 0 ? (
+                                            <div className="space-y-1.5">
+                                              {(item.erpPedidos ?? []).map(ped => (
+                                                <div key={`${ped.numero}-${ped.qtd}-${ped.qtdAtribuida}`} className="text-[10px] text-zinc-600">
+                                                  <StatusBadge variante={ped.aberto ? 'saudavel' : 'abundante'} title={ped.aberto ? 'Pedido aberto' : 'Pedido finalizado ou já recebido'}>
+                                                    <Package size={11} /> Pedido ERP #{ped.numero}
+                                                  </StatusBadge>
+                                                  <span className="ml-1.5">
+                                                    {ped.data ? `${ped.data.slice(0, 10).split('-').reverse().join('/')} · ` : ''}
+                                                    <strong>{ped.qtd.toLocaleString('pt-BR')}</strong> {item.unit}
+                                                    {ped.qtdAtribuida < ped.qtd - 1e-6 && (
+                                                      <span className="text-zinc-400"> (parte: {ped.qtdAtribuida.toLocaleString('pt-BR')})</span>
+                                                    )}
+                                                    <span className={ped.chegou > 0 ? 'text-emerald-700' : 'text-zinc-400'}> · chegou {ped.chegou.toLocaleString('pt-BR')}</span>
                                                   </span>
-                                                )}
-                                              </div>
+                                                </div>
+                                              ))}
                                             </div>
                                           ) : (
-                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                                              <Clock className="h-3 w-3" /> Aguardando Pedido no ERP
-                                            </span>
+                                            <StatusBadge variante="aguardando"><Clock size={11} /> Aguardando pedido no ERP</StatusBadge>
                                           )}
                                         </td>
 

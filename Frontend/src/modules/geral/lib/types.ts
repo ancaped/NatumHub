@@ -198,6 +198,8 @@ export interface DemandResult {
   futureStockForecast: number;
   estimatedDurationDays: number;
   recommendedQty: number;
+  /** Quanto falta para chegar ao objetivo (mostrado em cinza nos itens fora do gatilho). */
+  qtdAteObjetivo?: number;
   urgency: 'critical' | 'warning' | 'ok';
   notes: string | null;
   lastSupplierInvoice?: string;
@@ -291,6 +293,17 @@ export interface CategorySpend {
   itemCount: number;
 }
 
+export interface ErpPedidoAtribuido {
+  numero: number;
+  data?: string | null;
+  fornecedor?: string | null;
+  qtd: number;
+  qtdAtribuida: number;
+  chegou: number;
+  previsao?: string | null;
+  aberto: boolean;
+}
+
 export interface PurchaseRequestBatchItem {
   id: string;
   batchId: string;
@@ -314,6 +327,8 @@ export interface PurchaseRequestBatchItem {
   erpPedidoChegou?: number | null;
   erpPrevisaoEntrega?: string | null;
   erpSyncedAt?: string | null;
+  /** Pedidos do ERP atribuídos ao item (mais antigo primeiro). */
+  erpPedidos?: ErpPedidoAtribuido[];
   createdAt: string;
 }
 

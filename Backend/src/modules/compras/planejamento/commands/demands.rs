@@ -883,6 +883,14 @@ fn build_demand_result(
         }
     };
 
+    // Fora do gatilho a recomendação é 0; este campo mostra o quanto falta até o objetivo.
+    let qtd_ate_objetivo = if daily_avg <= 0.0 {
+        0.0
+    } else {
+        let raw = target_stock - future_stock_forecast;
+        if raw > 0.0 { raw.round() } else { 0.0 }
+    };
+
     let urgency = if estimated_duration_days < (trigger_days as f64) {
         "critical".to_string()
     } else if estimated_duration_days < (target_days_val as f64) {
@@ -914,6 +922,7 @@ fn build_demand_result(
         future_stock_forecast,
         estimated_duration_days,
         recommended_qty,
+        qtd_ate_objetivo,
         urgency,
         notes,
         last_supplier_invoice,
@@ -1247,6 +1256,7 @@ pub async fn get_demands_query(
                 item.sem_controle = true;
                 item.classificacao = Some(classe.clone());
                 item.recommended_qty = 0.0;
+                item.qtd_ate_objetivo = 0.0;
             } else if let Some(para) = trocados.get(&chave) {
                 item.classificacao = Some("trocado".to_string());
                 item.classificacao_detalhe = Some(para.clone());
