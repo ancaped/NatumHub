@@ -2,6 +2,7 @@ pub mod commands;
 pub mod handlers;
 pub mod models;
 pub mod parser;
+pub mod vinculo;
 
 pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
     axum::Router::new()
@@ -23,14 +24,14 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
             "Lista pedidos de compra do ERP.",
             "/api/compras/pedidos",
             vec![
-                param("search", "query", "texto", false, "Parte do fornecedor ou do número do pedido."),
+                param("search", "query", "texto", false, "Parte do fornecedor, do número do pedido ou do código/descrição de um item."),
                 param("status", "query", "texto", false, "Status do pedido no ERP."),
             ],
         ),
         Acao::leitura(
             "detalhar_pedido_compra",
             "compras_pedidos",
-            "Cabeçalho e itens de um pedido de compra.",
+            "Cabeçalho, itens e notas recebidas (NFs vinculadas por fornecedor + insumo) de um pedido de compra.",
             "/api/compras/pedidos/:id",
             vec![param("id", "caminho", "inteiro", true, "Número de registro do pedido (n_registro).")],
         ),
@@ -40,14 +41,14 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
             "Lista notas fiscais de entrada agrupadas por nota.",
             "/api/compras/notas",
             vec![
-                param("search", "query", "texto", false, "Parte do fornecedor ou do número da nota."),
+                param("search", "query", "texto", false, "Parte do fornecedor, do número da nota ou do código/descrição de um item."),
                 param("supplier_id", "query", "texto", false, "Código do fornecedor."),
             ],
         ),
         Acao::leitura(
             "detalhar_nota_compra",
             "compras_notas",
-            "Itens de uma nota fiscal de entrada.",
+            "Itens de uma nota fiscal de entrada e o pedido vinculado a cada item.",
             "/api/compras/notas/:number",
             vec![
                 param("number", "caminho", "texto", true, "Número da nota."),

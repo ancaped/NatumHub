@@ -32,6 +32,20 @@ pub struct PurchaseOrderResponse {
     pub d_previsao: Option<String>,
     pub c_email: Option<String>,
     pub m_observac: Option<String>,
+    /// Item que casou com a busca (só quando a busca é por item): "código descrição".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item_encontrado: Option<String>,
+}
+
+#[derive(serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct NotaVinculadaResponse {
+    pub invoice_number: String,
+    pub supplier_id: String,
+    pub invoice_date: Option<String>,
+    pub item_code: String,
+    pub quantidade: f64,
+    pub item_pedido_id: i32,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -57,6 +71,7 @@ pub struct PurchaseOrderDetailResponse {
     #[serde(flatten)]
     pub header: PurchaseOrderResponse,
     pub items: Vec<PurchaseOrderItemResponse>,
+    pub notas: Vec<NotaVinculadaResponse>,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -71,6 +86,12 @@ pub struct ProductLoteInfo {
 
 use crate::models::PendingPurchaseOrderInfo;
 
+/// Padrão ILIKE da busca; a segunda versão ignora os pontos (código `9.15.022` ou `915022`).
+fn padroes_busca(search: &str) -> (String, String) {
+    let t = search.trim();
+    (format!("%{}%", t), format!("%{}%", t.replace('.', "")))
+}
+
 // GET /api/compras/pedidos
 pub async fn list_purchase_orders(
     State(state): State<Arc<AppState>>,
@@ -78,10 +99,27 @@ pub async fn list_purchase_orders(
 ) -> impl IntoResponse {
     let pool = state.db.pool().clone();
 
-    // Nº do pedido no ERP = n_registro (n_pedido é só a sequência do dia).
-    let mut query = "SELECT n_registro, n_pedido, d_pedido, n_cod_fornec, c_nome_f, c_usuario, c_status, c_prazo_pgto, c_prev_entrega, n_valor, d_previsao, c_email, m_observac FROM purchase_orders WHERE 1=1".to_string();
+    let busca = params.search.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let mut args: Vec<String> = Vec::new();
     let mut idx = 1;
+    // Com busca: a linha traz o primeiro item do pedido que casou (por código ou descrição).
+    let (col_item, filtro_busca) = match busca {
+        Some(b) => {
+            let (p, p_sem) = padroes_busca(b);
+            args.push(p);
+            args.push(p_sem);
+            idx = 3;
+            let casa = "(poi.c_referencia ILIKE $1 OR REPLACE(poi.c_referencia, '.', '') ILIKE $2 OR poi.c_descricao ILIKE $1)";
+            (
+                format!("(SELECT poi.c_referencia || ' ' || COALESCE(poi.c_descricao, '') FROM purchase_order_items poi WHERE poi.n_pedido_registro = purchase_orders.n_registro AND {casa} ORDER BY poi.id LIMIT 1)"),
+                format!(" AND (c_nome_f ILIKE $1 OR CAST(n_registro AS TEXT) ILIKE $1 OR EXISTS (SELECT 1 FROM purchase_order_items poi WHERE poi.n_pedido_registro = purchase_orders.n_registro AND {casa}))"),
+            )
+        }
+        None => ("NULL::text".to_string(), String::new()),
+    };
+
+    // Nº do pedido no ERP = n_registro (n_pedido é só a sequência do dia).
+    let mut query = format!("SELECT n_registro, n_pedido, d_pedido, n_cod_fornec, c_nome_f, c_usuario, c_status, c_prazo_pgto, c_prev_entrega, n_valor, d_previsao, c_email, m_observac, {col_item} AS item_encontrado FROM purchase_orders WHERE 1=1");
 
     if let Some(ref status) = params.status {
         if !status.is_empty() && status != "ALL" {
@@ -104,24 +142,11 @@ pub async fn list_purchase_orders(
                 _ => {
                     query.push_str(&format!(" AND c_status = ${}", idx));
                     args.push(status.clone());
-                    idx += 1;
                 }
             }
         }
     }
-
-    if let Some(ref search) = params.search {
-        if !search.trim().is_empty() {
-            query.push_str(&format!(
-                " AND (c_nome_f LIKE ${} OR CAST(n_registro AS TEXT) LIKE ${})",
-                idx,
-                idx + 1
-            ));
-            let like_arg = format!("%{}%", search.trim());
-            args.push(like_arg.clone());
-            args.push(like_arg);
-        }
-    }
+    query.push_str(&filtro_busca);
 
     query.push_str(" ORDER BY d_pedido DESC, n_registro DESC");
 
@@ -132,24 +157,7 @@ pub async fn list_purchase_orders(
 
     match q.fetch_all(&pool).await {
         Ok(rows) => {
-            let list: Vec<PurchaseOrderResponse> = rows
-                .iter()
-                .map(|row| PurchaseOrderResponse {
-                    n_registro: row.get(0),
-                    n_pedido: row.get(1),
-                    d_pedido: row.get(2),
-                    n_cod_fornec: row.get(3),
-                    c_nome_f: row.get(4),
-                    c_usuario: row.get(5),
-                    c_status: row.get(6),
-                    c_prazo_pgto: row.get(7),
-                    c_prev_entrega: row.get(8),
-                    n_valor: row.get(9),
-                    d_previsao: row.get(10),
-                    c_email: row.get(11),
-                    m_observac: row.get(12),
-                })
-                .collect();
+            let list: Vec<PurchaseOrderResponse> = rows.iter().map(linha_pedido).collect();
             (StatusCode::OK, Json(list)).into_response()
         }
         Err(e) => (
@@ -157,6 +165,25 @@ pub async fn list_purchase_orders(
             Json(json!({ "error": e.to_string() })),
         )
             .into_response(),
+    }
+}
+
+fn linha_pedido(row: &sqlx::postgres::PgRow) -> PurchaseOrderResponse {
+    PurchaseOrderResponse {
+        n_registro: row.get(0),
+        n_pedido: row.get(1),
+        d_pedido: row.get(2),
+        n_cod_fornec: row.get(3),
+        c_nome_f: row.get(4),
+        c_usuario: row.get(5),
+        c_status: row.get(6),
+        c_prazo_pgto: row.get(7),
+        c_prev_entrega: row.get(8),
+        n_valor: row.get(9),
+        d_previsao: row.get(10),
+        c_email: row.get(11),
+        m_observac: row.get(12),
+        item_encontrado: row.get(13),
     }
 }
 
@@ -168,28 +195,14 @@ pub async fn get_purchase_order_detail(
     let pool = state.db.pool().clone();
 
     let header_res = sqlx::query(
-        "SELECT n_registro, n_pedido, d_pedido, n_cod_fornec, c_nome_f, c_usuario, c_status, c_prazo_pgto, c_prev_entrega, n_valor, d_previsao, c_email, m_observac FROM purchase_orders WHERE n_registro = $1",
+        "SELECT n_registro, n_pedido, d_pedido, n_cod_fornec, c_nome_f, c_usuario, c_status, c_prazo_pgto, c_prev_entrega, n_valor, d_previsao, c_email, m_observac, NULL::text FROM purchase_orders WHERE n_registro = $1",
     )
     .bind(id)
     .fetch_optional(&pool)
     .await;
 
     let header = match header_res {
-        Ok(Some(row)) => PurchaseOrderResponse {
-            n_registro: row.get(0),
-            n_pedido: row.get(1),
-            d_pedido: row.get(2),
-            n_cod_fornec: row.get(3),
-            c_nome_f: row.get(4),
-            c_usuario: row.get(5),
-            c_status: row.get(6),
-            c_prazo_pgto: row.get(7),
-            c_prev_entrega: row.get(8),
-            n_valor: row.get(9),
-            d_previsao: row.get(10),
-            c_email: row.get(11),
-            m_observac: row.get(12),
-        },
+        Ok(Some(row)) => linha_pedido(&row),
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
@@ -233,7 +246,36 @@ pub async fn get_purchase_order_detail(
         Err(_) => Vec::new(),
     };
 
-    (StatusCode::OK, Json(PurchaseOrderDetailResponse { header, items })).into_response()
+    // Notas recebidas: NFs do mesmo fornecedor e insumo vinculadas aos itens deste pedido.
+    let notas = match super::vinculo::carregar(&pool).await {
+        Ok(carga) => {
+            let ids: std::collections::HashSet<i32> = items.iter().map(|i| i.id).collect();
+            let mut v: Vec<NotaVinculadaResponse> = carga
+                .vinculos
+                .iter()
+                .filter(|l| ids.contains(&l.item_pedido_id))
+                .map(|l| {
+                    let nf = &carga.nfs[l.chave];
+                    NotaVinculadaResponse {
+                        invoice_number: nf.invoice_number.clone(),
+                        supplier_id: nf.supplier_id.clone(),
+                        invoice_date: nf.data.map(|d| d.format("%Y-%m-%d").to_string()),
+                        item_code: nf.item_code.clone(),
+                        quantidade: l.quantidade,
+                        item_pedido_id: l.item_pedido_id,
+                    }
+                })
+                .collect();
+            v.sort_by(|a, b| a.invoice_date.cmp(&b.invoice_date).then(a.invoice_number.cmp(&b.invoice_number)));
+            v
+        }
+        Err(e) => {
+            eprintln!("[compras] vínculo NF x pedido indisponível: {e}");
+            Vec::new()
+        }
+    };
+
+    (StatusCode::OK, Json(PurchaseOrderDetailResponse { header, items, notas })).into_response()
 }
 
 // ===== NOTAS FISCAIS HANDLERS =====
@@ -253,6 +295,22 @@ pub struct InvoiceHeaderResponse {
     pub supplier_name: Option<String>,
     pub total_value: f64,
     pub items_count: i32,
+    /// Item que casou com a busca (só quando a busca é por item): "código descrição".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item_encontrado: Option<String>,
+    /// Nº de registro dos pedidos vinculados aos itens da nota.
+    pub pedidos: Vec<i32>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VinculoItemNotaResponse {
+    pub item_id: String,
+    pub n_registro: i32,
+    pub d_pedido: Option<String>,
+    pub qtde_pedida: f64,
+    pub chegou: f64,
+    pub quantidade: f64,
 }
 
 #[derive(serde::Serialize)]
@@ -283,6 +341,8 @@ pub struct InvoiceDetailResponse {
     pub fte_cfop: Option<String>,
     pub fte_natureza: Option<String>,
     pub fte_icms_value: f64,
+    /// Pedido(s) vinculado(s) a cada item (`item_id` = id do item da nota); item sem entrada = sem pedido.
+    pub vinculos: Vec<VinculoItemNotaResponse>,
 }
 
 #[derive(serde::Deserialize)]
@@ -297,36 +357,36 @@ pub async fn list_invoices(
 ) -> impl IntoResponse {
     let pool = state.db.pool().clone();
 
-    let mut query = "
-        SELECT invoice_number, invoice_date, supplier_id, supplier_name, SUM(total_value) as total_val, COUNT(*) as items_count 
-        FROM invoices 
-        WHERE 1=1
-    "
-    .to_string();
-
+    let busca = params.search.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let mut args: Vec<String> = Vec::new();
     let mut idx = 1;
+
+    let (col_item, filtro_busca) = match busca {
+        Some(b) => {
+            let (p, p_sem) = padroes_busca(b);
+            args.push(p);
+            args.push(p_sem);
+            idx = 3;
+            let casa = "(item_code ILIKE $1 OR REPLACE(item_code, '.', '') ILIKE $2 OR description ILIKE $1)";
+            (
+                format!("MIN(CASE WHEN {casa} THEN item_code || ' ' || COALESCE(description, '') END)"),
+                format!(" AND (supplier_name ILIKE $1 OR invoice_number ILIKE $1 OR EXISTS (SELECT 1 FROM invoices x WHERE x.invoice_number = invoices.invoice_number AND x.supplier_id IS NOT DISTINCT FROM invoices.supplier_id AND (x.item_code ILIKE $1 OR REPLACE(x.item_code, '.', '') ILIKE $2 OR x.description ILIKE $1)))"),
+            )
+        }
+        None => ("NULL::text".to_string(), String::new()),
+    };
+
+    let mut query = format!(
+        "SELECT invoice_number, invoice_date, supplier_id, supplier_name, SUM(total_value) as total_val, COUNT(*) as items_count, {col_item} AS item_encontrado FROM invoices WHERE 1=1"
+    );
 
     if let Some(ref supplier_id) = params.supplier_id {
         if !supplier_id.is_empty() {
             query.push_str(&format!(" AND supplier_id = ${}", idx));
             args.push(supplier_id.clone());
-            idx += 1;
         }
     }
-
-    if let Some(ref search) = params.search {
-        if !search.trim().is_empty() {
-            query.push_str(&format!(
-                " AND (supplier_name LIKE ${} OR invoice_number LIKE ${})",
-                idx,
-                idx + 1
-            ));
-            let like_arg = format!("%{}%", search.trim());
-            args.push(like_arg.clone());
-            args.push(like_arg);
-        }
-    }
+    query.push_str(&filtro_busca);
 
     query.push_str(" GROUP BY invoice_number, supplier_id, supplier_name, invoice_date ORDER BY invoice_date DESC, invoice_number DESC");
 
@@ -337,15 +397,36 @@ pub async fn list_invoices(
 
     match q.fetch_all(&pool).await {
         Ok(rows) => {
+            // Pedidos vinculados por (nota, fornecedor).
+            let mut por_nota: std::collections::HashMap<(String, String), std::collections::BTreeSet<i32>> = Default::default();
+            match super::vinculo::carregar(&pool).await {
+                Ok(carga) => {
+                    for l in &carga.vinculos {
+                        let nf = &carga.nfs[l.chave];
+                        por_nota.entry((nf.invoice_number.clone(), nf.supplier_id.clone())).or_default().insert(l.n_registro);
+                    }
+                }
+                Err(e) => eprintln!("[compras] vínculo NF x pedido indisponível: {e}"),
+            }
             let list: Vec<InvoiceHeaderResponse> = rows
                 .iter()
-                .map(|row| InvoiceHeaderResponse {
-                    invoice_number: row.get(0),
-                    invoice_date: row.get(1),
-                    supplier_id: row.get(2),
-                    supplier_name: row.get(3),
-                    total_value: row.get(4),
-                    items_count: crate::core::pg_row::pg_i32(row, 5),
+                .map(|row| {
+                    let invoice_number: String = row.get(0);
+                    let supplier_id: Option<String> = row.get(2);
+                    let pedidos = por_nota
+                        .get(&(invoice_number.clone(), supplier_id.clone().unwrap_or_default().trim().to_string()))
+                        .map(|s| s.iter().copied().collect())
+                        .unwrap_or_default();
+                    InvoiceHeaderResponse {
+                        invoice_number,
+                        invoice_date: row.get(1),
+                        supplier_id,
+                        supplier_name: row.get(3),
+                        total_value: row.get(4),
+                        items_count: crate::core::pg_row::pg_i32(row, 5),
+                        item_encontrado: row.get(6),
+                        pedidos,
+                    }
                 })
                 .collect();
             (StatusCode::OK, Json(list)).into_response()
@@ -447,6 +528,35 @@ pub async fn get_invoice_detail(
     let icms_value: f64 = items.iter().map(|it| it.icms_value).sum();
     let ipi_value: f64 = items.iter().map(|it| it.ipi_value).sum();
 
+    let vinculos = match super::vinculo::carregar(&pool).await {
+        Ok(carga) => {
+            let ids: std::collections::HashSet<&str> = items.iter().map(|i| i.id.as_str()).collect();
+            carga
+                .vinculos
+                .iter()
+                .filter_map(|l| {
+                    let nf = &carga.nfs[l.chave];
+                    if !ids.contains(nf.invoice_id.as_str()) {
+                        return None;
+                    }
+                    let p = carga.pedidos.get(&l.item_pedido_id)?;
+                    Some(VinculoItemNotaResponse {
+                        item_id: nf.invoice_id.clone(),
+                        n_registro: p.n_registro,
+                        d_pedido: p.data.map(|d| d.format("%Y-%m-%d").to_string()),
+                        qtde_pedida: p.qtde,
+                        chegou: p.chegou,
+                        quantidade: l.quantidade,
+                    })
+                })
+                .collect()
+        }
+        Err(e) => {
+            eprintln!("[compras] vínculo NF x pedido indisponível: {e}");
+            Vec::new()
+        }
+    };
+
     let detail = InvoiceDetailResponse {
         invoice_number: first.invoice_number.clone(),
         invoice_date: first.invoice_date.clone(),
@@ -473,6 +583,7 @@ pub async fn get_invoice_detail(
         fte_cfop: first.fte_cfop.clone(),
         fte_natureza: first.fte_natureza.clone(),
         fte_icms_value: first.fte_icms_value,
+        vinculos,
     };
 
     (StatusCode::OK, Json(detail)).into_response()

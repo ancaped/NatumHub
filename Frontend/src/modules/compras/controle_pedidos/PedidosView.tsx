@@ -1,14 +1,11 @@
 import { apiFetch } from '../../geral/lib/http';
-import React, { useState, useEffect, useMemo } from 'react';
-import {
-  ArrowLeft, Search, ClipboardList, RefreshCw, Calendar, Package,
-  User, FileText, ChevronRight, CheckCircle2, Clock, AlertTriangle,
-  ArrowUpRight, ArrowDownRight, Truck, DollarSign, Hash, Mail, Info, X
-} from 'lucide-react';
-import { cn } from '../../geral/lib/utils';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
 import Drawer from '../../geral/components/ui/Drawer';
-
+import {
+  ReportHeader, ReportTabs, FilterBar, StatusBadge, TabelaPainel, BotaoAcao, type VarianteBadge,
+} from '../../geral/components/ui/ReportKit';
 
 interface PedidosViewProps {
   onBackToHub: () => void;
@@ -28,6 +25,7 @@ interface PurchaseOrder {
   dPrevisao: string | null;
   cEmail: string | null;
   mObservac: string | null;
+  itemEncontrado?: string | null;
 }
 
 interface PurchaseOrderItem {
@@ -45,431 +43,267 @@ interface PurchaseOrderItem {
   cChegada: string | null;
 }
 
-interface PurchaseOrderDetail extends PurchaseOrder {
-  items: PurchaseOrderItem[];
+interface NotaVinculada {
+  invoiceNumber: string;
+  supplierId: string;
+  invoiceDate: string | null;
+  itemCode: string;
+  quantidade: number;
+  itemPedidoId: number;
 }
 
-type StatusFilter = 'ALL' | 'ABERTO' | 'PARCIAL' | 'FECHADO' | 'CANCELADO' | 'ATRASADO';
+interface PurchaseOrderDetail extends PurchaseOrder {
+  items: PurchaseOrderItem[];
+  notas: NotaVinculada[];
+}
+
+type Classe = 'ABERTO' | 'PARCIAL' | 'ATRASADO' | 'FECHADO' | 'CANCELADO' | 'OUTRO';
+type Aba = 'ABERTO' | 'PARCIAL' | 'ATRASADO' | 'FECHADO' | 'ALL';
+
+const classeDe = (status: string | null): Classe => {
+  const s = (status || '').toUpperCase().trim();
+  if (s === 'ABERTO' || s === 'A' || s.includes('ABERT')) return 'ABERTO';
+  if (s === 'PARCIAL' || s === 'P' || s.includes('PARCI')) return 'PARCIAL';
+  if (s === '!' || s.includes('ATRAS')) return 'ATRASADO';
+  if (s === 'CANCELADO' || s === 'C' || s.includes('CANCEL')) return 'CANCELADO';
+  if (s === 'FECHADO' || s === 'F' || s === 'T' || s.includes('FECH') || s.includes('CONCLU') || s.includes('TOTAL')) return 'FECHADO';
+  return 'OUTRO';
+};
+
+const BADGE: Record<Classe, { label: string; variante: VarianteBadge }> = {
+  ABERTO: { label: 'Aberto', variante: 'aguardando' },
+  PARCIAL: { label: 'Parcial', variante: 'ordem' },
+  ATRASADO: { label: 'Atrasado', variante: 'critico' },
+  FECHADO: { label: 'Fechado', variante: 'saudavel' },
+  CANCELADO: { label: 'Cancelado', variante: 'descontinuado' },
+  OUTRO: { label: 'Indefinido', variante: 'descontinuado' },
+};
+
+const fmtData = (d?: string | null) => (d ? d.slice(0, 10).split('-').reverse().join('/') : '—');
+const fmtMoeda = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const fmtNum = (n: number) => Number(n ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+const vazio: React.CSSProperties = { padding: 20, textAlign: 'center', color: 'hsl(var(--text-secondary-hsl))' };
 
 export default function PedidosView({ onBackToHub }: PedidosViewProps) {
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+  const [aba, setAba] = useState<Aba>('ABERTO');
   const globalNav = useGlobalNavActive();
 
-  // Detail drawer
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrderDetail | null>(null);
   const [drawerLoading, setDrawerLoading] = useState(false);
 
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async (termo: string) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (statusFilter !== 'ALL') params.set('status', statusFilter);
-      if (search.trim()) params.set('search', search.trim());
+      if (termo.trim()) params.set('search', termo.trim());
       const res = await apiFetch(`/compras/pedidos?${params.toString()}`);
-      if (res.ok) {
-        setOrders(await res.json());
-      }
+      if (res.ok) setOrders(await res.json());
     } catch (e) {
-      console.error("Erro ao carregar pedidos:", e);
+      console.error('Erro ao carregar pedidos:', e);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadOrders();
-    (window as any).__current_page__ = "Módulo de Compras > Controle de Pedidos";
-  }, [statusFilter]);
+    (window as any).__current_page__ = 'Módulo de Compras > Controle de Pedidos';
+  }, []);
 
-  // Debounce search
+  // A busca vai ao servidor (acha também por código/descrição do item); as abas filtram na tela.
   useEffect(() => {
-    const timer = setTimeout(() => { loadOrders(); }, 350);
+    const timer = setTimeout(() => { loadOrders(search); }, search ? 350 : 0);
     return () => clearTimeout(timer);
-  }, [search]);
+  }, [search, loadOrders]);
 
   const handleOpenDetail = async (nRegistro: number) => {
     setDrawerLoading(true);
     setSelectedOrder(null);
     try {
       const res = await apiFetch(`/compras/pedidos/${nRegistro}`);
-      if (res.ok) {
-        const data = await res.json();
-        setSelectedOrder(data);
-      }
+      if (res.ok) setSelectedOrder(await res.json());
     } catch (e) {
-      console.error("Erro ao carregar detalhe do pedido:", e);
+      console.error('Erro ao carregar detalhe do pedido:', e);
     } finally {
       setDrawerLoading(false);
     }
   };
 
-  const formatCurrency = (val: number) =>
-    val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-
-  const formatDate = (d: string | null) => {
-    if (!d) return '-';
-    try {
-      const date = new Date(d);
-      return date.toLocaleDateString('pt-BR');
-    } catch {
-      return d;
+  const contagem = useMemo(() => {
+    const c = { ABERTO: 0, PARCIAL: 0, ATRASADO: 0, FECHADO: 0, ALL: orders.length };
+    for (const o of orders) {
+      const k = classeDe(o.cStatus);
+      if (k === 'ABERTO' || k === 'PARCIAL' || k === 'ATRASADO' || k === 'FECHADO') c[k] += 1;
     }
-  };
-
-  const getStatusBadge = (status: string | null) => {
-    const s = (status || '').toUpperCase().trim();
-    if (s === 'ABERTO' || s === 'A' || s.includes('ABERT')) {
-      return { label: 'Aberto', className: 'bg-blue-50 text-blue-700 border-blue-200', icon: Clock };
-    }
-    if (s === 'PARCIAL' || s === 'P' || s.includes('PARCI')) {
-      return { label: 'Parcial', className: 'bg-amber-50 text-amber-700 border-amber-200', icon: AlertTriangle };
-    }
-    if (s === 'FECHADO' || s === 'F' || s === 'T' || s.includes('FECH') || s.includes('CONCLU') || s.includes('TOTAL')) {
-      return { label: 'Fechado', className: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: CheckCircle2 };
-    }
-    if (s === '!' || s.includes('ATRAS')) {
-      return { label: 'Atrasado', className: 'bg-orange-50 text-orange-700 border-orange-200', icon: Clock };
-    }
-    if (s === 'CANCELADO' || s === 'C' || s.includes('CANCEL')) {
-      return { label: 'Cancelado', className: 'bg-rose-50 text-rose-700 border-rose-200', icon: X };
-    }
-    return { label: status || 'Indefinido', className: 'bg-zinc-50 text-zinc-600 border-zinc-200', icon: Info };
-  };
-
-  // Summary stats
-  const stats = useMemo(() => {
-    const totalOrders = orders.length;
-    const totalValue = orders.reduce((acc, o) => acc + (o.nValor || 0), 0);
-    const abertos = orders.filter(o => {
-      const s = (o.cStatus || '').toUpperCase();
-      return s === 'ABERTO' || s === 'A' || s.includes('ABERT');
-    }).length;
-    const parciais = orders.filter(o => {
-      const s = (o.cStatus || '').toUpperCase();
-      return s === 'PARCIAL' || s === 'P' || s.includes('PARCI');
-    }).length;
-    return { totalOrders, totalValue, abertos, parciais };
+    return c;
   }, [orders]);
 
+  const visiveis = useMemo(
+    () => (aba === 'ALL' ? orders : orders.filter((o) => classeDe(o.cStatus) === aba)),
+    [orders, aba],
+  );
+
+  const abas = [
+    { id: 'ABERTO', label: 'Em aberto', contagem: contagem.ABERTO },
+    { id: 'PARCIAL', label: 'Parcial', contagem: contagem.PARCIAL },
+    { id: 'ATRASADO', label: 'Atrasados', contagem: contagem.ATRASADO },
+    { id: 'FECHADO', label: 'Concluídos', contagem: contagem.FECHADO },
+    { id: 'ALL', label: 'Todos', contagem: contagem.ALL },
+  ];
+
+  const badgeDe = (status: string | null) => {
+    const b = BADGE[classeDe(status)];
+    return <StatusBadge variante={b.variante}>{classeDe(status) === 'OUTRO' && status ? status : b.label}</StatusBadge>;
+  };
+
   return (
-    <div className="flex flex-1 h-full bg-zinc-50 font-sans text-zinc-900 overflow-hidden">
-      <div className="w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0 -mt-px">
-        {!globalNav && (
-        <div className="p-3 border-b border-zinc-100">
-          <button
-            onClick={onBackToHub}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-all cursor-pointer border border-zinc-250/50"
-          >
-            <ArrowLeft className="h-4 w-4 text-zinc-400" />
-            Voltar ao Hub
-          </button>
-        </div>
-        )}
+    <div className="flex-1 h-full overflow-y-auto bg-zinc-50 p-6 font-sans text-zinc-900">
+      <ReportHeader
+        titulo="Pedidos de compra"
+        subtitulo="Pedidos do ERP, com as notas recebidas de cada um."
+        acoes={
+          <>
+            {!globalNav && <BotaoAcao onClick={onBackToHub}><ArrowLeft size={13} /> Voltar</BotaoAcao>}
+            <BotaoAcao onClick={() => loadOrders(search)} disabled={loading}>
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Atualizar
+            </BotaoAcao>
+          </>
+        }
+      />
+      <ReportTabs abas={abas} ativa={aba} onChange={(id) => setAba(id as Aba)} />
+      <FilterBar busca={search} onBusca={setSearch} placeholder="Buscar por nº do pedido, fornecedor ou item (código/descrição)..." />
 
-        {/* Status Filters */}
-        <nav className="flex-1 overflow-y-auto p-3 space-y-1">
-          <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider px-3 mb-2">Filtrar por Status</p>
-          {([
-            { id: 'ALL' as StatusFilter, label: 'Todos os Pedidos', icon: ClipboardList },
-            { id: 'ABERTO' as StatusFilter, label: 'Em Aberto', icon: Clock },
-            { id: 'PARCIAL' as StatusFilter, label: 'Parcial', icon: AlertTriangle },
-            { id: 'ATRASADO' as StatusFilter, label: 'Atrasados', icon: AlertTriangle },
-            { id: 'FECHADO' as StatusFilter, label: 'Concluídos', icon: CheckCircle2 },
-          ]).map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setStatusFilter(tab.id)}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all text-left cursor-pointer",
-                statusFilter === tab.id
-                  ? "bg-zinc-900 text-white shadow-md"
-                  : "text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900"
-              )}
-            >
-              <tab.icon className={cn("h-4 w-4 shrink-0", statusFilter === tab.id ? "text-white" : "text-zinc-400")} />
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-
-        {/* Summary Stats */}
-        <div className="p-4 border-t border-zinc-200 bg-zinc-50/50 space-y-3">
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] text-zinc-400 font-bold uppercase">Total Pedidos</span>
-            <span className="text-sm font-extrabold text-zinc-900">{stats.totalOrders}</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] text-zinc-400 font-bold uppercase">Valor Total</span>
-            <span className="text-xs font-bold text-zinc-700">{formatCurrency(stats.totalValue)}</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] text-zinc-400 font-bold uppercase">Pendentes</span>
-            <span className="text-xs font-bold text-amber-600">{stats.abertos + stats.parciais}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col overflow-hidden relative">
-        <header className="h-16 bg-white border-b border-zinc-200 flex items-center justify-between px-8 shrink-0">
-          <div />
-          <button
-            onClick={loadOrders}
-            className="flex items-center gap-2 px-4 py-2 bg-zinc-100 hover:bg-zinc-200 rounded-xl text-xs font-bold text-zinc-700 transition-all cursor-pointer border border-zinc-200"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Atualizar
-          </button>
-        </header>
-
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="space-y-6">
-            {/* Search bar */}
-            <div className="flex items-center justify-between gap-4">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-                <input
-                  type="text"
-                  placeholder="Buscar por nº pedido ou fornecedor..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 transition-all text-sm shadow-sm"
-                />
-              </div>
-              <div className="text-xs font-semibold text-zinc-500 bg-zinc-100 px-3 py-1.5 rounded-lg">
-                {orders.length} pedidos
-              </div>
-            </div>
-
-            {/* Orders Table */}
-            <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                {loading ? (
-                  <div className="p-12 text-center text-zinc-400 font-semibold flex items-center justify-center gap-3">
-                    <RefreshCw className="h-5 w-5 animate-spin text-zinc-500" />
-                    Carregando pedidos de compra...
+      <TabelaPainel>
+        <thead>
+          <tr>
+            <th>Pedido</th>
+            <th>Data</th>
+            <th>Fornecedor</th>
+            <th>Usuário</th>
+            <th className="numeric-col">Valor</th>
+            <th>Status</th>
+            <th>Previsão</th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading && (
+            <tr><td colSpan={7} style={vazio}>Carregando pedidos de compra...</td></tr>
+          )}
+          {!loading && visiveis.length === 0 && (
+            <tr><td colSpan={7} style={vazio}>Nenhum pedido encontrado.</td></tr>
+          )}
+          {!loading && visiveis.map((o) => (
+            <tr key={o.nRegistro} style={{ cursor: 'pointer' }} onClick={() => handleOpenDetail(o.nRegistro)}>
+              <td>
+                <span className="product-code" style={{ fontWeight: 700 }}>#{o.nRegistro}</span>
+                {o.itemEncontrado && (
+                  <div style={{ marginTop: 2 }}>
+                    <StatusBadge variante="apoio" title="Item do pedido que casou com a busca">contém {o.itemEncontrado}</StatusBadge>
                   </div>
-                ) : orders.length === 0 ? (
-                  <div className="p-12 text-center text-zinc-400">Nenhum pedido encontrado.</div>
-                ) : (
-                  <table className="w-full text-left text-sm whitespace-nowrap">
-                    <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-semibold">
-                      <tr>
-                        <th className="px-6 py-4">Nº Pedido</th>
-                        <th className="px-6 py-4">Data</th>
-                        <th className="px-6 py-4">Fornecedor</th>
-                        <th className="px-6 py-4">Usuário</th>
-                        <th className="px-6 py-4 text-right">Valor Total</th>
-                        <th className="px-6 py-4 text-center">Status</th>
-                        <th className="px-6 py-4">Previsão Entrega</th>
-                        <th className="px-6 py-4 text-right">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-100">
-                      {orders.map((order, index) => {
-                        const badge = getStatusBadge(order.cStatus);
-                        return (
-                          <tr key={`${order.nRegistro}-${index}`} className="hover:bg-zinc-50/50 transition-colors">
-                            <td className="px-6 py-4 font-mono text-xs font-bold text-zinc-800">
-                              #{order.nRegistro}
-                            </td>
-                            <td className="px-6 py-4 text-zinc-500 text-xs">{formatDate(order.dPedido)}</td>
-                            <td className="px-6 py-4 font-bold text-zinc-800 max-w-[250px] truncate">
-                              {order.cNomeF || 'Não informado'}
-                            </td>
-                            <td className="px-6 py-4 text-zinc-500 text-xs">{order.cUsuario || '-'}</td>
-                            <td className="px-6 py-4 text-right font-semibold text-zinc-900">
-                              {formatCurrency(order.nValor)}
-                            </td>
-                            <td className="px-6 py-4 text-center">
-                              <span className={cn(
-                                "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide border",
-                                badge.className
-                              )}>
-                                <badge.icon className="h-3 w-3" />
-                                {badge.label}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 text-zinc-500 text-xs">
-                              {order.cPrevEntrega || formatDate(order.dPrevisao) || '-'}
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                              <button
-                                onClick={() => handleOpenDetail(order.nRegistro)}
-                                className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-900 hover:text-white rounded-lg text-xs font-bold text-zinc-700 transition-all cursor-pointer shadow-sm border border-zinc-200"
-                              >
-                                Ver Itens
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
                 )}
-              </div>
-            </div>
-          </div>
-        </main>
-      </div>
+              </td>
+              <td>{fmtData(o.dPedido)}</td>
+              <td style={{ fontWeight: 600 }}>{o.cNomeF || 'Não informado'}</td>
+              <td>{o.cUsuario || '—'}</td>
+              <td className="numeric-col">{fmtMoeda(o.nValor)}</td>
+              <td>{badgeDe(o.cStatus)}</td>
+              <td>{o.cPrevEntrega || fmtData(o.dPrevisao)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </TabelaPainel>
 
-      {/* Detail Drawer */}
       <Drawer
         isOpen={Boolean(selectedOrder || drawerLoading)}
         onClose={() => setSelectedOrder(null)}
         badge="Pedido de Compra"
         title={selectedOrder ? `Pedido #${selectedOrder.nRegistro}` : 'Carregando...'}
-        subtitle={selectedOrder ? `${selectedOrder.cNomeF || 'Fornecedor não informado'} · ${formatDate(selectedOrder.dPedido)}` : undefined}
+        subtitle={selectedOrder ? `${selectedOrder.cNomeF || 'Fornecedor não informado'} · ${fmtData(selectedOrder.dPedido)}` : undefined}
         size="xl"
         loading={drawerLoading}
         loadingText="Carregando detalhes do pedido..."
-        footer={
-          <button
-            onClick={() => setSelectedOrder(null)}
-            className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer transition-all"
-          >
-            Fechar Painel
-          </button>
-        }
       >
         {selectedOrder && (
-          <div className="space-y-6">
-            {/* Order Header Info Grid */}
-            <div className="bg-zinc-50 border border-zinc-200/80 rounded-2xl p-4 grid grid-cols-2 md:grid-cols-3 gap-4">
-              <div className="space-y-0.5">
-                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Valor Total</span>
-                <p className="text-sm font-extrabold text-zinc-900">{formatCurrency(selectedOrder.nValor)}</p>
-              </div>
-              <div className="space-y-0.5">
-                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Status</span>
-                <p className="text-sm font-bold">
-                  {(() => {
-                    const badge = getStatusBadge(selectedOrder.cStatus);
-                    return (
-                      <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border", badge.className)}>
-                        <badge.icon className="h-3 w-3" />
-                        {badge.label}
-                      </span>
-                    );
-                  })()}
-                </p>
-              </div>
-              <div className="space-y-0.5">
-                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Prazo Pgto</span>
-                <p className="text-xs font-semibold text-zinc-700">{selectedOrder.cPrazoPgto || '-'}</p>
-              </div>
-              <div className="space-y-0.5">
-                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Previsão Entrega</span>
-                <p className="text-xs font-semibold text-zinc-700">{selectedOrder.cPrevEntrega || formatDate(selectedOrder.dPrevisao) || '-'}</p>
-              </div>
-              <div className="space-y-0.5">
-                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Usuário</span>
-                <p className="text-xs font-semibold text-zinc-700">{selectedOrder.cUsuario || '-'}</p>
-              </div>
-              {selectedOrder.cEmail && (
-                <div className="space-y-0.5">
-                  <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">E-mail</span>
-                  <p className="text-xs font-medium text-zinc-600 truncate">{selectedOrder.cEmail}</p>
-                </div>
-              )}
-            </div>
+          <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <p style={{ fontSize: '0.78rem', display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+              {badgeDe(selectedOrder.cStatus)}
+              <span>Valor: <strong>{fmtMoeda(selectedOrder.nValor)}</strong></span>
+              <span>Previsão: <strong>{selectedOrder.cPrevEntrega || fmtData(selectedOrder.dPrevisao)}</strong></span>
+              <span>Prazo pgto: <strong>{selectedOrder.cPrazoPgto || '—'}</strong></span>
+              <span>Usuário: <strong>{selectedOrder.cUsuario || '—'}</strong></span>
+              {selectedOrder.cEmail && <span>{selectedOrder.cEmail}</span>}
+            </p>
 
-            {/* Observations if any */}
             {selectedOrder.mObservac && (
-              <div className="p-4 border border-amber-200/80 bg-amber-50/50 rounded-2xl">
-                <p className="text-[10px] text-amber-800 font-bold uppercase tracking-wider mb-1">Observações</p>
-                <p className="text-xs text-amber-900/90 whitespace-pre-wrap leading-relaxed">{selectedOrder.mObservac}</p>
+              <div className="panel-card" style={{ padding: '8px 12px', fontSize: '0.75rem', whiteSpace: 'pre-wrap' }}>
+                <strong>Observações: </strong>{selectedOrder.mObservac}
               </div>
             )}
 
-            {/* Items list */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-extrabold text-zinc-900 tracking-tight">Itens do Pedido</h4>
-                <span className="text-xs font-semibold text-zinc-500 bg-zinc-100 border border-zinc-200 px-2.5 py-0.5 rounded-lg">
-                  {selectedOrder.items.length} itens
-                </span>
-              </div>
+            <div>
+              <h4 style={{ fontSize: '0.82rem', fontWeight: 800, marginBottom: 6 }}>Itens ({(selectedOrder.items ?? []).length})</h4>
+              <TabelaPainel>
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th className="numeric-col">Pedido</th>
+                    <th className="numeric-col">Chegou</th>
+                    <th className="numeric-col">Pendente</th>
+                    <th className="numeric-col">Preço</th>
+                    <th className="numeric-col">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(selectedOrder.items ?? []).length === 0 && (
+                    <tr><td colSpan={6} style={vazio}>Nenhum item registrado neste pedido.</td></tr>
+                  )}
+                  {(selectedOrder.items ?? []).map((i) => (
+                    <tr key={i.id}>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{i.cDescricao || i.cReferencia}</div>
+                        <span className="product-code" style={{ fontSize: '0.65rem' }}>{i.cReferencia}</span>
+                      </td>
+                      <td className="numeric-col">{fmtNum(i.nQtde)} {i.cUnidade ?? ''}</td>
+                      <td className="numeric-col">{fmtNum(i.nChegou)}</td>
+                      <td className="numeric-col" style={{ fontWeight: 700 }}>{fmtNum(Math.max(i.nQtde - i.nChegou, 0))}</td>
+                      <td className="numeric-col">{fmtMoeda(i.nPreco)}</td>
+                      <td className="numeric-col">{fmtMoeda(i.nValorTotal)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </TabelaPainel>
+            </div>
 
-              {selectedOrder.items.length === 0 ? (
-                <div className="text-center py-12 text-zinc-400 text-sm">Nenhum item registrado neste pedido.</div>
-              ) : (
-                <div className="space-y-3">
-                  {selectedOrder.items.map((item, idx) => {
-                    const percent = item.nQtde > 0 ? (item.nChegou / item.nQtde) * 100 : 0;
-                    const isComplete = item.nChegou >= item.nQtde;
-                    return (
-                      <div key={`${item.id}-${idx}`} className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-xs space-y-3 hover:border-zinc-300 transition-colors">
-                        {/* Item header row */}
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1 min-w-0 pr-2">
-                            <p className="font-bold text-zinc-800 text-sm truncate">
-                              {item.cDescricao || item.cReferencia}
-                            </p>
-                            <p className="text-[10px] font-mono text-zinc-400 mt-0.5">
-                              Ref: {item.cReferencia} {item.cUnidade ? `| ${item.cUnidade}` : ''}
-                            </p>
-                          </div>
-                          <span className={cn(
-                            "px-2 py-0.5 text-[9px] font-bold uppercase rounded-full border shrink-0",
-                            isComplete
-                              ? "bg-emerald-50 text-emerald-600 border-emerald-200"
-                              : item.nChegou > 0
-                                ? "bg-amber-50 text-amber-600 border-amber-200"
-                                : "bg-blue-50 text-blue-600 border-blue-200"
-                          )}>
-                            {isComplete ? 'Recebido' : item.nChegou > 0 ? 'Parcial' : 'Pendente'}
-                          </span>
-                        </div>
-
-                        {/* Quantities row */}
-                        <div className="grid grid-cols-3 gap-4 text-xs">
-                          <div>
-                            <span className="text-zinc-400 font-medium">Solicitado</span>
-                            <p className="font-bold text-zinc-900">{item.nQtde.toLocaleString('pt-BR')} {item.cUnidade || ''}</p>
-                          </div>
-                          <div>
-                            <span className="text-zinc-400 font-medium">Recebido</span>
-                            <p className={cn("font-bold", isComplete ? "text-emerald-600" : "text-amber-600")}>
-                              {item.nChegou.toLocaleString('pt-BR')} {item.cUnidade || ''}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-zinc-400 font-medium">Preço Unit.</span>
-                            <p className="font-semibold text-zinc-800">{formatCurrency(item.nPreco)}</p>
-                          </div>
-                        </div>
-
-                        {/* Progress bar */}
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-[10px] text-zinc-400">
-                            <span>Progresso de Recebimento</span>
-                            <span className="font-bold">{percent.toFixed(0)}%</span>
-                          </div>
-                          <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
-                            <div
-                              className={cn(
-                                "h-full rounded-full transition-all duration-500",
-                                isComplete ? "bg-emerald-500" : percent > 0 ? "bg-amber-500" : "bg-zinc-200"
-                              )}
-                              style={{ width: `${Math.min(percent, 100)}%` }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Value row */}
-                        <div className="flex justify-between items-center pt-1 border-t border-zinc-100">
-                          <span className="text-[10px] text-zinc-400 font-medium">Valor Total do Item</span>
-                          <span className="text-sm font-extrabold text-zinc-900">{formatCurrency(item.nValorTotal)}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+            <div>
+              <h4 style={{ fontSize: '0.82rem', fontWeight: 800, marginBottom: 6 }}>Notas recebidas ({(selectedOrder.notas ?? []).length})</h4>
+              <TabelaPainel>
+                <thead>
+                  <tr>
+                    <th>Nota</th>
+                    <th>Data</th>
+                    <th>Item</th>
+                    <th className="numeric-col">Qtd</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(selectedOrder.notas ?? []).length === 0 && (
+                    <tr><td colSpan={4} style={vazio}>Nenhuma nota vinculada a este pedido.</td></tr>
+                  )}
+                  {(selectedOrder.notas ?? []).map((n, idx) => (
+                    <tr key={`${n.invoiceNumber}-${n.itemPedidoId}-${idx}`}>
+                      <td><span className="product-code" style={{ fontWeight: 700 }}>NF {n.invoiceNumber}</span></td>
+                      <td>{fmtData(n.invoiceDate)}</td>
+                      <td><span className="product-code">{n.itemCode}</span></td>
+                      <td className="numeric-col">{fmtNum(n.quantidade)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </TabelaPainel>
+              <p style={{ fontSize: '0.68rem', color: 'hsl(var(--text-secondary-hsl))', marginTop: 4 }}>
+                Vínculo por fornecedor e insumo: NF de data igual ou posterior ao pedido, do mais antigo ao mais novo.
+              </p>
             </div>
           </div>
         )}

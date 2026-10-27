@@ -1,12 +1,9 @@
 import { apiFetch } from '../../geral/lib/http';
-import React, { useState, useEffect, useMemo } from 'react';
-import {
-  ArrowLeft, Search, FileText, RefreshCw, Calendar, Package,
-  User, FileSpreadsheet, ChevronRight, Hash, Truck, DollarSign, Info, X, Receipt
-} from 'lucide-react';
-import { cn } from '../../geral/lib/utils';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { ArrowLeft, FileText, RefreshCw, Package, Truck } from 'lucide-react';
 import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
 import Drawer from '../../geral/components/ui/Drawer';
+import { ReportHeader, ReportTabs, FilterBar, StatusBadge, TabelaPainel, BotaoAcao } from '../../geral/components/ui/ReportKit';
 
 
 interface NotasFiscaisViewProps {
@@ -20,6 +17,17 @@ interface InvoiceHeader {
   supplierName: string | null;
   totalValue: number;
   itemsCount: number;
+  itemEncontrado?: string | null;
+  pedidos: number[];
+}
+
+interface VinculoItem {
+  itemId: string;
+  nRegistro: number;
+  dPedido: string | null;
+  qtdePedida: number;
+  chegou: number;
+  quantidade: number;
 }
 
 interface InvoiceItem {
@@ -70,45 +78,50 @@ interface InvoiceDetail {
   fteCfop?: string | null;
   fteNatureza?: string | null;
   fteIcmsValue?: number;
+  vinculos: VinculoItem[];
 }
+
+type AbaPeriodo = '30' | '90' | 'todas';
+
+const fmtData = (d?: string | null) => (d ? d.slice(0, 10).split('-').reverse().join('/') : '—');
+const fmtNum = (n: number) => Number(n ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+const vazio: React.CSSProperties = { padding: 20, textAlign: 'center', color: 'hsl(var(--text-secondary-hsl))' };
 
 export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps) {
   const globalNav = useGlobalNavActive();
   const [invoices, setInvoices] = useState<InvoiceHeader[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [periodo, setPeriodo] = useState<AbaPeriodo>('todas');
 
   // Detail drawer
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceDetail | null>(null);
   const [drawerLoading, setDrawerLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'geral' | 'itens' | 'frete'>('geral');
 
-  const loadInvoices = async () => {
+  const loadInvoices = useCallback(async (termo: string) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (search.trim()) params.set('search', search.trim());
+      if (termo.trim()) params.set('search', termo.trim());
       const res = await apiFetch(`/compras/notas?${params.toString()}`);
-      if (res.ok) {
-        setInvoices(await res.json());
-      }
+      if (res.ok) setInvoices(await res.json());
     } catch (e) {
-      console.error("Erro ao carregar notas fiscais:", e);
+      console.error('Erro ao carregar notas fiscais:', e);
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadInvoices();
-    (window as any).__current_page__ = "Módulo de Compras > Notas Fiscais";
   }, []);
 
-  // Debounce search
   useEffect(() => {
-    const timer = setTimeout(() => { loadInvoices(); }, 350);
+    (window as any).__current_page__ = 'Módulo de Compras > Notas Fiscais';
+  }, []);
+
+  // A busca vai ao servidor (acha também por código/descrição do item); as abas de período filtram na tela.
+  useEffect(() => {
+    const timer = setTimeout(() => { loadInvoices(search); }, search ? 350 : 0);
     return () => clearTimeout(timer);
-  }, [search]);
+  }, [search, loadInvoices]);
 
   const handleOpenDetail = async (invoiceNumber: string, supplierId: string | null) => {
     setDrawerLoading(true);
@@ -118,37 +131,40 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
       const params = new URLSearchParams();
       if (supplierId) params.set('supplier_id', supplierId);
       const res = await apiFetch(`/compras/notas/${invoiceNumber}?${params.toString()}`);
-      if (res.ok) {
-        setSelectedInvoice(await res.json());
-      }
+      if (res.ok) setSelectedInvoice(await res.json());
     } catch (e) {
-      console.error("Erro ao carregar detalhes da nota fiscal:", e);
+      console.error('Erro ao carregar detalhes da nota fiscal:', e);
     } finally {
       setDrawerLoading(false);
     }
   };
 
   const formatCurrency = (val: number) =>
-    val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    (val ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const formatDate = fmtData;
 
-  const formatDate = (d: string | null) => {
-    if (!d) return '-';
-    try {
-      const date = new Date(d);
-      return date.toLocaleDateString('pt-BR');
-    } catch {
-      return d;
-    }
-  };
-
-  // Summary stats
-  const stats = useMemo(() => {
-    const totalInvoices = invoices.length;
-    const totalValue = invoices.reduce((acc, inv) => acc + (inv.totalValue || 0), 0);
-    const uniqueSuppliers = new Set(invoices.map(inv => inv.supplierId).filter(Boolean)).size;
-    const totalItems = invoices.reduce((acc, inv) => acc + (inv.itemsCount || 0), 0);
-    return { totalInvoices, totalValue, uniqueSuppliers, totalItems };
+  const ultimaNota = useMemo(() => {
+    const datas = invoices.map((i) => (i.invoiceDate || '').slice(0, 10)).filter(Boolean);
+    return datas.length ? datas.reduce((a, b) => (a > b ? a : b)) : null;
   }, [invoices]);
+
+  const diasDesde = (iso: string) => Math.floor((Date.now() - new Date(`${iso}T12:00:00`).getTime()) / 86400000);
+
+  const noPeriodo = useCallback((inv: InvoiceHeader, dias: number) => {
+    const d = (inv.invoiceDate || '').slice(0, 10);
+    return d !== '' && diasDesde(d) <= dias;
+  }, []);
+
+  const visiveis = useMemo(() => {
+    if (periodo === 'todas') return invoices;
+    return invoices.filter((i) => noPeriodo(i, Number(periodo)));
+  }, [invoices, periodo, noPeriodo]);
+
+  const abas = [
+    { id: '30', label: 'Últimos 30 dias', contagem: invoices.filter((i) => noPeriodo(i, 30)).length },
+    { id: '90', label: 'Últimos 90 dias', contagem: invoices.filter((i) => noPeriodo(i, 90)).length },
+    { id: 'todas', label: 'Todas', contagem: invoices.length },
+  ];
 
   const hasFte = useMemo(() => {
     if (!selectedInvoice) return false;
@@ -159,143 +175,80 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
     );
   }, [selectedInvoice]);
 
+  const dadoParado = ultimaNota !== null && diasDesde(ultimaNota) > 7;
+
   return (
-    <div className="flex flex-1 h-full bg-zinc-50 font-sans text-zinc-900 overflow-hidden">
-      {/* Sidebar */}
-      <div className="w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0 -mt-px">
+    <div className="flex-1 h-full overflow-y-auto bg-zinc-50 p-6 font-sans text-zinc-900">
+      <ReportHeader
+        titulo="Notas fiscais de compra"
+        subtitulo={
+          <>
+            Notas de entrada importadas do ERP, com o pedido de cada item.
+            {dadoParado && ultimaNota && (
+              <>
+                {' '}
+                <StatusBadge variante="ordem" title="A importação de notas do ERP não traz notas mais recentes que esta data.">
+                  Última nota importada do ERP: {fmtData(ultimaNota)}
+                </StatusBadge>
+              </>
+            )}
+          </>
+        }
+        acoes={
+          <>
+            {!globalNav && <BotaoAcao onClick={onBackToHub}><ArrowLeft size={13} /> Voltar</BotaoAcao>}
+            <BotaoAcao onClick={() => loadInvoices(search)} disabled={loading}>
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Atualizar
+            </BotaoAcao>
+          </>
+        }
+      />
+      <ReportTabs abas={abas} ativa={periodo} onChange={(id) => setPeriodo(id as AbaPeriodo)} />
+      <FilterBar busca={search} onBusca={setSearch} placeholder="Buscar por nº da nota, fornecedor ou item (código/descrição)..." />
 
-        {!globalNav && (
-        <div className="p-3 border-b border-zinc-100">
-          <button
-            onClick={onBackToHub}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-zinc-655 hover:bg-zinc-50 hover:text-zinc-900 transition-all cursor-pointer border border-zinc-250/50"
-          >
-            <ArrowLeft className="h-4 w-4 text-zinc-400" />
-            Voltar ao Hub
-          </button>
-        </div>
-        )}
-
-        {/* Info panel */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          <div className="bg-zinc-50 p-4 rounded-2xl border border-zinc-200/50 space-y-4">
-            <div className="flex items-center gap-2 text-zinc-600">
-              <Info size={14} className="text-zinc-400" />
-              <span className="text-[10px] font-bold uppercase tracking-wider">Histórico Local</span>
-            </div>
-            <p className="text-xs text-zinc-500 leading-relaxed">
-              Exibindo registros de compras importados diretamente do servidor SQL local correspondentes aos últimos 48 meses.
-            </p>
-          </div>
-        </div>
-
-        {/* Summary Stats */}
-        <div className="p-4 border-t border-zinc-200 bg-zinc-50/50 space-y-3">
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] text-zinc-400 font-bold uppercase">Total Notas</span>
-            <span className="text-sm font-extrabold text-zinc-900">{stats.totalInvoices}</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] text-zinc-400 font-bold uppercase">Valor Comprado</span>
-            <span className="text-xs font-bold text-zinc-700">{formatCurrency(stats.totalValue)}</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] text-zinc-400 font-bold uppercase">Fornecedores</span>
-            <span className="text-xs font-bold text-zinc-700">{stats.uniqueSuppliers}</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] text-zinc-400 font-bold uppercase">Qtd de Itens</span>
-            <span className="text-xs font-bold text-zinc-700">{stats.totalItems}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col overflow-hidden relative">
-        <header className="h-16 bg-white border-b border-zinc-200 flex items-center justify-between px-8 shrink-0">
-          <div />
-          <button
-            onClick={loadInvoices}
-            className="flex items-center gap-2 px-4 py-2 bg-zinc-100 hover:bg-zinc-200 rounded-xl text-xs font-bold text-zinc-700 transition-all cursor-pointer border border-zinc-200"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Atualizar
-          </button>
-        </header>
-
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="space-y-6">
-            {/* Search bar */}
-            <div className="flex items-center justify-between gap-4">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-                <input
-                  type="text"
-                  placeholder="Buscar por nº nota ou razão social..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 transition-all text-sm shadow-sm"
-                />
-              </div>
-              <div className="text-xs font-semibold text-zinc-500 bg-zinc-100 px-3 py-1.5 rounded-lg">
-                {invoices.length} notas fiscais
-              </div>
-            </div>
-
-            {/* Invoices Table */}
-            <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                {loading ? (
-                  <div className="p-12 text-center text-zinc-400 font-semibold flex items-center justify-center gap-3">
-                    <RefreshCw className="h-5 w-5 animate-spin text-zinc-500" />
-                    Carregando notas fiscais...
+      <TabelaPainel>
+        <thead>
+          <tr>
+            <th>Nota</th>
+            <th>Emissão</th>
+            <th>Fornecedor</th>
+            <th className="numeric-col">Itens</th>
+            <th>Pedido(s)</th>
+            <th className="numeric-col">Valor</th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading && (
+            <tr><td colSpan={6} style={vazio}>Carregando notas fiscais...</td></tr>
+          )}
+          {!loading && visiveis.length === 0 && (
+            <tr><td colSpan={6} style={vazio}>Nenhuma nota fiscal encontrada.</td></tr>
+          )}
+          {!loading && visiveis.map((inv) => (
+            <tr key={`${inv.invoiceNumber}-${inv.supplierId}`} style={{ cursor: 'pointer' }} onClick={() => handleOpenDetail(inv.invoiceNumber, inv.supplierId)}>
+              <td>
+                <span className="product-code" style={{ fontWeight: 700 }}>#{inv.invoiceNumber}</span>
+                {inv.itemEncontrado && (
+                  <div style={{ marginTop: 2 }}>
+                    <StatusBadge variante="apoio" title="Item da nota que casou com a busca">contém {inv.itemEncontrado}</StatusBadge>
                   </div>
-                ) : invoices.length === 0 ? (
-                  <div className="p-12 text-center text-zinc-400">Nenhuma nota fiscal encontrada.</div>
-                ) : (
-                  <table className="w-full text-left text-sm whitespace-nowrap">
-                    <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-semibold">
-                      <tr>
-                        <th className="px-6 py-4">Nº Nota</th>
-                        <th className="px-6 py-4">Data Emissão</th>
-                        <th className="px-6 py-4">Fornecedor</th>
-                        <th className="px-6 py-4 text-center">Itens Faturados</th>
-                        <th className="px-6 py-4 text-right">Valor Nota</th>
-                        <th className="px-6 py-4 text-right">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-100">
-                      {invoices.map((inv) => (
-                        <tr key={`${inv.invoiceNumber}-${inv.supplierId}`} className="hover:bg-zinc-50/50 transition-colors">
-                          <td className="px-6 py-4 font-mono text-xs font-bold text-zinc-800">
-                            #{inv.invoiceNumber}
-                          </td>
-                          <td className="px-6 py-4 text-zinc-500 text-xs">{formatDate(inv.invoiceDate)}</td>
-                          <td className="px-6 py-4 font-bold text-zinc-800 max-w-[300px] truncate">
-                            {inv.supplierName || 'Não informado'}
-                          </td>
-                          <td className="px-6 py-4 text-center font-semibold text-zinc-700">{inv.itemsCount}</td>
-                          <td className="px-6 py-4 text-right font-semibold text-zinc-900">
-                            {formatCurrency(inv.totalValue)}
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <button
-                              onClick={() => handleOpenDetail(inv.invoiceNumber, inv.supplierId)}
-                              className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-900 hover:text-white rounded-lg text-xs font-bold text-zinc-700 transition-all cursor-pointer shadow-sm border border-zinc-200"
-                            >
-                              Detalhar Itens
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 )}
-              </div>
-            </div>
-          </div>
-        </main>
-      </div>
+              </td>
+              <td>{fmtData(inv.invoiceDate)}</td>
+              <td style={{ fontWeight: 600 }}>{inv.supplierName || 'Não informado'}</td>
+              <td className="numeric-col">{inv.itemsCount}</td>
+              <td>
+                {(inv.pedidos ?? []).length === 0
+                  ? '—'
+                  : (inv.pedidos ?? []).map((n) => (
+                      <span key={n} className="product-code" style={{ marginRight: 6 }}>#{n}</span>
+                    ))}
+              </td>
+              <td className="numeric-col">{formatCurrency(inv.totalValue)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </TabelaPainel>
 
       {/* Detail Drawer */}
       <Drawer
@@ -306,7 +259,7 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
         subtitle={selectedInvoice ? `${selectedInvoice.supplierName || 'Fornecedor não informado'} | ${formatDate(selectedInvoice.invoiceDate)}` : undefined}
         tabs={[
           { id: 'geral', label: 'Dados Gerais', icon: FileText },
-          { id: 'itens', label: 'Itens Faturados', icon: Package, badge: selectedInvoice?.items.length },
+          { id: 'itens', label: 'Itens Faturados', icon: Package, badge: selectedInvoice?.items?.length },
           { id: 'frete', label: 'Frete / CTe', icon: Truck, badge: hasFte ? 'CTe' : undefined },
         ]}
         activeTab={activeTab}
@@ -400,12 +353,12 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
                       <div className="flex items-center justify-between">
                         <h4 className="text-sm font-bold text-zinc-900">Itens Faturados</h4>
                         <span className="text-xs font-semibold text-zinc-500 bg-zinc-100 px-2 py-1 rounded-lg">
-                          {selectedInvoice.items.length} itens
+                          {(selectedInvoice.items ?? []).length} itens
                         </span>
                       </div>
 
                       <div className="space-y-3">
-                        {selectedInvoice.items.map((item, index) => (
+                        {(selectedInvoice.items ?? []).map((item, index) => (
                           <div key={item.id || index} className="bg-white border border-zinc-150 rounded-xl p-4 shadow-sm space-y-2 hover:border-zinc-300 transition-colors">
                             <div className="flex items-start justify-between">
                               <div className="flex-1 min-w-0">
@@ -424,6 +377,21 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
                                 </p>
                               </div>
                             </div>
+
+                            {/* Pedido vinculado */}
+                            {(() => {
+                              const vs = (selectedInvoice.vinculos ?? []).filter((v) => v.itemId === item.id);
+                              if (vs.length === 0) return <p className="text-[11px] text-zinc-400">Sem pedido</p>;
+                              return (
+                                <p className="text-[11px] text-zinc-600 flex flex-wrap gap-x-4 gap-y-0.5">
+                                  {vs.map((v) => (
+                                    <span key={v.nRegistro}>
+                                      Pedido <strong className="font-mono">#{v.nRegistro}</strong> de {fmtData(v.dPedido)} · pedido {fmtNum(v.qtdePedida)}, chegou {fmtNum(v.chegou)} · esta NF cobre {fmtNum(v.quantidade)}
+                                    </span>
+                                  ))}
+                                </p>
+                              );
+                            })()}
 
                             {/* Quantities/Price row */}
                             <div className="grid grid-cols-3 gap-4 text-xs pt-1">
