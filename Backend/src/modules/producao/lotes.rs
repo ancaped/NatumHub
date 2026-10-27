@@ -576,7 +576,7 @@ pub async fn get_production_lotes(
 
         if !product_codes.is_empty() {
             if let Ok(rows) = sqlx::query(
-                "SELECT product_code, COALESCE(SUM(quantity), 1.0)
+                "SELECT product_code, COALESCE(SUM(quantity), 0.0)
                  FROM formulations WHERE product_code = ANY($1)
                  GROUP BY product_code",
             )
@@ -648,16 +648,16 @@ pub async fn get_production_lotes(
                 .get(&lote.lote_number)
                 .copied()
                 .unwrap_or(0.0);
-            let mut total_expected_weight = 0.0;
-            for (p_code, p_qty, _, _) in &batch_products {
-                let form_sum = form_sum_by_prod.get(p_code).copied().unwrap_or(1.0);
-                total_expected_weight += p_qty * form_sum;
-            }
-
-            if ing_exit_sum > 0.0 && total_expected_weight > 0.0 {
-                let diff = (ing_exit_sum - total_expected_weight).abs() / total_expected_weight;
-                lote.yield_error = Some(diff > 0.10);
-            }
+            let produtos_do_lote: Vec<ProdutoDoLote> = batch_products
+                .iter()
+                .map(|(p_code, p_qty, p_desc, p_details)| ProdutoDoLote {
+                    kg: *p_qty,
+                    unidades_detalhes: unidades_dos_detalhes(p_details),
+                    peso_unit: crate::core::regras_produto::peso_unitario_kg(p_desc, base_product_codes.contains_key(p_code)),
+                    soma_formula: form_sum_by_prod.get(p_code).copied(),
+                })
+                .collect();
+            lote.yield_error = rendimento_com_desvio(ing_exit_sum, &produtos_do_lote);
 
             let empty_exits = StdHashMap::new();
             let exits = exits_detail_by_lote
@@ -795,6 +795,49 @@ pub async fn get_production_lotes(
     (StatusCode::OK, Json(grouped_lotes)).into_response()
 }
 
+/// Um produto de um lote para o teste de rendimento. `kg` é o `quantity` da entrada no ERP (sempre em kg);
+/// `unidades_detalhes` é o "Unidades:" dos detalhes (o ERP manda 1 em lotes de vários kg); `soma_formula` é a soma da
+/// fórmula, que é POR UNIDADE do produto (por kg nas bases), nunca por kg do lote.
+pub(crate) struct ProdutoDoLote {
+    pub kg: f64,
+    pub unidades_detalhes: Option<f64>,
+    pub peso_unit: Option<f64>,
+    pub soma_formula: Option<f64>,
+}
+
+/// "Unidades:" dos detalhes do movimento do ERP (só valores positivos).
+pub(crate) fn unidades_dos_detalhes(details: &str) -> Option<f64> {
+    details
+        .split('|')
+        .map(str::trim)
+        .find_map(|p| p.strip_prefix("Unidades:"))
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|u| *u > 0.0)
+}
+
+/// Desvio de rendimento do lote: saída real de insumos contra `unidades × soma da fórmula`, tolerância de 10%.
+/// `None` = sem dados para afirmar (sem saída de insumo, sem fórmula ou sem como saber as unidades).
+/// Regra única: a lista de lotes e o detalhe do produto usam esta função.
+pub(crate) fn rendimento_com_desvio(saida_insumos: f64, produtos: &[ProdutoDoLote]) -> Option<bool> {
+    if saida_insumos <= 0.0 || produtos.is_empty() {
+        return None;
+    }
+    let mut esperado = 0.0;
+    for p in produtos {
+        let soma = p.soma_formula.filter(|s| *s > 0.0)?;
+        let (unidades, peso_desconhecido) =
+            crate::core::regras_produto::unidades_do_lote(p.unidades_detalhes, p.kg, p.peso_unit);
+        if peso_desconhecido || unidades <= 0.0 {
+            return None;
+        }
+        esperado += unidades * soma;
+    }
+    if esperado <= 0.0 {
+        return None;
+    }
+    Some((saida_insumos - esperado).abs() / esperado > 0.10)
+}
+
 /// Versão com caches pré-carregados (lista de lotes) — evita N+1 em movements/formulations.
 pub async fn check_lote_errors_cached(
     pool: &PgPool,
@@ -867,7 +910,11 @@ pub async fn check_lote_errors_cached(
         }
     }
 
+    // Sem nenhuma saída de insumo de pesagem não há o que comparar: sem dados, não desvio.
     for (ing_code, expected_qty) in &total_expected_ingredients {
+        if pesagem_total_actual <= 0.0 {
+            break;
+        }
         let actual_qty = *exits_map.get(ing_code).unwrap_or(&0.0);
         let percentage_diff = if *expected_qty > 0.0 {
             ((actual_qty - expected_qty) / expected_qty) * 100.0
@@ -944,10 +991,18 @@ pub async fn check_lote_errors_cached(
     } else if main_unit_weight > 0.0 {
         (quantity / main_unit_weight).round()
     } else {
-        quantity
+        // peso da unidade desconhecido: kg não vira unidades, então sem base para conferir
+        0.0
     };
+    // Sem nenhuma saída de embalagem não há o que comparar: sem dados, não desvio.
+    let tem_saida_embalagem = packaging_recipe_items
+        .iter()
+        .any(|(c, _, q)| *q > 0.0 && exits_map.get(c).copied().unwrap_or(0.0) > 0.0);
 
     for (item_code, _, std_qty) in &packaging_recipe_items {
+        if !tem_saida_embalagem {
+            break;
+        }
         let expected_qty = basis_units * std_qty;
         let total_exit_qty = *exits_map.get(item_code).unwrap_or(&0.0);
         let mut total_sharing_weight = 0.0;
@@ -987,7 +1042,10 @@ pub async fn check_lote_errors_cached(
         let part = part.trim();
         if part.starts_with("Unidades:") {
             if let Ok(u) = part.trim_start_matches("Unidades:").trim().parse::<f64>() {
-                unidades_conferidas = Some(u);
+                // o ERP manda 1 em lotes de vários kg: não é contagem
+                if u > 1.0 {
+                    unidades_conferidas = Some(u);
+                }
             }
         }
     }
@@ -1226,7 +1284,11 @@ pub async fn check_lote_errors(
         }
     }
 
+    // Sem nenhuma saída de insumo de pesagem não há o que comparar: sem dados, não desvio.
     for (ing_code, expected_qty) in &total_expected_ingredients {
+        if pesagem_total_actual <= 0.0 {
+            break;
+        }
         let mut actual_qty = *exits_map.get(ing_code).unwrap_or(&0.0);
 
         if let Ok(rows) = sqlx::query(
@@ -1340,10 +1402,18 @@ pub async fn check_lote_errors(
     } else if main_unit_weight > 0.0 {
         (quantity / main_unit_weight).round()
     } else {
-        quantity
+        // peso da unidade desconhecido: kg não vira unidades, então sem base para conferir
+        0.0
     };
+    // Sem nenhuma saída de embalagem não há o que comparar: sem dados, não desvio.
+    let tem_saida_embalagem = packaging_recipe_items
+        .iter()
+        .any(|(c, _, q)| *q > 0.0 && exits_map.get(c).copied().unwrap_or(0.0) > 0.0);
 
     for (item_code, _, std_qty) in &packaging_recipe_items {
+        if !tem_saida_embalagem {
+            break;
+        }
         let expected_qty = basis_units * std_qty;
         let total_exit_qty = *exits_map.get(item_code).unwrap_or(&0.0);
 
@@ -1386,41 +1456,22 @@ pub async fn check_lote_errors(
         }
     }
 
+    // Mesma regra da versão em lote: o "Unidades:" do ERP só vale acima de 1 e a diferença tolerada é de 10%.
     let mut unidades_conferidas = None;
     for part in details.split('|') {
         let part = part.trim();
         if part.starts_with("Unidades:") {
             if let Ok(u) = part.trim_start_matches("Unidades:").trim().parse::<f64>() {
-                if u > 0.0 {
+                if u > 1.0 {
                     unidades_conferidas = Some(u);
                 }
             }
         }
     }
-
-    let expected_finalized = if actual_units_envasadas > 0.0 {
-        actual_units_envasadas - 1.0
-    } else {
-        let fallback_units = if let Some(u) = unidades_conferidas {
-            u + 1.0
-        } else if main_unit_weight > 0.0 {
-            (quantity / main_unit_weight).round()
-        } else {
-            quantity
-        };
-        fallback_units - 1.0
-    };
-
-    let registered_units = if let Some(u) = unidades_conferidas {
-        u
-    } else if main_unit_weight > 0.0 {
-        (quantity / main_unit_weight).round()
-    } else {
-        quantity
-    };
-    let discrepancy = registered_units - expected_finalized;
-    if discrepancy.abs() > 0.5 {
-        conferencia_error = true;
+    if let Some(conf) = unidades_conferidas {
+        if basis_units > 0.0 && ((conf - basis_units).abs() / basis_units) * 100.0 > 10.0 {
+            conferencia_error = true;
+        }
     }
 
     (pesagem_error, envase_error, conferencia_error)
@@ -2573,5 +2624,42 @@ mod tests {
         sqlx::query("DELETE FROM config_linhas WHERE linha_prefix = 'ZZHIST'").execute(&pool).await.ok();
         assert_eq!(n, 1, "o lote ganha uma foto, e só uma");
         assert_eq!(segunda, 0, "a segunda rodada não grava de novo");
+    }
+
+    fn prod(kg: f64, un: Option<f64>, peso: Option<f64>, soma: Option<f64>) -> ProdutoDoLote {
+        ProdutoDoLote { kg, unidades_detalhes: un, peso_unit: peso, soma_formula: soma }
+    }
+
+    #[test]
+    fn rendimento_lote_ok_e_com_desvio_real() {
+        // base: 100 kg x fórmula 1,0 por kg = 100 esperados
+        let base = [prod(100.0, None, Some(1.0), Some(1.0))];
+        assert_eq!(rendimento_com_desvio(105.0, &base), Some(false));
+        assert_eq!(rendimento_com_desvio(150.0, &base), Some(true));
+    }
+
+    #[test]
+    fn rendimento_um_do_erp_nao_gera_desvio_falso() {
+        // 170 kg de produto de 5 kg = 34 un; fórmula 8 por unidade = 272 esperados (antes: 170 x 8 = 1360)
+        let p = [prod(170.0, Some(1.0), Some(5.0), Some(8.0))];
+        assert_eq!(rendimento_com_desvio(272.0, &p), Some(false));
+        assert_eq!(rendimento_com_desvio(400.0, &p), Some(true));
+    }
+
+    #[test]
+    fn rendimento_sem_dados_nao_e_desvio() {
+        let ok = prod(170.0, Some(1.0), Some(5.0), Some(8.0));
+        assert_eq!(rendimento_com_desvio(0.0, &[ok]), None, "sem saída de insumo");
+        assert_eq!(rendimento_com_desvio(272.0, &[prod(170.0, Some(1.0), Some(5.0), None)]), None, "sem fórmula");
+        assert_eq!(rendimento_com_desvio(272.0, &[prod(170.0, Some(1.0), Some(5.0), Some(0.0))]), None, "fórmula zerada");
+        assert_eq!(rendimento_com_desvio(272.0, &[prod(170.0, Some(1.0), None, Some(8.0))]), None, "peso unitário desconhecido");
+        assert_eq!(rendimento_com_desvio(272.0, &[]), None);
+    }
+
+    #[test]
+    fn unidades_dos_detalhes_le_o_campo() {
+        assert_eq!(unidades_dos_detalhes("Status: EA | Unidades: 34 | Fab: X"), Some(34.0));
+        assert_eq!(unidades_dos_detalhes("Status: EA"), None);
+        assert_eq!(unidades_dos_detalhes("Unidades: 0"), None);
     }
 }

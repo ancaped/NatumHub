@@ -464,21 +464,8 @@ pub async fn list_acompanhamento(
     Ok(items)
 }
 
+use crate::core::regras_produto::unidades_do_lote;
 type Tx<'a> = Transaction<'a, Postgres>;
-
-/// Unidades de um lote para exibição. O "Unidades:" dos detalhes vale quando passa de 1; senão `kg / peso unitário`
-/// arredondado. Sem nenhum dos dois marca `peso_desconhecido` (a tela mostra só os kg). Devolve (unidades, peso_desconhecido).
-fn unidades_do_lote(unidades_detalhes: Option<f64>, kg: f64, peso_unit: Option<f64>) -> (f64, bool) {
-    if let Some(u) = unidades_detalhes.filter(|u| *u > 1.0) {
-        return (u, false);
-    }
-    match peso_unit {
-        Some(w) if kg > 0.0 && w > 0.0 => ((kg / w).round(), false),
-        Some(_) => (unidades_detalhes.unwrap_or(kg), false),
-        None if kg <= 0.0 => (unidades_detalhes.unwrap_or(0.0), false),
-        None => (0.0, true),
-    }
-}
 
 fn normalizar_status(s: &str) -> String {
     match s.trim() {

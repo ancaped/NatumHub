@@ -112,6 +112,20 @@ pub fn peso_unitario_kg(descricao: &str, eh_base: bool) -> Option<f64> {
     if eh_base { Some(1.0) } else { crate::modules::producao::fila::medida_kg(descricao) }
 }
 
+/// Unidades de um lote para exibição. O "Unidades:" dos detalhes vale quando passa de 1; senão `kg / peso unitário`
+/// arredondado. Sem nenhum dos dois marca `peso_desconhecido` (a tela mostra só os kg). Devolve (unidades, peso_desconhecido).
+pub fn unidades_do_lote(unidades_detalhes: Option<f64>, kg: f64, peso_unit: Option<f64>) -> (f64, bool) {
+    if let Some(u) = unidades_detalhes.filter(|u| *u > 1.0) {
+        return (u, false);
+    }
+    match peso_unit {
+        Some(w) if kg > 0.0 && w > 0.0 => ((kg / w).round(), false),
+        Some(_) => (unidades_detalhes.unwrap_or(kg), false),
+        None if kg <= 0.0 => (unidades_detalhes.unwrap_or(0.0), false),
+        None => (0.0, true),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

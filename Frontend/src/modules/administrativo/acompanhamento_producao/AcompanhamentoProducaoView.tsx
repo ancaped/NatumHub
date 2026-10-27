@@ -78,6 +78,7 @@ const statusApagadoParaLinha = (a: StatusApagadoPrevia) => ({
 
 import { CATEGORIAS_ENVASE, CORES_PREDEFINIDAS, ORDEM_CORES_FABRICA, REMOTE_LOOKUP_TTL_MS, REMOTE_LOTES_TTL_MS, STATUS_OPTIONS, MOTIVOS_PAUSA_PADRAO, MONTH_NAMES, WEEKDAY_NAMES } from './lib/constantes';
 import { getTodayIso, parseLoteDateToIso, formatDateOnly, formatWeekdayAndDate, formatShortWeekday, formatDateTime, formatDateShort, formatDurationBetween } from './lib/datas';
+import { ReportHeader, ReportTabs, BotaoAcao, StatusBadge } from '../../geral/components/ui/ReportKit';
 import { getLotePlanningOrdem, getLoteReator, inferCategoriaEnvase, inferCorProduto, parseProductUnitWeightKg, loteRowKey, loteMergeKey, stripLotePrefix, normalizeLoteSearch, deduplicateLotesByNumber, consolidateLotesForBatch, filterLotesBySearch, calculateStageDurations, renderCardTimelineDates, getEffectiveStatus, formatarUnidadesLote, isLoteConcluido, isLoteParcial, isLoteOcultoNoQuadro, getLoteEtapaStatus, getEffectivePrevisao, isPastEndOfDay, getLoteScheduleDateIso, isLoteDaSemana, getLoteEsperaDetails, getPrevisaoBadge, rotuloLote, ehLotePlanejado, contarLotesUnicos } from './lib/lotes';
 import type { StatusHistoryEntry, AcompanhamentoLote, LoteAdiadoRegistro, TerceirizadoSolicitacao, ProgramacaoEnvaseItem, ProgramacaoRotulagemItem, KitAssemblyOrder, TabType, AcompanhamentoProducaoProps } from './lib/tipos';
 import { ColumnFilterHeader } from './lib/ColumnFilterHeader';
@@ -6071,71 +6072,43 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       {/* VIEW 1 & VIEW 2: STATUS DE LOTES (INTERNOS) E TERCEIRIZADOS */}
       {(currentTab === 'lotes' || currentTab === 'terceirizados') && (
         <div className="space-y-3">
-          {/* Sub-Aba Exclusiva para Terceirizados: Header e KPIs Dedicados */}
+          {/* Terceirizados: cabeçalho e sub-abas no padrão do ReportKit */}
           {currentTab === 'terceirizados' && (
-            <div className="bg-white border border-zinc-200 rounded-xl p-4 shadow-2xs space-y-4">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-zinc-900 text-white rounded-xl shadow-2xs shrink-0">
-                    <Building2 className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-base font-extrabold text-zinc-900 tracking-tight">
-                        Terceirizados
-                      </h2>
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-zinc-100 text-zinc-800 border border-zinc-200">
-                        {solicitacoes.length} solicitações · {baseTabLotes.length} lotes
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => { setTerceirizadosSubTab('solicitados'); setNovaSolicitacaoAberta(true); }}
-                  className="px-3.5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  <span>Nova Solicitação</span>
-                </button>
-              </div>
-
-              {/* CONTROLE SEGMENTADO DE SUB-ABAS */}
-              <div className="flex items-center gap-2 pt-1 border-t border-zinc-100">
-                <button
-                  type="button"
-                  onClick={() => { setTerceirizadosSubTab('solicitados'); fetchSolicitacoes(); }}
-                  className={cn(
-                    "px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border flex items-center gap-1.5",
-                    terceirizadosSubTab === 'solicitados'
-                      ? "bg-zinc-900 text-white border-zinc-900 shadow-2xs"
-                      : "bg-white text-zinc-650 border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900"
-                  )}
-                >
-                  <Tag className="h-3.5 w-3.5" />
-                  <span>Solicitações & Aguardando Lote ERP</span>
-                  {solicitacoes.filter(s => s.status === 'SOLICITADO').length > 0 && (
-                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-amber-400 text-zinc-950 font-bold ml-0.5">
-                      {solicitacoes.filter(s => s.status === 'SOLICITADO').length}
-                    </span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTerceirizadosSubTab('acompanhamento')}
-                  className={cn(
-                    "px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border flex items-center gap-1.5",
-                    terceirizadosSubTab === 'acompanhamento'
-                      ? "bg-zinc-900 text-white border-zinc-900 shadow-2xs"
-                      : "bg-white text-zinc-650 border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900"
-                  )}
-                >
-                  <Package className="h-3.5 w-3.5" />
-                  <span>Lotes Terceirizados em Produção ({baseTabLotes.length})</span>
-                </button>
-              </div>
-            </div>
+            <>
+              <ReportHeader
+                titulo="Terceirizados"
+                subtitulo={`${solicitacoes.length} solicitações · ${baseTabLotes.length} lotes`}
+                acoes={
+                  <BotaoAcao
+                    primario
+                    onClick={() => { setTerceirizadosSubTab('solicitados'); setNovaSolicitacaoAberta(true); }}
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Nova Solicitação
+                  </BotaoAcao>
+                }
+              />
+              <ReportTabs
+                ativa={terceirizadosSubTab}
+                onChange={(id) => {
+                  setTerceirizadosSubTab(id as 'solicitados' | 'acompanhamento');
+                  if (id === 'solicitados') fetchSolicitacoes();
+                }}
+                abas={[
+                  {
+                    id: 'solicitados',
+                    label: 'Solicitações & Aguardando Lote ERP',
+                    icone: <Tag className="h-3.5 w-3.5" />,
+                    contagem: solicitacoes.filter(s => s.status === 'SOLICITADO').length || undefined,
+                  },
+                  {
+                    id: 'acompanhamento',
+                    label: 'Lotes Terceirizados em Produção',
+                    icone: <Package className="h-3.5 w-3.5" />,
+                    contagem: baseTabLotes.length,
+                  },
+                ]}
+              />
+            </>
           )}
 
           {currentTab === 'terceirizados' && terceirizadosSubTab === 'solicitados' ? (
@@ -6396,7 +6369,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       Laudo FQ
                     </th>
                     {currentTab === 'terceirizados' && (
-                      <th className="py-3 px-4 text-zinc-600 font-bold w-40">
+                      <th className="py-3 px-4 text-left font-bold text-[11px] uppercase tracking-wider text-zinc-600 w-40">
                         Fornecedor
                       </th>
                     )}
@@ -6481,12 +6454,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 </span>
                               )}
                               {lote.isTerceirizado && (
-                                <span
-                                  className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-100 text-purple-800 border border-purple-200"
-                                  title="Lote Terceirizado"
-                                >
-                                  TERC
-                                </span>
+                                <StatusBadge variante="descontinuado" title="Lote Terceirizado">TERC</StatusBadge>
                               )}
                             </div>
                           </td>
@@ -6714,7 +6682,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           {/* Etapas & Datas Registradas */}
                           <td className="py-2 px-4 text-[10px] font-medium text-zinc-600 whitespace-nowrap">
                             <div className="flex flex-col gap-0.5">
-                              {lote.dataPrevisao && (
+                              {lote.dataPrevisao && currentTab !== 'terceirizados' && (
                                 <div className="flex items-center gap-1 text-indigo-900 font-semibold">
                                   <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
                                   <span className="font-bold">Previsão:</span> {formatDateShort(lote.dataPrevisao)}

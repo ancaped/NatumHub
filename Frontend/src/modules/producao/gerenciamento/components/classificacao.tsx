@@ -259,12 +259,49 @@ const BADGE_CLASSE: Record<Exclude<TipoClasse, 'ok'>, VarianteBadge> = {
   trocado: 'ordem',
 };
 
+/** Produtos onde a troca vale (os que ainda têm o insumo original na fórmula). Carrega ao abrir. */
+function ProdutosDaTroca({ trocaId }: { trocaId: number }) {
+  const [produtos, setProdutos] = useState<Array<{ codigo: string; descricao: string }> | null>(null);
+  const [erro, setErro] = useState('');
+
+  useEffect(() => {
+    let vivo = true;
+    apiJson<Array<{ codigo: string; descricao: string }>>(`/api/producao/trocas/${trocaId}/produtos`)
+      .then((l) => vivo && setProdutos(Array.isArray(l) ? l : []))
+      .catch((e) => vivo && setErro(e?.message || 'Não foi possível carregar os produtos.'));
+    return () => {
+      vivo = false;
+    };
+  }, [trocaId]);
+
+  if (erro) return <span style={{ color: 'hsl(var(--danger-hsl))' }}>{erro}</span>;
+  if (!produtos) return <span style={{ color: 'hsl(var(--text-secondary-hsl))' }}>Carregando...</span>;
+  if (produtos.length === 0) return <span style={{ color: 'hsl(var(--text-secondary-hsl))' }}>Nenhum produto usa mais o insumo original.</span>;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      {produtos.map((p) => (
+        <span key={p.codigo} className="status-badge descontinuado" title={p.codigo}>
+          {p.descricao || p.codigo} <span className="product-code" style={{ fontSize: '0.62rem' }}>{p.codigo}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /** Tudo o que o Edson classificou, com "Alterar" (abre a mesma confirmação em 2 passos). */
 export function TabelaClassificacao({ versao, onMudou }: { versao?: number; onMudou?: () => void }) {
   const [lista, setLista] = useState<ItemClassificado[]>([]);
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState('todos');
   const [alvo, setAlvo] = useState<ItemClassificado | null>(null);
+  const [abertas, setAbertas] = useState<Set<number>>(new Set());
+  const alternar = (id: number) =>
+    setAbertas((a) => {
+      const n = new Set(a);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
 
   const carregar = useCallback(async () => {
     try {
@@ -316,7 +353,8 @@ export function TabelaClassificacao({ versao, onMudou }: { versao?: number; onMu
               </tr>
             )}
             {visiveis.map((i) => (
-              <tr key={`${i.codigo}-${i.tipo}-${i.trocaId ?? ''}`}>
+              <React.Fragment key={`${i.codigo}-${i.tipo}-${i.trocaId ?? ''}`}>
+              <tr>
                 <td>
                   <div style={{ fontWeight: 600 }}>{i.descricao || i.codigo}</div>
                   <span className="product-code" style={{ fontSize: '0.65rem' }}>{i.codigo}</span>
@@ -329,6 +367,16 @@ export function TabelaClassificacao({ versao, onMudou }: { versao?: number; onMu
                       <div style={{ color: i.formulaCorrigida ? 'hsl(var(--success-hsl))' : 'hsl(var(--warning-hsl))' }}>
                         {i.formulaCorrigida ? 'Fórmula já corrigida' : `Corrigir a fórmula: ${i.composicoesAfetadas ?? 0} composição(ões) ainda usam o insumo antigo`}
                       </div>
+                      {i.trocaId !== undefined && (
+                        <button
+                          type="button"
+                          className="tab-btn"
+                          style={{ padding: '2px 8px', fontSize: '0.68rem', marginTop: 3 }}
+                          onClick={() => alternar(i.trocaId as number)}
+                        >
+                          {abertas.has(i.trocaId) ? 'Ocultar produtos' : 'Ver produtos'}
+                        </button>
+                      )}
                     </>
                   ) : (
                     <span style={{ color: 'hsl(var(--text-secondary-hsl))' }}>—</span>
@@ -341,6 +389,17 @@ export function TabelaClassificacao({ versao, onMudou }: { versao?: number; onMu
                   </button>
                 </td>
               </tr>
+              {i.tipo === 'trocado' && i.trocaId !== undefined && abertas.has(i.trocaId) && (
+                <tr>
+                  <td colSpan={5} style={{ fontSize: '0.72rem', background: 'hsl(var(--background-hsl))' }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                      {i.produto ? 'Vale só neste produto:' : 'Vale para todos os produtos cuja fórmula usa este insumo:'}
+                    </div>
+                    <ProdutosDaTroca trocaId={i.trocaId} />
+                  </td>
+                </tr>
+              )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>

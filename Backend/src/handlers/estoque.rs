@@ -607,19 +607,27 @@ pub async fn get_product_detalhes(
                 .await
                 .unwrap_or(0.0);
 
-                let form_sum: f64 = sqlx::query_scalar(
-                    "SELECT COALESCE(SUM(quantity), 1.0) FROM formulations WHERE product_code = $1",
+                let form_sum: Option<f64> = sqlx::query_scalar(
+                    "SELECT SUM(quantity) FROM formulations WHERE product_code = $1",
                 )
                 .bind(&new_lote.product_code)
                 .fetch_one(pool)
                 .await
-                .unwrap_or(1.0);
+                .unwrap_or(None);
 
-                let total_expected_weight = new_lote.quantity * form_sum;
-                if ing_exit_sum > 0.0 && total_expected_weight > 0.0 {
-                    let diff = (ing_exit_sum - total_expected_weight).abs() / total_expected_weight;
-                    new_lote.yield_error = Some(diff > 0.10);
-                }
+                let eh_base = crate::core::regras_produto::codigos_de_base(pool, std::slice::from_ref(&new_lote.product_code))
+                    .await
+                    .map(|b| b.contains(&new_lote.product_code))
+                    .unwrap_or(false);
+                new_lote.yield_error = crate::modules::producao::lotes::rendimento_com_desvio(
+                    ing_exit_sum,
+                    &[crate::modules::producao::lotes::ProdutoDoLote {
+                        kg: new_lote.quantity,
+                        unidades_detalhes: crate::modules::producao::lotes::unidades_dos_detalhes(&details),
+                        peso_unit: crate::core::regras_produto::peso_unitario_kg(&new_lote.product_description, eh_base),
+                        soma_formula: form_sum,
+                    }],
+                );
 
                 let (pe, ee, ce) = check_lote_errors(
                     pool,

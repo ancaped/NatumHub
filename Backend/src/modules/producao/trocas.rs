@@ -26,17 +26,27 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/producao/trocas", get(listar_rota).post(criar_rota))
         .route("/api/producao/trocas/:id", delete(remover_rota))
+        .route("/api/producao/trocas/:id/produtos", get(produtos_da_troca_rota))
 }
 
 /// Ações de consulta das trocas de insumo descritas para agentes (ver `core::catalogo`).
 pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
-    vec![crate::core::catalogo::Acao::leitura(
-        "listar_trocas_insumo",
-        "producao",
-        "Lista as trocas de insumo cadastradas (um insumo cobrindo outro) usadas na cobertura de insumos.",
-        "/api/producao/trocas",
-        vec![],
-    )]
+    vec![
+        crate::core::catalogo::Acao::leitura(
+            "listar_trocas_insumo",
+            "producao",
+            "Lista as trocas de insumo cadastradas (um insumo cobrindo outro) usadas na cobertura de insumos.",
+            "/api/producao/trocas",
+            vec![],
+        ),
+        crate::core::catalogo::Acao::leitura(
+            "listar_produtos_da_troca",
+            "producao",
+            "Lista os produtos onde uma troca de insumo vale (os que ainda têm o insumo original na fórmula; só o produto da troca quando o escopo é um produto).",
+            "/api/producao/trocas/:id/produtos",
+            vec![crate::core::catalogo::param("id", "caminho", "número", true, "Id da troca (de listar_trocas_insumo).")],
+        ),
+    ]
 }
 
 fn erro(status: StatusCode, msg: impl Into<String>) -> axum::response::Response {
@@ -299,6 +309,58 @@ async fn criar_rota(
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct ProdutoDaTroca {
+    pub codigo: String,
+    pub descricao: String,
+}
+
+/// Produtos cuja fórmula ainda usa o insumo original da troca (só o produto da troca, se o escopo for um produto).
+/// `None` = troca inexistente.
+pub async fn produtos_da_troca(pool: &PgPool, id: i64) -> Result<Option<Vec<ProdutoDaTroca>>, String> {
+    let Some(t) = sqlx::query("SELECT insumo_de, produto_codigo FROM producao_trocas_insumo WHERE id = $1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("Erro ao ler a troca: {e}"))?
+    else {
+        return Ok(None);
+    };
+    let de: String = t.get("insumo_de");
+    let produto: Option<String> = t.get("produto_codigo");
+    let rows = sqlx::query(
+        r#"
+        SELECT u.codigo,
+               COALESCE((SELECT p.descricao FROM produtos p WHERE TRIM(p.codigo) = u.codigo LIMIT 1), '') AS descricao
+        FROM (
+            SELECT DISTINCT TRIM(f.product_code) AS codigo
+            FROM formulations f
+            WHERE TRIM(REPLACE(f.ingredient_code, '"', '')) = $1
+              AND ($2::text IS NULL OR TRIM(f.product_code) = $2)
+        ) u
+        ORDER BY 2, 1
+        "#,
+    )
+    .bind(&de)
+    .bind(&produto)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Erro ao listar os produtos da troca: {e}"))?;
+    Ok(Some(
+        rows.into_iter()
+            .map(|r| ProdutoDaTroca { codigo: r.get("codigo"), descricao: r.get("descricao") })
+            .collect(),
+    ))
+}
+
+async fn produtos_da_troca_rota(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl IntoResponse {
+    match produtos_da_troca(state.db.pool(), id).await {
+        Ok(Some(v)) => (StatusCode::OK, Json(v)).into_response(),
+        Ok(None) => erro(StatusCode::NOT_FOUND, "Troca não encontrada."),
+        Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ConfirmarQuery {
     pub confirmar: Option<bool>,
@@ -374,6 +436,8 @@ mod tests {
         assert_eq!(l[0].descricao_de, "DC 245");
         assert_eq!(l[0].descricao_para, "DC 242");
         assert!(l[0].formula_corrigida, "nenhuma fórmula usa TT-245");
+        assert!(produtos_da_troca(&pool, l[0].id).await.unwrap().unwrap().is_empty(), "nenhum produto usa TT-245");
+        assert!(produtos_da_troca(&pool, -1).await.unwrap().is_none(), "troca inexistente");
 
         // escopo de um produto convive com o geral
         let so_um = NovaTroca { produto: Some("P-1".into()), insumo_de: "TT-245".into(), insumo_para: "TT-242".into(), confirmar: true };
