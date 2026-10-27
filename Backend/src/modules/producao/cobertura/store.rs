@@ -299,7 +299,7 @@ pub async fn carregar_ordens(pool: &PgPool, ini: NaiveDate, fim: NaiveDate) -> R
 // Estoque, reserva, calibração
 // ---------------------------------------------------------------------------------------------
 
-async fn carregar_estoque(
+pub(super) async fn carregar_estoque(
     pool: &PgPool,
     codigos: &[String],
     formulas: &Formulas,
@@ -577,17 +577,19 @@ async fn carregar_manuais(pool: &PgPool, codigos: &[String]) -> Result<HashMap<S
 // Lotes do ERP
 // ---------------------------------------------------------------------------------------------
 
-struct LoteBruto {
+pub(super) struct LoteBruto {
     numero: String,
     data: NaiveDate,
-    produtos: Vec<(String, f64)>,
+    pub(super) produtos: Vec<(String, f64)>,
 }
 
-/// Lotes abertos no ERP (sem baixa, fora de CA/EA) que nenhuma ordem do Nexus vincula.
-async fn carregar_lotes_abertos_sem_vinculo(
+/// Lotes abertos no ERP (sem baixa, fora de CA/EA). Com `incluir_vinculados = false`, só os que nenhuma ordem do
+/// Nexus vincula (uso da cobertura); com `true`, todos (diagnóstico da reserva do ERP).
+pub(super) async fn carregar_lotes_abertos_sem_vinculo(
     pool: &PgPool,
     ini: NaiveDate,
     fim: NaiveDate,
+    incluir_vinculados: bool,
 ) -> Result<Vec<LoteBruto>, String> {
     let rows = sqlx::query(
         r#"
@@ -602,14 +604,15 @@ async fn carregar_lotes_abertos_sem_vinculo(
               SELECT 1 FROM lotes_baixas lb
               WHERE lb.nlote = (CASE WHEN sm.document_number ~ '^[0-9]{1,9}$' THEN sm.document_number::int END)
           )
-          AND NOT EXISTS (
+          AND ($3 OR NOT EXISTS (
               SELECT 1 FROM producao_planejamento_semanal pp
               WHERE TRIM(COALESCE(pp.lote_erp, '')) = sm.document_number
-          )
+          ))
         "#,
     )
     .bind(ini.format("%Y-%m-%d").to_string())
     .bind(fim.format("%Y-%m-%d").to_string())
+    .bind(incluir_vinculados)
     .fetch_all(pool)
     .await
     .map_err(|e| format!("Erro ao ler lotes do ERP: {e}"))?;
@@ -781,6 +784,24 @@ fn chave_grupo(o: &OrdemBanco) -> String {
     format!("ITEM_{}", o.id)
 }
 
+/// Reserva de cada lote aberto do ERP por insumo, "como o ERP reservaria" (fórmula original, sem trocas).
+pub(super) fn lotes_com_reserva(lotes: Vec<LoteBruto>, formulas: &Formulas) -> Vec<LoteErp> {
+    lotes
+        .into_iter()
+        .map(|l| {
+            let mut reserva: HashMap<String, f64> = HashMap::new();
+            for (prod, kg) in &l.produtos {
+                if let Some(n) = formulas.necessidades_erp(prod, *kg) {
+                    for x in n {
+                        *reserva.entry(x.codigo).or_insert(0.0) += x.quantidade;
+                    }
+                }
+            }
+            LoteErp { numero: l.numero, data: l.data, produtos: l.produtos, reserva }
+        })
+        .collect()
+}
+
 /// Carrega tudo o que a simulação precisa para a semana pedida. `extras` = códigos de produto adicionais
 /// (candidatos da fila) cujas fórmulas também precisam ser lidas.
 pub async fn montar_contexto(pool: &PgPool, semana: &str, extras: &[String]) -> Result<Contexto, String> {
@@ -799,7 +820,7 @@ pub async fn montar_contexto_ate(pool: &PgPool, semana: &str, extras: &[String],
     let mut produtos: Vec<String> = ordens_banco.iter().map(|o| o.codigo.clone()).collect();
     produtos.extend(extras.iter().map(|c| canon(c)));
 
-    let lotes_brutos = carregar_lotes_abertos_sem_vinculo(pool, ini - Duration::days(7), fim + Duration::days(7)).await?;
+    let lotes_brutos = carregar_lotes_abertos_sem_vinculo(pool, ini - Duration::days(7), fim + Duration::days(7), false).await?;
     produtos.extend(lotes_brutos.iter().flat_map(|l| l.produtos.iter().map(|p| p.0.clone())));
     produtos.sort();
     produtos.dedup();
@@ -852,20 +873,7 @@ pub async fn montar_contexto_ate(pool: &PgPool, semana: &str, extras: &[String],
         })
         .collect();
 
-    let lotes_erp: Vec<LoteErp> = lotes_brutos
-        .into_iter()
-        .map(|l| {
-            let mut reserva: HashMap<String, f64> = HashMap::new();
-            for (prod, kg) in &l.produtos {
-                if let Some(n) = formulas.necessidades_erp(prod, *kg) {
-                    for x in n {
-                        *reserva.entry(x.codigo).or_insert(0.0) += x.quantidade;
-                    }
-                }
-            }
-            LoteErp { numero: l.numero, data: l.data, produtos: l.produtos, reserva }
-        })
-        .collect();
+    let lotes_erp = lotes_com_reserva(lotes_brutos, &formulas);
 
     Ok(Contexto {
         entrada: EntradaSimulacao { hoje, estoque, chegadas, manuais, ordens, lotes_erp, equivalentes, sem_controle },

@@ -4,6 +4,7 @@
 pub mod calc;
 pub mod faltas;
 pub mod horizonte;
+pub mod reserva;
 pub mod store;
 
 use axum::{
@@ -31,6 +32,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/producao/cobertura/simular", post(post_simular))
         .route("/api/producao/cobertura/validacao", get(get_validacao))
         .route("/api/producao/cobertura/faltas-por-linha", get(get_faltas_por_linha))
+        .route("/api/producao/cobertura/reserva-diagnostico", get(get_reserva_diagnostico))
         .route("/api/producao/cobertura/ordens/:id/base-fonte", put(put_base_fonte))
 }
 
@@ -68,6 +70,16 @@ pub fn acoes() -> Vec<Acao> {
             "Compara a previsão de consumo da fórmula com a baixa real dos lotes já fechados (para conferir se a previsão é confiável).",
             "/api/producao/cobertura/validacao",
             vec![param("limite", "query", "inteiro", false, "Quantos lotes comparar (padrão 30).")],
+        ),
+        Acao::leitura(
+            "diagnosticar_reserva_insumos",
+            M,
+            "Compara a reserva de insumos que o ERP informa com a que os lotes abertos gerariam pela fórmula, por insumo, com os lotes que mais reservam.",
+            "/api/producao/cobertura/reserva-diagnostico",
+            vec![
+                param("codigo", "query", "texto", false, "Código de um insumo (padrão: todos)."),
+                param("limite", "query", "inteiro", false, "Quantos insumos devolver (padrão 50), maiores diferenças primeiro."),
+            ],
         ),
         Acao::gravacao(
             "definir_base_fonte_ordem",
@@ -328,6 +340,20 @@ async fn get_faltas_por_linha(State(state): State<Arc<AppState>>, Query(q): Quer
     }
     match faltas::gerar(state.db.pool(), &semana).await {
         Ok(r) => (StatusCode::OK, Json(r)).into_response(),
+        Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReservaQuery {
+    pub codigo: Option<String>,
+    pub limite: Option<usize>,
+}
+
+/// Diagnóstico da reserva: reserva do ERP x reserva dos lotes abertos, por insumo (somente leitura).
+async fn get_reserva_diagnostico(State(state): State<Arc<AppState>>, Query(q): Query<ReservaQuery>) -> impl IntoResponse {
+    match reserva::gerar(state.db.pool(), q.codigo.as_deref(), q.limite).await {
+        Ok(d) => (StatusCode::OK, Json(d)).into_response(),
         Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
 }
