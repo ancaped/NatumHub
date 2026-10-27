@@ -147,7 +147,6 @@ export default function ProducaoView({
   const [kitsSearch, setKitsSearch] = useState('');
   const [kitsSelectedStatus, setKitsSelectedStatus] = useState('ALL');
   const [kitsActiveTab, setKitsActiveTab] = useState('ALL');
-  const [expandedKits, setExpandedKits] = useState([]);
   const [uploadingKits, setUploadingKits] = useState(false);
 
   // Production History States
@@ -1007,12 +1006,6 @@ export default function ProducaoView({
     setPage(1);
   };
 
-  const toggleKitExpanded = (code) => {
-    setExpandedKits(prev => 
-      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
-    );
-  };
-
   const gravarSettingGlobal = (chave: string, valor: number) =>
     apiFetch(`/settings/${chave}`, {
       method: 'POST',
@@ -1675,46 +1668,13 @@ export default function ProducaoView({
           {/* VIEW: KITS MANAGEMENT */}
           {currentView === 'kits' && (
             <KitsTab
-              kitsStats={kitsStats}
-              kits={kits}
-              configs={configs}
-              kitsActiveTab={kitsActiveTab}
-              setKitsActiveTab={setKitsActiveTab}
-              kitsSearch={kitsSearch}
-              setKitsSearch={setKitsSearch}
-              kitsSelectedStatus={kitsSelectedStatus}
-              setKitsSelectedStatus={setKitsSelectedStatus}
-              kitsPage={kitsPage}
-              setKitsPage={setKitsPage}
-              kitsTotalPages={kitsTotalPages}
-              kitsTotalItems={kitsTotalItems}
-              limitPerPage={limitPerPage}
-              showHidden={showHidden}
-              kitSortField={kitSortField}
-              setKitSortField={setKitSortField}
-              kitSortDir={kitSortDir}
-              setKitSortDir={setKitSortDir}
-              onLaunchProduct={(p) => {
-                setLaunchingProduct(p);
-                setLaunchQty(p.producao_recomendada > 0 ? p.producao_recomendada : 100);
-                const today = new Date();
-                const yyyy = today.getFullYear();
-                const mm = String(today.getMonth() + 1).padStart(2, '0');
-                const dd = String(today.getDate()).padStart(2, '0');
-                setLaunchDate(`${yyyy}-${mm}-${dd}`);
-              }}
               onEditOverrides={openEditModal}
               onRefresh={fetchKits}
               loading={loading}
               tabOptions={tabOptions}
-              toggleSort={toggleSort}
-              SortIcon={SortIcon}
-              expandedKits={expandedKits}
-              toggleKitExpanded={toggleKitExpanded}
               onOpenComposition={handleOpenKitComposition}
               onToggleApenasKit={handleToggleComponentApenasKit}
               onShowDetails={fetchProductDetails}
-              diasComerciais={diasComerciais}
             />
           )}
 
