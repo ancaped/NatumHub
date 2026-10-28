@@ -39,12 +39,23 @@ pub struct Chamada {
     pub caminho: String,
 }
 
+/// Tela que o `App.tsx` abre para uma chave de módulo (`view === 'chave'`).
+/// Módulos que dividem o mesmo componente (abas) não têm `frontend_path` próprio;
+/// esta ligação é o que faz a ficha deles continuar saindo do código a cada build.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Vista {
+    pub module_key: String,
+    pub arquivo: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Codigo {
     pub rotas: Vec<Rota>,
     pub sql: Vec<ArquivoSql>,
     pub telas: Vec<Tela>,
     pub chamadas: Vec<Chamada>,
+    #[serde(default)]
+    pub vistas: Vec<Vista>,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -651,7 +662,123 @@ pub fn varrer(raiz: &Path) -> Codigo {
             cod.chamadas.push(Chamada { arquivo: rel.clone(), caminho });
         }
     }
+
+    let app = raiz.join("Frontend/src/App.tsx");
+    if let Ok(src) = std::fs::read_to_string(&app) {
+        cod.vistas = vistas_do_app(&src);
+    }
     cod
+}
+
+/// Diretório de um arquivo de tela (`.../ComprasView.tsx` → `.../`).
+pub fn diretorio_arquivo(arquivo: &str) -> &str {
+    match arquivo.rfind('/') {
+        Some(i) => &arquivo[..=i],
+        None => "",
+    }
+}
+
+fn caminho_import(espec: &str) -> Option<String> {
+    let espec = espec.trim().trim_matches(['\'', '"', '`']);
+    let rel = espec.strip_prefix("./").unwrap_or(espec);
+    if !rel.starts_with("modules/") {
+        return None;
+    }
+    let mut arq = format!("Frontend/src/{rel}");
+    if !arq.ends_with(".tsx") && !arq.ends_with(".ts") {
+        arq.push_str(".tsx");
+    }
+    Some(arq)
+}
+
+/// `import Nome from './modules/...'` e `const Nome = lazy(() => import('./modules/...'))`.
+fn imports_do_app(src: &str) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    for line in src.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("import ") else { continue };
+        let Some((nome, depois)) = rest.split_once(" from ") else { continue };
+        let nome = nome.trim();
+        if !nome.chars().next().is_some_and(|c| c.is_ascii_uppercase()) {
+            continue;
+        }
+        if let Some(arq) = caminho_import(depois.trim().trim_end_matches(';')) {
+            map.insert(nome.to_string(), arq);
+        }
+    }
+    let mut i = 0;
+    while let Some(rel) = src[i..].find("lazy(") {
+        let abs = i + rel;
+        let antes = &src[..abs];
+        let nome = antes
+            .rfind("const ")
+            .and_then(|p| {
+                let trecho = antes[p + "const ".len()..].trim();
+                trecho.split_whitespace().next()
+            })
+            .unwrap_or("");
+        let janela = &src[abs..src.len().min(abs + 400)];
+        if let Some(q) = janela.find("import(") {
+            let depois = &janela[q + "import(".len()..];
+            let espec: String = depois
+                .trim_start()
+                .chars()
+                .skip_while(|c| *c == '\'' || *c == '"' || *c == '`')
+                .take_while(|c| *c != '\'' && *c != '"' && *c != '`')
+                .collect();
+            if !nome.is_empty() {
+                if let Some(arq) = caminho_import(&espec) {
+                    map.insert(nome.to_string(), arq);
+                }
+            }
+        }
+        i = abs + 5;
+    }
+    map
+}
+
+fn componente_da_janela<'a>(janela: &str, imports: &'a BTreeMap<String, String>) -> Option<&'a str> {
+    let mut i = 0;
+    let b = janela.as_bytes();
+    while i < b.len() {
+        if b[i] == b'<' && janela[i + 1..].starts_with(|c: char| c.is_ascii_uppercase()) {
+            let nome: String = janela[i + 1..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric())
+                .collect();
+            if let Some(arq) = imports.get(&nome) {
+                if arq.contains("/modules/") && !nome.ends_with("Boundary") {
+                    return Some(arq.as_str());
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Chaves `view === '...'` do `App.tsx` e o arquivo da tela que elas abrem.
+pub fn vistas_do_app(src: &str) -> Vec<Vista> {
+    let imports = imports_do_app(src);
+    let mut out = Vec::new();
+    let mut i = 0;
+    while let Some(rel) = src[i..].find("view === '") {
+        let abs = i + rel;
+        let depois = &src[abs + "view === '".len()..];
+        let Some(fim) = depois.find('\'') else { break };
+        let chave = &depois[..fim];
+        let resto = &src[abs + 10..];
+        let corte = resto.find("\n    if (").unwrap_or(resto.len().min(2500));
+        let janela = &src[abs..abs + 10 + corte];
+        if let Some(arquivo) = componente_da_janela(janela, &imports) {
+            let vista = Vista { module_key: chave.to_string(), arquivo: arquivo.to_string() };
+            if !out.contains(&vista) {
+                out.push(vista);
+            }
+        }
+        i = abs + "view === '".len();
+    }
+    out
 }
 
 #[cfg(test)]
@@ -741,6 +868,54 @@ mod tests {
         assert_eq!(casa_rota("/api/kits/novo", "/api/kits/:id"), Some(1));
         assert_eq!(casa_rota("/api/kits/novo", "/api/kits/novo"), Some(0));
         assert_eq!(casa_rota("/api/kits", "/api/kits/:id"), None);
+    }
+
+    #[test]
+    fn vistas_ligam_abas_que_dividem_a_mesma_tela() {
+        let src = r#"
+            import LoginView from './modules/geral/acesso/LoginView';
+            const ComprasView = lazy(() => import('./modules/compras/planejamento/ComprasView'));
+            const AlmoxEstoqueView = lazy(() => import('./modules/estoque/almoxarifado/AlmoxEstoqueView'));
+            if (view === 'compras_embalagens') {
+              return <ErrorBoundary><ComprasView mode="embalagens" /></ErrorBoundary>;
+            }
+            if (
+              view === 'estoque_itens' ||
+              view === 'estoque_supermercado'
+            ) {
+              return <AlmoxEstoqueView />;
+            }
+            if (view === 'estoque_hub') {
+              return <div><button onClick={() => setView('estoque_itens')} /></div>;
+            }
+        "#;
+        let v = vistas_do_app(src);
+        assert_eq!(
+            v,
+            vec![
+                Vista { module_key: "compras_embalagens".into(), arquivo: "Frontend/src/modules/compras/planejamento/ComprasView.tsx".into() },
+                Vista { module_key: "estoque_itens".into(), arquivo: "Frontend/src/modules/estoque/almoxarifado/AlmoxEstoqueView.tsx".into() },
+                Vista { module_key: "estoque_supermercado".into(), arquivo: "Frontend/src/modules/estoque/almoxarifado/AlmoxEstoqueView.tsx".into() },
+            ]
+        );
+    }
+
+    #[test]
+    fn app_real_liga_as_abas_sem_pasta_propria() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../Frontend/src/App.tsx")).unwrap();
+        let v = vistas_do_app(&src);
+        for chave in [
+            "compras_embalagens",
+            "compras_coloracao",
+            "compras_simulation",
+            "estoque_itens",
+            "estoque_supermercado",
+            "estoque_produtos",
+            "estoque_equipamentos",
+        ] {
+            assert!(v.iter().any(|x| x.module_key == chave), "sem vista para {chave}");
+        }
+        assert!(v.len() > 20, "vistas: {}", v.len());
     }
 
     #[test]

@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
-use super::extracao::{casa_rota, Codigo, Tela};
+use super::extracao::{casa_rota, diretorio_arquivo, Codigo, Tela};
 use super::models::MapaEdge;
 
 const CODIGO_JSON: &str = include_str!(concat!(env!("OUT_DIR"), "/mapa_codigo.json"));
@@ -255,6 +255,46 @@ pub fn montar(cod: &Codigo, mods: &[ModuloRef]) -> Montado {
         }
     }
 
+    // Abas que abrem a mesma tela (sem frontend_path) recebem telas e chamadas dessa pasta.
+    // Não criam aresta: a aresta fica no módulo que é dono do arquivo pelo caminho.
+    for m in mods {
+        let pastas: BTreeSet<&str> = cod
+            .vistas
+            .iter()
+            .filter(|v| v.module_key == m.key)
+            .map(|v| diretorio_arquivo(&v.arquivo))
+            .filter(|p| !p.is_empty())
+            .collect();
+        if pastas.is_empty() {
+            continue;
+        }
+        let Some(g) = por_modulo.get_mut(m.key) else { continue };
+        for t in &cod.telas {
+            if pastas.iter().any(|p| t.arquivo.starts_with(*p)) && !g.telas.iter().any(|e| e.arquivo == t.arquivo) {
+                g.telas.push(t.clone());
+            }
+        }
+        for c in &cod.chamadas {
+            if !pastas.iter().any(|p| c.arquivo.starts_with(*p)) {
+                continue;
+            }
+            let melhor = cod
+                .rotas
+                .iter()
+                .enumerate()
+                .filter_map(|(i, r)| casa_rota(&c.caminho, &r.caminho).map(|n| (n, i)))
+                .min();
+            let Some((_, idx)) = melhor else { continue };
+            let rota = &cod.rotas[idx];
+            let dono = donos_rota[idx];
+            let tela = nome_arquivo(&c.arquivo);
+            let item = ChamadaGerada { tela: tela.clone(), rota: rota.caminho.clone(), modulo_dono: dono.map(str::to_string) };
+            if !g.chamadas.contains(&item) {
+                g.chamadas.push(item);
+            }
+        }
+    }
+
     for g in por_modulo.values_mut() {
         g.rotas.sort_by(|a, b| (&a.caminho, &a.arquivo).cmp(&(&b.caminho, &b.arquivo)));
         g.telas.sort_by(|a, b| a.arquivo.cmp(&b.arquivo));
@@ -312,6 +352,7 @@ mod tests {
                 Chamada { arquivo: "Frontend/src/modules/compras/PedidosView.tsx".into(), caminho: "/api/estoque/saldo/:param".into() },
                 Chamada { arquivo: "Frontend/src/modules/compras/PedidosView.tsx".into(), caminho: "/api/compras/pedidos".into() },
             ],
+            ..Default::default()
         };
         let m = montar(&cod, &mods());
         let compras = &m.por_modulo["compras"];
@@ -346,6 +387,34 @@ mod tests {
         // diretório compartilhado: cada módulo só enxerga as tabelas dos arquivos das próprias rotas
         assert_eq!(m.por_modulo["producao_a"].tabelas.le, vec!["fila"]);
         assert_eq!(m.por_modulo["producao_b"].tabelas.le, vec!["itens"]);
+    }
+
+    #[test]
+    fn aba_sem_caminho_recebe_a_tela_que_o_app_abre() {
+        use super::super::extracao::Vista;
+        let cod = Codigo {
+            rotas: vec![rota("GET", "/api/compras/pedidos", "Backend/src/modules/compras/mod.rs")],
+            telas: vec![Tela { nome: "ComprasView".into(), arquivo: "Frontend/src/modules/compras/planejamento/ComprasView.tsx".into() }],
+            chamadas: vec![Chamada {
+                arquivo: "Frontend/src/modules/compras/planejamento/ComprasView.tsx".into(),
+                caminho: "/api/compras/pedidos".into(),
+            }],
+            vistas: vec![Vista {
+                module_key: "compras_embalagens".into(),
+                arquivo: "Frontend/src/modules/compras/planejamento/ComprasView.tsx".into(),
+            }],
+            ..Default::default()
+        };
+        let mods = vec![
+            ModuloRef { key: "compras", frontend_path: Some("Frontend/src/modules/compras/"), backend_path: Some("Backend/src/modules/compras/"), router_prefix: Some("/api/compras") },
+            ModuloRef { key: "compras_embalagens", frontend_path: None, backend_path: None, router_prefix: None },
+        ];
+        let m = montar(&cod, &mods);
+        let aba = &m.por_modulo["compras_embalagens"];
+        assert_eq!(aba.telas.len(), 1);
+        assert_eq!(aba.chamadas.len(), 1);
+        assert!(aba.rotas.is_empty(), "a aba usa a rota, não é dona dela");
+        assert!(m.arestas.iter().all(|e| e.from_key != "compras_embalagens"));
     }
 
     /// Com o banco de teste (seed + migrações do mapa): o snapshot traz a ficha gerada do código deste build.

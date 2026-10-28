@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  ListTodo, History, Plus, RefreshCw, Loader2, X, Network, LayoutList
+  ListTodo, RefreshCw, Loader2, X, LayoutList
 } from 'lucide-react';
 import AppLayout from '../components/layout/AppLayout';
 import { cn } from '../lib/utils';
@@ -19,6 +19,8 @@ import TimelineAuditTab from './components/TimelineAuditTab';
 import ModuleCreationWizard from './components/ModuleCreationWizard';
 import ModulosLista from './components/ModulosLista';
 import { contarAbertosPorModulo } from './vinculo';
+import { layoutOrganograma } from './layoutOrganograma';
+import { BotaoAcao, ReportTabs } from '../components/ui/ReportKit';
 
 interface DesenvolvimentoViewProps {
   currentUser?: AuthUser | null;
@@ -72,11 +74,9 @@ export default function DesenvolvimentoView({
       setSnap(s);
       setFeedbacks(fbList || []);
 
-      const pos: Record<string, { x: number; y: number }> = {};
-      for (const m of s.modules) {
-        pos[m.moduleKey] = { x: m.posX, y: m.posY };
-      }
-      setPositions(pos);
+      setPositions(layoutOrganograma(s.modules, s.groups));
+      setScale(0.78);
+      setPan({ x: 24, y: 16 });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Falha ao carregar dados de desenvolvimento');
     } finally {
@@ -307,46 +307,19 @@ export default function DesenvolvimentoView({
           <>
             {activeTab === 'mapa' && (
               <div className="flex-1 min-h-0 flex flex-col gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center rounded-xl border border-zinc-200 bg-white p-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setVistaMapa('lista')}
-                      className={cn(
-                        'px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer',
-                        vistaMapa === 'lista' ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-50'
-                      )}
-                    >
-                      Lista
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setVistaMapa('organograma')}
-                      className={cn(
-                        'px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer inline-flex items-center gap-1.5',
-                        vistaMapa === 'organograma' ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-50'
-                      )}
-                    >
-                      <Network className="h-3.5 w-3.5" />
-                      Organograma
-                    </button>
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <ReportTabs
+                    abas={[
+                      { id: 'lista', label: 'Lista' },
+                      { id: 'organograma', label: 'Organograma' },
+                    ]}
+                    ativa={vistaMapa}
+                    onChange={(id) => setVistaMapa(id as 'lista' | 'organograma')}
+                  />
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                    <BotaoAcao onClick={() => setActiveTab('timeline')}>Atividades</BotaoAcao>
+                    <BotaoAcao onClick={() => setActiveTab('novo_modulo')}>Novo módulo</BotaoAcao>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('timeline')}
-                    className="px-3 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-bold text-zinc-700 hover:bg-zinc-50 cursor-pointer inline-flex items-center gap-1.5"
-                  >
-                    <History className="h-3.5 w-3.5" />
-                    Atividades
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('novo_modulo')}
-                    className="px-3 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-bold text-zinc-700 hover:bg-zinc-50 cursor-pointer inline-flex items-center gap-1.5"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Novo módulo
-                  </button>
                 </div>
                 {vistaMapa === 'lista' ? (
                   <ModulosLista

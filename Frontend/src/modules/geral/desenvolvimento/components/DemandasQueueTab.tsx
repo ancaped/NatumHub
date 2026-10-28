@@ -1,10 +1,7 @@
-import React, { useState, useMemo } from 'react';
-import {
-  Inbox, ListChecks, Sparkles, CheckCircle2, Search,
-  Image as ImageIcon, Terminal
-} from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Image as ImageIcon, Terminal } from 'lucide-react';
 import type { Feedback, FilaSubTab } from '../types';
-import { cn } from '../../lib/utils';
+import { BotaoAcao, FilterBar, FiltroSelect, ReportTabs, StatusBadge, TabelaPainel, type VarianteBadge } from '../../components/ui/ReportKit';
 
 interface DemandasQueueTabProps {
   feedbacks: Feedback[];
@@ -15,11 +12,11 @@ interface DemandasQueueTabProps {
   onBatchStatus?: (ids: string[], status: string) => Promise<void>;
 }
 
-const SUB_TAB_CONFIG: { id: FilaSubTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: 'triagem', label: 'Triagem', icon: Inbox },
-  { id: 'execucao', label: 'Fila', icon: ListChecks },
-  { id: 'homologacao', label: 'Homologação', icon: Sparkles },
-  { id: 'finalizados', label: 'Finalizados', icon: CheckCircle2 },
+const SUB_TAB_CONFIG: { id: FilaSubTab; label: string }[] = [
+  { id: 'triagem', label: 'Triagem' },
+  { id: 'execucao', label: 'Fila' },
+  { id: 'homologacao', label: 'Homologação' },
+  { id: 'finalizados', label: 'Finalizados' },
 ];
 
 const STATUS_LABEL: Record<string, string> = {
@@ -87,161 +84,117 @@ export default function DemandasQueueTab({
     });
   }, [feedbacks, subTab, typeFilter, search]);
 
+  const varianteTipo = (tipo: string): VarianteBadge => (tipo === 'bug' ? 'critico' : 'aguardando');
+
   return (
-    <div className="flex-1 flex flex-col min-h-0 space-y-3">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-200 pb-3">
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-          {SUB_TAB_CONFIG.map((t) => {
-            const Icon = t.icon;
-            const count = counts[t.id];
-            const isActive = subTab === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setSubTab(t.id)}
-                className={cn(
-                  'flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap border',
-                  isActive
-                    ? 'bg-zinc-900 text-white border-zinc-900 shadow-2xs'
-                    : 'bg-white text-zinc-650 border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900'
-                )}
-              >
-                <Icon className={cn('h-3.5 w-3.5', isActive ? 'text-white' : 'text-zinc-400')} />
-                <span>{t.label}</span>
-                {count > 0 && (
-                  <span
-                    className={cn(
-                      'text-[10px] font-mono px-1.5 py-0.2 rounded-full border font-bold',
-                      isActive
-                        ? t.id === 'homologacao'
-                          ? 'bg-amber-400 text-zinc-950 border-amber-300'
-                          : 'bg-zinc-800 text-zinc-200 border-zinc-700'
-                        : t.id === 'homologacao'
-                        ? 'bg-amber-100 text-amber-900 border-amber-200'
-                        : 'bg-zinc-100 text-zinc-600 border-zinc-200'
-                    )}
+    <div className="flex-1 flex flex-col min-h-0">
+      <ReportTabs
+        abas={SUB_TAB_CONFIG.map((t) => ({ id: t.id, label: t.label, contagem: counts[t.id] }))}
+        ativa={subTab}
+        onChange={(id) => setSubTab(id as FilaSubTab)}
+      />
+      <FilterBar busca={search} onBusca={setSearch} placeholder="Buscar chamado, módulo...">
+        <FiltroSelect
+          value={typeFilter}
+          onChange={(v) => setTypeFilter(v as 'all' | 'bug' | 'feedback')}
+          opcoes={[
+            { valor: 'all', rotulo: 'Todos os tipos' },
+            { valor: 'bug', rotulo: 'Bugs' },
+            { valor: 'feedback', rotulo: 'Sugestões' },
+          ]}
+        />
+        {subTab === 'homologacao' && selecionados.length > 0 && onBatchStatus && (
+          <>
+            <BotaoAcao
+              primario
+              disabled={loteOcupado}
+              onClick={() => {
+                setLoteOcupado(true);
+                void onBatchStatus(selecionados, 'resolved')
+                  .then(() => setSelecionados([]))
+                  .finally(() => setLoteOcupado(false));
+              }}
+            >
+              Aprovar {selecionados.length}
+            </BotaoAcao>
+            <BotaoAcao
+              disabled={loteOcupado}
+              onClick={() => {
+                setLoteOcupado(true);
+                void onBatchStatus(selecionados, 'queued')
+                  .then(() => setSelecionados([]))
+                  .finally(() => setLoteOcupado(false));
+              }}
+            >
+              Devolver para a fila
+            </BotaoAcao>
+          </>
+        )}
+      </FilterBar>
+
+      {filteredItems.length === 0 && !loading ? (
+        <div className="panel-card py-16 text-center text-sm text-zinc-500">Nenhum chamado nesta etapa.</div>
+      ) : (
+        <div className="flex-1 min-h-0 overflow-auto">
+          <TabelaPainel>
+            <thead>
+              <tr>
+                {subTab === 'homologacao' && <th style={{ width: 36 }} />}
+                <th>Tipo</th>
+                <th>Módulo</th>
+                <th>Chamado</th>
+                <th>Quando</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredItems.map((f) => {
+                const hasShot = Boolean(f.hasScreenshot || f.screenshot);
+                const hasLogs = Boolean(f.hasLogs || f.logs?.trim());
+                const marcado = selecionados.includes(f.id);
+                const frase = (f.description || '').replace(/\s+/g, ' ').trim();
+                return (
+                  <tr
+                    key={f.id}
+                    onClick={() => onSelectFeedback(f)}
+                    style={{ cursor: 'pointer', background: selectedId === f.id ? 'hsl(var(--background-hsl))' : undefined }}
                   >
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1 sm:w-60">
-            <Search className="h-3.5 w-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar chamado, módulo..."
-              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-zinc-200 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
-            />
-          </div>
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value as 'all' | 'bug' | 'feedback')}
-            className="border border-zinc-200 rounded-xl px-2.5 py-1.5 text-xs bg-white text-zinc-700 font-semibold focus:outline-none focus:ring-1 focus:ring-zinc-900"
-          >
-            <option value="all">Todos os Tipos</option>
-            <option value="bug">Somente Bugs</option>
-            <option value="feedback">Somente Sugestões</option>
-          </select>
-        </div>
-      </div>
-
-      {subTab === 'homologacao' && selecionados.length > 0 && onBatchStatus && (
-        <div className="flex items-center gap-2 text-xs">
-          <span className="font-semibold text-zinc-700">{selecionados.length} selecionado(s)</span>
-          <button
-            type="button"
-            disabled={loteOcupado}
-            onClick={() => {
-              setLoteOcupado(true);
-              void onBatchStatus(selecionados, 'resolved')
-                .then(() => setSelecionados([]))
-                .finally(() => setLoteOcupado(false));
-            }}
-            className="px-2.5 py-1 rounded-lg bg-zinc-900 text-white font-bold disabled:opacity-50 cursor-pointer"
-          >
-            Aprovar
-          </button>
-          <button
-            type="button"
-            disabled={loteOcupado}
-            onClick={() => {
-              setLoteOcupado(true);
-              void onBatchStatus(selecionados, 'queued')
-                .then(() => setSelecionados([]))
-                .finally(() => setLoteOcupado(false));
-            }}
-            className="px-2.5 py-1 rounded-lg border border-zinc-200 bg-white text-zinc-800 font-bold disabled:opacity-50 cursor-pointer"
-          >
-            Devolver para a fila
-          </button>
+                    {subTab === 'homologacao' && (
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={marcado}
+                          onChange={() => {
+                            setSelecionados((prev) => (
+                              prev.includes(f.id) ? prev.filter((id) => id !== f.id) : [...prev, f.id]
+                            ));
+                          }}
+                          aria-label={`Selecionar ${f.id}`}
+                        />
+                      </td>
+                    )}
+                    <td>
+                      <StatusBadge variante={varianteTipo(f.feedbackType)}>
+                        {f.feedbackType === 'bug' ? 'Bug' : 'Sugestão'}
+                      </StatusBadge>
+                    </td>
+                    <td>{f.moduleKey || f.page || '—'}</td>
+                    <td>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {frase}
+                        {hasShot && <ImageIcon className="h-3.5 w-3.5 text-zinc-400 shrink-0" />}
+                        {hasLogs && <Terminal className="h-3.5 w-3.5 text-zinc-400 shrink-0" />}
+                      </span>
+                    </td>
+                    <td>{idade(f.createdAt) || '—'}</td>
+                    <td>{STATUS_LABEL[f.status] || f.status}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </TabelaPainel>
         </div>
       )}
-
-      <div className="flex-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white divide-y divide-zinc-100">
-        {filteredItems.map((f) => {
-          const isSelected = selectedId === f.id;
-          const hasShot = Boolean(f.hasScreenshot || f.screenshot);
-          const hasLogs = Boolean(f.hasLogs || f.logs?.trim());
-          const marcado = selecionados.includes(f.id);
-          const frase = (f.description || '').replace(/\s+/g, ' ').trim();
-
-          return (
-            <div
-              key={f.id}
-              onClick={() => onSelectFeedback(f)}
-              className={cn(
-                'flex items-center gap-3 px-3 py-2 cursor-pointer',
-                isSelected ? 'bg-zinc-50' : 'hover:bg-zinc-50'
-              )}
-            >
-              {subTab === 'homologacao' && (
-                <input
-                  type="checkbox"
-                  checked={marcado}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={() => {
-                    setSelecionados((prev) => (
-                      prev.includes(f.id) ? prev.filter((id) => id !== f.id) : [...prev, f.id]
-                    ));
-                  }}
-                  className="shrink-0"
-                  aria-label={`Selecionar ${f.id}`}
-                />
-              )}
-              <span className={cn(
-                'shrink-0 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border',
-                f.feedbackType === 'bug' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-sky-50 text-sky-700 border-sky-200'
-              )}>
-                {f.feedbackType === 'bug' ? 'Bug' : 'Sugestão'}
-              </span>
-              <span className="shrink-0 text-[10px] font-mono text-zinc-500 max-w-[8rem] truncate">
-                {f.moduleKey || f.page || '—'}
-              </span>
-              <span className="min-w-0 flex-1 text-xs text-zinc-900 truncate">{frase}</span>
-              <span className="shrink-0 text-[10px] text-zinc-400 tabular-nums">{idade(f.createdAt)}</span>
-              {hasShot && <ImageIcon className="h-3 w-3 text-zinc-400 shrink-0" />}
-              {hasLogs && <Terminal className="h-3 w-3 text-zinc-400 shrink-0" />}
-              <span className="shrink-0 text-[10px] font-bold text-zinc-600">
-                {STATUS_LABEL[f.status] || f.status}
-              </span>
-            </div>
-          );
-        })}
-
-        {!filteredItems.length && !loading && (
-          <div className="py-16 text-center text-zinc-400 text-xs space-y-1">
-            <p className="font-bold text-zinc-600">Nenhum chamado encontrado nesta etapa.</p>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

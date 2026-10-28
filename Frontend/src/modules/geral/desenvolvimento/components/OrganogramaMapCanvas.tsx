@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { ZoomIn, ZoomOut, Maximize2, Bug, Layers } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize2, Bug } from 'lucide-react';
 import type { MapaSnapshot, MapaGroup, MapaModule, Feedback } from '../types';
 import { contarAbertosPorModulo } from '../vinculo';
 import { cn } from '../../lib/utils';
@@ -19,10 +19,11 @@ interface OrganogramaMapCanvasProps {
   feedbacks: Feedback[];
 }
 
-const STATUS_STYLE: Record<string, string> = {
-  live: 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold',
-  stub: 'bg-zinc-100 text-zinc-600 border border-zinc-200 font-medium',
-  planned: 'bg-amber-50 text-amber-700 border border-amber-200 font-bold',
+const STATUS_STYLE: Record<string, { rotulo: string; classe: string }> = {
+  live: { rotulo: 'No ar', classe: 'bg-emerald-50 text-emerald-800 border border-emerald-200' },
+  stub: { rotulo: 'Rascunho', classe: 'bg-sky-50 text-sky-800 border border-sky-200' },
+  planned: { rotulo: 'Planejado', classe: 'bg-amber-50 text-amber-800 border border-amber-200' },
+  descontinuado: { rotulo: 'Descontinuado', classe: 'bg-zinc-100 text-zinc-500 border border-zinc-200' },
 };
 
 export default function OrganogramaMapCanvas({
@@ -54,10 +55,10 @@ export default function OrganogramaMapCanvas({
     const f = positions[e.fromKey];
     const t = positions[e.toKey];
     if (!f || !t) return null;
-    const x1 = f.x + 95;
-    const y1 = f.y + 26;
-    const x2 = t.x + 95;
-    const y2 = t.y + 26;
+    const x1 = f.x + 105;
+    const y1 = f.y + 32;
+    const x2 = t.x + 105;
+    const y2 = t.y + 32;
     return (
       <g key={e.id}>
         <line
@@ -116,8 +117,8 @@ export default function OrganogramaMapCanvas({
             if (!xs.length) return null;
             const minX = Math.min(...xs) - 16;
             const minY = Math.min(...ys) - 36;
-            const maxX = Math.max(...xs) + 200;
-            const maxY = Math.max(...ys) + 70;
+            const maxX = Math.max(...xs) + 226;
+            const maxY = Math.max(...ys) + 84;
             return (
               <div
                 key={g.key}
@@ -136,6 +137,10 @@ export default function OrganogramaMapCanvas({
             const p = positions[m.moduleKey] || { x: m.posX, y: m.posY };
             const isSelected = selectedKey === m.moduleKey;
             const bugCount = bugCountByModule[m.moduleKey] || 0;
+            const status = STATUS_STYLE[m.status] || STATUS_STYLE.stub;
+            const telas = m.gerado?.telas.length ?? 0;
+            const rotas = m.gerado?.rotas.length ?? 0;
+            const ficha = telas + rotas > 0 ? `${telas} telas · ${rotas} rotas` : 'Sem ficha no código';
 
             return (
               <button
@@ -144,29 +149,25 @@ export default function OrganogramaMapCanvas({
                 onPointerDown={(e) => onPointerDownNode(e, m.moduleKey)}
                 onClick={() => onSelectModule(m.moduleKey)}
                 className={cn(
-                  'absolute w-[190px] cursor-grab rounded-2xl border bg-white p-3 text-left shadow-xs transition-all active:cursor-grabbing hover:shadow-md',
+                  'absolute w-[210px] cursor-grab rounded-xl border bg-white px-3 py-2 text-left shadow-xs transition-all active:cursor-grabbing hover:shadow-md',
                   isSelected
                     ? 'border-zinc-950 ring-2 ring-zinc-950/20 shadow-md z-20'
                     : 'border-zinc-200 hover:border-zinc-300'
                 )}
                 style={{ left: p.x, top: p.y }}
               >
-                <div className="flex items-center justify-between gap-1 mb-1.5">
-                  <span className={cn('rounded-full px-2 py-0.5 text-[9px] uppercase tracking-wider', STATUS_STYLE[m.status] || STATUS_STYLE.stub)}>
-                    {m.status}
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <span className={cn('rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide', status.classe)}>
+                    {status.rotulo}
                   </span>
-
-                  <div className="flex items-center gap-1">
-                    {bugCount > 0 && (
-                      <span className="flex items-center gap-0.5 text-[9px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded-full" title={`${bugCount} chamado(s) aberto(s)`}>
-                        <Bug className="h-2.5 w-2.5" /> {bugCount}
-                      </span>
-                    )}
-                    <span className="truncate text-[10px] font-mono text-zinc-400">{m.moduleKey}</span>
-                  </div>
+                  {bugCount > 0 && (
+                    <span className="flex items-center gap-0.5 text-[9px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded-full" title={`${bugCount} chamado(s) aberto(s)`}>
+                      <Bug className="h-2.5 w-2.5" /> {bugCount}
+                    </span>
+                  )}
                 </div>
-
-                <div className="truncate text-xs font-bold text-zinc-900 leading-tight">{m.label}</div>
+                <div className="truncate text-xs font-semibold text-zinc-900 leading-tight">{m.label}</div>
+                <div className="mt-0.5 truncate text-[10px] text-zinc-500">{ficha}</div>
               </button>
             );
           })}
