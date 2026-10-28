@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BookOpen, CheckCircle2, Clock, FileText, Layers, Plus, RefreshCw, Search, Settings, Sparkles, Upload } from 'lucide-react';
+import { AlertTriangle, BookOpen, CheckCircle2, Clock, FileText, Layers, Plus, RefreshCw, Search, Settings, Sparkles } from 'lucide-react';
 import AppLayout from '../../geral/components/layout/AppLayout';
-import { apiFetch, apiJson } from '../../geral/lib/http';
+import { apiJson } from '../../geral/lib/http';
+import { loadNatumLogoDataUrl } from '../../geral/lib/logoUtils';
 import PopDrawer from './components/PopDrawer';
 import { reviewBadge, type PopDocument, type PopSector, type PopSettings } from './types';
 
@@ -28,27 +29,6 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
   const [seedMsg, setSeedMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const loadLogoBlob = useCallback(async (hasLogo: boolean) => {
-    if (!hasLogo) {
-      setLogoSrc(null);
-      return;
-    }
-    try {
-      const res = await apiFetch('/qualidade/pops/settings/logo');
-      if (!res.ok) {
-        setLogoSrc(null);
-        return;
-      }
-      const blob = await res.blob();
-      setLogoSrc((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return URL.createObjectURL(blob);
-      });
-    } catch {
-      setLogoSrc(null);
-    }
-  }, []);
-
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -66,7 +46,6 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
       setSectors(Array.isArray(secs) ? secs : []);
       setDocuments(Array.isArray(docs) ? docs : []);
       setSettings(sett ?? null);
-      await loadLogoBlob(Boolean(sett?.logoRelPath));
       // Alertas em background — evita corrida de DDL no primeiro load
       void apiJson('/qualidade/pops/check-alerts', { method: 'POST' }).catch(() => undefined);
     } catch (e: unknown) {
@@ -74,7 +53,7 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [sectorFilter, statusFilter, search, loadLogoBlob]);
+  }, [sectorFilter, statusFilter, search]);
 
   useEffect(() => {
     void load();
@@ -85,11 +64,16 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
       activeTab === 'pops' ? 'POPs' : activeTab === 'setores' ? 'Setores' : 'Configuração';
   }, [activeTab]);
 
+  // Logo único: o geral (Configurações → Identidade & Logo)
   useEffect(() => {
+    let vivo = true;
+    void loadNatumLogoDataUrl().then((url) => {
+      if (vivo) setLogoSrc(url || null);
+    });
     return () => {
-      if (logoSrc) URL.revokeObjectURL(logoSrc);
+      vivo = false;
     };
-  }, [logoSrc]);
+  }, []);
 
   const overdueCount = useMemo(
     () => documents.filter((d) => d.status === 'published' && (d.daysToReview ?? 999) < 0).length,
@@ -165,25 +149,6 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
       await load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Falha no seed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const uploadLogo = async (file: File) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await apiFetch('/qualidade/pops/settings', { method: 'PUT', body: fd });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error || 'Falha no upload');
-      }
-      await load();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Falha no upload do logo');
     } finally {
       setBusy(false);
     }
@@ -427,42 +392,6 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
 
         {activeTab === 'config' && (
           <div className="max-w-xl space-y-6 bg-white p-6 rounded-2xl border border-zinc-200/80 shadow-sm">
-            <section className="space-y-3">
-              <h2 className="text-base font-bold text-zinc-900">Logo do Cabeçalho Impresso</h2>
-              <p className="text-xs text-zinc-500 leading-relaxed">
-                Logotipo exibido no topo do modelo oficial de impressão dos POPs.
-              </p>
-              {logoSrc ? (
-                <div className="inline-block border border-zinc-200 rounded-xl p-3 bg-zinc-50">
-                  <img
-                    src={logoSrc}
-                    alt="Logo POPs"
-                    className="h-16 object-contain max-w-full"
-                  />
-                </div>
-              ) : (
-                <p className="text-sm text-zinc-500 italic">Nenhum logo configurado.</p>
-              )}
-              <div>
-                <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-zinc-200 hover:border-zinc-300 text-sm font-medium text-zinc-700 bg-white hover:bg-zinc-50 transition-colors shadow-sm cursor-pointer">
-                  <Upload className="w-4 h-4 text-zinc-500" />
-                  Enviar logo corporativo
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) void uploadLogo(f);
-                      e.target.value = '';
-                    }}
-                  />
-                </label>
-              </div>
-            </section>
-
-            <hr className="border-zinc-100" />
-
             <section className="space-y-3">
               <h2 className="text-base font-bold text-zinc-900">Sincronização do Inventário de POPs</h2>
               <p className="text-xs text-zinc-500 leading-relaxed">

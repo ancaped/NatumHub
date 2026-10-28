@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, Printer, Save, Sparkles, X } from 'lucide-react';
 import { apiJson } from '../../../geral/lib/http';
+import PopFolhasImpressao from './PopFolhasImpressao';
 import {
   emptyContent,
   normalizeContent,
@@ -563,153 +564,23 @@ export default function PopDrawer({
 
       {portalTarget && printVersion &&
         createPortal(
-          <div className="pop-print-root">
-            <style>{`
-              @media screen {
-                .pop-print-root { display: none !important; }
-              }
-              @media print {
-                @page {
-                  size: A4 portrait;
-                  margin: 10mm 12mm 12mm 12mm;
-                }
-                html, body {
-                  background: #fff !important;
-                  color: #000 !important;
-                  font-family: "Times New Roman", Times, Georgia, serif !important;
-                  margin: 0 !important;
-                  padding: 0 !important;
-                  width: 100% !important;
-                  height: auto !important;
-                  overflow: visible !important;
-                }
-                body > *:not(.pop-print-root) {
-                  display: none !important;
-                }
-                .pop-print-root {
-                  display: block !important;
-                  position: relative !important;
-                  left: 0 !important;
-                  top: 0 !important;
-                  width: 100% !important;
-                  margin: 0 !important;
-                  padding: 0 !important;
-                  background: #fff !important;
-                  color: #000 !important;
-                }
-                .pop-print-table {
-                  width: 100% !important;
-                  border-collapse: collapse !important;
-                  border: 1px solid #000 !important;
-                  table-layout: fixed !important;
-                }
-                .pop-print-header {
-                  display: table-header-group !important;
-                }
-                .pop-print-footer {
-                  display: table-footer-group !important;
-                  page-break-inside: avoid !important;
-                  break-inside: avoid !important;
-                }
-                .pop-print-body {
-                  display: table-row-group !important;
-                }
-              }
-            `}</style>
-            <table className="pop-print-table" style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000' }}>
-              <thead className="pop-print-header">
-                <tr>
-                  <td style={{ padding: 0, border: '0' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000' }}>
-                      <tbody>
-                        <tr>
-                          <td style={{ width: '22%', border: '1px solid #000', padding: 6, textAlign: 'center', verticalAlign: 'middle' }}>
-                            {logoSrc ? (
-                              <img src={logoSrc} alt="Logo" style={{ maxHeight: 52, maxWidth: '100%', objectFit: 'contain', margin: '0 auto' }} />
-                            ) : (
-                              <span style={{ fontSize: 11, fontWeight: 'bold' }}>NÁTUM BIO</span>
-                            )}
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: 6, textAlign: 'center', verticalAlign: 'middle' }}>
-                            <div style={{ fontWeight: 700, fontSize: 13, textTransform: 'uppercase' }}>Procedimento Operacional Padrão</div>
-                            <div style={{ fontSize: 11, fontWeight: 700, marginTop: 3 }}>{title || popDoc?.title}</div>
-                          </td>
-                          <td style={{ width: '28%', border: '1px solid #000', padding: 6, fontSize: 10, verticalAlign: 'top', lineHeight: 1.3 }}>
-                            <div><strong>Código:</strong> {code || popDoc?.code}</div>
-                            <div><strong>Revisão:</strong> {String(printVersion.revision).padStart(2, '0')}</div>
-                            <div><strong>Data:</strong> {fmtDate(printVersion.effectiveDate)}</div>
-                            <div><strong>Setor:</strong> {sectorName}</div>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </td>
-                </tr>
-              </thead>
-              <tbody className="pop-print-body">
-                <tr>
-                  <td style={{ padding: 0, border: '0' }}>
-                    <div
-                      style={{
-                        borderLeft: '1px solid #000',
-                        borderRight: '1px solid #000',
-                        padding: '14px 16px',
-                        fontSize: 11,
-                        lineHeight: 1.5,
-                        whiteSpace: 'pre-wrap',
-                        minHeight: 420,
-                        fontFamily: 'Georgia, "Times New Roman", Times, serif',
-                      }}
-                    >
-                      {printVersion.content?.body || '—'}
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-              <tfoot className="pop-print-footer">
-                <tr>
-                  <td style={{ padding: 0, border: '0' }}>
-                    <table
-                      style={{
-                        width: '100%',
-                        borderCollapse: 'collapse',
-                        border: '1px solid #000',
-                        fontSize: 10,
-                        pageBreakInside: 'avoid',
-                        breakInside: 'avoid',
-                      }}
-                    >
-                      <tbody>
-                        <tr>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', width: '33%', verticalAlign: 'top' }}>
-                            <div style={{ fontWeight: 700, marginBottom: 2 }}>Elaborado:</div>
-                            <div>{printVersion.elaboratedBy || elaboratedBy || 'Responsável Técnico'}</div>
-                            <div style={{ marginTop: 6, fontSize: 9, color: '#333' }}>
-                              Data: {fmtDate(printVersion.content?.elaboratedAt || content?.elaboratedAt)}
-                            </div>
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', width: '33%', verticalAlign: 'top' }}>
-                            <div style={{ fontWeight: 700, marginBottom: 2 }}>Revisado:</div>
-                            <div>{printVersion.reviewedBy || reviewedBy || 'Equipe de Controle de Qualidade'}</div>
-                            <div style={{ marginTop: 6, fontSize: 9, color: '#333' }}>
-                              Data: {fmtDate(printVersion.content?.reviewedAt || content?.reviewedAt)}
-                            </div>
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: '6px 8px', width: '34%', verticalAlign: 'top' }}>
-                            <div style={{ fontWeight: 700, marginBottom: 2 }}>Aprovado:</div>
-                            <div>{printVersion.approvedBy || approvedBy || '—'}</div>
-                            <div style={{ marginTop: 6, fontSize: 9, color: '#333' }}>
-                              Data: {fmtDate(printVersion.content?.approvedAt || content?.approvedAt)}
-                            </div>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>,
+          <PopFolhasImpressao
+            dados={{
+              logoSrc,
+              titulo: title || popDoc?.title || '',
+              codigo: code || popDoc?.code || '',
+              revisao: String(printVersion.revision).padStart(2, '0'),
+              data: fmtDate(printVersion.effectiveDate),
+              setor: sectorName,
+              corpo: printVersion.content?.body || '—',
+              elaboradoPor: printVersion.elaboratedBy || elaboratedBy || 'Responsável Técnico',
+              elaboradoEm: fmtDate(printVersion.content?.elaboratedAt || content?.elaboratedAt),
+              revisadoPor: printVersion.reviewedBy || reviewedBy || 'Equipe de Controle de Qualidade',
+              revisadoEm: fmtDate(printVersion.content?.reviewedAt || content?.reviewedAt),
+              aprovadoPor: printVersion.approvedBy || approvedBy || '—',
+              aprovadoEm: fmtDate(printVersion.content?.approvedAt || content?.approvedAt),
+            }}
+          />,
           portalTarget,
         )}
     </>
