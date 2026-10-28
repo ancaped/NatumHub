@@ -34,10 +34,7 @@ import type { TipoAviso } from '../../geral/components/ui/Aviso';
 import { usePreviaServidor } from '../../producao/lib/usePreviaServidor';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { ReportTabs } from '../../geral/components/ui/ReportKit';
-import ItemDrawer, {
-  type ItemConfigPayload,
-  type MovementPayload,
-} from '../ops/components/ItemDrawer';
+import ItemDrawer, { type ItemConfigPayload } from '../ops/components/ItemDrawer';
 import type { AlmoxFamilia, AlmoxMovement, AlmoxOpsItem, Equipment } from '../ops/types';
 
 export const DEFAULT_FAMILIES: AlmoxFamilia[] = [
@@ -329,31 +326,6 @@ export default function AlmoxEstoqueView({ onBackToHub, initialFamily = 'todas' 
       );
       setSelected(res.item);
       await load();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const submitMovement = async (payload: MovementPayload) => {
-    const tipo = payload.movementType;
-    const rotulo = tipo === 'entrada' ? 'Entrada' : tipo === 'saida' ? 'Saída' : 'Ajuste';
-    setBusy(true);
-    try {
-      await pedirPrevia({
-        url: '/almox/movements',
-        init: { method: 'POST', body: JSON.stringify(payload) },
-        titulo: `${rotulo} de estoque`,
-        confirmarRotulo: 'OK, lançar',
-        linhas: (d) => {
-          const m = d?.movement ?? {};
-          return [{
-            titulo: `${m.itemDescription || m.itemCode || ''}`.trim() || 'Item',
-            detalhe: `${rotulo} de ${Number(m.quantity ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })}`,
-          }];
-        },
-        erroPadrao: 'Não foi possível lançar o movimento.',
-        aoConcluir: () => load(),
-      });
     } finally {
       setBusy(false);
     }

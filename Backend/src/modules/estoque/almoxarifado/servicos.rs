@@ -67,18 +67,6 @@ pub async fn salvar_config_item(
     .await
 }
 
-pub async fn vincular_item_erp(pool: &PgPool, req: LinkErpItemRequest, autor: &str, confirmar: bool) -> Resp {
-    let alvo = req.item_code.trim().to_string();
-    let entrada = json!({ "itemCode": req.item_code, "section": req.section });
-    gravar(pool, "vincular_item_erp_almox", autor, &alvo, entrada, confirmar, move |c| {
-        Box::pin(async move {
-            let item = store::link_erp_item(c, &req).await?;
-            Ok(json!({ "item": item }))
-        })
-    })
-    .await
-}
-
 /// Apaga o item do almoxarifado (mesmo comportamento de antes), agora com prévia e auditoria.
 pub async fn excluir_item(pool: &PgPool, code: String, autor: &str, confirmar: bool) -> Resp {
     let alvo = code.clone();
@@ -86,17 +74,6 @@ pub async fn excluir_item(pool: &PgPool, code: String, autor: &str, confirmar: b
         Box::pin(async move {
             store::delete_item(c, &code).await?;
             Ok(json!({ "excluido": code }))
-        })
-    })
-    .await
-}
-
-pub async fn semear_item_do_erp(pool: &PgPool, code: String, operador: String, autor: &str, confirmar: bool) -> Resp {
-    let alvo = code.clone();
-    gravar(pool, "semear_item_do_erp_almox", autor, &alvo, json!({ "code": code }), confirmar, move |c| {
-        Box::pin(async move {
-            let mv = store::seed_from_erp(c, &code, Some(&operador)).await?;
-            Ok(json!({ "movement": mv }))
         })
     })
     .await
@@ -183,83 +160,6 @@ pub async fn criar_demanda_do_minimo(pool: &PgPool, operador: String, autor: &st
         Box::pin(async move {
             let d = store::create_demands_from_replenishment(c, Some(&operador)).await?;
             Ok(json!({ "demand": d }))
-        })
-    })
-    .await
-}
-
-pub async fn atualizar_status_demanda(pool: &PgPool, id: String, status: String, autor: &str, confirmar: bool) -> Resp {
-    let alvo = id.clone();
-    gravar(pool, "atualizar_status_demanda_almox", autor, &alvo, json!({ "id": id, "status": status }), confirmar, move |c| {
-        Box::pin(async move {
-            let d = store::update_demand_status(c, &id, &status).await?;
-            Ok(json!({ "demand": d }))
-        })
-    })
-    .await
-}
-
-pub async fn atualizar_demanda(pool: &PgPool, id: String, req: UpdateDemandRequest, autor: &str, confirmar: bool) -> Resp {
-    let alvo = id.clone();
-    gravar(pool, "atualizar_demanda_almox", autor, &alvo, json!({ "id": id }), confirmar, move |c| {
-        Box::pin(async move {
-            let d = store::update_demand(c, &id, &req).await?;
-            Ok(json!({ "demand": d }))
-        })
-    })
-    .await
-}
-
-pub async fn receber_demanda(pool: &PgPool, id: String, req: ReceiveDemandRequest, operador: String, autor: &str, confirmar: bool) -> Resp {
-    let alvo = id.clone();
-    gravar(pool, "receber_demanda_almox", autor, &alvo, json!({ "id": id }), confirmar, move |c| {
-        Box::pin(async move {
-            let d = store::receive_demand(c, &id, Some(&operador), &req).await?;
-            Ok(json!({ "demand": d }))
-        })
-    })
-    .await
-}
-
-pub async fn marcar_demanda_comprada(pool: &PgPool, id: String, req: MarkPurchasedRequest, operador: String, autor: &str, confirmar: bool) -> Resp {
-    let alvo = id.clone();
-    gravar(pool, "marcar_demanda_comprada_almox", autor, &alvo, json!({ "id": id, "loja": req.store_name }), confirmar, move |c| {
-        Box::pin(async move {
-            let d = store::mark_purchased(c, &id, Some(&operador), &req).await?;
-            Ok(json!({ "demand": d }))
-        })
-    })
-    .await
-}
-
-pub async fn atualizar_sequencia_impressao(pool: &PgPool, ultima: i64, autor: &str, confirmar: bool) -> Resp {
-    gravar(pool, "atualizar_sequencia_impressao_almox", autor, "sequencia", json!({ "lastSequence": ultima }), confirmar, move |c| {
-        Box::pin(async move {
-            store::set_print_sequence(c, ultima).await?;
-            Ok(json!({ "lastSequence": ultima }))
-        })
-    })
-    .await
-}
-
-pub async fn registrar_etiquetas_impressas(
-    pool: &PgPool,
-    inicio: i64,
-    quantidade: i64,
-    ano: i32,
-    operador: String,
-    autor: &str,
-    confirmar: bool,
-) -> Resp {
-    let entrada = json!({ "startSeq": inicio, "count": quantidade, "year": ano });
-    gravar(pool, "registrar_etiquetas_impressas_almox", autor, "etiquetas", entrada, confirmar, move |c| {
-        Box::pin(async move {
-            let demands = store::register_printed_slips(c, inicio, quantidade, ano, Some(&operador)).await?;
-            Ok(json!({
-                "demands": demands,
-                "nextSequence": inicio + quantidade,
-                "lastSequence": inicio + quantidade - 1
-            }))
         })
     })
     .await

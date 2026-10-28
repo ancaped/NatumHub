@@ -48,28 +48,12 @@ export interface ItemConfigPayload {
   photoDate?: string | null;
 }
 
-export interface MovementPayload {
-  itemCode: string;
-  movementType: 'entrada' | 'saida';
-  quantity: number;
-  unitCost?: number | null;
-  reason?: string | null;
-  documentRef?: string | null;
-  sector?: string | null;
-  variantLabel?: string | null;
-  packLabel?: string | null;
-  packCount?: number | null;
-  contentPerPack?: number | null;
-  totalPaid?: number | null;
-}
-
 interface Props {
   item: AlmoxOpsItem;
   movements: AlmoxMovement[];
   familias?: AlmoxFamilia[];
   onClose: () => void;
   onSaveConfig: (payload: ItemConfigPayload) => Promise<void>;
-  onSubmitMovement?: (payload: MovementPayload) => Promise<void>;
   onDeleteItem?: (code: string) => Promise<void>;
   onCountSaved?: () => Promise<void>;
   onRequestBuy?: (item: AlmoxOpsItem) => Promise<void>;

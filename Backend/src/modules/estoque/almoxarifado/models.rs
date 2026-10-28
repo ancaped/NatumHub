@@ -70,18 +70,6 @@ pub struct UpsertItemConfigRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LinkErpItemRequest {
-    pub item_code: String,
-    pub section: String,
-    pub active: Option<bool>,
-    pub min_qty: Option<f64>,
-    pub ideal_qty: Option<f64>,
-    pub location: Option<String>,
-    pub notes: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CreateLocalItemRequest {
     pub code: Option<String>,
     pub description: String,
@@ -233,33 +221,6 @@ pub struct CreateDemandRequest {
     pub receipts_json: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateDemandRequest {
-    pub title: Option<String>,
-    pub notes: Option<String>,
-    pub qty: Option<f64>,
-    pub requested_by: Option<String>,
-    pub quoted_value: Option<f64>,
-    pub purchase_value: Option<f64>,
-    pub store_name: Option<String>,
-    pub purchased_at: Option<String>,
-    pub tracking_code: Option<String>,
-    pub equipment_id: Option<String>,
-    pub equipment_name: Option<String>,
-    pub sector: Option<String>,
-    pub urgency: Option<String>,
-    pub quotes_json: Option<String>,
-    #[serde(default)]
-    pub receipt_name: Option<String>,
-    #[serde(default)]
-    pub receipt_data: Option<String>,
-    #[serde(default)]
-    pub receipts_json: Option<String>,
-    #[serde(default)]
-    pub items: Option<Vec<CreateDemandItemRequest>>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemPurchaseHistoryRow {
@@ -285,18 +246,6 @@ pub struct CreateDemandItemRequest {
     pub qty_requested: f64,
     pub unit_cost: Option<f64>,
     pub notes: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MarkPurchasedRequest {
-    pub store_name: String,
-    pub purchased_at: String,
-    pub receipt_name: Option<String>,
-    pub receipt_data: Option<String>,
-    #[serde(default)]
-    pub receipts_json: Option<String>,
-    pub purchase_value: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -331,26 +280,6 @@ pub struct StockCountResult {
     pub saidas: i32,
     pub entradas: i32,
     pub next_counted_at: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateDemandStatusRequest {
-    pub status: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReceiveDemandRequest {
-    pub items: Vec<ReceiveDemandItemRequest>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReceiveDemandItemRequest {
-    pub item_code: String,
-    pub qty_received: f64,
-    pub unit_cost: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

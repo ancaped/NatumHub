@@ -4,7 +4,7 @@ use axum::{
     response::{IntoResponse, Response},
     Extension, Json,
 };
-use chrono::{Datelike, Utc};
+
 use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
@@ -207,19 +207,6 @@ pub async fn upsert_item_config(
     Ok(resposta(&r))
 }
 
-pub async fn link_erp_item(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<AuthContext>,
-    Query(c): Query<Confirmar>,
-    Json(body): Json<LinkErpItemRequest>,
-) -> Result<Response, ErroApi> {
-    if !can_write_section(&ctx, &body.section) {
-        return Err(permissao(SEM_PERMISSAO));
-    }
-    let r = servicos::vincular_item_erp(state.db.pool(), body, &autor(&ctx), c.confirmar).await?;
-    Ok(resposta(&r))
-}
-
 pub async fn create_local_item(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
@@ -339,19 +326,6 @@ pub async fn get_item_stats(
     }
 }
 
-pub async fn seed_from_erp(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<AuthContext>,
-    Path(code): Path<String>,
-    Query(c): Query<Confirmar>,
-) -> Result<Response, ErroApi> {
-    if !is_supervisor(&ctx) {
-        return Err(permissao("Seed do ERP exige supervisor."));
-    }
-    let r = servicos::semear_item_do_erp(state.db.pool(), code, ctx.operator_id.clone(), &autor(&ctx), c.confirmar).await?;
-    Ok(resposta(&r))
-}
-
 pub async fn list_replenishment(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
@@ -423,34 +397,6 @@ pub async fn create_demand_from_min(
     Ok(resposta(&r))
 }
 
-pub async fn update_demand_status(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<AuthContext>,
-    Path(id): Path<String>,
-    Query(c): Query<Confirmar>,
-    Json(body): Json<UpdateDemandStatusRequest>,
-) -> Result<Response, ErroApi> {
-    if !require_compras_almox(&ctx) && !has_any_ops(&ctx) {
-        return Err(permissao(SEM_PERMISSAO));
-    }
-    let r = servicos::atualizar_status_demanda(state.db.pool(), id, body.status, &autor(&ctx), c.confirmar).await?;
-    Ok(resposta(&r))
-}
-
-pub async fn update_demand(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<AuthContext>,
-    Path(id): Path<String>,
-    Query(c): Query<Confirmar>,
-    Json(body): Json<UpdateDemandRequest>,
-) -> Result<Response, ErroApi> {
-    if !require_compras_almox(&ctx) && !has_any_ops(&ctx) {
-        return Err(permissao(SEM_PERMISSAO));
-    }
-    let r = servicos::atualizar_demanda(state.db.pool(), id, body, &autor(&ctx), c.confirmar).await?;
-    Ok(resposta(&r))
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryQuery {
@@ -497,57 +443,6 @@ pub async fn apply_stock_count(
         return Err(permissao(SEM_PERMISSAO));
     }
     let r = servicos::aplicar_contagem(state.db.pool(), body, ctx.operator_id.clone(), &autor(&ctx), c.confirmar).await?;
-    Ok(resposta(&r))
-}
-
-pub async fn mark_purchased(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<AuthContext>,
-    Path(id): Path<String>,
-    Query(c): Query<Confirmar>,
-    Json(body): Json<MarkPurchasedRequest>,
-) -> Result<Response, ErroApi> {
-    if !require_compras_almox(&ctx) {
-        return Err(permissao(SEM_PERMISSAO));
-    }
-    let r = servicos::marcar_demanda_comprada(state.db.pool(), id, body, ctx.operator_id.clone(), &autor(&ctx), c.confirmar).await?;
-    Ok(resposta(&r))
-}
-
-pub async fn get_demand_receipt(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<AuthContext>,
-    Path(id): Path<String>,
-) -> impl IntoResponse {
-    if !require_compras_almox(&ctx) {
-        return deny_module();
-    }
-    let mut conn = conexao!(state);
-    match store::demand_receipt(&mut conn, &id).await {
-        Ok((name, data, receipts_json)) => (
-            StatusCode::OK,
-            Json(json!({
-                "receiptName": name,
-                "receiptData": data,
-                "receiptsJson": receipts_json
-            })),
-        )
-            .into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
-    }
-}
-
-pub async fn receive_demand(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<AuthContext>,
-    Path(id): Path<String>,
-    Query(c): Query<Confirmar>,
-    Json(body): Json<ReceiveDemandRequest>,
-) -> Result<Response, ErroApi> {
-    if !require_compras_almox(&ctx) {
-        return Err(permissao(SEM_PERMISSAO));
-    }
-    let r = servicos::receber_demanda(state.db.pool(), id, body, ctx.operator_id.clone(), &autor(&ctx), c.confirmar).await?;
     Ok(resposta(&r))
 }
 
@@ -813,12 +708,6 @@ pub async fn delete_item(
     Ok(resposta(&r))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct UpdatePrintSequenceRequest {
-    #[serde(alias = "lastSequence", alias = "sequence")]
-    pub last_sequence: i64,
-}
-
 pub async fn get_print_sequence(
     State(state): State<Arc<AppState>>,
     Extension(_ctx): Extension<AuthContext>,
@@ -828,48 +717,6 @@ pub async fn get_print_sequence(
         Ok(seq) => (StatusCode::OK, Json(json!({ "lastSequence": seq, "nextSequence": seq + 1 }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
     }
-}
-
-pub async fn update_print_sequence(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<AuthContext>,
-    Query(c): Query<Confirmar>,
-    Json(body): Json<UpdatePrintSequenceRequest>,
-) -> Result<Response, ErroApi> {
-    let r = servicos::atualizar_sequencia_impressao(state.db.pool(), body.last_sequence, &autor(&ctx), c.confirmar).await?;
-    Ok(resposta(&r))
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RegisterPrintedSlipsRequest {
-    pub start_seq: i64,
-    pub count: i64,
-    #[serde(default)]
-    pub year: Option<i32>,
-}
-
-pub async fn register_printed_slips(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<AuthContext>,
-    Query(c): Query<Confirmar>,
-    Json(body): Json<RegisterPrintedSlipsRequest>,
-) -> Result<Response, ErroApi> {
-    if !require_compras_almox(&ctx) {
-        return Err(permissao(SEM_PERMISSAO));
-    }
-    let year = body.year.unwrap_or_else(|| Utc::now().year());
-    let r = servicos::registrar_etiquetas_impressas(
-        state.db.pool(),
-        body.start_seq,
-        body.count,
-        year,
-        ctx.operator_id.clone(),
-        &autor(&ctx),
-        c.confirmar,
-    )
-    .await?;
-    Ok(resposta(&r))
 }
 
 

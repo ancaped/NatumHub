@@ -15,7 +15,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/almox/dashboard/stats", get(handlers::get_dashboard_stats))
         .route("/api/almox/items", get(handlers::list_items))
         .route("/api/almox/items/search", get(handlers::search_catalog))
-        .route("/api/almox/items/link", post(handlers::link_erp_item))
         .route("/api/almox/items/local", post(handlers::create_local_item))
         .route("/api/almox/items/:code", get(handlers::get_item).delete(handlers::delete_item))
         .route(
@@ -25,10 +24,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/api/almox/items/:code/stats",
             get(handlers::get_item_stats),
-        )
-        .route(
-            "/api/almox/items/:code/seed-from-erp",
-            post(handlers::seed_from_erp),
         )
         .route(
             "/api/almox/items/:code/consumption",
@@ -63,11 +58,7 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route(
             "/api/almox/print-sequence",
-            get(handlers::get_print_sequence).post(handlers::update_print_sequence),
-        )
-        .route(
-            "/api/almox/print-slips",
-            post(handlers::register_printed_slips),
+            get(handlers::get_print_sequence),
         )
         .route(
             "/api/almox/demands/history",
@@ -76,23 +67,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/api/almox/demands/from-min",
             post(handlers::create_demand_from_min),
-        )
-        .route(
-            "/api/almox/demands/:id/status",
-            put(handlers::update_demand_status),
-        )
-        .route("/api/almox/demands/:id", put(handlers::update_demand))
-        .route(
-            "/api/almox/demands/:id/receive",
-            post(handlers::receive_demand),
-        )
-        .route(
-            "/api/almox/demands/:id/purchase",
-            post(handlers::mark_purchased),
-        )
-        .route(
-            "/api/almox/demands/:id/receipt",
-            get(handlers::get_demand_receipt),
         )
         .route(
             "/api/almox/equipments",
@@ -273,31 +247,6 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
             ],
         ),
         Acao::gravacao(
-            "vincular_item_erp_almox",
-            "estoque_almoxarifado",
-            "Vincula um item do ERP a uma seção do almoxarifado.",
-            "POST",
-            "/api/almox/items/link",
-            true,
-            vec![
-                param("itemCode", "corpo", "texto", true, "Código do item no ERP."),
-                param("section", "corpo", "texto", true, "Seção de destino."),
-                param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),
-            ],
-        ),
-        Acao::gravacao(
-            "semear_item_do_erp_almox",
-            "estoque_almoxarifado",
-            "Abre o saldo do item no almoxarifado com o saldo atual do ERP (só supervisor).",
-            "POST",
-            "/api/almox/items/:code/seed-from-erp",
-            true,
-            vec![
-                param("code", "caminho", "texto", true, "Código do item."),
-                param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),
-            ],
-        ),
-        Acao::gravacao(
             "excluir_item_almox",
             "estoque_almoxarifado",
             "Remove um item do almoxarifado (apaga a configuração, o saldo e as fotos dele).",
@@ -382,81 +331,6 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
             "/api/almox/demands/from-min",
             true,
             vec![param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia.")],
-        ),
-        Acao::gravacao(
-            "atualizar_status_demanda_almox",
-            "estoque_almoxarifado",
-            "Muda o status de uma demanda de compra.",
-            "PUT",
-            "/api/almox/demands/:id/status",
-            true,
-            vec![
-                param("id", "caminho", "texto", true, "Id da demanda."),
-                param("status", "corpo", "texto", true, "impresso, aberta, pedida, recebida ou cancelada."),
-                param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),
-            ],
-        ),
-        Acao::gravacao(
-            "atualizar_demanda_almox",
-            "estoque_almoxarifado",
-            "Edita uma demanda de compra (não vale para cancelada).",
-            "PUT",
-            "/api/almox/demands/:id",
-            true,
-            vec![
-                param("id", "caminho", "texto", true, "Id da demanda."),
-                param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),
-            ],
-        ),
-        Acao::gravacao(
-            "receber_demanda_almox",
-            "estoque_almoxarifado",
-            "Dá entrada no estoque dos itens recebidos de uma demanda.",
-            "POST",
-            "/api/almox/demands/:id/receive",
-            true,
-            vec![
-                param("id", "caminho", "texto", true, "Id da demanda."),
-                param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),
-            ],
-        ),
-        Acao::gravacao(
-            "marcar_demanda_comprada_almox",
-            "estoque_almoxarifado",
-            "Marca uma demanda como comprada (loja e valores).",
-            "POST",
-            "/api/almox/demands/:id/purchase",
-            true,
-            vec![
-                param("id", "caminho", "texto", true, "Id da demanda."),
-                param("storeName", "corpo", "texto", true, "Loja da compra."),
-                param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),
-            ],
-        ),
-        Acao::gravacao(
-            "atualizar_sequencia_impressao_almox",
-            "estoque_almoxarifado",
-            "Ajusta o último número de etiqueta de demanda impresso.",
-            "POST",
-            "/api/almox/print-sequence",
-            true,
-            vec![
-                param("lastSequence", "corpo", "inteiro", true, "Último número impresso."),
-                param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),
-            ],
-        ),
-        Acao::gravacao(
-            "registrar_etiquetas_impressas_almox",
-            "estoque_almoxarifado",
-            "Registra um bloco de etiquetas de demanda impressas.",
-            "POST",
-            "/api/almox/print-slips",
-            true,
-            vec![
-                param("startSeq", "corpo", "inteiro", true, "Primeiro número do bloco."),
-                param("count", "corpo", "inteiro", true, "Quantidade de etiquetas."),
-                param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),
-            ],
         ),
         Acao::gravacao(
             "adicionar_foto_almox",
