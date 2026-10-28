@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  Network, ListTodo, History, Plus, RefreshCw, Loader2, X, Check, ArrowLeft
+  ListTodo, History, Plus, RefreshCw, Loader2, X, Network, LayoutList
 } from 'lucide-react';
 import AppLayout from '../components/layout/AppLayout';
 import { cn } from '../lib/utils';
@@ -17,6 +17,8 @@ import DemandasQueueTab from './components/DemandasQueueTab';
 import DemandaDetailDrawer from './components/DemandaDetailDrawer';
 import TimelineAuditTab from './components/TimelineAuditTab';
 import ModuleCreationWizard from './components/ModuleCreationWizard';
+import ModulosLista from './components/ModulosLista';
+import { contarAbertosPorModulo } from './vinculo';
 
 interface DesenvolvimentoViewProps {
   currentUser?: AuthUser | null;
@@ -30,6 +32,7 @@ export default function DesenvolvimentoView({
   onNavigateToView,
 }: DesenvolvimentoViewProps) {
   const [activeTab, setActiveTab] = useState<DesenvolvimentoTab>('mapa');
+  const [vistaMapa, setVistaMapa] = useState<'lista' | 'organograma'>('lista');
   const [snap, setSnap] = useState<MapaSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -154,7 +157,7 @@ export default function DesenvolvimentoView({
         body: JSON.stringify({ items }),
       });
     } catch (err: unknown) {
-      console.warn('Falha ao salvar posição do módulo:', err);
+      setError(err instanceof Error ? err.message : 'Falha ao salvar a posição no organograma');
     }
   };
 
@@ -242,18 +245,21 @@ export default function DesenvolvimentoView({
   };
 
   // Contagem para badges na sidebar
-  const pendingCount = feedbacks.filter((f) => f.status === 'pending' || f.status === 'awaiting_review').length;
+  const homologacaoCount = feedbacks.filter((f) => f.status === 'awaiting_review').length;
+  const abertosPorModulo = useMemo(
+    () => contarAbertosPorModulo(feedbacks, snap?.modules || []),
+    [feedbacks, snap?.modules],
+  );
 
   const sidebarItems = [
-    { id: 'mapa', label: 'Mapa Arquitetural', icon: Network },
+    { id: 'mapa', label: 'Módulos', icon: LayoutList },
     {
       id: 'fila',
       label: 'Fila de Demandas',
       icon: ListTodo,
-      badge: pendingCount > 0 ? pendingCount : undefined,
+      badge: homologacaoCount > 0 ? homologacaoCount : undefined,
+      badgeTone: 'amber' as const,
     },
-    { id: 'timeline', label: 'Atividades & Trilha', icon: History },
-    { id: 'novo_modulo', label: 'Novo Módulo', icon: Plus },
   ];
 
   return (
@@ -300,20 +306,73 @@ export default function DesenvolvimentoView({
         ) : (
           <>
             {activeTab === 'mapa' && (
-              <OrganogramaMapCanvas
-                snap={snap}
-                positions={positions}
-                selectedKey={selectedModuleKey}
-                scale={scale}
-                pan={pan}
-                setScale={setScale}
-                setPan={setPan}
-                onSelectModule={(key) => setSelectedModuleKey(key)}
-                onPointerDownNode={onPointerDownNode}
-                onPointerMoveNode={onPointerMoveNode}
-                onPointerUpNode={onPointerUpNode}
-                feedbacks={feedbacks}
-              />
+              <div className="flex-1 min-h-0 flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center rounded-xl border border-zinc-200 bg-white p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setVistaMapa('lista')}
+                      className={cn(
+                        'px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer',
+                        vistaMapa === 'lista' ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-50'
+                      )}
+                    >
+                      Lista
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVistaMapa('organograma')}
+                      className={cn(
+                        'px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer inline-flex items-center gap-1.5',
+                        vistaMapa === 'organograma' ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-50'
+                      )}
+                    >
+                      <Network className="h-3.5 w-3.5" />
+                      Organograma
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('timeline')}
+                    className="px-3 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-bold text-zinc-700 hover:bg-zinc-50 cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <History className="h-3.5 w-3.5" />
+                    Atividades
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('novo_modulo')}
+                    className="px-3 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-bold text-zinc-700 hover:bg-zinc-50 cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Novo módulo
+                  </button>
+                </div>
+                {vistaMapa === 'lista' ? (
+                  <ModulosLista
+                    groups={snap?.groups || []}
+                    modules={snap?.modules || []}
+                    selectedKey={selectedModuleKey}
+                    abertosPorModulo={abertosPorModulo}
+                    onSelectModule={setSelectedModuleKey}
+                  />
+                ) : (
+                  <OrganogramaMapCanvas
+                    snap={snap}
+                    positions={positions}
+                    selectedKey={selectedModuleKey}
+                    scale={scale}
+                    pan={pan}
+                    setScale={setScale}
+                    setPan={setPan}
+                    onSelectModule={(key) => setSelectedModuleKey(key)}
+                    onPointerDownNode={onPointerDownNode}
+                    onPointerMoveNode={onPointerMoveNode}
+                    onPointerUpNode={onPointerUpNode}
+                    feedbacks={feedbacks}
+                  />
+                )}
+              </div>
             )}
 
             {activeTab === 'fila' && (
@@ -323,23 +382,52 @@ export default function DesenvolvimentoView({
                 selectedId={selectedFeedbackId}
                 onSelectFeedback={handleSelectFeedback}
                 onRefresh={loadData}
+                onBatchStatus={async (ids, status) => {
+                  try {
+                    for (const id of ids) {
+                      await api.updateFeedback(id, { status });
+                    }
+                    await loadData();
+                  } catch (e: unknown) {
+                    setError(e instanceof Error ? e.message : 'Falha ao atualizar os chamados');
+                    throw e;
+                  }
+                }}
               />
             )}
 
             {activeTab === 'timeline' && (
-              <TimelineAuditTab
-                activities={snap?.activity || []}
-                loading={loading}
-                onRefresh={loadData}
-              />
+              <div className="flex flex-col gap-3 min-h-0">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('mapa')}
+                  className="self-start px-3 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-bold text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                >
+                  Voltar aos módulos
+                </button>
+                <TimelineAuditTab
+                  activities={snap?.activity || []}
+                  loading={loading}
+                  onRefresh={loadData}
+                />
+              </div>
             )}
 
             {activeTab === 'novo_modulo' && (
-              <ModuleCreationWizard
-                groups={snap?.groups || []}
-                onCreateModule={handleCreateModule}
-                saving={savingNewModule}
-              />
+              <div className="flex flex-col gap-3 min-h-0">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('mapa')}
+                  className="self-start px-3 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-bold text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                >
+                  Voltar aos módulos
+                </button>
+                <ModuleCreationWizard
+                  groups={snap?.groups || []}
+                  onCreateModule={handleCreateModule}
+                  saving={savingNewModule}
+                />
+              </div>
             )}
           </>
         )}
@@ -361,8 +449,20 @@ export default function DesenvolvimentoView({
               setSelectedFeedbackId(f.id);
               void loadFeedbackDetail(f.id);
             }}
-            onCreateDemanda={(moduleKey) => {
-              setActiveTab('novo_modulo');
+            onCreateDemanda={async (moduleKey, description, feedbackType) => {
+              try {
+                const mod = snap?.modules.find((m) => m.moduleKey === moduleKey);
+                await api.createFeedback({
+                  type: feedbackType,
+                  description,
+                  page: mod?.label || moduleKey,
+                  moduleKey,
+                });
+                await loadData();
+              } catch (e: unknown) {
+                setError(e instanceof Error ? e.message : 'Falha ao enviar o chamado');
+                throw e;
+              }
             }}
             onSelectModule={(key) => setSelectedModuleKey(key)}
           />

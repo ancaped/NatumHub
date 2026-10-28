@@ -8,7 +8,15 @@ export interface SidebarItem {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: number | string;
+  badgeTone?: 'amber';
   iconOnly?: boolean;
+}
+
+function badgeClass(isActive: boolean, tone?: 'amber'): string {
+  if (tone === 'amber') return 'bg-amber-400 text-zinc-950 border-amber-300';
+  return isActive
+    ? 'bg-zinc-800 text-white border-zinc-700'
+    : 'bg-zinc-100 text-zinc-900 border-zinc-200';
 }
 
 interface AppLayoutProps {
@@ -74,9 +82,7 @@ function SidebarNav({
                 <span
                   className={cn(
                     'ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0',
-                    isActive
-                      ? 'bg-zinc-800 text-white border-zinc-700'
-                      : 'bg-zinc-100 text-zinc-900 border-zinc-200'
+                    badgeClass(isActive, item.badgeTone)
                   )}
                 >
                   {item.badge}
@@ -89,7 +95,10 @@ function SidebarNav({
               <span className="pointer-events-none absolute left-full ml-3 px-2.5 py-1.5 bg-zinc-900 text-white text-xs font-semibold rounded-lg shadow-xl opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 z-50 whitespace-nowrap border border-zinc-800">
                 {item.label}
                 {item.badge !== undefined && item.badge !== 0 && (
-                  <span className="ml-1.5 px-1.5 py-0.2 bg-zinc-800 text-[10px] font-mono rounded text-zinc-300">
+                  <span className={cn(
+                    'ml-1.5 px-1.5 py-0.2 text-[10px] font-mono rounded',
+                    item.badgeTone === 'amber' ? 'bg-amber-400 text-zinc-950' : 'bg-zinc-800 text-zinc-300'
+                  )}>
                     {item.badge}
                   </span>
                 )}
@@ -254,8 +263,8 @@ export default function AppLayout({
                     {item.badge !== undefined && item.badge !== 0 && (
                       <span
                         className={cn(
-                          'text-[10px] font-black px-1.5 py-0.2 rounded-full',
-                          isActive ? 'bg-zinc-800 text-white' : 'bg-zinc-100 text-zinc-800'
+                          'text-[10px] font-black px-1.5 py-0.2 rounded-full border',
+                          badgeClass(isActive, item.badgeTone)
                         )}
                       >
                         {item.badge}

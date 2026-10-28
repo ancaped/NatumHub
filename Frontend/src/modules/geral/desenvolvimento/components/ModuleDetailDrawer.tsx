@@ -5,6 +5,7 @@ import {
   Copy, Check
 } from 'lucide-react';
 import type { MapaModule, MapaEdge, Feedback, MapaTask, MapaDetail, CatalogoAcao } from '../types';
+import { chamadoAberto, chamadoDoModulo } from '../vinculo';
 import { cn } from '../../lib/utils';
 import Drawer from '../../components/ui/Drawer';
 
@@ -20,7 +21,7 @@ interface ModuleDetailDrawerProps {
   savingNotes: boolean;
   onOpenView?: (view: string) => void;
   onSelectFeedback?: (feedback: Feedback) => void;
-  onCreateDemanda?: (moduleKey: string) => void;
+  onCreateDemanda?: (moduleKey: string, description: string, feedbackType: string) => Promise<void>;
   onSelectModule?: (moduleKey: string) => void;
 }
 
@@ -109,6 +110,10 @@ export default function ModuleDetailDrawer({
   const [notes, setNotes] = useState('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [acaoAberta, setAcaoAberta] = useState<string | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportText, setReportText] = useState('');
+  const [reportType, setReportType] = useState('feedback');
+  const [reportSaving, setReportSaving] = useState(false);
 
   const handleCopy = (text: string, key: string) => {
     if (!text) return;
@@ -137,18 +142,7 @@ export default function ModuleDetailDrawer({
   const inEdges = edges.filter((e) => e.toKey === module.moduleKey);
   const outEdges = edges.filter((e) => e.fromKey === module.moduleKey);
 
-  const moduleFeedbacks = feedbacks.filter((f) => {
-    const rawModuleKey = (f.moduleKey || (f as any).module_key || '').toLowerCase();
-    const targetKey = module.moduleKey.toLowerCase();
-    if (rawModuleKey && rawModuleKey === targetKey) return true;
-
-    const p = (f.page || '').toLowerCase();
-    const labelNorm = module.label.toLowerCase();
-    if (p.includes(targetKey)) return true;
-    if (p.includes(labelNorm)) return true;
-    if (module.routerPrefix && p.includes(module.routerPrefix.toLowerCase())) return true;
-    return false;
-  });
+  const moduleFeedbacks = feedbacks.filter((f) => chamadoDoModulo(f, module));
 
   const moduleTasks = tasks.filter((t) => {
     const title = (t.title || '').toLowerCase();
@@ -225,9 +219,31 @@ export default function ModuleDetailDrawer({
           <div className="space-y-4">
             {/* Arquivos de Código com Botões de Cópia */}
             <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-3 shadow-2xs">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
-                Localização no Código-Fonte
-              </span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                  Localização no Código-Fonte
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const abertos = moduleFeedbacks.filter(chamadoAberto);
+                    const texto = [
+                      `${module.label} (${module.moduleKey})`,
+                      module.purpose || '',
+                      module.frontendPath ? `Frontend: ${module.frontendPath}` : '',
+                      module.backendPath ? `Backend: ${module.backendPath}` : '',
+                      'Rotas:',
+                      ...geradoRotas.map((r) => `- ${(r.metodos || ['GET']).join(',')} ${r.caminho}`),
+                      'Chamados abertos:',
+                      ...abertos.map((f) => `- [${f.status}] ${f.description}`),
+                    ].filter(Boolean).join('\n');
+                    handleCopy(texto, 'contexto');
+                  }}
+                  className="text-[10px] font-bold text-zinc-700 border border-zinc-200 bg-white hover:bg-zinc-50 px-2 py-1 rounded-lg cursor-pointer"
+                >
+                  {copiedKey === 'contexto' ? 'Copiado' : 'Copiar contexto'}
+                </button>
+              </div>
               <div className="space-y-2 text-xs">
                 {/* Frontend Path */}
                 <div className="p-2 rounded-lg bg-zinc-50 border border-zinc-200/70 flex items-center justify-between gap-2">
@@ -478,7 +494,7 @@ export default function ModuleDetailDrawer({
               {onCreateDemanda && (
                 <button
                   type="button"
-                  onClick={() => onCreateDemanda(module.moduleKey)}
+                  onClick={() => setReportOpen((v) => !v)}
                   className="flex items-center gap-1 text-xs font-bold bg-zinc-900 hover:bg-zinc-800 text-white px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer shadow-2xs"
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -486,6 +502,48 @@ export default function ModuleDetailDrawer({
                 </button>
               )}
             </div>
+
+            {reportOpen && onCreateDemanda && (
+              <form
+                className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 space-y-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const texto = reportText.trim();
+                  if (!texto || reportSaving) return;
+                  setReportSaving(true);
+                  void onCreateDemanda(module.moduleKey, texto, reportType)
+                    .then(() => {
+                      setReportText('');
+                      setReportOpen(false);
+                    })
+                    .finally(() => setReportSaving(false));
+                }}
+              >
+                <p className="text-[11px] text-zinc-500">O chamado entra na triagem já ligado a {module.label}.</p>
+                <select
+                  value={reportType}
+                  onChange={(e) => setReportType(e.target.value)}
+                  className="border border-zinc-200 rounded-lg px-2 py-1 text-xs bg-white"
+                >
+                  <option value="feedback">Sugestão</option>
+                  <option value="bug">Bug</option>
+                </select>
+                <textarea
+                  value={reportText}
+                  onChange={(e) => setReportText(e.target.value)}
+                  rows={3}
+                  placeholder="O que precisa mudar neste módulo"
+                  className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs"
+                />
+                <button
+                  type="submit"
+                  disabled={reportSaving || !reportText.trim()}
+                  className="px-2.5 py-1.5 rounded-lg bg-zinc-900 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
+                >
+                  {reportSaving ? 'Enviando...' : 'Enviar para triagem'}
+                </button>
+              </form>
+            )}
 
             {moduleFeedbacks.length > 0 ? (
               <div className="space-y-2">

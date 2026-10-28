@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { ZoomIn, ZoomOut, Maximize2, Bug, Layers } from 'lucide-react';
 import type { MapaSnapshot, MapaGroup, MapaModule, Feedback } from '../types';
+import { contarAbertosPorModulo } from '../vinculo';
 import { cn } from '../../lib/utils';
 
 interface OrganogramaMapCanvasProps {
@@ -43,20 +44,10 @@ export default function OrganogramaMapCanvas({
   const groups = [...(snap?.groups || [])].sort((a, b) => a.sortOrder - b.sortOrder);
 
   // Calcula contagem de bugs abertos por módulo
-  const bugCountByModule = React.useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const f of feedbacks) {
-      if (f.status === 'resolved' || f.status === 'wont_fix') continue;
-      const p = (f.page || '').toLowerCase();
-      for (const m of snap?.modules || []) {
-        const k = m.moduleKey.toLowerCase();
-        if (p.includes(k) || (m.routerPrefix && p.includes(m.routerPrefix.toLowerCase()))) {
-          counts[m.moduleKey] = (counts[m.moduleKey] || 0) + 1;
-        }
-      }
-    }
-    return counts;
-  }, [feedbacks, snap?.modules]);
+  const bugCountByModule = React.useMemo(
+    () => contarAbertosPorModulo(feedbacks, snap?.modules || []),
+    [feedbacks, snap?.modules],
+  );
 
   // Arestas SVG (conexões entre módulos)
   const edgesSvg = (snap?.edges || []).map((e) => {
