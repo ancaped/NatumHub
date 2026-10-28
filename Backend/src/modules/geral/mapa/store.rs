@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use super::gerado;
 use super::models::*;
 
 pub async fn log_activity(
@@ -584,7 +585,7 @@ pub async fn snapshot(pool: &PgPool) -> Result<MapaSnapshot, String> {
     .await
     .map_err(|e| e.to_string())?;
 
-    let modules = module_rows
+    let mut modules: Vec<MapaModule> = module_rows
         .into_iter()
         .map(
             |(
@@ -615,11 +616,12 @@ pub async fn snapshot(pool: &PgPool) -> Result<MapaSnapshot, String> {
                 router_prefix,
                 ai_hints,
                 detail,
+                gerado: None,
             },
         )
         .collect();
 
-    let edges = sqlx::query_as::<_, (String, String, String, String, String)>(
+    let mut edges: Vec<MapaEdge> = sqlx::query_as::<_, (String, String, String, String, String)>(
         "SELECT id, from_key, to_key, kind, note FROM mapa_edges ORDER BY from_key",
     )
     .fetch_all(pool)
@@ -632,6 +634,7 @@ pub async fn snapshot(pool: &PgPool) -> Result<MapaSnapshot, String> {
         to_key,
         kind,
         note,
+        auto: false,
     })
     .collect();
 
@@ -652,6 +655,24 @@ pub async fn snapshot(pool: &PgPool) -> Result<MapaSnapshot, String> {
         source,
     })
     .collect();
+
+    // Ficha gerada do código deste build: telas, rotas, tabelas e chamadas por módulo; as chamadas entre
+    // módulos viram arestas automáticas (somam-se às escritas à mão).
+    let refs: Vec<gerado::ModuloRef> = modules
+        .iter()
+        .map(|m| gerado::ModuloRef {
+            key: &m.module_key,
+            frontend_path: m.frontend_path.as_deref(),
+            backend_path: m.backend_path.as_deref(),
+            router_prefix: m.router_prefix.as_deref(),
+        })
+        .collect();
+    let montado = gerado::montar(gerado::codigo(), &refs);
+    drop(refs);
+    for m in modules.iter_mut() {
+        m.gerado = montado.por_modulo.get(&m.module_key).cloned();
+    }
+    edges.extend(montado.arestas);
 
     let tasks_open = list_tasks(pool, Some("open"), 100).await?;
     let activity = list_activity(pool, 80).await?;
@@ -767,6 +788,7 @@ pub async fn get_module(pool: &PgPool, key: &str) -> Result<MapaModule, String> 
         router_prefix: row.10,
         ai_hints: row.11,
         detail: row.12,
+        gerado: None,
     })
 }
 
@@ -875,6 +897,7 @@ pub async fn create_edge(
         to_key: input.to_key,
         kind,
         note,
+        auto: false,
     })
 }
 

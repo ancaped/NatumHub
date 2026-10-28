@@ -31,6 +31,39 @@ export interface MapaModule {
   routerPrefix?: string | null;
   aiHints: unknown;
   detail: MapaDetail;
+  /** Telas, rotas, tabelas e chamadas gerados do código do build que está rodando. */
+  gerado?: MapaGerado;
+}
+
+export interface GeradoRota {
+  metodos: string[];
+  caminho: string;
+  arquivo: string;
+}
+
+export interface GeradoTela {
+  nome: string;
+  arquivo: string;
+}
+
+export interface GeradoChamada {
+  tela: string;
+  rota: string;
+  moduloDono?: string | null;
+}
+
+export interface GeradoUsadoPor {
+  modulo: string;
+  tela: string;
+  rota: string;
+}
+
+export interface MapaGerado {
+  rotas: GeradoRota[];
+  tabelas: { le: string[]; grava: string[] };
+  telas: GeradoTela[];
+  chamadas: GeradoChamada[];
+  usadoPor: GeradoUsadoPor[];
 }
 
 export interface MapaEdge {
@@ -39,6 +72,8 @@ export interface MapaEdge {
   toKey: string;
   kind: string;
   note: string;
+  /** Conexão gerada do código (tela de um módulo chama rota de outro). */
+  auto?: boolean;
 }
 
 export interface MapaRoute {

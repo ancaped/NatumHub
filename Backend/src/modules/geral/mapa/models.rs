@@ -27,6 +27,9 @@ pub struct MapaModule {
     pub router_prefix: Option<String>,
     pub ai_hints: Value,
     pub detail: Value,
+    /// Telas, rotas, tabelas e chamadas gerados do código deste build (só no snapshot).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gerado: Option<super::gerado::Gerado>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +40,9 @@ pub struct MapaEdge {
     pub to_key: String,
     pub kind: String,
     pub note: String,
+    /// Conexão gerada do código (tela de um módulo chama rota de outro), não escrita à mão.
+    #[serde(default)]
+    pub auto: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

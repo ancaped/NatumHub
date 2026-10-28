@@ -1,3 +1,5 @@
+pub mod extracao;
+pub mod gerado;
 pub mod handlers;
 pub mod models;
 pub mod store;

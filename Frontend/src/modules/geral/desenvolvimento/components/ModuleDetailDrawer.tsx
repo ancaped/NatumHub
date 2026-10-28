@@ -4,14 +4,13 @@ import {
   Clock, Shield, ArrowRight, Save, Loader2, Plus, Code, Network,
   Copy, Check
 } from 'lucide-react';
-import type { MapaModule, MapaRoute, MapaEdge, Feedback, MapaTask, MapaDetail, CatalogoAcao } from '../types';
+import type { MapaModule, MapaEdge, Feedback, MapaTask, MapaDetail, CatalogoAcao } from '../types';
 import { cn } from '../../lib/utils';
 import Drawer from '../../components/ui/Drawer';
 
 interface ModuleDetailDrawerProps {
   module: MapaModule | null;
   onClose: () => void;
-  routes: MapaRoute[];
   acoes?: CatalogoAcao[];
   edges: MapaEdge[];
   groupName?: string;
@@ -41,10 +40,59 @@ const METHOD_COLORS: Record<string, string> = {
   DELETE: 'bg-rose-50 text-rose-700 border-rose-200',
 };
 
+/** Agrupa itens por módulo, sem repetir o texto. */
+function agrupar<T>(itens: T[], chave: (i: T) => string, texto: (i: T) => string): { modulo: string; itens: string[] }[] {
+  const m = new Map<string, Set<string>>();
+  for (const i of itens) {
+    const k = chave(i);
+    if (!m.has(k)) m.set(k, new Set());
+    m.get(k)!.add(texto(i));
+  }
+  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([modulo, set]) => ({ modulo, itens: [...set] }));
+}
+
+function SecaoGerada({ titulo, total, vazio, children }: { titulo: string; total: number; vazio: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2 shadow-2xs">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
+        {titulo} (gerado do código) ({total})
+      </span>
+      {total > 0 ? <div className="max-h-64 overflow-y-auto pr-1">{children}</div> : <p className="text-xs text-zinc-400 italic py-1">{vazio}</p>}
+    </div>
+  );
+}
+
+function ListaTabelas({ rotulo, classe, itens }: { rotulo: string; classe: string; itens: string[] }) {
+  return (
+    <div className="flex items-start gap-2 py-1">
+      <span className={cn('text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0', classe)}>{rotulo}</span>
+      <div className="flex flex-wrap gap-1">
+        {itens.map((t) => (
+          <code key={t} className="font-mono text-[11px] text-zinc-800 bg-zinc-50 border border-zinc-200 px-1.5 rounded">{t}</code>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LinhaModulo({ modulo, itens, onSelect }: { modulo: string; itens: string[]; onSelect?: (key: string) => void }) {
+  return (
+    <div className="py-1.5 border-t border-zinc-100 first:border-t-0 text-xs space-y-0.5">
+      <button
+        type="button"
+        onClick={() => onSelect?.(modulo)}
+        className="font-mono text-[11px] font-semibold text-zinc-800 bg-white border border-zinc-200 hover:border-zinc-400 px-2 py-0.5 rounded-md cursor-pointer"
+      >
+        {modulo}
+      </button>
+      <p className="font-mono text-[10px] text-zinc-500 break-all">{itens.join(' · ')}</p>
+    </div>
+  );
+}
+
 export default function ModuleDetailDrawer({
   module,
   onClose,
-  routes,
   acoes = [],
   edges,
   groupName,
@@ -81,9 +129,10 @@ export default function ModuleDetailDrawer({
 
   // Filtra rotas, conexões e demandas vinculadas ao módulo
   const moduleAcoes = module ? acoes.filter((a) => a.modulo === module.moduleKey) : [];
-  const moduleRoutes = routes.filter(
-    (r) => r.moduleKey === module.moduleKey || (module.routerPrefix && r.path.startsWith(module.routerPrefix))
-  );
+  const gerado = module.gerado;
+  const geradoRotas = gerado?.rotas ?? [];
+  const usaOutros = agrupar((gerado?.chamadas ?? []).filter((c) => c.moduloDono && c.moduloDono !== module.moduleKey), (c) => c.moduloDono!, (c) => c.rota);
+  const usadoPorOutros = agrupar(gerado?.usadoPor ?? [], (u) => u.modulo, (u) => `${u.rota} ← ${u.tela}`);
 
   const inEdges = edges.filter((e) => e.toKey === module.moduleKey);
   const outEdges = edges.filter((e) => e.fromKey === module.moduleKey);
@@ -128,7 +177,7 @@ export default function ModuleDetailDrawer({
         </div>
       }
       tabs={[
-        { id: 'tecnica', label: 'Ficha Técnica', icon: Route, badge: moduleAcoes.length || moduleRoutes.length || undefined },
+        { id: 'tecnica', label: 'Ficha Técnica', icon: Route, badge: moduleAcoes.length || geradoRotas.length || undefined },
         { id: 'demandas', label: 'Demandas & Bugs', icon: Bug, badge: moduleFeedbacks.length || undefined },
         { id: 'tasks', label: 'Tasks', icon: ListTodo, badge: moduleTasks.length || undefined },
         { id: 'documentacao', label: 'Documentação', icon: FileText },
@@ -312,50 +361,58 @@ export default function ModuleDetailDrawer({
               )}
             </div>
 
-            {/* Rotas REST (lista antiga; só quando o módulo não tem ações no catálogo) */}
-            {moduleAcoes.length === 0 && (
-            <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2.5 shadow-2xs">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                  Rotas (lista antiga, pode estar desatualizada) ({moduleRoutes.length})
-                </span>
-              </div>
-
-              {moduleRoutes.length > 0 ? (
-                <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                  {moduleRoutes.map((r) => (
-                    <div key={r.id} className="p-2 rounded-lg border border-zinc-100 bg-zinc-50/60 flex items-center justify-between gap-2 text-xs">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        {(r.methods || ['GET']).map((m) => (
-                          <span
-                            key={m}
-                            className={cn('text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border', METHOD_COLORS[m] || 'bg-zinc-100 text-zinc-700 border-zinc-200')}
-                          >
-                            {m}
-                          </span>
-                        ))}
-                        <code className="font-mono text-[11px] text-zinc-800 truncate" title={r.path}>
-                          {r.path}
-                        </code>
-                      </div>
-                      {r.summary && (
-                        <span className="text-[10px] text-zinc-400 truncate max-w-[120px]" title={r.summary}>
-                          {r.summary}
-                        </span>
-                      )}
-                    </div>
-                  ))}
+            {/* Gerado do código deste build: telas, rotas, tabelas, usa / é usado por */}
+            <SecaoGerada titulo="Telas" total={gerado?.telas.length ?? 0} vazio="Nenhuma tela (*View/*Tab/*Drawer/*Painel) no diretório do front deste módulo.">
+              {(gerado?.telas ?? []).map((t) => (
+                <div key={t.arquivo} className="flex items-baseline justify-between gap-2 py-1 border-t border-zinc-100 first:border-t-0 text-xs">
+                  <span className="font-semibold text-zinc-800">{t.nome}</span>
+                  <code className="font-mono text-[10px] text-zinc-400 truncate" title={t.arquivo}>{t.arquivo.replace(/^Frontend\/src\/modules\//, '')}</code>
                 </div>
-              ) : (
-                <p className="text-xs text-zinc-400 italic py-2">Nenhuma rota individual mapeada.</p>
+              ))}
+            </SecaoGerada>
+
+            <SecaoGerada titulo="Rotas do servidor" total={geradoRotas.length} vazio="Nenhuma rota do servidor ligada a este módulo (confira o prefixo e o caminho do back acima).">
+              {geradoRotas.map((r) => (
+                <div key={r.caminho + r.arquivo} className="flex items-center gap-1.5 py-1 border-t border-zinc-100 first:border-t-0 text-xs">
+                  {r.metodos.map((m) => (
+                    <span key={m} className={cn('text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border', METHOD_COLORS[m] || 'bg-zinc-100 text-zinc-700 border-zinc-200')}>
+                      {m}
+                    </span>
+                  ))}
+                  <code className="font-mono text-[11px] text-zinc-800 break-all" title={r.arquivo}>{r.caminho}</code>
+                </div>
+              ))}
+            </SecaoGerada>
+
+            <SecaoGerada
+              titulo="Tabelas"
+              total={(gerado?.tabelas.le.length ?? 0) + (gerado?.tabelas.grava.length ?? 0)}
+              vazio="Nenhuma tabela do banco encontrada no código do servidor deste módulo."
+            >
+              {(gerado?.tabelas.grava.length ?? 0) > 0 && (
+                <ListaTabelas rotulo="grava" classe="bg-amber-50 text-amber-700 border-amber-200" itens={gerado!.tabelas.grava} />
               )}
-            </div>
-            )}
+              {(gerado?.tabelas.le.length ?? 0) > 0 && (
+                <ListaTabelas rotulo="lê" classe="bg-zinc-100 text-zinc-700 border-zinc-200" itens={gerado!.tabelas.le} />
+              )}
+            </SecaoGerada>
+
+            <SecaoGerada titulo="Usa (rotas de outros módulos)" total={usaOutros.length} vazio="As telas deste módulo só chamam rotas dele mesmo.">
+              {usaOutros.map((g) => (
+                <LinhaModulo key={g.modulo} modulo={g.modulo} itens={g.itens} onSelect={onSelectModule} />
+              ))}
+            </SecaoGerada>
+
+            <SecaoGerada titulo="É usado por" total={usadoPorOutros.length} vazio="Nenhuma tela de outro módulo chama as rotas deste.">
+              {usadoPorOutros.map((g) => (
+                <LinhaModulo key={g.modulo} modulo={g.modulo} itens={g.itens} onSelect={onSelectModule} />
+              ))}
+            </SecaoGerada>
 
             {/* Conexões (Edges) Navegáveis */}
             <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2.5 shadow-2xs">
               <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
-                Conexões Arquiteturais
+                Conexões Arquiteturais <span className="normal-case font-normal text-zinc-400">(tracejadas = geradas do código)</span>
               </span>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
@@ -371,8 +428,8 @@ export default function ModuleDetailDrawer({
                           key={e.id}
                           type="button"
                           onClick={() => onSelectModule?.(e.fromKey)}
-                          className="font-mono text-[11px] text-zinc-800 bg-white border border-zinc-200 hover:border-zinc-400 px-2 py-0.5 rounded-md transition-colors cursor-pointer font-semibold shadow-2xs"
-                          title={`Ver módulo ${e.fromKey}`}
+                          className={cn('font-mono text-[11px] text-zinc-800 bg-white border hover:border-zinc-400 px-2 py-0.5 rounded-md transition-colors cursor-pointer font-semibold shadow-2xs', e.auto ? 'border-dashed border-zinc-300' : 'border-zinc-200')}
+                          title={e.auto ? `Gerado do código: ${e.note}` : `Ver módulo ${e.fromKey}`}
                         >
                           {e.fromKey}
                         </button>
@@ -395,8 +452,8 @@ export default function ModuleDetailDrawer({
                           key={e.id}
                           type="button"
                           onClick={() => onSelectModule?.(e.toKey)}
-                          className="font-mono text-[11px] text-zinc-800 bg-white border border-zinc-200 hover:border-zinc-400 px-2 py-0.5 rounded-md transition-colors cursor-pointer font-semibold shadow-2xs"
-                          title={`Ver módulo ${e.toKey}`}
+                          className={cn('font-mono text-[11px] text-zinc-800 bg-white border hover:border-zinc-400 px-2 py-0.5 rounded-md transition-colors cursor-pointer font-semibold shadow-2xs', e.auto ? 'border-dashed border-zinc-300' : 'border-zinc-200')}
+                          title={e.auto ? `Gerado do código: ${e.note}` : `Ver módulo ${e.toKey}`}
                         >
                           {e.toKey}
                         </button>
