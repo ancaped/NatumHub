@@ -1,4 +1,26 @@
 {
+  "POP-ADM-001": {
+    "body": "OBJETIVO:\nDescrever a elaboração do POP seguindo os processos de trabalho de cada setor, sendo necessário que os setores tenham acesso as informações, para formações de colaboradores, desenvolvimento de funções e manuseio de máquinas e equipamentos. Padronizar os procedimentos em termo de redação, emissão e distribuição.\n\n2. CONDIÇÕES NECESSÁRIAS:\nParticipação nos setores e conclusão da melhor forma de trabalho e o mais seguro.\n\n3. RESPONSABILIDADES:\nResponsável técnico e supervisor.\n\n4. PROCEDIMENTO:\nTodo POP deve conter informações para formação de colaboradores, assim manteremos o desenvolvimento de cada função, controle de qualidade e segurança no setor.\nCada colaborador passa por um processo de treinamento baseado no POP para que tenha conhecimento de suas funções.\nO POP será exposto nos setores para esclarecimento de dúvidas e para segurança do colaborador.\nTodo POP deverá ser seguido pelos colaboradores para que o trabalho seja seguro e de qualidade.\nÉ elaborado um novo POP a cada formação de um novo setor necessário para o desenvolvimento da empresa.\nAvalia-se as condições necessárias para o funcionamento do mesmo, sendo assim elabora-se um POP com todos os procedimentos e registros.\n\n5. FORMAS DE CONTROLE:\nAuto inspeções e controle interno.\n\n6. OBSERVAÇÕES/ANORMALIDADES:\nNo caso de haver diferenças entre dados, essas informações deverão ser imediatamente repassadas à diretoria para que se tomem as devidas providências;\nDeve ser emitido um relatório de não conformidade e corrigido imediatamente as diferenças e registradas.\nEste POP aplica-se aos colaboradores da Nátum Bio Cosméticos em todos os seus níveis.\n\n7. REGISTROS:\nPlanilhas de recebimento;\nRelatório de não conformidade;\n\n8. REFERÊNCIA:\nResolução RDC Nº de 25 de outubro de 2013.",
+    "revision": 4,
+    "effectiveDate": "2023-02-02",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Elaboração do POP",
+    "sector": "adm",
+    "source": "ELABORAÇÃO E REVALIDAÇÃO/ELABORAÇÃO DO POP 001.docx"
+  },
+  "POP-ADM-002": {
+    "body": "OBJETIVO:\nAvaliar se os procedimentos estão condizentes com o trabalho realizado.\n\nCONDIÇÕES NECESSÁRIAS:\nCopia do POP de cada setor, auto inspeção.\n\nRESPONSABILIDADES:\nResponsável técnico e supervisor.\n\nPROCEDIMENTO:\nAtravés da auto inspeção, reavalia os funcionamentos de cada setor seguindo as informações do POP, para confirmação do procedimento seguido.\nCaso haja alguma contradição entre o procedimento padrão e o procedimento realizado é feita a correção imediata no POP.\nEsta correção é registrado e repassado aos colaboradores para que o procedimento seja realizado de acordo com as condições necessárias para o bom funcionamento e segurança do trabalho e do trabalhador.\n\n4. FORMAS DE CONTROLE:\nAuto inspeções e controle interno.\n\nOBSERVAÇÕES/ANORMALIDADES:\nNo caso de haver diferenças entre dados, essas informações deverão ser imediatamente repassadas à diretoria para que se tomem as devidas providências;\nDeve ser emitido um relatório de não conformidade e corrigido imediatamente as diferenças e registradas.\n\n6.REGISTROS:\nRegistro de revalidação.\nAuto inspeção.",
+    "revision": 4,
+    "effectiveDate": "2023-02-02",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Revalidação do POP",
+    "sector": "adm",
+    "source": "ELABORAÇÃO E REVALIDAÇÃO/REVALIDAÇÃO DO POP 002.docx"
+  },
   "POP-ADM-025": {
     "body": "1. OBJETIVO:\nDescrever o processo de admissão de funcionários por parte da presente empresa.\n\n2. CONDIÇÕES NECESSÁRIAS:\nCurrículos.\nIndicações.\nReferências.\n\n3. RESPONSABILIDADES:\nDiretora executiva.\nGerente administrativo.\n\n4. ATIVIDADES:\nSeleção inicial de candidatos\nVerificar a real necessidade de novas contratações;\nVerificar a disponibilidade financeira para novas contratações;\nExaminar os currículos disponíveis, identificando o perfil necessário à função a ser desempenhada;\nSelecionar os candidatos que se adequarem às necessidades;\nVerificar a disponibilidade de cada candidato;\nVerificar as referências pessoais e profissionais;\nPromover contato com o objetivo de agendar entrevistas.\n\nEntrevista\nReceber o candidato e verificar as informações contidas no currículo enviado por meio de perguntas e solicitação de documentos que comprovem as informações fornecidas, tais como, cursos e treinamentos anteriores;\nDiscorrer brevemente sobre o tipo de atividade a ser exercida pelo candidato na empresa e verificar o interesse do mesmo;\nEsclarecer as normas a serem seguidas, sobretudo se for um candidato a exercer função nas áreas de produção, controle da qualidade, ou qualquer outra em que o mesmo necessite ter contato com os medicamentos em processo de manipulação;\nEsclarecer a política salarial da empresa;\nAplicar teste escrito onde o candidato tenha oportunidade de demonstrar aptidões matemáticas e em escrita.\n\nAdmissão de Funcionários\n\nAvaliação\n\n- Proceder a avaliação dos testes escritos atentando para os resultados matemáticos e a legibilidade da escrita;\n- Avaliar criteriosamente todas as informações recebidas e verificadas através das referências e da entrevista e optar pelo candidato que demonstrar melhores aptidões para o exercício da função a que se propõe;\n- Proceder a treinamento inicial com conhecimento dos POP`s referentes à função a ser exercida e os de interesse geral;\n- Manter o funcionário em treinamento teste durante o período de 90 dias e, a partir deste prazo decidir a contratação definitiva.\n\n5. FORMAS DE CONTROLE:\nAuto-inspeção e auditoria interna.\n\n6. OBSERVAÇÕES/ANORMALIDADES:\nNão se aplica.\n\n7. REGISTROS:\nCurrículos;\nTestes escritos aplicados aos candidatos;\nFormulários de registro de capacitação individual e/ou coletiva;\nTestes de eficácia dos treinamentos;\nLivro de ata de reuniões e treinamentos.",
     "revision": 8,
@@ -6,6 +28,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Admissão de Funcionários",
+    "sector": "adm",
     "source": "ADMINISTRAÇÃO/POP 025 ADM Admissão de Funcionários.docx"
   },
   "POP-ADM-036": {
@@ -15,6 +39,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Qualificação de fornecedor",
+    "sector": "adm",
     "source": "ADMINISTRAÇÃO/POP 036 ADM Qualificação de fornecedor.docx"
   },
   "POP-ADM-041": {
@@ -24,6 +50,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Produtos Terceirizados",
+    "sector": "adm",
     "source": "ADMINISTRAÇÃO/POP 041 ADM Protudos Terceirizados.docx"
   },
   "POP-ADM-049": {
@@ -33,6 +61,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Utilização dos Extintores de Incêndio",
+    "sector": "adm",
     "source": "ADMINISTRAÇÃO/POP 049 ADM Utilização dos Extintores de Incêndio.docx"
   },
   "POP-ADM-051": {
@@ -42,6 +72,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Saúde dos funcionarios",
+    "sector": "adm",
     "source": "ADMINISTRAÇÃO/POP 051ADM Saúde dos funcionarios.docx"
   },
   "POP-ADM-079": {
@@ -51,7 +83,53 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Visitas de Terceiros",
+    "sector": "adm",
     "source": "ADMINISTRAÇÃO/POP 079 ADM Visitas de Terceiros.docx"
+  },
+  "POP-ALM-003": {
+    "body": "1. OBJETIVO:\nDescrever as atividades de armazenamento de matérias-primas, embalagens e insumos nas diferentes áreas de estoque, bem como as condições de preservação, abrangendo também o controle de saída dos materiais para utilização.\n\n2. CONDIÇÕES NECESSÁRIAS:\nÁrea específica para armazenamento com temperatura e umidade controladas;\nPaletes.\n\n3. RESPONSABILIDADES:\nAlmoxarife/Técnico de Controle de Qualidade.\n\nProcedimento:\n\nEntrada de Materiais:\nReceber os materiais nas áreas de armazenamento após devidamente conferidas quanto a conformidade do recebimento;\nFazer a verificação dos requisitos específicos para o armazenamento;\nEfetuar a separação dos materiais, direcionando-os para os locais específicos de acordo com o tipo de material, conforme descrito a seguir:\nAs matérias-primas isentas de necessidades especiais (refrigeradas), devem ser destinadas ao almoxarifado de matérias-primas, devidamente identificadas, áreas de Quarentena e de produto aprovado;\nAs matérias primas dependentes de ambiente refrigerado devem ser imediatamente destinadas ao refrigerador, cuja temperatura deve ser constantemente monitorada e registrada.\nAs matérias primas fotossensíveis devem estar acondicionadas em embalagens opacas;\nAs matérias primas higroscópicas devem estar acondicionadas em recipientes hermeticamente fechados;\nAs matérias primas inflamáveis são mantidas afastadas das outras, longe de fontes de calor e substâncias oxidantes;\n\nAs matérias primas corrosivas são armazenadas próximas ao chão para evitar o risco de queda com ruptura da embalagem;\nOs produtos de limpeza e sanitização devem ser segregados quanto a setores de utilização e destinados a seus respectivos DMLs, isolados de qualquer contato com as matérias primas;\nNo ato do armazenamento dos produtos, principalmente os mais afetados pelo prazo de validade, devem ser observados a ordem PVPS (primeiro que vence é o primeiro que sai);\nDurante o manuseio e manutenção dos produtos em estoque, devem ser observadas as condições essenciais de preservação indicadas pelo fornecedor;\nNenhuma matéria-prima é estocada diretamente no chão. Para atender a este requisito, pode-se utilizar paletes, estantes ou armários para armazenar as matérias-primas;\nAs matérias-primas para descarte são descartadas conforme PGRSS.\n\nSaída de Materiais:\nA saída das matérias-primas e embalagens das áreas de estoque deve realizar-se somente por solicitação dos gerentes de produção;\nOs produtos destinados a limpeza e sanitização devem ser retirados de seus respectivos DMLs pelos auxiliares de limpeza e sanitização.\n\nFORMAS DE CONTROLE:\nEstoque de Insumos e Embalagens.\n\nOBSERVAÇÕES/ANORMALIDADES:\nDeve-se ter atenção quanto aos produtos corrosivos ou inflamáveis para que sejam mantidos longe de fontes de calor e de materiais que possam provocar ignição;\nOs produtos que se apresentarem não conformes no estoque devem ser segregados e destinados a área de descarte para posterior recolhimento e incineração por empresa habilitada;\nQuando ocorrerem alterações nos materiais armazenados nos almoxarifados, estando estes dentro do prazo de validade e mantidas as condições recomendadas de preservação contatar o fornecedor e solicitada reposição do produto.\n\n7. REGISTROS:\nMapa de controle de estoque.",
+    "revision": 10,
+    "effectiveDate": "2025-09-04",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Armazenamento e Retirada de Materiais do Almoxarifado",
+    "sector": "almox",
+    "source": "ALMOXARIFADO/POP 003 ALM  Armazenamento e Retirada de Materiais do Almoxarifado.docx"
+  },
+  "POP-ALM-006": {
+    "body": "OBJETIVO:\nDescrever o procedimento relativo ao recebimento de matérias primas e insumos e a verificação de conformidade entre cada produto, o pedido e a nota fiscal.\n\nCONDIÇÕES NECESSÁRIAS:\nFuncionário devidamente treinado para receber e analisar criticamente cada lote de matéria prima e/ou insumo recebido.\n\nRESPONSABILIDADES:\nAlmoxarife/Controle de Qualidade.\n\nPROCEDIMENTO:\nAo receber um lote e matéria prima ou insumo, o funcionário deverá a princípio estar munido da cópia do pedido referente a tal entrega e conferir se os dados da nota fiscal conferem com os itens do pedido e com os produtos recebidos no momento;\nVerificar as condições das embalagens, se não há furos, rasgos ou outras lesões que provoquem perda ou contaminação do produto;\nConferir se as quantidades recebidas de cada produto são exatamente as solicitadas;\nAtendidas as especificações preliminares, realizar o desembarque, destinando os materiais diretamente para a área de quarentena;\nLembrando que o manuseio de bombonas acima de 50 kg deve ser feito sempre por dois (2) funcionários.\nRegistrar, na planilha de recebimento, o nº da nota fiscal, o fornecedor e os produtos recebidos, repassando as informações ao controle da qualidade.\n\nFORMAS DE CONTROLE:\nAuto inspeções e controle interno.\n\nOBSERVAÇÕES/ANORMALIDADES:\nNo caso de haver diferenças entre dados, essas informações deverão ser imediatamente\nrepassadas à diretoria para que se tomem as devidas providências;\nDeve ser emitido um relatório de não conformidade, e enviado ao fornecedor para a\ndevidas correções;\nAs informações sobre as não conformidades devem ser enviadas ao controle de qualidade\npara que constem no sistema de qualificação de fornecedores.\n\nREGISTROS:\nPlanilhas de recebimento;\nRelatório de não conformidade;",
+    "revision": 1,
+    "effectiveDate": "2025-09-04",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Recebimento de Matérias Primas e insumos",
+    "sector": "almox",
+    "source": "ALMOXARIFADO/POP 006 ALM Recebimento de Matérias Primas e insumos.docx"
+  },
+  "POP-ALM-018": {
+    "body": "1. OBJETIVO:\nDescrever as atividades de armazenamento de produtos e material de limpeza necessários para manutenção, das atividades de sanitização dos utensílios e áreas de produção e afins.\n\n2. CONDIÇÕES NECESSÁRIAS:\nÁrea destinada a guarda de material e preparo de soluções para procedimentos de limpeza, além da lavagem de parte do material utilizado.\n\n3. RESPONSABILIDADES:\nAuxiliares de limpeza.\n\n4. PROCEDIMENTO:\nOs produtos destinados à limpeza, sanitização e utensílios (baldes, vassouras, rodos, panos e entre outros), devem ser guardados em seus respectivos DMLs, e retirados pelos auxiliares de limpeza e sanitização;\nAs soluções de limpeza destinadas á limpeza e sanitização das áreas de produção e afins deverão ser preparadas anteriormente e acondicionadas em galões limpos e sanitizados e devem obedecer à seguinte fórmula: água sanitária a 2%, lauril (sintepon less) a 3%, água potável qsp.\nOs funcionários responsáveis pela realização dos procedimentos de limpeza das áreas deverão usar luvas de borracha para a preparação da solução e execução dos procedimentos, além do que, deverá estar devidamente paramentado com uniforme usual, jaleco, gorro.\n\n5. Formas de controle:\nVerificação mensal dos mapas de procedimentos de limpeza.\n\n6. Observações/Anormalidades:\nNão se aplica\n\n7. Registros.\nMapa de registro dos procedimentos de limpeza.- POP 015.",
+    "revision": 1,
+    "effectiveDate": "2025-09-04",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "DML",
+    "sector": "almox",
+    "source": "ALMOXARIFADO/POP 018 ALM DML.docx"
+  },
+  "POP-ALM-045": {
+    "body": "1 - OBJETIVOS:\nDescrever o procedimento e estabelecer critérios para o recebimento e conferência de embalagens até a liberação do Controle de Qualidade para o estoque.\n\n2 - CONDIÇÕES NECESSÁRIAS:\nCópia do pedido (ordem de compra) realizado prelo setor Responsável;\nÁrea de armazenamento com capacidade suficiente para lote receber;\nNota Fiscal (DANFE) emitida pelo fornecedor conhecimento do frete emitido pelo Transportador;\nFormulário Controle de Recebimento de embalagens.\n\n3 - RESPONSABILIDADES:\nFuncionário Responsável pelo Setor de armazenamento de Embalagens, devidamente treinado para inspecionar e avaliar as condições das mesmas, bem como tomar as medidas cautelares necessárias para o seu condicionamento.\n\n4 - ATIVIDADES:\nAntes do desembarque deverá ser realizada uma inspeção visual dos materiais, para verificação geral das condições das embalagens.\nVerificar os itens especificados da Nota Fiscal, de acordo com a ordem de compra: FORNECEDOR - DATA - QUANTIDADE - NOME DO MATERIAL – NUMERO DE VOLUMES.\nAtendidas as especificações preliminares, realizar o desembarque destinando os materiais diretamente para área de quarentena, obedecendo às regras de afastamento da parede por 05 cm e isolamento do piso por palets em madeira.\nOs materiais desembarcados deverão ficar devidamente estocados de forma a não misturarem-se com outros materiais que ainda estejam em quarentena (ainda não liberados pelo CQ).\nAssinar o canhoto do recebimento da nota fiscal e CTE e entrega-los ao Transportador.\nRealizar a conferência e classificação das embalagens destinadas ao estoque e quanto aos defeitos apresentados e descritos nos itens n° 05, 06, 07, 08 e 09.\nApós a conferência e classificação das embalagens deverá ser preenchida o Formulário de Recebimento de Embalagens em todos os campos quando do for o caso e entregue ao Responsável pelo CQ para a liberação e armazenamento em local apropriado para EMBALAGEM APROVADA, para embalagens em não conformidade as mesmas deverão ser identificadas e retidas em área específica de reprovação para as providências necessárias.\nO responsável pelo CQ entregará a Nota Fiscal, o CTE Formulário para Controle Recebimento de embalagens para o Setor de Registro Eletrônico de Informações para os devidos registros fiscais.\n\n5 – DESCRIÇÃO DOS DEFEITOS EM EMBALAGENS\n\nDefeitos: Pode ser definido como qualquer discordância de uma unidade avaliada em relação à especificação.\n\nDefeitos críticos: Impedem a utilização da embalagem ou prejudica sua função essencial.\n\nDefeitos maiores: Defeitos que embora não impeçam a utilização da peça, prejudica sensivelmente a apresentação e o trabalho de acondicionamento.\n\nDefeitos menores: São pequenas imperfeições de acabamento que pode ser toleradas.\n\n6 – CLASSIFICAÇÕES DOS DEFEITOS QUE PODEM OCORRER EM EMBALAGENS PLÁSTICAS E/OU SERIGRAFADAS.\n\nDefeitos críticos:\nImpressão borrada (quando esta existir), com falhas, erros e ilegível;\nCor totalmente diferente do padrão;\nDimensões diferentes do padrão;\nFechamento deficiente.\n\nDefeitos maiores:\nVárias tonalidades de cor;\nDivergência entre a tonalidade de cor em relação ao padrão;\nFalhas na impressão;\nManchas acentuadas;\nSujidades;\nFalta de letras na impressão;\nFalta de enquadramento.\n\nDefeitos menores:\n\nPequenas falhas de enquadramento;\nPequenas variações de cor;\nPequenos desvio de tamanho;\nTinta ainda úmida (borra de atrito).\n\n7 – CLASSIFICAÇÕES DOS DEFEITOS EM TAMPAS DE PLÁSTICOS, ACRÍLICAS E VÁLVULAS.\n\nDefeitos críticos:\n\nRoscas defeituosas;\nCor totalmente diferente do padrão;\nTampas quebradas ou rachadas;\nMau fechamento e quebra no fechamento;\nBatoque mal embutido.\n\nDefeitos críticos:\n\nVárias tonalidades de cor;\nDivergência entre a tonalidade de cor em relação ao padrão;\nPresença de rebarbas;\nSujidades.\n\n8 – CLASSIFICAÇÕES DOS DEFEITOS EM BATOQUES\n\nDefeitos críticos:\n\nDimensão fora do padrão.\n\nDefeitos críticos:\n\nRebarbas que dificultam o fechamento;\nTonalidade amarelada;\nSujidades;\nManchas acentuadas.\n\n9 – CLASSIFICAÇÃO DOS DEFEITOS DOS RÓTULOS\n\nDefeitos críticos:\nFalha de impressão;\nImpressão borrada ilegível;\nErros de impressão;\nMisturas de rótulos e outros acessórios.\n\nDefeitos maiores:\nFalhas ou faltas de letras na impressão;\nFalta de enquadramento;\nGrande variação de cor;\nImpressão borradas;\nFalta de traços de referências.\n\nDefeitos menores:\nPequenas falhas de enquadramentos;\nPequenas variações de cor;\nPequenos desvio de tamanho;\nTinta ainda úmida (borra de atrito).\n\n10 – ANEXOS/ REGISTROS:\n\nHistórico.\nPlanilha de Recebimento de Embalagens.\nSistema Eletrônico de Informações.\n\n11 – REFERÊNCIAS\n\nANVISA Resolução RDC n° 48, de 25 de outubro de 2013. Aprova o Regulamento Técnico de Boas Práticas de Fabricação para produtos de Higiene Pessoal, Cosméticos e Perfumes, e dá outras Providências.",
+    "revision": 9,
+    "effectiveDate": "2025-09-04",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "recebimento de embalagens",
+    "sector": "almox",
+    "source": "ALMOXARIFADO/POP 045 ALM recebimento de embalagens.docx"
   },
   "POP-ATD-011": {
     "body": "OBJETIVO:\nDescrever o processo de atendimento a representantes e fornecedores, contemplando o recebimento e análise crítica de pedidos, orçamento, cadastro (se necessário), transmitindo informação para geração dos registros de solicitação, assim como solicitações de matérias primas, insumos e embalagens, controle de carteira e prospecção diária de novos clientes.\n\n2. CONDIÇÕES NECESSÁRIAS:\nColaboradores capacitados para atendimento a esse público específico;\nComputador e impressora;\nMaterial para registro;\nCanal de atendimento por telefone, fax e internet.\n\n3. RESPONSABILIDADES:\nFuncionárias do atendimento, telemarketing e digitação;\nDiretor administrativo;\nAnálise e aprovação de crédito.\n\n4. PROCEDIMENTO:\nO Atendente deverá receber as solicitações, orçamentos, tabelas, propostas, etc., pessoalmente através de fax, internet, ou através do atendimento telefônico, identificando a demanda do cliente;\nAnalisar criticamente a solicitação, verificando:\nA disponibilidade do produto;\nPossibilidade de atendimento no prazo solicitado.\nGerar orçamento, analisando as quantidades e unidades, calculando o preço do produto;\nInformar orçamento ao cliente;\nSe houver concordância, verificar existência de cadastro do cliente junto à empresa. Em caso negativo, cadastrar o cliente diretamente, e obrigatoriamente as seguintes informações:\n\nNome completo;\nEndereço completo;\nTelefone;\nData de nascimento;\nDocumentos CPF e CI, ou CNPJ, Inscrição. Estadual;\n\nGerar pedido;\nRepassar ao setor de produção para verificação da disponibilidade em estoque.\n\n5. FORMAS DE CONTROLE:\n\nMapa de controle de atendimento aos pedidos recebidos, e atendidos.\n\n6. OBSERVAÇÕES/ANORMALIDADES:\n\nNos casos em que, por iniciativa do cliente ou por sobrecarga no atendimento, não for possível a apresentação imediata do orçamento, preencher informações em formulário próprio e retornar logo que possível com as informações seja via telefone, fax ou meio eletrônico.\n\nApós aceite do cliente, o pedido deve ser analisado e aprovado pelo gerente administrativo.\n\n7. REGISTROS:\n\nOrçamento;\nCadastro de Cliente no Sistema;",
@@ -60,6 +138,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade e Atendimento",
     "approvedBy": null,
+    "title": "Atendimento ao Público",
+    "sector": "atd",
     "source": "ATENDIMENTO/POP 011 ATD Atendimento ao Público - novo.docx"
   },
   "POP-ATD-059": {
@@ -69,25 +149,537 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Reclamação de clientes",
+    "sector": "atd",
     "source": "ATENDIMENTO/POP 059 ATD Reclamação de clientes.docx"
   },
-  "POP-001": {
-    "body": "OBJETIVO:\nDescrever a elaboração do POP seguindo os processos de trabalho de cada setor, sendo necessário que os setores tenham acesso as informações, para formações de colaboradores, desenvolvimento de funções e manuseio de máquinas e equipamentos. Padronizar os procedimentos em termo de redação, emissão e distribuição.\n\n2. CONDIÇÕES NECESSÁRIAS:\nParticipação nos setores e conclusão da melhor forma de trabalho e o mais seguro.\n\n3. RESPONSABILIDADES:\nResponsável técnico e supervisor.\n\n4. PROCEDIMENTO:\nTodo POP deve conter informações para formação de colaboradores, assim manteremos o desenvolvimento de cada função, controle de qualidade e segurança no setor.\nCada colaborador passa por um processo de treinamento baseado no POP para que tenha conhecimento de suas funções.\nO POP será exposto nos setores para esclarecimento de dúvidas e para segurança do colaborador.\nTodo POP deverá ser seguido pelos colaboradores para que o trabalho seja seguro e de qualidade.\nÉ elaborado um novo POP a cada formação de um novo setor necessário para o desenvolvimento da empresa.\nAvalia-se as condições necessárias para o funcionamento do mesmo, sendo assim elabora-se um POP com todos os procedimentos e registros.\n\n5. FORMAS DE CONTROLE:\nAuto inspeções e controle interno.\n\n6. OBSERVAÇÕES/ANORMALIDADES:\nNo caso de haver diferenças entre dados, essas informações deverão ser imediatamente repassadas à diretoria para que se tomem as devidas providências;\nDeve ser emitido um relatório de não conformidade e corrigido imediatamente as diferenças e registradas.\nEste POP aplica-se aos colaboradores da Nátum Bio Cosméticos em todos os seus níveis.\n\n7. REGISTROS:\nPlanilhas de recebimento;\nRelatório de não conformidade;\n\n8. REFERÊNCIA:\nResolução RDC Nº de 25 de outubro de 2013.",
+  "POP-CQL-002": {
+    "body": "1. OBJETIVO:\nDescrever o procedimento de análise macroscópica das matérias primas recebidas.\n\n2. CONDIÇÕES NECESSÁRIAS:\nColaborador capacitado e devidamente paramentado.\n\n3. RESPONSABILIDADE:\nTécnico de produção;\nResponsável Técnico.\n\n4. PROCEDIMENTO:\nApós recebimento da matéria prima, o analista realizará análise visual do produto para conferir cor, odor, granulometria e se há algum corpo estranho junto à mesma, comparando se está conforme as informações descritas no certificado de análise e na ficha de especificação. O analista também confere se a embalagem que envolve o produto está em condições aceitáveis.\n\n5. FORMAS DE CONTROLE:\nAtravés de auto inspeções.\n\n6. OBSERVAÇÕES/ANORMALIDADES:\n\nCaso a análise não atenda às conformidades, deverá ser comunicado ao responsável técnico para contato junto ao fornecedor e solução do problema.\nRegistrar na planilha de controle de fornecimento a ocorrência identificada.\n\n7. REGISTRO:\nFormulário próprio.",
     "revision": 6,
-    "effectiveDate": "2025-09-02",
+    "effectiveDate": "2025-09-05",
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
-    "source": "ELABORAÇÃO DE POPS/ELABORAÇÃO DO POP 001.docx"
+    "title": "Qualidade Organolépticas",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 002 CQL  Qualidade Organolépticas.docx"
   },
-  "POP-002": {
-    "body": "OBJETIVO:\nAvaliar se os procedimentos estão condizentes com o trabalho realizado.\n\nCONDIÇÕES NECESSÁRIAS:\nCopia do POP de cada setor, auto inspeção.\n\nRESPONSABILIDADES:\nResponsável técnico e supervisor.\n\nPROCEDIMENTO:\nAtravés da auto inspeção, reavalia os funcionamentos de cada setor seguindo as informações do POP, para confirmação do procedimento seguido.\nCaso haja alguma contradição entre o procedimento padrão e o procedimento realizado é feita a correção imediata no POP.\nEsta correção é registrado e repassado aos colaboradores para que o procedimento seja realizado de acordo com as condições necessárias para o bom funcionamento e segurança do trabalho e do trabalhador.\n\n4. FORMAS DE CONTROLE:\nAuto inspeções e controle interno.\n\nOBSERVAÇÕES/ANORMALIDADES:\nNo caso de haver diferenças entre dados, essas informações deverão ser imediatamente repassadas à diretoria para que se tomem as devidas providências;\nDeve ser emitido um relatório de não conformidade e corrigido imediatamente as diferenças e registradas.\n\n6.REGISTROS:\nRegistro de revalidação.\nAuto inspeção.",
-    "revision": 6,
-    "effectiveDate": "2025-09-02",
+  "POP-CQL-005": {
+    "body": "1. OBJETIVO:\nDescrever os procedimentos adotados para controle efetivo e proteção contra contaminações.\n\n2. CONDIÇÕES NECESSÁRIAS:\nO procedimento deve ser realizado em horário alternativo à realização dos trabalhos de rotina da empresa, quando se tratar da limpeza geral e sanitização das áreas de produção e, durante todo o dia na área de limpeza de material e onde se fizer necessário.\n\n3. RESPONSABILIDADES:\nTodos os funcionários da Produção.\nControle de Qualidade.\nAuxiliar de Limpeza.\n\n4. PROCEDIMENTO:\nManter o local de trabalho limpo e sanitizado, ou seja, as salas de produção, equipamentos, acessórios, sanitários, etc., cumprindo integralmente as regras estabelecidas nos POPs que descrevem os processos de limpeza e sanitização;\nManter os recipientes de matéria prima e produtos acabados bem fechados, em frascos limpos, com rótulos legíveis, padronizados, e em local adequado;\nInformar ao responsável do setor, quando se sentir enfermo, por ocasião de uma lesão, dor, mal estar, estado gripal;\nManter lixeiras com sacos descartáveis com tampa e pedal em todos os setores;\nUsar corretamente e de forma indispensável os EPIs, segundo procedimentos descritos no POP-CQL-005.\n\nCONTAMINAÇÃO POR PARTÍCULAS:\nSignifica que o produto foi contaminado por uma partícula ou sujidade que não deveria estar presente (exemplo: fibras, pêlos, material de limpeza, etc).\n\nCONTAMINAÇÃO CRUZADA:\nSignifica que o produto foi contaminado por outro produto ou por uma matéria prima que não deveria fazer parte da formulação.\n\nCONTAMINAÇÃO MICROBIANA:\nÉ causada por microorganismos ou germes. Os microorganismos existem em todos os ambientes inclusive em objetos e/ou superfícies do corpo não higienizadas corretamente.\nOs equipamentos, vidrarias e acessórios utilizados devem ser mantidos limpos e sanitizados.\n\n5. FORMAS DE CONTROLE:\nAnálises periódicas das de produtos, matérias primas, água deionizada e potável, efetuada por laboratório terceirizado.\nAuto-inspeção e auditoria interna.\n\n6. OBSERVAÇÕES/ANORMALIDADES:\nCaso seja constatada a presença de contaminações por partículas tóxicas ou microorganismos patogênicos, toda a estrutura da área de produção deve passar por um procedimento de sanitização imediata.\n\n7. REGISTROS:\nResultados das análises efetuadas por instituição Terceirizada;\nPlanilhas de registro das atividades de limpeza e sanitização diárias e semanais;\nRegistro de ocorrências.",
+    "revision": 1,
+    "effectiveDate": "2025-09-05",
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
-    "source": "ELABORAÇÃO DE POPS/REVALIDAÇÃO DO POP 002.docx"
+    "title": "Controle de contaminação",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 005 CQL  Controle de contaminação.docx"
+  },
+  "POP-CQL-008": {
+    "body": "OBJETIVO:\nDescrever o procedimento de limpeza e sanitização das caixas de armazenamento de água para o uso diário da empresa.\n\nCONDIÇÕES NECESSÁRIAS:\nO procedimento de limpeza e sanitização da caixa devem ser realizados em horário alternativo com a periodicidade de seis meses.\n\nRESPONSABILIDADES:\nEmpresa terceirizada responsável e qualificada para a função.\n\n4. ATIVIDADES:\nFechar o registro de entrada de água ou amarrar a bóia, impedindo a entrada de água na caixa;\nEsvaziar a caixa, abrindo as torneiras e dando descargas;\nQuando a caixa d’água estiver quase vazia, tampar a saída para que a água que restar seja usada no processo de limpeza e para que a sujeira não desça pelo cano. Proceder à esfregação nas paredes e no fundo da caixa;\nUsar somente panos e escova limpos durante a realização do trabalho;\nRetirar a água e o material que restam da limpeza usando pá, balde e panos limpos deixando a caixa totalmente limpa;\nDeixar entrar água na caixa e acrescentar um copo de água sanitária para cada dez litros de água;\nEnxaguar bem toda a extensão interna da caixa d’água com a solução de água sanitária deixando agir por trinta minutos;\nEsvaziar a caixa d’água, aproveitando a solução para limpar e desinfetar os canos que conduzem a água para a distribuição interna no estabelecimento;\nAdicionar novamente água na caixa e lavar toda a extensão interna, drenando a água utilizada no enxágue;\nTampar a caixa d’água para que não entrem pequenos animais e insetos;\nAbrir a entrada de água para abastecer a caixa e utilizar.\n\nFORMAS DE CONTROLE:\nAnálises da portabilidade da água;\n\nOBSERVAÇÕES/ANORMALIDADES:\nA solução de água sanitária utilizada para limpeza e esterilização da caixa d’água não deverá ser, de forma alguma, utilizada para outros fins, devendo ser obrigatoriamente descartada;\nA caixa d’água deverá ser limpa duas vezes ao ano, e deverá estar sempre fechada.\n\nREGISTROS:\nRegistro de limpeza da caixa d’água, fornecido pela empresa terceirizada.",
+    "revision": 1,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Limpeza e sanitização da caixa d’água",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 008 CQL Limpeza e sanitização da caixa d’água.docx"
+  },
+  "POP-CQL-010": {
+    "body": "OBJETIVOS:\nDescrever o procedimento relativo à auto inspeção, a ser realizada por funcionário responsável da empresa ou profissional habilitado, mediante as normas e exigências da legislação vigente.\n\nCONDIÇÕES NECESSÁRIAS:\nPortaria da Legislação vigente.\n\nRESPONSABILIDADES:\nResponsável Técnico;\nSupervisor de Produção.\n\nATIVIDADES:\n\nDe posse do chek-list da portaria vigente, o inspetor deve percorrer toda a área da empresa, checando todos os requisitos contidos ali para a boa prática de fabricação de cosméticos. Deve-se observar todo o processo de produção, bem como questionar os funcionários sobre suas atribuições, como forma de testar os conhecimentos dos responsáveis por cada setor.\nToda e qualquer irregularidade deve ser registrada, e serem repassadas para o responsável técnico para que o mesmo analise e sane as irregularidades.\nA auto inspeção será realizada ANUALMENTE, para que possa dar condições as realizações de novos projetos e formações de outros processos.\nA cada inspeção os colaboradores são reunidos para serem informados das irregularidades e modificações que venham ser necessária para o desenvolvimento seguro e correto da empresa.\n\nFORMAS DE CONTROLE:\nAuto inspeções.\n\nREGISTRO:\nRegistro de auto inspeção.",
+    "revision": 1,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Auto Inspeção",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 010 CQL Auto Inspeção.docx"
+  },
+  "POP-CQL-012": {
+    "body": "OBJETIVOS:\nDescrever o procedimento relativo ao processo de determinação do PH da substância a ser analisada como forma de garantir a identificação e qualidade da matéria prima.\n\nCONDIÇÕES NECESSÁRIAS:\nPhmetro;\nSoluções tampão em perfeitas condições de uso.\n\nRESPONSABILIDADES:\nTécnico de Controle de Qualidade.\n\nATIVIDADES:\n\nCalibração do Phmetro:\n\nLigue o aparelho na rede elétrica em “110 V”;\n\nAperte o botão LIGAR que se encontra atrás do equipamento;\n\nNo display aparecerão as funções CONFG./ DESL /MED;\nSelecione a opção MED apertando o botão ©;\nAperte novamente © para selecionar CAL;\n\nRetire o eletrodo da solução de KCL 3M e lave o mesmo com água deionizada, para retirar a solução de armazenagem, enxugue com papel absorvente;\n\nEm seguida aparecerá à mensagem para inserir a solução tampão de pH=7, faça tal operação;\nAperte © para a confirmação;\n\nA seguir, será solicitada a solução de pH = 4,00;\n\nLave o mesmo com água deionizada, enxugue com papel absorvente;\n\nInsira o eletrodo a solução indicada;\n\nAperte © para a confirmação;\n\nApós a leitura o equipamento pedirá TAMPÃO 3, aperte © para NÃO;\n\nAnotar o resultado da calibração (SLOPE) na ficha de registro diária;\n\nAnálise:\n\nSeparar a matéria prima ou produto acabado;\n\nFazer solução de acordo com a especificada no laudo de análise do fornecedor (no caso de matéria prima);\n\nRetire o eletrodo da solução de KCL 3M e lave o mesmo com água deionizada, para retirar a solução de armazenagem, enxugue com papel absorvente;\n\nColocar o eletrodo na solução;\n\nAnotar na ficha de registro de análise e especificações o resultado obtido;\n\nQuando produto acabado, registrar em formulário próprio e ficha de produção;\n\n2689860-6350 Para desligar o equipamento pressione A para ESC.\n67056067310\nDepois B para stand-by.\n\nFORMAS DE CONTROLE:\nAuto inspeções.\n\nOBSERVAÇÕES/ANORMALIDADES:\n\nEm caso de resultados fora dos padrões indicados nos certificados das matérias-primas enviados pelos fabricantes, registrar na planilha de controle de fornecimento e contatar o fabricante para viabilizar a solução do problema (troca, devolução, ressarcimento).\nNo caso de produto acabado, quando o resultado estiver fora dos padrões estabelecidos pela empresa, entrar em contato com o responsável técnico para que se proceda a devida correção.\n\n7. REGISTRO:\nFicha de produção;\nFormulário de registro de análises - FOR-CQL-037.",
+    "revision": 1,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Controle de Qualidade – PH",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 012 CQL Controle de Qualidade – PH.docx"
+  },
+  "POP-CQL-013": {
+    "body": "OBJETIVO:\nDescrever os procedimentos adotados para controle efetivo e proteção contra pragas e contaminações.\n\n2. CONDIÇÕES NECESSÁRIAS:\nO procedimento deve ser realizado em horário alternativo à realização dos trabalhos de rotina da empresa.\n\n3. RESPONSABILIDADES:\nEmpresa terceirizada responsável e qualificada para a função.\n\n4. PROCEDIMENTO:\n\nRealizar, semestralmente, dedetização em todas as áreas da empresa, através de empresa autorizada, deve, por sua vez, apresentar literatura técnica dos ativos a serem utilizados, ativos estes que deverão ser aprovados pelas autoridades sanitárias;\nO procedimento adotado é o de pulverização e uso de gel, nas áreas de possível acesso dos organismos contaminantes tais como frestas, passagens, portas, além da colocação de iscas;\nRepetir a aplicação a cada seis meses, tempo estabelecido como garantia do procedimento ou quando se julgar necessário;\nManter todos os ralos com tampas escamoteáveis, em todas as áreas da empresa sendo que devem ser mantidos fechados de modo a impedir o acesso de insetos.\n\n5. FORMAS DE CONTROLE:\nAuto-inspeção;\nAvaliação periódica do fornecedor de serviços de dedetização.\n\n6. OBSERVAÇÕES/ANORMALIDADES:\nEm caso de aparecimentos de insetos ou roedores durante o período de garantia fornecido pelo dedetizador acionar imediatamente a empresa responsável pela dedetização.\n\n7. REGISTROS:\nRegistros de todas as operações de dedetização realizadas na empresa;\nLiteratura técnica dos produtos utilizados em cada procedimento.",
+    "revision": 1,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Controle de Pragas",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 013 CQL Controle de Pragas.docx"
+  },
+  "POP-CQL-014": {
+    "body": "OBJETIVO:\nDescrever o procedimento de amostragem de produto acabado.\n\nCONDIÇÕES NECESSÁRIAS:\nFrascos previamente esterelizados.\n\nRESPONSABILIDADES:\nAnalista de Controle de Qualidade\n\nATIVIDADES:\n\nApós as devidas análises do Controle de Qualidade, e a liberação do produto para envase, o funcionário responsável retira aleatoriamente uma amostra do produto já envasado na quarentena e leva para o laboratório microbiológico, onde serão feitas as análises pertinentes ao produto.\nApós a liberação do controle microbiológico é feito o registro em planilha e armazenado em lugar apropriado, onde a amostra ficará retida por um ano após o vencimento do seu prazo de validade.\nApós esse período a amostra é descartada e o descarte registrado na planilha de controle.\n\nOBSERVAÇÕES/ANORMALIDADES:\nNão se aplica.\n\nFORMAS DE CONTROLE:\nVerificação por parte do controle de qualidade.\n\nREGISTROS:\nRegistro e Controle de Amostras de Produção.",
+    "revision": 1,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Amostragem de Produto acabado",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 014 CQL Amostragem de Produto acabado.docx"
+  },
+  "POP-CQL-015": {
+    "body": "OBJETIVO:\nDescrever a rotina e periodicidade dos procedimentos de limpeza nas áreas de produção, controle da qualidade, envase, depósitos, corredores, vestiários e áreas que compõem os arredores da empresa.\n\nCONDIÇÕES NECESSÁRIAS:\nMaterial de limpeza adequado e em quantidade suficiente.\n\nRESPONSABILIDADES:\nFuncionários do setor de limpeza.\n\nATIVIDADES:\nA limpeza de cada uma das áreas deve obedecer a POPs específicos que descrevem a forma correta de limpeza das bancadas, pisos, paredes (POP 007) e os materiais de uso nos processos de produção (POP 021);\nDeverá ser efetuada uma faxina semanal que contemple todas as áreas da empresa, registrando os procedimentos em Formulário adequado;\nAs áreas externas à produção que contemplam os escritórios e o pátio interno devem ser limpos também semanalmente e registradas;\nTodas as planilhas e formulários de registro de limpeza e sanitização deverão ser guardados em pasta sempre ao fim de cada mês e, devem estar à disposição da fiscalização e auto inspeções.\n\nFORMAS DE CONTROLE:\nVerificação por parte do controle de qualidade.\n\nOBSERVAÇÕES/ANORMALIDADES:\nOs materiais (utensílios) usados na limpeza da área de produção deverão ser diferenciados dos usados na limpeza das outras áreas, para evitar contaminação.\n\nREGISTROS:\nFormulário Próprio.",
+    "revision": 1,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Limpeza nas áreas de produção e arredores",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 015 CQL Limpeza nas áreas de produção e arredores.docx"
+  },
+  "POP-CQL-016": {
+    "body": "OBJETIVOS:\nDescrever as atividades necessárias ao controle dos dispositivos de medição utilizados para comprovação de parâmetros de conformidade dos produtos ou preservação destes durante o processo interno.\n\nRESPOBNSABILIDADES:\n\nTécnico em produção;\nControle de Qualidade.\n\nATIVIDADES:\n\nEfetuar levantamento dos dispositivos de medição cujas medidas interferem diretamente na comprovação da qualidade e preservação das matérias primas e produtos;\nEfetuar cadastro dos dispositivos identificados indicando os dados e principais características do equipamento com atenção ao estabelecimento das condições a seguir:\nCuidados necessários para o manuseio e preservação;\nTolerância admissível (erro+incerteza) para o instrumento, devendo representar de ½ a 1/3 da tolerância do processo;\nO intervalo entre as calibrações/verificações;\n\n4171956350Numeração Seqüencial de 001 em diante\n00Numeração Seqüencial de 001 em diante\n\nRealizar calibração utilizando os serviços de fornecedor qualificado para este fim, conforme;\nAvaliar os resultados de erros e incertezas obtidas na calibração verificando se estes superam o valor estabelecido como tolerância admissível para o instrumento;\nCaso positivo, deve ser tomada ação de correção no instrumento, podendo o mesmo ser submetido a operações de manutenção, reparo, ajustes e em último caso, substituição;\n\nRegistrar a atividade realizada, de calibração ou manutenção no cadastro do equipamento em formulário próprio;\nNas situações em que ocorrerem problemas que demandem ações corretivas de manutenção solicitar, sempre que necessário serviço terceirizado.\n\n4. OBSERVAÇÕES/ANORMALIDADES:\nNos casos em que o equipamento for submetido a ajuste ou manutenção o mesmo deve ser calibrado imediatamente após este procedimento;\n\nO intervalo de calibração poderá ser ampliado ou reduzido de acordo com a tendência dos erros/incertezas apresentados nos laudos. Em caso de dilatação do intervalo de calibração, este não deve ser definido superior a um ano.\n\nREGISTROS:\n\nCertificados de calibração (fornecidos por terceiros).\nRegistros de manutenção (fornecidos por terceiros).\nRegistro de Calibração – Realizados pela empresa.",
+    "revision": 1,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Verificação de Equipamentos",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 016 CQL Verificação de Equipamentos.docx"
+  },
+  "POP-CQL-017": {
+    "body": "1. OBJETIVOS:\nDescrever as atividades necessárias ao bom funcionamento dos equipamentos e dispositivos de medição, tais como: balanças e phmetro.\n\nCONDIÇÕES NECESSÁRIAS:\nFuncionários treinados para a função;\nPesos padrão;\nSoluções tampão.\n\n2. RESPONSABILIDADES:\nAnalista de controle de Qualidade;\nResponsável Técnico.\n\n3. ATIVIDADES:\nAo ligar os equipamentos, todos os dias pela manhã, deixar o tempo necessário para o aquecimento da máquina, conforme descrito nos respectivos manuais de instrução.\nApós o período especificado em cada manual referente aos equipamentos a serem aferidos, proceder a verificação de funcionamento de cada equipamento dentro das especificações previstas.\nManusear pesos padrão sempre com luvas limpas.\nAs soluções tampão a serem utilizadas para aferição do Phmetro devem estar em temperatura ambiente.\nTodos os procedimentos de aferição devem ser registrados em formulário e arquivados por um ano.\n\n4. FORMAS DE CONTROLE:\nAuto-Inspeções.\n\n6. OBSERVAÇÕES/ANORMALIDADES:\n\nQuando ocorrer desvios que não possam ser ajustados, retirar o equipamento do uso e solicitar manutenção;\nNos casos em que o equipamento for submetido a ajuste ou manutenção o mesmo deve ser calibrado imediatamente após este procedimento;\nO intervalo de calibração poderá ser ampliado ou reduzido de acordo com a tendência dos erros/incertezas apresentados nos laudos. Em caso de dilatação do intervalo de calibração, este não deve ser definido superior a um ano.\n\n7. Registros:\nCadastro de equipamentos de medição.\nRegistros de controle de aferições.\nCertificados de calibração (fornecidos por terceiros).\nFormulário próprios.",
+    "revision": 1,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Calibração e manutenção de dispositivos de medição",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 017 CQL Calibração e manutenção de dispositivos de medição.docx"
+  },
+  "POP-CQL-019": {
+    "body": "OBJETIVO:\nDescrever o procedimento relativo a amostragem das matérias primas após recebimento e análise das mesmas.\n\nCONDIÇÕES NECESSÁRIAS:\nLaboratório de Controle de Qualidade devidamente equipado com balança, amostrador de matéria prima e demais vidrarias e objetos.\n\nRESPONSABILIDADES:\nTécnico em Controle de Qualidade.\n\nPROCEDIMENTO:\nSeparar a matéria-prima;\nRetirar amostra utilizando espátula de aço ou concha em aço inox quando se tratar de matéria prima líquida, quando for matéria prima solida retirar amostra com um recipiente totalmente sanitizado.\nPesar em sacos plásticos e frasco a quantidade mínima de 40 ml para líquidos e 30 gramas para sólidos.\nTodo insumo retirado para amostra deve estar totalmente lacrado, para que não haja contaminação.\nConfeccionar etiqueta de identificação contendo os seguintes dados: matéria-prima, fornecedor, lote, data de fabricação, data de validade, quantidade amostrada, no registro e identificar em cada insumo retirado para amostra.\nAnotar no livro de registro de coleta de matérias-primas todos os dados da etiqueta, logo após a coleta e a identificação;\n\nFORMAS DE CONTROLE:\nAtravés de auditorias internas.\n\nOBSERVAÇÕES/ANORMALIDADES:\nVencido o prazo de validade da matéria prima, as amostras deverão ir para descarte, sendo registrado no formulário de registro de coleta.\nQuando houver não conformidade será emitido um relatório, enviado ao fornecedor, por fax ou e-mail, notificando-o imediatamente após a detecção da característica fora dos padrões estabelecidos nas especificações.\nContatar o fornecedor para que providencie a imediata reposição da matéria prima reprovada.\n\nREGISTROS:\nPlanilha de Controle de Amostras.",
+    "revision": 1,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Amostragem de Matérias Primas",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 019 CQL Amostragem de Matérias Primas.docx"
+  },
+  "POP-CQL-020": {
+    "body": "OBJETIVO:\nDescrever o procedimento correto para higienização pessoal de todos os funcionários da produção, limpeza, bioquímicos, assim como de outras pessoas que necessitem adentrar as áreas de Produção.\n\nCONDIÇÕES NECESSÁRIAS:\nTreinamento efetuado e registrado;\nÁrea específica para lavagem e sanitização das mãos;\nSabonete líquido anti-séptico;\nÁlcool gel;\nSolução de Álcool a 70%.\n\nRESPONSABILIDADES:\nTodos os funcionários da empresa que atuem ou necessitem adentrar as áreas de produção, análise de amostras ou uso e preparo de reagentes (áreas críticas).\n\nATIVIDADES:\nAntes do início dos procedimentos os funcionários devem retirar anéis, pulseiras, relógios e quaisquer outros acessórios;\nEsfregar as duas mãos entre os dedos, palma, dorso, pulso e antebraço, certificando-se de que estejam bem ensaboadas;\nFicar em posição confortável, sem tocar a pia, e abrir a torneira, de preferência, com a mão não dominante, isto é, com a esquerda se for destro, e com a direita se for canhoto;\nUsar, de preferência cerca de 2 ml de sabonete líquido, contendo anticépticos;\nEnsaboe as mãos e friccione-as por aproximadamente 15 segundos, em todas as suas faces, espaços interdigitais, articulações, unhas e extremidades dos dedos;\nEnxágüe as mãos retirando totalmente a espuma e resíduos do sabonete líquido;\nRetirar o excesso de água das mãos e secá-las com papel toalha;\nFinalizar a limpeza borrifando as mãos com álcool a 70%;\nO processo de assepsia deve ser realizado sempre ao iniciar e terminar o turno de trabalho, após o uso do toalete, após assoar o nariz e antes e imediatamente após o contato com ambiente externo ás áreas de produção.\n\nFORMAS DE CONTROLE:\nObservação diária.\n\nOBSERVAÇÕES/ANORMALIDADES:\nUtilizar sabonete líquido e solução de álcool 70%.\n\nREGISTROS:\nNão se aplica.",
+    "revision": 1,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Higienização pessoal",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 020 CQL Higienização  pessoal.docx"
+  },
+  "POP-CQL-022": {
+    "body": "OBJETIVO:\nDescrever os procedimentos de controle, registro e descarte de matérias primas cujos prazos de validade tenham expirado.\n\nCondições Necessárias:\nEmpresa responsável pela coleta de resíduos.\n\nResponsabilidade:\nTécnico de Controle de Qualidade.\n\nATIVIDADES:\nDeverá ser feita uma separação prévia das matérias primas com prazo de validade próximo ao vencimento, com um mês de antecedência;\nDeverá ser efetuada a compra de uma nova matéria prima para substituí-la;\nDeve-se fazer o registro de todos os produtos com prazo de validade expirado;\nDeverá ser separado em recipiente destinado única e exclusivamente para acomodação de resíduos a serem descartados;\nA empresa terceirizada deverá coletar esse recipiente com a periodicidade estabelecida em contrato firmado para incineração dos resíduos.\n\nFORMAS DE CONTROLE:\nRelatório mensal através do programa (DGI).\n\nOBSERVAÇÃO/ANORMALIDADES:\nNão se aplica.\n\nREGISTROS:\nRegistro de Descarte de matéria prima vencida;\nCertificado fornecido pela empresa coletora de resíduos.",
+    "revision": 1,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Controle de matérias primas com prazo de validade expirado",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 022 CQL Controle de matérias primas com prazo de validade expirado.docx"
+  },
+  "POP-CQL-023": {
+    "body": "OBJETIVO:\nDescrever os procedimentos adotados para análise da qualidade da água purificada e potável, definindo coleta, periodicidade, envio/recebimento, resultados e ações a serem tomadas.\n\nCondições necessárias:\nNão se aplica.\n\nRESPONSABILIDADE:\nTécnico de Controle de Qualidade.\n\nATIVIDADES:\nEfetuar a coleta de água purificada e potável utilizando frasco vidro âmbar de 100ml, autoclavado, nos pontos e periodicidade indicados a seguir:\nÁgua purificada: coletar na saída do equipamento de deionização, trimestralmente;\nÁgua potável: coleta realizada trimestralmente, nos pontos que fornecem água para execução dos procedimentos de limpeza e higienização em geral, sendo 20 ml de cada ponto, totalizando 100 ml;\nRegistrar coleta em formulário próprio;\nEnviar ao laboratório microbiológico para análise;\nArquivar certificados e registrar no mapa de controle de análises de água.\n\nFORMAS DE CONTROLE:\nVerificação semanal do ph da água.\n\nOBSERVACÕES/ANORMALIDADES:\nNo caso em que os resultados das análises se apresentarem fora dos padrões, nas condições da água, realizar o procedimento de limpeza e sanitização do equipamento de deionização e reanálise do pH e características organolépticas, e no caso de se referir a água potável, proceder a limpeza e sanitização da caixa d’água mesmo que fora da periodicidade estabelecida.\nO controle da água também é realizado pela empresa, onde se observa e registra o pH e a condutividade da água a ser usada na produção.\n\nREGISTROS:\nControle de análise da água;\nLaudo microbiológico da água.",
+    "revision": 1,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Qualidade da Água",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 023 CQL Qualidade da Água.docx"
+  },
+  "POP-CQL-024": {
+    "body": "1. OBJETIVO:\nAvaliar os resultados das análises de qualidade das matérias-primas.\n\n2. CONDIÇÕES NECESSÁRIAS:\nEtiquetas de aprovado e reprovado;\nLaudos do fornecedor da matéria prima;\nLaudos de análise internos.\n\n3. RESPONSABILIDADES:\nTécnico do controle da qualidade;\nResponsável Técnico.\n\nPROCEDIMENTO:\nO responsável técnico recebe, do controle de qualidade, o laudo analítico interno da matéria prima e analisa os resultados que foram preenchidos pelo controle de qualidade, comparando-os com o laudo de análise do fornecedor, com as especificações descritas na ficha de especificação da matéria-prima e/ou com padrões definidos em análises anteriores.\nO farmacêutico se baseia nos resultados preenchidos para aprovar ou reprovar o lote de matéria-prima.\nApós a aprovação ou reprovação, o responsável técnico qualifica os fornecedores, conforme POP- Qualificação de Fornecedores.\n\nMatérias-primas reprovadas:\n\nCaso os resultados das análises não sejam condizentes, o farmacêutico indica no laudo de análise interno, a reprovação do lote do produto.\nO fornecedor é informado das irregularidades e o produto fica armazenado na área de quarentena com a etiqueta de “reprovado”, colada sobre a etiqueta “quarentena”, do controle de qualidade, aguardando as providências necessárias, que pode ser o descarte ou a devolução ao fornecedor.\nSe for necessária devolução, é emitida nota fiscal de devolução e o produto é encaminhado ao fornecedor.\nSe for necessário descarte, a matéria-prima reprovada é descartada.\n\nAvaliação dos Resultados das Análises de Qualidade das Matérias primas\n\nMatérias-Primas Aprovadas:\nCaso os resultados sejam condizentes, o responsável indica a aprovação do lote de matéria prima que recebe a etiqueta de “aprovado”, que é colada sobre a etiqueta “quarentena” do controle de qualidade.\nDependendo do estado físico da matéria-prima procede-se com as providências citadas nos itens abaixo.\n\nMatérias-Primas sólidas:\nCaso a matéria-prima sólida aprovada necessite ser diluída, o responsável determina a escala de diluição geométrica a ser realizada e o fracionamento do pó a ser diluído.\nCaso a matéria-prima aprovada seja sólida e não requeira diluição, o responsável determina, caso necessário, o fator de correção, registrando os valores definidos no laudo de análise interno e na embalagem de cada matéria-prima.\n\nMatérias-Primas Líquidas ou Semi-Sólidas:\nCaso a matéria-prima aprovada seja líquida ou semi-sólida, o responsável determina, caso necessário, o fator de correção de cada matéria-prima, para determinação posterior as quantidades a serem pesadas ou medidas no momento da manipulação das fórmulas.\n\nFORMAS DE CONTROLE:\nPonto de fusão, ph, viscosidade.\n\nOBSERVAÇÕES/ANORMALIDADES:\nSe uma única remessa de material recebido contiver lotes distintos, cada lote deve ser considerado separadamente para inspeção e liberação.\n\n7. REGISTROS:\nLaudo de análise interno do produto;\nLaudo de análise do produto (matérias primas);\nNota fiscal de entrada.",
+    "revision": 8,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Avaliação dos Resultados das Análises de Qualidade das Matérias primas",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 024 CQL Avaliação dos Resultados das Análises de Qualidade das Matérias primas.docx"
+  },
+  "POP-CQL-029": {
+    "body": "OBJETIVOS:\nDescrever o processo de limpeza das caixas de água deionizada e tubulações.\n\nCONDIÇÕES NECESSÁRIAS:\nÁgua;\nSolução de limpeza;\nCaixas de água;\nTubulações;\nBomba de transferência.\n\nRESPONSABILIDADES:\nAuxiliar de produção e supervisor.\n\nATIVIDADES:\nNa sala de máquinas coleta-se 25% de acido glioxilico, em seguida transfere para a caixa de água fria e acrescente 75% de água.\nDeixe agir por no mínimo 30 minutos.\nAtravés de uma bomba de transferência passa toda esta solução para o tanque de água quente e deixe também por 30 minutos.\nDentro da produção abre todos os pontos de água deionizada para que a solução passe pelas tubulações e dentro dos reatores.\nEm seguida toda esta solução é descartada.\n\nOBSERVAÇÕES/ANORMALIDADES:\nNão se aplica\n\nREGISTRO:\nRegistro de limpeza de caixas de água deionizada.",
+    "revision": 4,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "limpeza das caixas de água deionizada e tubulações",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 029 CQL limpeza das caixas de água deionizada e tubulações.docx"
+  },
+  "POP-CQL-031": {
+    "body": "1. OBJETIVOS:\nDescrever a relação entre o rendimento teórico e real da produção de cosméticos, baseando-se em quantidade produzida (em kilos) e quantidade de embalagens a serem envasadas.\n\nCONDIÇÕES NECESSÁRIAS:\nTanque de produção com marcador;\nEmbalagens devidamente sanitizadas;\nFormulário de Registro de Produção.\n\nRESPONSABILIDADES:\nResponsável Técnico.\nTécnico de Controle de Qualidade.\n\nATIVIDADES:\nToda produção deve ser acompanhada por uma ordem de produção, onde constam todos os itens e quantidades a serem utilizadas, bem como a quantidade total do produto;\nO funcionário responsável pelo estoque emite uma planilha constando a quantidade de frascos a serem envasados de cada produto, de acordo com a necessidade da empresa;\nCom base na planilha, o funcionário responsável pelas embalagens providencia as mesmas na quantidade solicitada para que se proceda ao envase;\nLogo após o envase, os produtos acabados são conferidos e contados;\nDepois é registrado em formulário próprio a quantidade final produzida (em KG) e a quantidade final de produtos envasados;\nCom base nesse formulário é cabível ao analista de controle de qualidade analisar a produção em números e apontar quaisquer irregularidades como perdas no processo entre outras.\n\nFORMAS DE CONTROLE:\nAuto inspeções.\n\nREGISTROS:\nOrdem de produção;\nRegistro de Embalagens;\nRegistro de Produção.",
+    "revision": 8,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Rendimento Teórico e Real",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 031 CQL Rendimento Teórico e Real.docx"
+  },
+  "POP-CQL-032": {
+    "body": "OBJETIVOS:\nDescrever o procedimento relativo ao processo de produção de água deionizada no sistema filtrante bem como o processo de regeneração do mesmo.\n\nCONDIÇÕES NECESSÁRIAS:\nAparelho Processador de Água Deionizada.\n\nRESPONSABILIDADES:\nAnalista do Controle de Qualidade.\n\nATIVIDADES:\nProdução de Água Deionizada:\nAbrir o registro de entrada de água para o aparelho;\nRegistros a serem abertos: Registros nº 1, nº 2 e nº 4;\nRegistros fechados: Registros nº 5, nº 6, nº 3, nº 9 e nº 7;\nLigar o sistema esterilizante UV após sair água deionizada, quando parar o uso desligar, sempre que fechar o registro de entrada. O aparelho de mediar a água (TDS – condutivímetro digital) mede a entrada dando o valor da água bruta (IN), e a saída da água após o processo da troca iônica (ON). A condutividade deve ser controlada pra garantir a qualidade ideal para o uso.\nProcesso de Regeneração\nCatiônica: Usar Ácido Clorídrico ou Muriático. Usar solução de 4% de ácido e 96% de água, perfazendo um total de 100 litros;\nAniônica: Usar Hidróxido de sódio em uma solução de 4% e 96% de água, perfazendo um total de 100 litros.\nColocar a água no tanque Registro V, abrir o nº 5 e fechar o nº 1. Passar o produto para regenerar. Catiônica 1ª coluna, Registro V: Abrir o nº 6 e nº 10, o nº 3 abrir pela metade. Fechar o nº 4 e deixar passar bem lento.\nObservações:\nA regeneração, bem como a troca dos filtros é realizada sempre que água apresentar anormalidades nos resultados das análises. Anormalidades essas que podem ser referente a pH, condutividade ou contaminações diversas.\n\nFORMAS DE CONTROLE:\nAuto inspeções.\n\n6. REGISTRO:\nRegistros de manutenção do aparelho deionizador.\n\nDiretoria",
+    "revision": 8,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": "Diretoria",
+    "title": "Sistema Filtrante – Processador de Água Deionizada",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 032 CQL Sistema Filtrante – Processador de Água Deionizada.docx"
+  },
+  "POP-CQL-033": {
+    "body": "OBJETIVO:\nDescrever o processo de treinamento e capacitação dos funcionários, contemplando tanto os que são incorporados à equipe como os que dela já fazem parte.\n\nCONDIÇÕES NECESSÁRIAS:\nMateriais didáticos e técnicos, claros, eficientes e em quantidades suficientes (POP).\nLocal adequado e equipamentos de acordo com a necessidade e o tipo de treinamento que se aplica.\nResponsável pelo Treinamento.\n\nRESPONSABILIDADES:\nAdministração.\nResponsável Técnico.\nSupervisor.\n\nATIVIDADES:\nQuadro Efetivo:\nDeverão ser realizados treinamentos envolvendo toda a equipe para constante atualização dos processos e distribuição de novas informações;\nDurante os encontros, deverão estar presentes, no mínimo 90% da equipe para que o treinamento seja validado;\nDevem ser utilizados recursos tecnológicos que facilitem o entendimento de todas as informações por todos os participantes;\nOs assuntos tratados devem abranger, sempre que possível, temas diversos e de interesse de todos, como a legislação pertinente, novas técnicas e equipamentos que proporcionem a realização do trabalho de forma cada vez mais segura e eficiente;\nOs treinamentos individuais também poderão ser aplicados sempre que houver mudança de função por funcionários da empresa. As novas atribuições deverão ser detalhadamente treinadas e registradas em formulário;\nDurante o decorrer do ano todos os setores deverão ter sido contemplados com treinamentos individuais e/ou setoriais, mantendo-se assim uma constante atualização nas técnicas e processos.\nNovos funcionários:\nAo ser admitido, todo funcionário deve, obrigatoriamente, passar por um treinamento efetivo que o leve a entender suas atribuições e lhe forneça condições para bem desempenhar suas funções através do POP;\nTodos os treinamentos a novos funcionários deverão estar registrados em formulário e devidamente arquivados.\n\n5. FORMAS DE CONTROLE:\nAuto-inspeção e auditoria interna.\n\n6. OBSERVAÇÕES/ANORMALIDADES:\nCaso o colaborador não cumpra o trabalho de acordo com os procedimentos padrão, é advertido verbalmente e na insistência advertido por escrito.\n\nREGISTROS:\nFormulários de registro de capacitação e registro de eficácia;\nLista de presença nas reuniões e treinamentos gerais;\nLivro de ata de reuniões e treinamentos.",
+    "revision": 8,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Treinamento individual e coletivo",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 033 CQL Treinamento individual e coletivo.docx"
+  },
+  "POP-CQL-035": {
+    "body": "OBJETIVO:\nDescrever o processo de limpeza e sanitização dos equipamentos de produção e dos aparelhos de medição.\n\n2. CONDIÇÕES NECESSÁRIAS:\nMaterial de Limpeza e soluções de sanitização.\n\n3. RESPONSABILIDADES:\nFuncionários devidamente treinados para a função.\n\nProcedimento:\n\nTodos os equipamentos da empresa devem estar devidamente limpos e sanitizados antes da produção ou de quaisquer análises no caso de aparelhos de medição.\n\nNo caso dos tanques e equipamentos que envolvem a produção, é realizada uma lavagem antes da produção e logo após o término do envase, tanto na parte externa quanto na parte interna do tanque, com água corrente (WAP), retirando os resíduos de creme da hélice bem como os possíveis pontos de oxidação, em seguida é adicionado água quente para uma limpeza mais criteriosa e após esse processo é feita a limpeza com a solução de Glutaraldeído (2% Glutaraldeído e 98% água deionizada 98%). LIMPEZA COMUM.\n\nHá uma exceção quanto aos PRODUTOS COLORIDOS, onde também deverá ser utilizada a solução de limpeza:\n\n- LAURIL (Sintepon less) 5%.\n- MICROSTAT 0,1%\n- ÁGUA q.s.p.\n\nE em produtos com FORTES ODORES é adicionada nos tanques a solução composta de:\n\n- 0,5% de Quaternário de Amônio\n- 0,1% Ácido Cítrico\n- Água q.s.p.\n\nNo caso dos aparelhos de medição, como balanças, ponto de fusão, viscosímetro, Helipath, Phmetro entre outros, a limpeza é realizada diariamente com solução de álcool a 70%.\nSempre no início e no final do expediente, ou durante o processo, para assegurar a limpeza dos aparelhos para evitar a contaminação dos produtos ou matéria prima.\n\n7. FORMAS DE CONTROLE:\nAuto – inspeção.\n\nOBSERVAÇÕES/ANORMALIDADES:\nO funcionário responsável antes do início de toda produção, deve verificar as condições de higiene do equipamento a ser utilizado. Caso o mesmo não se encontre nas devidas condições, deverá ser realizada a limpeza e sanitização antes do início do processo.\n\nREGISTROS:\nFormulário próprio.\nRegistro de limpeza tanque FOR- PRD-047.\nRegistro de limpeza Tanques pulmões de acumulo FOR-PRD-058.",
+    "revision": 9,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Limpeza de equipamentos e aparelhos de medição",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 035 CQL Limpeza de equipamentos e aparelhos de medição (NOVO).docx"
+  },
+  "POP-CQL-037": {
+    "body": "OBJETIVOS:\nDescrever o procedimento relativo ao processo de determinação da viscosidade do produto semi-sólido e líquidos a serem analisados como forma de garantir a identificação e qualidade do mesmo.\n\nCONDIÇÕES NECESSÁRIAS:\nViscosímetro;\nHelipath.\n\nRESPONSABILIDADES:\nAnalista de Controle de Qualidade.\n\nATIVIDADES:\nPesar em um Backer de 600ml a quantidade de 500g do produto;\nLigar o viscosímetro de Brookfield, já acoplado ao Helipath;\nColocar o Splinde relativo a cada produto;\nRegular o viscosímetro de acordo com a velocidade a ser usada;\nIntroduzir o Backer com o produto a ser analisado;\nVerificar o resultado, de acordo com a tabela em anexo.\n\nFORMAS DE CONTROLE:\nAuto inspeções.\n\nREGISTRO:\nFicha de produção;\nFormulário de registro de análises.",
+    "revision": 8,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Controle de Qualidade Viscosidade de Semi- Sólidos e Líquidos",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 037 CQL Controle de Qualidade Viscosidade de Semi- Sólidos e Líquidos.docx"
+  },
+  "POP-CQL-038": {
+    "body": "objetivo:\nDescrever os procedimentos de uso, controle e descarte de EPI’s para os funcionários que atuem ou necessitem adentrar as áreas de produção, assim como visitantes.\n\ncondições NECESSÁRIAS:\nFuncionários treinados com o procedimento;\nKits completos de EPIs contendo jaleco, touca, máscaras, óculos, botas e luvas;\nArmário próprio e em local acessível;\n\nresponsabilidades:\nTécnico do controle da qualidade;\nResponsável Técnico.\n\natividades:\nCada funcionário deve dispor de dois conjuntos de EPI’s, incluindo jaleco de mangas compridas em tecido, touca, máscaras descartáveis, botas de borracha, óculos de proteção e luvas para uso diário e disponíveis para troca sempre que necessário;\nAs trocas devem ser efetuadas, no mínimo, duas vezes por semana, ou sempre que for necessário;\nAs peças descartáveis devem ser trocadas toda semana ou diariamente, de acordo com a necessidade que se apresente;\nOs jalecos devem ser lavados por cada funcionário, em suas respectivas residências, utilizando água, sabão em pó e água sanitária quando necessário;\nA empresa deverá ter disponível luvas em todos os tamanhos utilizados na empresa, toucas e máscaras para eventuais trocas, sempre que necessário;\nNo caso de ser necessário substituição de algum dos itens fixos do kit de paramentação, o funcionário deve procurar o técnico do controle da qualidade e solicitar nova peça;\nO responsável terá registrado a entrega dos EPI´s, para cada funcionário, bem como a assinatura do mesmo.\n\nFORMA DE CONTROLE:\nObservação direta.\nAuto-inspeção e auditoria interna.\n\nREGISTRO:\nMapa de registro de ocorrências.\nFormulário de registro de entrega de EPIs.",
+    "revision": 8,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Uso Controle e Descarte de EPI’s",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 038 CQL Uso Controle e Descarte de EPI’s.docx"
+  },
+  "POP-CQL-042": {
+    "body": "OBJETIVOS:\nDescrever o procedimento relativo ao processo de determinação da densidade relativa, de produto acabado líquidos, semi-sólidos e matérias primas.\n\nCONDIÇÕES NECESSÁRIAS:\n\nLaboratório equipado com Picnômetro e Balança.\n\nRESPONSABILIDADES:\n\nAnalista de controle de Qualidade.\n\nATIVIDADES:\n\nUtilizar um picnômetro de 25ml limpo e seco;\nTarar a balança;\nCom auxílio de papel fino e absorvente, pegar o picnômetro vazio, levar à balança, pesar e anotar o peso (P1);\nCom auxílio de papel fino e absorvente, pegar o picnômetro com água, levar à balança, pesar e anotar o peso (P2);\nEncher o picnômetro com a amostra, fechar com a tampa e deixar vazar o excesso;\nEnxugar com papel fino e absorvente;\nCom auxilio de papel fino e absorvente, pegar o picnômetro com a amostra, levar à balança, pesar e anotar o peso (P3);\nCalcular a densidade através da fórmula:\n\nD(R) = (P3) – (P1) / (P2) – (P1)\n\nAnotar na ficha de registro de análise e especificações o resultado obtido.\n\n5. FORMAS DE CONTROLE:\nAtravés de auditorias internas\n\nOBSERVAÇÕES/ANORMALIDADES\n\nNão se aplica.\n\nREGISTROS:\nFormulário Próprio.",
+    "revision": 8,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "C.Q. Densidade Relativas",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 042 CQL C.Q. Densidade Relativas.docx"
+  },
+  "POP-CQL-044": {
+    "body": "1 - OBJETIVOS:\nDescrever o procedimento relativo a aprovação das matérias primas adquiridas pela empresa.\n\n2 - CONDIÇÕES NECESSÁRIAS:\nAmostra da matéria prima recebida.\n\n3 - RESPONSABILIDADES:\nTécnico em Controle de Qualidade.\n\n4 - ATIVIDADES:\n\nApós a amostragem da matéria-prima (somente matérias primas certificadas com laudos) e embalagens, se for o caso, o laboratório de Controle de Qualidade executa os ensaios referentes às suas especificações, de acordo com os detalhes contidos nas respectivas metodologias analíticas.\nAnotar resultados obtidos com as análises e informar se os mesmos encontram-se de acordo com o padrão de referência.\nO laudo de análise da matéria-prima originado de seu fornecedor deverá ser mantido em arquivo, pelo tempo equivalente à validade do produto fabricado com aquela matéria-prima.\nCaso a matéria prima ou a embalagem esteja aprovada para utilização, deverá ser preenchida a etiqueta indicativa de APROVAÇÃO e a mesma deverá ser retirada da quarentena, liberando a matéria prima para o almoxarifado respectivo e as embalagens para o almoxarifado de embalagens;\nCaso seja reprovado, deverá ser preenchida a etiqueta indicativa de REPROVADO, a mesma deverá ser retirada da Quarentena, e ser encaminhada ao local de produto rejeitado.\n\n5 - OBSERVAÇÕES/ANORMALIDADES:\nNo caso de reprovação, o fornecedor será notificado e a matéria prima devolvida e substituída por outra de outro lote ou outro fornecedor.\n\n6 - REGISTRO:\nFormulário próprio.\nCONTROLE DE ALTERAÇÕES\nRevisão\nData\nResumo\n06\n25/10/2018\nAlteração no modelo do formulário.",
+    "revision": 9,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Aprovação de Matérias Primas",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 044 CQL Aprovação de Matérias Primas.docx"
+  },
+  "POP-CQL-046": {
+    "body": "1 - OBJETIVOS:\nDescrever o procedimento relativo a devolução de matérias primas e embalagens reprovados pelo controle de qualidade.\n\n2 - RESPONSABILIDADES:\n\nResponsável Técnico;\nAnalista do Controle de Qualidade.\n\n3 - ATIVIDADES:\n\nOs insumos recebidos que não estiverem de acordo com a avaliação no ato do recebimento ou reprovados após análise do Controle de Qualidade, devem ser devolvidos imediatamente aos seus fornecedores;\nOs insumos reprovados devem ficar na área de PRODUTOS REPROVADOS, devidamente isolados e identificados através de etiquetas de REPROVADO.\nEntrar em contato com o respectivo fornecedor para o acerto da devolução;\nEmitir Nota Fiscal parcial ou total, para a devida devolução do insumo;\n\n4 - OBSERVAÇÕES/ANORMALIDADES:\n\nCaso o problema persistir, isto é, voltar ocorrer, deverá ser reavaliada a homologação do fornecedor\n\n6 - REGISTRO:\n\nPlanilha de Registro de Devolução de Matérias Primas e Embalagens.",
+    "revision": 8,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Devolução de Matéria Prima e embalagens",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 046 CQL Devolução de Matéria Prima e embalagens.docx"
+  },
+  "POP-CQL-048": {
+    "body": "OBJETIVOS:\nDescrever o procedimento de verificação e registro de temperatura e umidade nas dependências da empresa.\n\nCONDIÇÕES NECESSÁRIAS:\nTermohigrômetros.\n\nRESPONSABILIDADES:\nTécnico de Controle de Qualidade;\nAuxiliar de Produção.\n\nATIVIDADES:\n\nO responsável do controle de qualidade ou os auxiliares de produção deverão verificar diariamente através do termohigrômetro a temperatura e a umidade.\nOs valores deverão ser anotados na planilha de controle de umidade e temperatura das áreas e caso as mesmas ultrapassem os valores de 80% e 50°C respectivamente o controle de qualidade deverá ser avisado imediatamente.\nCaso os limites estejam acima dos pré estabelecidos o Controle de Qualidade deverá tomar uma medida preventiva tal como a utilização de ar condicionado e/ou desumidificador de ar.\nOs parâmetros de limite máximo e mínimo de temperatura e umidade são baseados nos laudos de matérias primas cedidos pelo fornecedor, e no caso de produto acabado, os parâmetros partem do teste de estabilidade de cada produto.\nSendo assim, os limites foram fixados em:\n\nTemperatura: mínima de 20º e máxima de 35º\nUmidade: mínima de 45% e máxima de 70%\nGeladeira: mínima de 4º e máxima de 8º\n\n5. REGISTROS:\nRegistro de Temperatura e Umidade.",
+    "revision": 7,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Controle de umidade e temperatura",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 048 CQL Controle de umidade e temperatura.docx"
+  },
+  "POP-CQL-052": {
+    "body": "objetivo:\n\nAnalisar a capacidade que um produto cosmético tem num determinado período de tempo, do início ao final de sua vida útil, em uma embalagem determinada, de manter as mesmas propriedades e características que tinha no momento em que finalizou a sua fabricação, através de um procedimento padronizado.\n\nTécnica utilizada:\n\nRecolher as amostras do produto desejado acondicionado na devida embalagem identificada e encaminhar amostra para teste estabilidade à temperatura ambiente (25 a 27ºC), estufa (45ºC) e geladeira (5ºC).\nO teste de estabilidade será realizado pelo método: (T.E.N.) Teste Estabilidade Normal, onde o acompanhamento das amostras parte de um programa de 30, 60, 75 e 90 dias. Avaliar as propriedades químicas e físicas (pH, viscosidade, densidade), tácteis e organolépticas.\n\nobservações:\nCaso o produto apresente variações fora dos padrões estabelecidos, o responsável técnico é imediatamente informado, para que se proceda as devidas alterações na formulação, a fim de resguardar a qualidade do produto. Os parâmetros de avaliação de cada produto estão descritos no formulário TESTE DE ESTABILIDADE, devidamente assinado e arquivado na empresa.\n\nFORMA DE CONTROLE:\nObservação direta.\nAnotações em registro de controle de estabilidade.\n\nREGISTRO:\nRegistro de Teste de Estabilidade.",
+    "revision": 8,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Teste de Estabilidade",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 052 CQL Teste de Estabilidade.docx"
+  },
+  "POP-CQL-054": {
+    "body": "OBJETIVOS:\nDescrever o processo do teste de solubilidade, realizado em matérias primas.\n\nRESPONSABILIDADES:\nTécnico do Controle de Qualidade.\n\nATIVIDADES:\n\nDe acordo com o laudo do fornecedor, ou a critério de teste, o técnico de Controle de Qualidade munido do laudo do fornecedor, coleta uma amostra da matéria prima bem como uma amostra do solvente a ser utilizado;\nEm um recipiente transparente (um tubo de ensaio, ou um Becker de vidro) adiciona o insumo e o solvente, e sob agitação verificará se o insumo é facilmente solúvel, solúvel, pouco solúvel ou insolúvel.\nDe acordo com essas informações, se procede a produção;\nNo caso de divergência, entre o teste e o especificado no laudo de produção, o fornecedor deve ser notificado, para os devidos esclarecimentos sobre a técnica utilizada.\n\nREGISTROS:\nRegistro de não conformidade.",
+    "revision": 8,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Solubilidade",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 054 CQL Solubilidade.docx"
+  },
+  "POP-CQL-055": {
+    "body": "OBJETIVOS:\nDescrever o procedimento relativo ao gerenciamento de tambores e recipientes de matérias primas corrosivas/controladas e tóxicas utilizadas pela empresa.\n\nCONDIÇÕES NECESSÁRIAS:\nEmpresa responsável pela coleta.\n\nRESPONSABILIDADES:\nResponsável Técnico;\nTécnico do Controle de Qualidade;\nEmpresa Coletora.\n\nATIVIDADES:\n\n- Alguns insumos adquiridos pela empresa, são acondicionados em tambores plásticos, de tamanhos variados dependendo de seu conteúdo, podendo ser de 1kg, 5kg, 20kg até 200kg.\n- Alguns insumos são controlados, tóxicos ou corrosivos, portanto sua embalagem não pode ser reutilizada, pois o risco de contaminações, acidentes e incêndios são grandes.\n- Essas embalagens precisam ser destinadas a incineração, para a proteção tanto do funcionário, quanto do meio ambiente.\n- Para tanto, é necessário a coleta por parte de uma empresa habilitada para a mesma.\n- Através de contato com a empresa será feito o pedido de coleta regularmente de embalagens plásticas na empresa, para fins de incineração.\n\nObservações:\nDocumentos de Licença Ambiental e Registro do IBAMA, encontram-se arquivados na Nátum Bio Cosméticos, para conferência.\n\nREGISTRO:\nRegistros de Coleta de Tambores.",
+    "revision": 7,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Gerenciamento de tambores e recipientes",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 055 CQL Gerenciamento de tambores e recipientes.docx"
+  },
+  "POP-CQL-060": {
+    "body": "OBJETIVOS:\nDescrever os procedimentos para análise microbiológica de produtos acabados.\n\nCONDIÇÕES NECESSÁRIAS:\nLaboratório Microbiológico;\nEquipamentos e materiais necessários;\nReagentes necessários;\nEPI´s necessários.\n\nRESPONSABILIDADES:\nAnalista de Controle de Qualidade;\nTécnico farmacêutico.\n\nATIVIDADES:\nO processo de fabricação de cosméticos apresenta como exigência da Agência Nacional de Vigilância Sanitária (ANVISA) a garantia da qualidade de produtos para sua segurança e eficácia. Envolvendo ações neste sentido, a implantação das normas de boas práticas de fabricação e controle (BPFC) de qualidade de produtos é requerida para manutenção da integridade do produto e proteção do usuário. Assim, os programas de monitorização microbiológica incluem controle de matérias-primas, da água, do processo, produtos, equipamentos (sanitização) e avaliação das condições operacionais (pessoal e instalações). Qualquer falha nas medidas preventivas e de controle do processo de fabricação pode resultar em produtos inadequados ao consumo.\nDeste modo, a carga microbiana de um produto pode ser proveniente das seguintes fontes de contaminação: matéria-prima (água, produtos naturais), ineficácia dos conservantes, processo produtivo (instalações, equipamentos, material de acondicionamento), ar contaminado, e pessoal (falta de higiene, não paramentação, manuseio incorreto de matéria-prima e equipamentos, descuido nos procedimentos de laboratório).\n\nOs microrganismos presentes podem ser classificados em patogênicos e não patogênicos. Portanto, é necessário efetuar o controle quantitativo e qualitativo dos microrganismos contaminantes.\nControle Quantitativo coloca em evidência o número total de microrganismos patogênicos presentes na amostra (contagem) e o Controle Qualitativo consistem na identificação destes microrganismos.\nA qualidade microbiológica dos produtos cosméticos é um dos atributos essenciais para o seu desempenho adequado, principalmente em relação à segurança, eficácia e aceitabilidade destes produtos. A contaminação microbiana pode levar ao comprometimento do desempenho do produto devido à quebra da estabilidade da formulação ocasionando alterações das características físico-químicas e organolépticas, inativação dos princípios ativos e excipientes da formulação, e seu uso pode ainda comprometer a saúde do consumidor, favorecendo ao desencadear de leves irritações e/ou feridas intensas, influenciando diretamente e negativamente na imagem da empresa.\nOBJETIVO\nImplantar e padronizar os procedimentos de análises microbiológicas com vista à prevenção de contaminação de acordo com Resolução nº 481, de 23 de setembro de 1999, declarada pela ANVISA.\n\nPESSOAL\nDeve-se utilizar uniforme branco, limpo e trocado diariamente;\nUtilizar sapatos fechados;\nOs cabelos devem ser protegidos por toucas descartáveis e os compridos deverão anteriormente permanecer presos a fim de evitar supostas contaminações e/ou acidentes;\nÉ proibido o uso de barbas, anéis, pulseiras, colares, relógios, ou qualquer outro tipo de adorno;\nEvitam-se roupas de lã, veludo, fibras grossas, pois liberam milhares de partículas, contaminando o usuário do ambiente;\nÉ expressamente proibido fazer refeições ou preparar alimentos, beber, fazer higiene bucal ou maquiagem, mascar chicletes, fumar, roer unhas, manipular lentes de contato no laboratório;\nDurante o processo de manipulação, é obrigatório o uso de luvas estéreis e descartáveis, máscaras, e se necessário, outras proteções poderão ser exigidas. Quando do uso de luvas, não abrir portas e atender telefone;\nConversas desnecessárias são proibidas durante a execução dos procedimentos laboratoriais;\nEvitar o contato das mãos na parte facial;\nFerimentos (cortes, arranhões, etc.) provocados durante o trabalho tratar imediatamente, prevenindo maiores danos à saúde e se houver ferida na mão ou no pulso, medidas adicionais devem ser consideradas. Qualquer acidente deverá ser de imediato reportado ao responsável pelo setor;\nNenhuma parte do trabalho deve ser executada por profissionais que apresentam feridas e/ou outras lesões nas mãos, ou suspeitas de doenças infecciosas.\n\nLABORATÓRIOS E PROCEDIMENTOS\nO acesso ao laboratório de microbiologia é restrito às pessoas autorizadas;\nSó é permitido levar para a bancada o material de apoio estritamente indispensável à execução do trabalho, como Manual, POP, bloco de anotação, caneta ou lápis. Todos os demais pertences do operador como pastas, casacos ou outros deverão ser acondicionados em local próprio, antes do início das análises;\nO laboratório deve ser limpo e organizado devendo ser retirado dele quaisquer materiais que não tenham relação com o trabalho. As bancadas de trabalho deverão ser sanitizadas antes e depois da rotina de trabalho;\nO uso constante de álcool 70ºGL é de importância significativa para matar e prevenir os microorganismos;\nTodo o equipamento e material de laboratório móvel, utilizado durante as análises, deveram ser reposto no local indicado depois de concluída a sua utilização. Após a manipulação de material contaminado, desprezá-lo adequadamente em solução desinfetante ou recipiente para autoclavagem, particularmente as placas e tubos contaminados. As pipetas usadas devem ser imediatamente imersas em soluções desinfetantes, os meios de culturas sólidos ou líquidos devem ser autoclavados antes de serem encaminhados ao lixo;\nNunca pipetar com a boca. Utilizar pipetadores automáticos e/ou peras de borracha;\nCuidado com a formação de respingos;\nEm caso de acidente por derramamento ou outra forma de contaminação, limpar adequadamente e desinfetar o local utilizando álcool 70°GL;\nEvitar materiais contaminados em superfícies de bancada inadequada;\n\nQualquer suspeita de contaminação, comunicar imediatamente ao responsável indicando o material com a qual estava trabalhando no momento, evitando até mesmo doenças futuras;\nTodos os instrumentos de trabalho devem ser esterilizados;\nNão reaproveitar vidrarias trincadas, rachadas ou quebradas;\nEvitar tampas os frascos na altura dos olhos;\nFrascos contendo álcool devem ser mantidos longe da área dos bicos de Bunsen;\nAmostras, tubos, caldos, meios, placas, etc, devem ser etiquetadas com todas as informações, nome, data, validade, responsável, e outra observação que se fizer necessária;\nAs luvas de amianto devem ser apenas para transportar materiais quentes;\nA execução dos procedimentos com materiais estéreis (manuseio de placas, meios de cultura, tubos de ensaio, outros) deverá ser realizada nas proximidades da chama, onde o ambiente é menos propício à contaminação;\nTodos os procedimentos deverão ser executados visando a redução da contaminação do material em uso, seja ela direta ou indireta.\n\nEQUIPAMENTOS A SEREM UTILIZADOS\nBico de Bunsen;\nAutoclave;\nBalança semi-analítica;\nGeladeira;\nEstufa Microbiológica;\nDeionizador;\nPipetador automático;\nEstojo de ponteiras;\n\nMATERIAL DE LABORATÓRIO\nProvetas de vidro;\nBalão Volumétrico;\nPlacas Petrifilm;\nErlenmeyer;\nTubos de Ensaio com tampa rosqueável;\nEspátulas de inox;\nPonteiras;\nPipetas;\nPapel Kraft;\nFita Crepe;\nFita identificadora de esterilização para uso em autoclave;\nTesoura.\n\nREAGENTES E CALDOS\nPolissorbato 80;\nBissulfito de sódio;\nLecitina de soja;\nReagente de Indol;\nÁgua peptonada;\n\n11. EPI’s\nLuvas estéreis, máscara, touca, jaleco e óculos.\n\nTRANSPORTE E ESTOCAGEM\nAs amostras de produtos cosméticos são mantidas em condições que impeçam o desenvolvimento de microrganismos, sem, contudo impedir que estes continuem viáveis até o momento da análise.\nElas devem ser estocadas em local fresco, de baixa umidade e com ausência de exposição à luz solar intensa, além de apresentar toda a identificação de origem para maior segurança dos resultados.\n\nCOLETA DA AMOSTRA\nSempre que possível utilizar a embalagem de origem do produto a ser analisado;\nAntes de executar a amostragem, procede-se a limpeza e a desinfecção da embalagem do produto a ser analisado com solução de álcool 70°GL abrangendo uma área que alcance a pelo menos 10 cm da extremidade da abertura;\nColetar a amostra à temperatura ambiente, de maneira rápida e segura.\n\nPREPARAÇAO DO MATERIAL\nPlaca Petrifilm: são envolvidas em papel Kraft, em grupos e identificadas (quantidade e lado da placa);\nPipetas: envolvê-las individualmente em papel Kraft, identificando a extremidade do embrulho que deve ser aberta no momento da análise e o volume da pipeta;\nTubos de ensaio vazios: tampa-se com as respectivas tampas. Acondicionar em grupos em grades apropriadas, afrouxar as tampas para evitar pressão no interior dos tubos e identificá-los;\nErlenmeyer: faça-se uma tampa com papel kraft e passa fita crepe, individualmente, identificando-os.\n\nEspátulas, pinças, tesouras e demais utensílios: envolve-se individualmente em papel Kraft ou papel alumínio, ficando totalmente coberta, identificando-se o lado de abertura. Devem ser abertas somente no momento da análise;\nEstojo de Ponteiras: vedar com fita crepe todo o contado da tampa com a base do estojo;\nGarrafas de diluição: deixar a tampa um pouco frouxa, jamais apertá-la, evitando que haja pressão no interior das garrafas.\n\nESTERILIZAÇÃO DE MATERIAIS\nA esterilização é realizada através de calor úmido e/ou calor, para o calor úmido o aparelho utilizado para esterilizar os materiais, utensílios e meios de cultura é a autoclave.\nDepois de realizado os procedimentos de preparação dos materiais, organizá-los na\nAutoclave de modo que nenhum deles sofra o risco de tombar. Fechar a tampa da Autoclave apertando os manípulos por igual e cruzado. Esterilizá-los durante 15 minutos na temperatura de 121o C (operar a autoclave de acordo com seu manual). Ao término do processo, retirar os materiais de dentro da Autoclave e acondicioná-los na estufa de secagem na temperatura de 45o C.\nPara a execução da autoclavação são designados os seguintes itens:\n\nSão mantidos espaços entre os objetos, a fim de favorecer o acesso do vapor a todas as partes;\nOs materiais a serem utilizados, são meticulosamente lavados e secos, antes de serem acondicionados e autoclavados, pois qualquer resíduo a eles aderido atuará como uma barreira para o vapor;\nOs pacotes são feitos com um material que permita passagem do vapor (papel kraft e papel alumínio);\n\nOs materiais e/ou resíduos contaminados, serão submetidos por processo de descontaminação, permanecendo por 30 minutos a 121°C na autoclave.\n\nDESCARTE DO MATERIAL CONTAMINADO\n16.1. Descontaminação de resíduo contaminado\nPara a descontaminação, submete-se todo o material a esterilização em autoclave, a 121°C por 30 minutos, observando os seguintes cuidados:\nAfrouxam-se as tampas de todos os frascos com tampas de roscas;\nAdicionam-se água ou solução detergente aos estojos de descarte de pipetas e/ou outros materiais, a fim de amolecer os resíduos e facilitar a posterior remoção.\n\n16.2. Descarte de resíduo descontaminado\nPara os meios de cultura, após a esterilização aguarda-se a solidificação, embrulha em papel alumínio e coloca no lixo comum.\nSe for água, após a esterilização, descarta em pia comum.\nOs utensílios e vidrarias contaminadas são lavados com água e detergente neutro e em seguida esterilizados.\n\nLAVAGEM E ENXÁGUE DE VIDRARIAS E UTENSÍLIOS\nA lavagem de vidrarias e demais utensílios é uma etapa fundamental no preparo do material de laboratório, principalmente quanto à escolha dos detergentes e aos métodos de enxágüe, para remover os resíduos desses agentes.\nProcedimento:\nRemove-se todo o material presente nos frascos e utensílios, antes de iniciar a lavagem. Meios de cultura sólidos são removidos das placas com uma espátula e, quando contidos em tubos e outros frascos de boca estreita, são aquecidos, fundidos e vertidos em um recipiente plásticos para que solidifique, posteriormente, são colocados em sacos plásticos e descartados no lixo.\n\nMergulha-se todo o material em solução detergente e deixar de molho. Faz-se uma pré-lavagem dos frascos e utensílios em água corrente, para evitar a introdução de excesso de matéria orgânica nas bacias de lavagem (esse material pode deteriorar-se e desenvolver odor desagradável na água de molho);\nCom auxilio de escovas e esponjas, esfregam-se os frascos e demais utensílios, lembrando-se de remover também as anotações de lápis e canetas dermatográficas. Não conseguindo uma boa limpeza (principalmente do material que não pode ser esfregado com escovas), enxágua-se todo material em água corrente, por várias vezes sucessivas;\nNo caso das pipetas coloca-se totalmente imersas nas bacias de lavagem com água e detergente neutro;\nApós esse procedimento de lavagem, colocam-se os materiais dentro da estufa de secagem a uma temperatura de 45º até que as mesmas estejam secas.\n\nREGISTROS:\n\nRelatório de ensaios microbiológicos.",
+    "revision": 6,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Analise microbiólogicas",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 060 CQL Analise microbiólogicas.docx"
+  },
+  "POP-CQL-061": {
+    "body": "OBJETIVOS:\nDescrever o processo de análise microbiológica de bancadas e tanques.\n\nCONDIÇÕES NECESSÁRIAS:\n\nLaboratório Microbiológico;\nEquipamentos e materiais necessários;\nReagentes necessários;\nEPI´s necessários.\n\nRESPONSABILIDADES:\nAnalista do Controle de Qualidade\n\nATIVIDADES:\n\nInicialmente é realizada uma limpeza em toda a bancada do laboratório, com álcool 70º e papel, para assegurar a desinfecção do ambiente.\nApós a higienização, é realizado o preparo da solução que será utilizada juntamente com a amostra a ser analisada, conforme formulação abaixo:\n\nÁgua Deionizada .............1000 ml\nÁgua Peptona.....................20 Gr\nPolissorbato 80..................30 ml\nLecitina de Soja...................3 Gr\nSulfito................................1,2 Gr\nHomogeinizar por completo até a total solubilização da solução.\n\nCom o uso de um swab estéril, passar no local a ser analisado, seja no interior dos tanques de produção após a sanitização, seja na bancada de pesagem de quaisquer laboratórios e mergulhar o swab em um tubo de ensaio contendo 10 ml da solução acima. Agitar bastante, e com o auxilio de um pipetador manual e uma ponteira já esterilizada, coletar 1 ml da solução e aplicar no centro da placa de petrifilm, fechar e levar a estufa, a uma temperatura de 35 ºC por até 48 horas.\nPassado esse tempo, retirar a placa e analisar se houve algum crescimento bacteriológico. No caso de positivo, contar as colônias, especificar em laudo e proceder outra vez a sanitização do local analisado. Se persistir a contaminação, trocar o desinfetante usado ou aumentar a concentração do mesmo.\n\n5 - REGISTROS:\nRelatório de ensaios microbiológicos.",
+    "revision": 6,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Análise Microbiológica de bancadas e tanques",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 061CQL Análise Microbiológica de bancadas e tanques.docx"
+  },
+  "POP-CQL-062": {
+    "body": "OBJETIVOS:\nDescrever o processo de análise microbiológica dos produtos acabados.\n\nCONDIÇÕES NECESSÁRIAS:\n\nLaboratório Microbiológico;\nEquipamentos e materiais necessários;\nReagentes necessários;\nEPI´s necessários.\n\nRESPONSABILIDADES:\nAnalista do Controle de Qualidade.\n\nATIVIDADES:\n\nInicialmente é realizada uma limpeza em toda a bancada do laboratório, com álcool 70º e papel, para assegurar a desinfecção do ambiente.\nApós a higienização, é realizado o preparo da solução que será utilizada juntamente com a amostra a ser analisada, conforme formulação abaixo:\n\nÁgua Deionizada .............1000 ml\nÁgua Peptona.....................20 Gr\nPolissorbato 80..................30 ml\nLecitina de Soja...................3 Gr\nSulfito................................1,2 Gr\nHomogeneizar por completo até a total solubilização da solução.\n\nColocar na autoclave 450 ml de água deionizada e ligá-lo, para aquecimento.\n\nCom a solução pronta, adicionar 80 ml em cada frasco a ser esterilizado, e com auxilio de uma pipeta 10 ml, totalizando assim 90 ml em cada frasco, pois cada amostra do produto a ser analisado deverá ser misturada a 90 ml de solução pronta.\nNo frasco de 90 ml, colocar em sua tampa um pedaço de fita AUTOCLAVE e colocar na autoclave, juntamente com as ponteiras, espátulas, pipetas e quaisquer outros materiais e utensílios a serem utilizados no processo de análise. Todos esses materiais, com exceção do frasco de 90 ml, deverão estar embrulhados com papel Kraft.\nColocar tudo dentro da autoclave, deixando um pequeno espaço entre os objetos, para facilitar a circulação do vapor e tampar. Aguardar até que a temperatura chegue a 120 º C por 15 minutos, após isso a autoclave desligará automaticamente.\nApós a perca da pressão a autoclave deverá ser aberta e os materiais para uso retirados.\nCom a espátula devidamente esterilizada, retirar do frasco do produto acabado, a ser analisado a quantidade de 10 gramas e adicionar no frasco de 90 ml com a solução, agitar bastante até a completa homogeneização. Essa coleta é feita próxima ao um bico de bunsen, num raio de 30cm², para evitar contaminações.\nCom o auxilio de um pipetador manual e uma ponteira já esterilizada, coletar 1 ml da solução e aplicar no centro da placa de petrifilm, fechar e levar a estufa, a uma temperatura de 35 ºC pó até 48 horas.\nPassado esse tempo, retirar a placa e analisar se houve algum crescimento bacteriológico. No caso de positivo, contar as colônias e especificar no laudo, aprovando ou não o produto.\nNo caso de aprovação, o lote do produto poderá ser retirado da quarentena e estará liberado para a comercialização. No caso de reprovação, o lote será descartado em local especificado para coleta de empresa responsável.\n\nREGISTROS:\nRelatório de ensaios microbiológicos.",
+    "revision": 6,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "análise Microbiologica de produto acabado",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 062 CQL análise Microbiologica de produto acabado.docx"
+  },
+  "POP-CQL-063": {
+    "body": "OBJETIVOS:\nDescrever o processo de análise microbiológica da água deionizada e da água potável usadas na empresa.\n\nCONDIÇÕES NECESSÁRIAS:\nLaboratório Microbiológico;\nEquipamentos e materiais necessários;\nReagentes necessários;\nEPI´s necessários.\n\nRESPONSABILIDADES:\nAnalista do Controle de Qualidade.\n\nATIVIDADES:\nInicialmente é realizada uma limpeza em toda a bancada do laboratório, com álcool 70º e papel, para assegurar a desinfecção do ambiente.\n\nÁgua Deionizada\nApós a higienização, é coletada em um frasco estéril uma amostra de 100 ml de água deionizada e adicionado um sache do Colitest®, que se trata de um pó, para teste de coliformes totais e E.coli. Em seguida o frasco é homogeneizado e ganha uma cor púrpura, característica. Então o frasco é levado à estufa, onde ficará por até 48 horas. Se depois desse tempo de incubação, a cor permanecer púrpura, a amostra não possui contaminações, se, no entanto, a cor mudar para amarela, concluímos que a amostra está contaminada.\n\nÁgua Potável\n\nA amostra de água potável é coletada nas torneiras da empresa (depois de feito um processo de higienização nas mesmas, com álcool 70º) num frasco estéril e adicionado além do Colitest®, um comprimido de tiossulfato, para retirar o cloro da água, para que se proceda à análise com precisão.\nEm seguida o frasco é homogeneizado e ganha uma cor púrpura, característica. Então o frasco é levado à estufa, onde ficará por até 48 horas. Se depois desse tempo de incubação, a cor permanecer púrpura, a amostra não possui contaminações se, no entanto, a cor mudar para amarela, concluímos que a amostra está contaminada.\n\nCaso a amostra de água deionizada apresentar algum tipo de contaminação, é realizada o processo de regeneração das colunas do deionizador, troca do filtro polidor, troca do filtro microbiológico, troca do filtro de carvão ativo e também a troca da mangueira de escape da água. Logo em seguida é realizado um novo teste para confirmar a pureza da água a ser utilizada na produção.\n\nCaso a amostra de água potável apresentar algum tipo de contaminação, é realizada a limpeza da caixa d’agua, bem como a higienização das torneiras e mangueiras de água da empresa.\n\nREGISTROS:\nRelatório de ensaios microbiológicos.",
+    "revision": 5,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Análise microbiologica de Agua",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 063 CQL Análise microbiologica de Agua.docx"
+  },
+  "POP-CQL-064": {
+    "body": "OBJETIVO:\nDescrever o procedimento de uso do ATESTT para verificação da eficácia da autoclave.\n\nCONDIÇÕES NECESSÁRIAS:\nAutoclave em perfeitas condições de uso;\nFrascos do Atestt.\n\nRESPONSABILIDADES:\nAnalista da qualidade.\n\nProcedimento:\nIdentifique, nos espaços apropriados do rótulo do indicador biológico, o número da carga, a data, o esterilizador e a posição do pacote dentro do esterilizador.\nEscolha alguns pacotes que sejam representativos da carga a ser esterilizada.\nColoque dentro de cada um desses pacotes. Identifique-os na parte externa para que eles sejam reconhecidos após a esterilização. Esses pacotes serão considerados Pacotes-Testes e devem ser processados nas mesmas condições que os demais.\nProcesse o ciclo conforme as indicações do fabricante do equipamento.\nRetire a ampola dos pacotes e espere o esfriamento\nPressione o frasco até que quebre a ampola de vidro interna.\n\n6 - Incube os indicadores por 48 horas a 52ºC +- 2ºC verificando-os periodicamente. Durante esse tempo de incubação, se houver crescimento bacteriano, ele será evidenciado pela mudança de cor do meio de cultura, púrpura ou violeta para amarelo.\nIncube um Atestt sem passar pelo processo de esterilização junto se necessário para o controle positivo.\n\n7. Não havendo crescimento bacteriano, a cor do meio de cultura permanecerá a mesma.\n\n8. Os indicadores utilizados deverão ser descartados da mesma forma com que resíduos biológicos, eles devem ser esterilizados em autoclave a vapor e descartados em lixo comum.\n\nFORMAS DE CONTROLE:\nÉ realizado o teste de eficiência da autoclave uma vez por semana, e os resultados são registrados em planilha própria.\n\nREGISTRO:\nFormulário de registro de Atestt.",
+    "revision": 6,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Atest autoclave",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 064 CQL Atestt autoclave.docx"
+  },
+  "POP-CQL-066": {
+    "body": "1. OBJETIVOS:\nDescrever o procedimento relativo à manutenção dos equipamentos utilizados na empresa, bem como a periodicidade dessa manutenção, para assegurar as perfeitas condições de uso dos mesmos.\n\nCONDIÇÕES NECESSÁRIAS:\nEmpresa devidamente autorizada para realizar a manutenção.\n\nRESPONSABILIDADES:\nAnalista da Qualidade.\n\nATIVIDADES:\n\nTodos os aparelhos da empresa são vistoriados e mantidos em perfeitas condições de uso, na forma a seguir:\nBalanças: São calibradas com o peso padrão todos os dias, conforme POP especifico, e anualmente é realizada a calibração pela empresa terceirizada, cujo os laudos de informações encontram-se arquivadas na empresa;\nPhmetro: Todos os dias antes do uso é realizada a calibração do equipamento com as soluções tampão, 7 e 4, apropriadas para o devido fim. As soluções tem que estar dentro do prazo de validade, conforme laudo arquivado na empresa;\nDeionizador de Agua: É realizada a regeneração das colunas, sempre que há alterações físico-químicas, ou microbiológicas na água utilizada; No período máximo de 6 meses.\nMotores dos tanques: è realizada uma manutenção preventiva, com um técnico responsável, a cada 6 meses, para avaliar as condições de uso do mesmo. Em caso de vazamento de óleo, ou qualquer outra alteração o técnico é chamado imediatamente para resolver o problema.\nViscosímetro e termostato: é calibrado anualmente por uma empresa terceirizada e avaliado diariamente.\nEstufa para Cultura: Antes do uso, é feita uma limpeza com álcool 70% para assegurar a higiene do equipamento. E é calibrado por uma empresa terceirizada.\n\nFORMAS DE CONTROLE:\nAuto inspeções.\n\nREGISTRO:\nRegistro de Calibração;\nLaudos emitidos pelos órgãos competentes;",
+    "revision": 5,
+    "effectiveDate": "2025-09-05",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Manutenção de equipamentos",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 066 CQL Manutenção de equipamentos.docx"
+  },
+  "POP-CQL-067": {
+    "body": "OBJETIVOS:\nDescrever o procedimento relativo a produção de reagentes químicos, para análises de titulação, teor de ativo, entre outras.\n\nCONDIÇÕES NECESSÁRIAS:\nInsumos devidamente aprovados pelo controle de qualidade.\n\nRESPONSABILIDADES:\nAnalista da Qualidade.\n\nATIVIDADES:\n\nCom a formulação em mãos, iniciar a produção do reagente, em quantidade suficiente para proceder a análise, haja vista que não é viável armazenar soluções prontas, pois isso pode interferir nos resultados das análises;\n\nIdentificar cada solução no ato da fabricação;\n\nCertificar que os recipientes (backers, buretas, provetas, pipetas entre outras) estejam completamente limpos e secos;\n\nApós a análise, descartar a solução, bem como a amostra em recipiente fechado para posterior descarte.\n\nREGISTRO:\n\nOrdem de produção.",
+    "revision": 5,
+    "effectiveDate": "2025-09-09",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Produção de Reagentes",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 067 CQL Produção de Reagentes.docx"
+  },
+  "POP-CQL-068": {
+    "body": "OBJETIVOS:\nDescrever o procedimento para determinação do teor de Carbonato de Guanidina.\n\nCONDIÇÕES NECESSÁRIAS:\nVidraria devidamente limpa e seca;\nInsumos devidamente aprovados pelo Controle de Qualidade.\n\nRESPONSABILIDADES:\nAnalista da Qualidade.\n\nATIVIDADES:\nPesar com auxilio de uma pipeta de 2ml, 1,4ml da amostra em um balão volumétrico de 250ml, completar ate 50ml de água deionizada. Transferir todo o conteúdo do balão volumétrico para um erlenmeyer de 250ml. Adicionar 3 gotas de alaranjado de metila. Titular com a solução de acido clorídrico, usando uma bureta de 25ml, até que a cor alaranjada torne-se rosada (levemente salmão).\n\nCALCULOS:\n\nX = (C x V x 0,090085/M) x 100%\n\nOnde:\n\nC = Concentração da solução de ácido clorídrico\nV = Quantidade gasta em ml de HCL na titulação\nM = quantidade pesada da amostra em gramas\n0,090085 = quantidade equivalente de Carbonato de Guanidina reagente para 1ml de ácido clorídrico.\n\nResultados:\nO teor de Carbonato de Guanidina é de 32 a 34%.\n\nREGISTRO:\nOrdem de Produção",
+    "revision": 5,
+    "effectiveDate": "2025-09-09",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "determinação de teor de carbonato de guanidina",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 068 CQL determinação de teor de carbonato de guanidina.docx"
+  },
+  "POP-CQL-069": {
+    "body": "OBJETIVOS:\nDescrever o procedimento para determinação do teor de Ácido Tioglicólico.\n\nCONDIÇÕES NECESSÁRIAS:\nVidraria devidamente limpa e seca;\nInsumos devidamente aprovados pelo Controle de Qualidade.\n\nRESPONSABILIDADES:\nAnalista da Qualidade.\n\nATIVIDADES:\nPesar uma quantidade de amostra que contenha 0,1g de ácido tioglicólico em um Becker de 250ml e adicionar 50ml de água deionizada. Acidificar com 5 gotas de acido clorídrico 0,1N, e titular com solução padronizada de Iodo 0,1N, usando uma bureta de 20ml, até obter uma coloração castanho-claro. Pode-se usar goma de amido como indicador.\n\nCÁLCULOS:\n\nPara efeito de cálculo, considerar que 1ml de solução de iodo 0,1N, equivale a 0,00921g de ácido tioglicólico.\n\nC = V x 1 x 0,921\n\nM\nOnde:\n\nC = Concentração de Ácido Tioglicólico\nV = Volume da solução de iodo 0,1N utilizado, em mililitros\nM = Massa da amostra em gramas\n\nResultados:\nO teor de Ácido Tioglicolico é de 10 a 11% na base forte e de 6.5 a 7.5% na base suave.\n\nREGISTRO:\nOrdem de Produção.",
+    "revision": 5,
+    "effectiveDate": "2025-09-09",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Determinação de teor de ácido tioglicólico",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 069 CQL Determinação de teor de ácido tioglicólico.docx"
+  },
+  "POP-CQL-070": {
+    "body": "OBJETIVOS:\nDescrever o procedimento para determinação do teor de Peróxido de Hidrogênio.\n\nCONDIÇÕES NECESSÁRIAS:\nVidraria devidamente limpa e seca;\nInsumos devidamente aprovados pelo Controle de Qualidade\n\nRESPONSABILIDADES:\nAnalista da Qualidade.\n\nATIVIDADES:\nColocar na bureta a solução de Pergamanato de Potássio até o volume de 20ml. Pegar 1g da amostra, adicionar 100ml de água deionizada e agitar com a ajuda de um agitador mecânico por cerca de quatro minutos, até a total solubilização.(AMOSTRA 1);\nCom o auxilio de uma pipeta, coletar 20ml da solução AMOSTRA 1;\nPipetar 20ml da solução de ácido sulfúrico;\nHomogeneizar e titular com a solução que está na bureta até que a cor transparente da solução mude para a cor rosa.\n\nCÁLCULOS:\nO resultado da bureta multiplicar por 0,001706;\nMultiplicar o resultado por 100; dividir por 20; e multiplicar por 100 novamente.\n\nResultados:\nA concentração de peróxido se dá da seguinte forma:\n\nAOX 10 vol. = 3 a 4%\nAOX 20 vol. = 6 a 7%\nAOX 30 vol. = 9 a 10%\nAOX 40 vol. = 12 a 13%\n\n5. REGISTRO:\nOrdem de Produção.",
+    "revision": 5,
+    "effectiveDate": "2025-09-09",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Determinação de Teor de Peróxido de Hidrogênio",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 070 CQL Determinação de Teor de Peróxido de Hidrogênio.docx"
+  },
+  "POP-CQL-071": {
+    "body": "OBJETIVOS:\nDescrever o procedimento para determinação do teor de Hidróxido de Cálcio.\n\nCONDIÇÕES NECESSÁRIAS:\nVidraria devidamente limpa e seca;\nInsumos devidamente aprovados pelo Controle de Qualidade.\n\nRESPONSABILIDADES:\nAnalista da Qualidade.\n\nATIVIDADES:\n\nPesar 1g de amostra em um backer de 250ml, adicionar 3ml de ácido clorídrico 3mol/l (p/v) e agitar com auxilio de um agitador mecânico. Adicionar 100ml de água e homogeneizar. Adicionar 15 ml de hidróxido de sódio 1mol/l (p/v) e cerca de 10mg de azul de hidroxinaftol e homogeneizar. Titular com edta sódico 0,05M até o ponto final azul.\n\nCálculos:\n\nC = V x 1 x 3.7 x 100\n\nm\nOnde:\n\nV = Volume de edta sódico 0,05M, utilizado na titulação, em mililitros.\nC = Concentração de hidróxido de cálcio\nM = Massa de amostragem em miligramas\n\nResultados:\n\nO teor de Hidróxido de Cálcio é de 10 a 11%.\n\nREGISTRO:\n\nOrdem de Produção.",
+    "revision": 4,
+    "effectiveDate": "2025-09-09",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Determinação de Teor de Hidróxido de Cálcio",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 071 CQL Determinação de Teor de Hidróxido de Cálcio.docx"
+  },
+  "POP-CQL-073": {
+    "body": "1. OBJETIVO:\nDescrever o procedimento de operação da Autoclave, tais como um bom manuseio e melhor segurança.\n\n2. CONDIÇÕES NECESSÁRIAS:\nFuncionário capacitado.\n\n3. RESPONSABILIDADE:\nResponsável Técnico.\n\n4. PROCEDIMENTO:\nA lâmpada piloto deve estar acessa para permitir um inicio de um ciclo, A autoclave não inicia o ciclo com a lâmpada piloto desligada;\nColocar 600ml de água (destilada ou desmineralizada) no espaço entre a bandeja inferior e a câmara de esterilização;\nCarregar com o material a ser esterilizado e fechar a tampa da autoclave;\nLigar a autoclave. A lâmpada ciclo acenderá;\nA pressão e temperatura subirão aos níveis necessários para a esterilização, sendo controlada automaticamente. A pressão e temperatura ficarão situadas dentro da faixa verde do manômetro;\nAguardar o transcorrer do ciclo de esterilização;\n7. Ao final de esterilização a lâmpada ciclo acender;\n8. Imediatamente após o desligamento da lâmpada ciclo remova a pressão interna levantando a válvula;\n9. Quando a pressão indicada pelo manômetro for zero abra a tampa, sem força-la;\n10. Caso a tampa não abra facilmente levante a válvula novamente para entrada de ar ate que a tampa abra;\n\n12. Quando a autoclave resfriar naturalmente a lâmpada piloto acenderá permitindo um novo ciclo;\n13. Nunca apresse o resfriamento colocando água no interior da câmara, pois causará danos ao equipamento.\n\n5. FORMAS DE CONTROLE:\nFormulário de registro ATESTT.\n\nOBSERVAÇÕES:\nA água na autoclave deve ser trocada, semanalmente ou diariamente, conforme necessidade.\n\nREGISTROS:\nRegistro próprio.",
+    "revision": 4,
+    "effectiveDate": "2025-09-09",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Autoclave",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 073 CQL Autoclave.docx"
+  },
+  "POP-CQL-074": {
+    "body": "1. OBJETIVO:\nGarantir a segurança nas manipulações de produtos químicos (pós e líquidos com emissão de vapores tóxicos).\n\n2. CONDIÇÕES NECESSÁRIAS:\nBancada exaustora modelo-E.M25;\nExaustores de teto;\nFiltro (G3 branco);\nPré-filtro (F6 cinza).\n\n3. APLICA-SE:\nAos procedimentos, para retirada de ar e odor no setor de pesagens e medidas de insumos.\n\n4. RESPONSABILIDADES:\nResponsável pelo setor produção.\n\nProcedimento:\nAntes de iniciar limpe a capela com álcool 70%;\nLigue a cabine de exaustão na rede elétrica ou em um estabilizador (verifique a voltagem correta do equipamento);\nLigue a lâmpada fluorecente 15w: botão vermelho do lado esquerdo do equipamento (posição para cima);\nLigue o exaustor: botão vermelho do lado esquerdo do equipamento (posição para cima);\nInicie o processo de pesagens.\n\nFORMAS DE CONTROLE:\nTroca de filtro classe G3 (branco) troca recomendável a cada 15 dias.\nTroca de filtro classe F6 (cinza) troca recomendável a cada 5 dias de uso.\n\n7. REGISTROS:\nRegistros próprios.",
+    "revision": 4,
+    "effectiveDate": "2025-09-09",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Exaustores e bancada exaustora",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 074 CQL Exaustores e bancada exaustora.docx"
+  },
+  "POP-CQL-075": {
+    "body": "1. OBJETIVO:\nDescrever quanto a procedimento operacional do equipamento, e orientar quanto às medidas de segurança necessárias.\n\n2. CONDIÇÕES NECESSÁRIAS:\nFuncionário treinado.\nPlaca aquecedora FIZATOM Mod. 501.\n\n3. RESPONSABILIDADE:\nResponsável Técnico.\n\n4. PROCEDIMENTO:\nReserve uma bancada de trabalho limpa, seca e não combustível;\nReserve uma distância de 15 cm de cada lado do equipamento como área de segurança;\nConecte o cabo na rede elétrica.\n\na. Operação:\nUse um beaker (recipiente de vidro utilizado em laboratórios adequado para suportar grandes variações de temperatura);\nColoque o produto dentro do beaker e este sobre a plataforma do equipamento, cuidado para que o conjunto fique estável sobre a bancada;\nO equipamento está pronto para o uso;\n\nb. Aquecimento:\nUtilize o ajuste de aquecimento para programar a temperatura desejada;\nO equipamento atinge rapidamente a temperatura próxima a desejada;\nEste equipamento pode ser utilizado com produtos de diversas viscosidades;\n\n5. FORMAS DE CONTROLE:\nO equipamento não requer manutenção corretiva periódica;\nSomente proceda a limpeza do equipamento com água e sabão, sempre com ele desligado da rede elétrica e totalmente frio.\n\nREGISTROS:\nRegistro próprio.",
+    "revision": 5,
+    "effectiveDate": "2025-09-09",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Placa Aquecedora",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 075 CQL Placa Aquecedora.docx"
+  },
+  "POP-CQL-076": {
+    "body": "OBJETIVOS:\nDescrever o procedimento relativo ao gerenciamento de resíduos químicos produzidos pela empresa.\n\nCONDIÇÕES NECESSÁRIAS:\nEmpresa responsável pela coleta\nRecipiente de coleta devidamente identificado.\n\nRESPONSABILIDADES:\nResponsável Técnico\nTéc. Controle de Qualidade\n\nATIVIDADES:\n\nA empresa Serquip Tratamento de Resíduos fará a coleta dos resíduos químicos gerados pela a empresa.\nOs resíduos ficarão em recipiente próprio, devidamente identificado e tampado, situado ao lado externo da empresa, para evitar contaminações.\nA coleta será feita sempre que existir uma quantidade notável de resíduos, o contato será feito por telefone para com a empresa coletora.\nOs resíduos coletados serão incinerados pela empresa coletora e este serviço é de inteira responsabilidade da Serquip Tratamento de Resíduos.\n\nObservações:\nNão se aplica.\n\nFORMAS DE CONTROLE:\nRegistro\n\nREGISTRO\nRegistros de Coleta de Resíduos.\n\nDiretoria",
+    "revision": 3,
+    "effectiveDate": "2015-04-09",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": "Diretoria",
+    "title": "Gerenciamento de Resíduos",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 076 CQL Gerenciamento de Resíduos.docx"
+  },
+  "POP-CQL-077": {
+    "body": "OBJETIVO:\nDescrever a conduta de cada funcionário da empresa e adequação de seus atos às normas de biossegurança vigentes.\n\nCONDIÇÕES NECESSÁRIAS:\nEPIs Completos;\nÁrea reservada para paramentação.\n\nRESPONSABILIDADES:\nTodos os funcionários da empresa.\n\nATIVIDADES:\nNas áreas de produção e pré dispensação não é permitida a entrada de pessoas estranhas ao serviço ou que não estejam devidamente autorizadas, devidamente paramentadas e acompanhadas por um funcionário do setor;\nÉ expressamente proibido ingerir alimentos e fumar nas dependências da empresa, exceto na copa;\nNão é recomendável o uso de lentes de contato para os funcionários de produção;\nÉ necessária a manutenção da tranqüilidade e concentração na tarefa, evitando conversas paralelas, brincadeiras e movimentos bruscos, bem como, interrupções para atendimento ao telefone;\nNão é permitido circular paramentado fora das dependências das áreas de produção;\nApós a paramentação deve-se evitar tocar as partes do corpo para coçar, tossir, etc. Quando ocorrer o fato, as luvas e/ou máscara deverão ser imediatamente sanitizadas ou substituídas;\nApós usar o sanitário, repetir todo o procedimento de paramentação e sanitização das mãos;\nFuncionários das áreas de manipulação que tiverem cabelos longos terão de mantê-los presos e totalmente acondicionados dentro do gorro;\nOs funcionários que apresentarem barba e bigode deverão mantê-la aparada e fazendo sempre o uso da máscara durante todo o processo produção realizado na fábrica;\nAo usar a máscara a mesma deve cobrir totalmente a boca e o nariz;\nAs luvas deverão ser calçadas após todo o procedimento de paramentação e após total assepsia das mãos, devendo ser trocada em casos de furos ou rasgos;\nNo atendimento e dispensação, os funcionários deverão ser atenciosos e gentis com os clientes e colegas;\nOs reagentes inflamáveis deverão ser mantidos longe do fogo;\nQualquer peça de vidraria quebrada ou trincada deverá ser enrolada em jornal e descartada;\nOs frascos de reagentes e matérias primas, logo após o uso deverão ser fechados e devolvidos aos seus lugares;\n\nRespingos e resíduos de reagentes e matérias primas sobre bancadas e pisos deverão ser imediatamente removidas com papel toalha embebido em álcool 70%;\nRespingos ou resíduos sobre o corpo deverão ser lavados com água corrente e sabonete líquido anti-séptico até a total remoção do produto;\nOs uniformes deverão ser trocados sempre que necessário, no mínimo duas vezes por semana;\nO funcionário deverá comunicar ao superior qualquer acidente ocorrido no laboratório;\nEm caso de suspeita ou confirmação de enfermidades ou lesão exposta, o funcionário deve ser imediatamente afastado de suas atividades;\nO funcionário deverá seguir rigorosamente as regras estabelecidas nos procedimentos relacionados ao setor ao qual correspondem suas atividades e qualquer impossibilidade de cumprimento deve ser imediatamente reportado ao farmacêutico responsável.\n\nFORMAS DE CONTROLE:\nAuto-inspeção.\n\nOBSERVAÇÕES/ANORMALIDADES:\nDescumprimento das regras estabelecidas pelo procedimento.\n\nREGISTROS:\nAdvertências verbais e escritas.",
+    "revision": 8,
+    "effectiveDate": "2025-09-09",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Biossegurança",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 077 CQL  Biossegurança.docx"
+  },
+  "POP-CQL-080": {
+    "body": "OBJETIVOS:\nConfirmação dos resultados de analises da matéria prima de acordo com o ponto de fusão indicado em cada laudo.\nRESPONSABILIDADES:\nTécnico de Controle de Qualidade\nCONDIÇÕES NECESSÁRIAS:\nAparelho de ponto de fusão, termômetro e tubo capilar.\nATIVIDADES:\nCom o laudo fornecido pelo fabricante, inicia-se o processo de ponto de fusão.\nColocar a unidade em uma bancada horizontal e inserir o bulbo do termômetro no orifício no lado do bloco, prendendo a outra ponta do intalhe.\nPreparar a amostra, moendo até obter um pó fino.\nColocar uma pequena quantidade do material no tubo capilar, e após bata levemente o tubo na bancada até que a amostra repouse no fundo. Até três tubos podem ser inserido no bloco em uma única vez, tendo-se a certeza de que estão sendo colocados corretamente.\nAssume-se que o ponto de fusão das amostras seja conhecido. Se necessário, uma leitura tentativa deverá ser realizada para obter o valor aproximado.\nLigar o instrumento na chave “Geral – Liga”, e as amostras serão iluminadas. Se o ponto de fusão previamente conhecido for superior a 125º C, será necessário ligar o aquecimento adicional (chave “Rápido”). O aquecimento adicional deve acompanhar o estágio inicial de aquecimento com o mínimo atraso.\nO controle “Aquecimento” é usado para controlar o aquecimento em uma taxa de 1-2 ºC por minuto. É importante que esta pequena taxa de aquecimento seja levada até 5-10 ºC abaixo do ponto de fusão esperado. Alguma prática será necessária para que se tenha controle no aquecimento, e será útil plotar gráficos de temperatura versus tempo para vários controles de temperatura selados. (Isto não é fornecido, pois existem variações caso a caso).\nDeve-se notar que prática e cuidado são requeridos a fim de se obter resultados repetíveis. Vários estágios de fusão podem ser definidos, como primeiro sinal de movimento, primeira formação de líquido e líquido total, e é importante que um critério particular seja selecionado e consistentemente utilizado. O usuário deve observar estas regras para criar uma rotina que seja repetida tão precisamente quanto possível a cada teste.\n\nPara testes repetitivos, o tempo pode ser economizado com o uso do opcional “cold finger (dedo- gelado)”. Este é inserido no lugar do termômetro no bloco de aquecimento e ajuda no resfriamento na preparação do próximo teste;\nRecomenda-se a retirada do capilar do bloco em movimento “circulares” (rotacionando para fora o capilar), evitando assim a quebra do mesmo;\nNo evento de uma quebra do bulbo do termômetro ou tubo capilar qualquer pedaço pode ser removido de maneira fácil, levantando-se as lentes e girando o equipamento para baixo.\n\nFORMAS DE CONTROLE:\nAuto inspeções.\n\nOBSERVAÇÕES/ANORMALIDADES:\n\nEm caso de resultados fora dos padrões indicados nos certificados das matérias-primas enviados pelos fabricantes, registrar na planilha de controle de fornecimento e contatar o fabricante para viabilizar a solução do problema (troca, devolução, ressarcimento).",
+    "revision": 5,
+    "effectiveDate": "2025-09-09",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Ponto de fusão",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 080 CQL Ponto de fusão.docx"
+  },
+  "POP-CQL-081": {
+    "body": "OBJETIVOS:\n\nDescrever os procedimentos relativos aos controles e tratamento das não conformidades e estabelecer diretrizes para implementação de ações preventivas e corretivas.\n\nCONDIÇÕES NECESSÁRIAS:\nAuto inspeção;\nRegistros.\n\nRESPONSABILIDADES:\nAnalista do Controle de Qualidade.\n\nNÃO CONFORMIDADE:\n\nCompete a todos os envolvidos na empresa identificar as NÃO-CONFORMIDADES, em qualquer etapa dos processos .\n\nAÇÕES CORRETIVAS:\n\nCompete aos supervisores e gerentes pelo setor do processo, ou alguém por ele designado, adotar imediatamente as ações corretivas, de forma a minimizar ou eliminar os efeitos negativos decorrentes de não-conformidades.\n\nAÇÕES PREVENTIVAS:\n\nCompete ao todos os envolvidos nos sistemas da fábrica e identificar a necessidade de melhoria, em qualquer etapa dos processos. E junto com seus supervisores e gerentes realizar uma investigação das causas do problema em potencial ou necessidade de melhoria.\n\nATIVIDADES:\n\nCONTROLE DE PRODUTO NÃO CONFORME\n\n- Todo colaborador da empresa deve comunicar ao seu responsável por qualquer processo de não conformidade detectada durante a execução das atividades.\n- O responsável pelo processo deve tomar ações imediatas como forma de solucionar os efeitos decorrentes da mesma.\n- Avaliado o impacto do problema, a não conformidade detectada será registrada e analisada pelo responsável da área, considerando o impacto na satisfação dos clientes, na eficácia do processo e em outros fatores eleitos pela área, definindo a necessidade de uma ação corretiva.\n- Caso seja necessária uma ação corretiva, deve-se abrir um formulário de ação corretiva e preventiva.\n\n- Deve-se realizar investigação das causas, definir o plano de ação, verificar a implementação e analisar a eficácia da ação corretiva tomada.\n- Quando a ação for considerada ineficaz, será aberto um novo formulário e registrado em formulário.\n\nAÇÃO CORRETIVA E PREVENTIVA\n\nDevem-se considerar como principais fontes de informação para originar uma ação corretiva e preventiva, como por exemplo:\n\nReclamações de Clientes\nOcorrências nas execuções de processos\nRelatório de auditoria\n\nCom base nas informações relativas a não-conformidade , decide se há necessidade de ação corretiva ou preventiva, avaliando o impacto dos problemas.\n\nAs etapas para implementação de uma ação corretiva ou preventiva devem contemplar a descrição da não conformidade, o estudo das causas que contribuem para a não conformidade e a definição da ação corretiva ou preventiva, a implementação da ação e a verificação da eficácia.\n\nOs resultados do conjunto de ações corretivas e preventivas implementadas ou necessárias devem ser analisados juntamente com Direção Superior, especialmente para as situações que necessitam de recursos, objetivando, assim, assegurar a melhoria contínua da eficácia do sistema.\n\nFORMAS DE CONTROLE:\nAuto inspeções;\nTreinamento de funcionários.\n\nREGISTRO:\nFormulário de Não conformidade, ações corretivas e preventivas.",
+    "revision": 4,
+    "effectiveDate": "2025-09-09",
+    "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Não Conformidade",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 081 CQL Não Conformidade.docx"
+  },
+  "POP-CQL-082": {
+    "body": "OBJETIVOS:\n\nEstabelecer o procedimento para a correta preparação das soluções de álcool a 70º para limpeza e higienização de áreas, superfícies, equipamentos e utensílios.\n\nCAMPO DE APLICAÇÃO:\n\nLaboratório de Controle de Qualidade.\n\nREGISTRO/ ANEXO:\n\nNão aplicável.\n\nDESCRIÇÃO:\n\nOs procedimentos aqui descritos devem ser sempre executados, de forma fiel, toda vez que for necessário.\n\nO processo de diluição de soluções de álcool pode ser feito seguindo a seguinte fórmula:\n\nCf.Vf = Ci.Vi\n\nOnde,\n\nCi = Concentração inicial ( concentração do álcool na solução pura)\nVi = Volume inicial ( volume do álcool na solução pura)\nCf = Concentração final (Concentração desejada)\nVf = Volume final ( Volume desejado)\n\nExemplo:\n\nSe o álcool adquirido tiver concentração igual a 96%, o cálculo para diluição deverá ser feito da seguinte forma:\n\n(conc. Desejada %) X (vol. Desejado ml) = volume de solução pura ml\nconc. Álcool na solução pura %\n\nConcentração desejada = 70%\nVolume desejado = 1 litro (1000 ml)\nConcentração de álcool na solução pura = 96º\n\n70% X 1000 ml = 729,16\n96%\n\nPortanto: O volume de álcool a ser utilizado será de 729,16 ml, completando-se o volume com água destilada até atingir 1000 ml, isto é, acrescentar 270,83 ml de água.\n\nInserir etiqueta em todos os frascos de armazenamento de álcool a 70º a seguinte identificação:\n\nNome: Álcool a 70º\nFornecedor: Nátum\nLote de Origem:\nValidade: 3 meses",
+    "revision": 4,
+    "effectiveDate": "2025-09-09",
+    "elaboratedBy": "Responsável Técnico",
+    "reviewedBy": "Equipe de Controle de Qualidade",
+    "approvedBy": null,
+    "title": "Preparo de Álcool a 70",
+    "sector": "cql",
+    "source": "CONTROLE DE QUALIDADE/POP 082 CQL Preparo de Álcool a 70.docx"
   },
   "POP-EXP-027": {
     "body": "1. OBJETIVO:\nDescrever a atividade de conferência e dispensação do produto acabado.\n\n2. CONDIÇÕES NECESSÁRIAS:\nÁrea específica para dispensação;\nFuncionários treinados para a função.\n\n3. RESPONSABILIDADES:\nReceber e conferir pedidos de acordo com a planilha do setor responsável.\n\nProcedimento (1ª etapa):\nO Funcionário responsável deve receber o documento com a relação do pedido do cliente entregue pelo setor responsável juntamente com as etiquetas para identificação, o mesmo deverá ser assinado e datado comprovando o recebimento;\nAnotar o pedido no quadro de avisos;\nEm seguida montar as caixas de acordo com o número e especificação dos produtos a serem embalados;\nSeparar os produtos conforme especificado na relação do pedido pelo cliente quanto aos seguintes aspectos:\n-Identificação, impressão de lote validade, quantidade e limpeza;\nApós identificar as caixas e separar todos os produtos devera anotar no pedido a quantidade apurada de volume.\n\nProcedimento (2ª etapa):\nOutro funcionário também responsável pela dispensação confere os produtos quanto aos seguintes aspectos:\n-Identificação, conteúdo, impressão de lote e validade, quantidade e limpeza;\nInforma ao setor de faturamento a quantidade de volumes por pedido e anota no quadro, inclusive com informações adicionais;\nApós essa conferência o funcionário lacra as caixas com o adesivo próprio e cola a etiqueta contendo os dados do cliente, tais como nome, endereço completo e número de nota fiscal, quando necessário;\nAguardar a emissão da NF-e para coleta pelo cliente ou transportadora responsável.\n\nDISPENSAÇÃO DE PRODUTOS\n\nFORMAS DE CONTROLE:\nConferência visual realizada pelo responsável (Planilha pedido e/ou NF-e).\n\nOBSERVAÇÕES/ANORMALIDADES:\nSempre que houver dúvidas acerca de algum dos processos da dispensação, o funcionário deverá recorrer ao Controle de Qualidade ou ao Responsável Técnico para esclarecimentos.\n\n8. REGISTROS:\nNão se aplica.",
@@ -96,6 +688,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Dispensação de produtos",
+    "sector": "exp",
     "source": "EXPEDIÇÃO/POP 027 EXP Dispensação de produtos.docx"
   },
   "POP-EXP-040": {
@@ -105,6 +699,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Recolhimento de Produtos",
+    "sector": "exp",
     "source": "EXPEDIÇÃO/POP 040 EXP Recolhimento de Protudos.docx"
   },
   "POP-EXP-043": {
@@ -114,6 +710,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Rastreabilidade da Produção",
+    "sector": "exp",
     "source": "EXPEDIÇÃO/POP 043 EXP Rastreabilidade da Produção.docx"
   },
   "POP-EXP-050": {
@@ -123,6 +721,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Rastreabilidade de Lote",
+    "sector": "exp",
     "source": "EXPEDIÇÃO/POP 050 EXP Rastreabilidade de Lote.docx"
   },
   "POP-EXP-056": {
@@ -132,6 +732,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Liberação de pedidos pronto",
+    "sector": "exp",
     "source": "EXPEDIÇÃO/POP 056 EXP Liberação de pedidos pronto .docx"
   },
   "POP-PRD-004": {
@@ -141,6 +743,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Laboratório de Pesagens e Medidas",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 004 PRD  Laboratório de Pesagens e Medidas.docx"
   },
   "POP-PRD-007": {
@@ -150,6 +754,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Lavagem e sanitização de pisos e paredes",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 007 PRD Lavagem e sanitização de pisos e paredes.docx"
   },
   "POP-PRD-009": {
@@ -159,6 +765,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Paramentação para acesso às áreas de produção",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 009 PRD Paramentação para acesso às áreas de produção.docx"
   },
   "POP-PRD-021": {
@@ -168,6 +776,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Lavagem e sanitização de material de uso nos processos de produção",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 021 PRD Lavagem e sanitização de material de uso nos processos de produção.docx"
   },
   "POP-PRD-026": {
@@ -177,6 +787,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Conferência da embalagens para envase",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 026 PRD Conferência da embalagens para envase.docx"
   },
   "POP-PRD-028": {
@@ -186,6 +798,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Limpeza da Máquina Envasadora",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 028 PRD Limpeza da Máquina Envasadora.docx"
   },
   "POP-PRD-030": {
@@ -195,6 +809,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Produção",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 030 PRD  Produção.docx"
   },
   "POP-PRD-034": {
@@ -204,6 +820,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Envase",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 034 PRD Envase.docx"
   },
   "POP-PRD-039": {
@@ -213,6 +831,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Impressão de dados",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 039 PDR Impressão de dados.docx"
   },
   "POP-PRD-043": {
@@ -222,6 +842,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Rastreabilidade da Produção",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 043 PRD Rastreabilidade da Produção.docx"
   },
   "POP-PRD-047": {
@@ -231,6 +853,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Utilização do Tanque",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 047 PRD Utilização do Tanque.docx"
   },
   "POP-PRD-053": {
@@ -240,6 +864,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Planejamento de Produção",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 053 PRD Planejamento de Produção.docx"
   },
   "POP-PRD-057": {
@@ -249,6 +875,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Sala de Maquinas",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 057 PRD Sala de Maquinas.docx"
   },
   "POP-PRD-058": {
@@ -258,6 +886,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Processo de transferência de produtos",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 058 PRD Processo de transferência de produtos.docx"
   },
   "POP-PRD-065": {
@@ -267,6 +897,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Procedimento de codificação",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 065 PRD Procedimento de codificação.docx"
   },
   "POP-PRD-072": {
@@ -276,6 +908,8 @@
     "elaboratedBy": "Responsável Técnico - Dr. Rafael Marinho de Melo",
     "reviewedBy": "Equipe de Controle de Qualidade",
     "approvedBy": null,
+    "title": "Quarentena de produtos acabados",
+    "sector": "prd",
     "source": "PRODUÇÃO/POP 072 PRD Quarentena de produtos acabados.docx"
   }
 }

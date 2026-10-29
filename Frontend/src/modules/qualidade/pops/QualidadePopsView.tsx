@@ -256,7 +256,7 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-medium transition-colors disabled:opacity-50 shadow-sm"
                 >
                   <Sparkles className="w-4 h-4 text-amber-400" />
-                  Importar Inventário Oficial (31 POPs)
+                  Importar Inventário Oficial (52 novos)
                 </button>
               </div>
             ) : (
@@ -404,7 +404,7 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
                   onClick={() => void seedInventory(false)}
                   className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-medium transition-colors disabled:opacity-50 shadow-sm"
                 >
-                  Importar Inventário (31 POPs)
+                  Importar Inventário (52 novos)
                 </button>
                 <button
                   type="button"

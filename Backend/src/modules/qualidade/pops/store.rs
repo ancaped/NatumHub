@@ -18,21 +18,73 @@ const WARN_DAYS: &[i64] = &[30, 15, 7];
 static TABLES_READY: AtomicBool = AtomicBool::new(false);
 static ENSURE_LOCK: Mutex<()> = Mutex::const_new(());
 
-/// Inventário inicial (estudo pasta POP'S).
+/// Inventário do acervo (POPs Rev 09-2025). Código padrão POP-<SETOR>-<NNN>; títulos já limpos.
+/// POP-EXP-043 (duplicado de POP-PRD-043) é obsoleto e não entra no seed.
 const SEED_POPS: &[(&str, &str, &str)] = &[
+    ("adm", "POP-ADM-001", "Elaboração do POP"),
+    ("adm", "POP-ADM-002", "Revalidação do POP"),
     ("adm", "POP-ADM-025", "Admissão de Funcionários"),
     ("adm", "POP-ADM-036", "Qualificação de fornecedor"),
     ("adm", "POP-ADM-041", "Produtos Terceirizados"),
     ("adm", "POP-ADM-049", "Utilização dos Extintores de Incêndio"),
     ("adm", "POP-ADM-051", "Saúde dos funcionários"),
     ("adm", "POP-ADM-079", "Visitas de Terceiros"),
+    ("almox", "POP-ALM-003", "Armazenamento e Retirada de Materiais do Almoxarifado"),
+    ("almox", "POP-ALM-006", "Recebimento de Matérias Primas e insumos"),
+    ("almox", "POP-ALM-018", "DML"),
+    ("almox", "POP-ALM-045", "recebimento de embalagens"),
     ("atd", "POP-ATD-011", "Atendimento ao Público"),
     ("atd", "POP-ATD-059", "Reclamação de clientes"),
-    ("elab", "POP-001", "Elaboração do POP"),
-    ("elab", "POP-002", "Revalidação do POP"),
+    ("cql", "POP-CQL-002", "Qualidade Organolépticas"),
+    ("cql", "POP-CQL-005", "Controle de contaminação"),
+    ("cql", "POP-CQL-008", "Limpeza e sanitização da caixa d’água"),
+    ("cql", "POP-CQL-010", "Auto Inspeção"),
+    ("cql", "POP-CQL-012", "Controle de Qualidade – PH"),
+    ("cql", "POP-CQL-013", "Controle de Pragas"),
+    ("cql", "POP-CQL-014", "Amostragem de Produto acabado"),
+    ("cql", "POP-CQL-015", "Limpeza nas áreas de produção e arredores"),
+    ("cql", "POP-CQL-016", "Verificação de Equipamentos"),
+    ("cql", "POP-CQL-017", "Calibração e manutenção de dispositivos de medição"),
+    ("cql", "POP-CQL-019", "Amostragem de Matérias Primas"),
+    ("cql", "POP-CQL-020", "Higienização pessoal"),
+    ("cql", "POP-CQL-022", "Controle de matérias primas com prazo de validade expirado"),
+    ("cql", "POP-CQL-023", "Qualidade da Água"),
+    ("cql", "POP-CQL-024", "Avaliação dos Resultados das Análises de Qualidade das Matérias primas"),
+    ("cql", "POP-CQL-029", "limpeza das caixas de água deionizada e tubulações"),
+    ("cql", "POP-CQL-031", "Rendimento Teórico e Real"),
+    ("cql", "POP-CQL-032", "Sistema Filtrante – Processador de Água Deionizada"),
+    ("cql", "POP-CQL-033", "Treinamento individual e coletivo"),
+    ("cql", "POP-CQL-035", "Limpeza de equipamentos e aparelhos de medição"),
+    ("cql", "POP-CQL-037", "Controle de Qualidade Viscosidade de Semi- Sólidos e Líquidos"),
+    ("cql", "POP-CQL-038", "Uso Controle e Descarte de EPI’s"),
+    ("cql", "POP-CQL-042", "C.Q. Densidade Relativas"),
+    ("cql", "POP-CQL-044", "Aprovação de Matérias Primas"),
+    ("cql", "POP-CQL-046", "Devolução de Matéria Prima e embalagens"),
+    ("cql", "POP-CQL-048", "Controle de umidade e temperatura"),
+    ("cql", "POP-CQL-052", "Teste de Estabilidade"),
+    ("cql", "POP-CQL-054", "Solubilidade"),
+    ("cql", "POP-CQL-055", "Gerenciamento de tambores e recipientes"),
+    ("cql", "POP-CQL-060", "Analise microbiólogicas"),
+    ("cql", "POP-CQL-061", "Análise Microbiológica de bancadas e tanques"),
+    ("cql", "POP-CQL-062", "análise Microbiologica de produto acabado"),
+    ("cql", "POP-CQL-063", "Análise microbiologica de Agua"),
+    ("cql", "POP-CQL-064", "Atest autoclave"),
+    ("cql", "POP-CQL-066", "Manutenção de equipamentos"),
+    ("cql", "POP-CQL-067", "Produção de Reagentes"),
+    ("cql", "POP-CQL-068", "determinação de teor de carbonato de guanidina"),
+    ("cql", "POP-CQL-069", "Determinação de teor de ácido tioglicólico"),
+    ("cql", "POP-CQL-070", "Determinação de Teor de Peróxido de Hidrogênio"),
+    ("cql", "POP-CQL-071", "Determinação de Teor de Hidróxido de Cálcio"),
+    ("cql", "POP-CQL-073", "Autoclave"),
+    ("cql", "POP-CQL-074", "Exaustores e bancada exaustora"),
+    ("cql", "POP-CQL-075", "Placa Aquecedora"),
+    ("cql", "POP-CQL-076", "Gerenciamento de Resíduos"),
+    ("cql", "POP-CQL-077", "Biossegurança"),
+    ("cql", "POP-CQL-080", "Ponto de fusão"),
+    ("cql", "POP-CQL-081", "Não Conformidade"),
+    ("cql", "POP-CQL-082", "Preparo de Álcool a 70"),
     ("exp", "POP-EXP-027", "Dispensação de produtos"),
     ("exp", "POP-EXP-040", "Recolhimento de Produtos"),
-    ("exp", "POP-EXP-043", "Rastreabilidade da Produção"),
     ("exp", "POP-EXP-050", "Rastreabilidade de Lote"),
     ("exp", "POP-EXP-056", "Liberação de pedidos pronto"),
     ("prd", "POP-PRD-004", "Laboratório de Pesagens e Medidas"),
@@ -183,7 +235,8 @@ pub async fn ensure_tables(pool: &PgPool) -> Result<(), String> {
             ('atd', 'Atendimento', 30),
             ('elab', 'Elaboração de POPs', 40),
             ('exp', 'Expedição', 50),
-            ('prd', 'Produção', 60)
+            ('prd', 'Produção', 60),
+            ('cql', 'Controle de Qualidade', 70)
         ON CONFLICT (id) DO NOTHING
         "#,
     )
@@ -202,8 +255,12 @@ fn today() -> NaiveDate {
     Utc::now().date_naive()
 }
 
-fn plus_year(d: NaiveDate) -> NaiveDate {
-    d.checked_add_signed(Duration::days(365))
+/// Intervalo entre revisões periódicas dos POPs (decisão do Edson, 2026-10-29).
+const ANOS_ENTRE_REVISOES: i64 = 2;
+
+/// Data da próxima revisão: vigência + 2 anos.
+fn proxima_revisao(d: NaiveDate) -> NaiveDate {
+    d.checked_add_signed(Duration::days(365 * ANOS_ENTRE_REVISOES))
         .unwrap_or(d)
 }
 
@@ -454,7 +511,7 @@ pub async fn create_document(
     // Draft version 0 (não publicada)
     let vid = Uuid::new_v4().to_string();
     let eff = today();
-    let next = plus_year(eff);
+    let next = proxima_revisao(eff);
     sqlx::query(
         r#"
         INSERT INTO pop_versions
@@ -570,7 +627,7 @@ pub async fn publish_document(
         Some(s) if !s.trim().is_empty() => parse_date(s)?,
         _ => today(),
     };
-    let next = plus_year(eff);
+    let next = proxima_revisao(eff);
     let new_rev = if doc.status == "draft" && doc.current_revision == 0 {
         1
     } else {
@@ -665,7 +722,7 @@ pub async fn revalidate_document(
         Some(s) if !s.trim().is_empty() => parse_date(s)?,
         _ => today(),
     };
-    let next = plus_year(eff);
+    let next = proxima_revisao(eff);
     let new_rev = doc.current_revision + 1;
     let vid = Uuid::new_v4().to_string();
     let summary = input
@@ -955,7 +1012,7 @@ pub async fn seed_inventory(
                     .as_deref()
                     .and_then(|s| parse_date(s).ok())
                     .unwrap_or_else(today);
-                let next = plus_year(eff);
+                let next = proxima_revisao(eff);
                 let _ = sqlx::query(
                     r#"
                     UPDATE pop_versions
@@ -1055,7 +1112,7 @@ pub async fn seed_inventory(
             .as_deref()
             .and_then(|s| parse_date(s).ok())
             .unwrap_or_else(today);
-        let next_dt = plus_year(eff);
+        let next_dt = proxima_revisao(eff);
 
         sqlx::query(
             r#"
@@ -1173,4 +1230,29 @@ pub async fn check_alerts(pool: &PgPool) -> Result<CheckAlertsResult, String> {
         }
     }
     Ok(CheckAlertsResult { notified })
+}
+
+#[cfg(test)]
+mod testes_revisao {
+    use super::*;
+
+    #[test]
+    fn proxima_revisao_soma_dois_anos() {
+        let d = NaiveDate::from_ymd_opt(2025, 9, 2).unwrap();
+        assert_eq!(proxima_revisao(d), NaiveDate::from_ymd_opt(2027, 9, 2).unwrap());
+    }
+
+    #[test]
+    fn seed_sem_duplicados_e_no_padrao() {
+        let mut vistos = std::collections::HashSet::new();
+        for (setor, codigo, _) in SEED_POPS {
+            assert!(vistos.insert(*codigo), "duplicado: {codigo}");
+            let sigla = codigo.split('-').nth(1).unwrap();
+            let num = codigo.split('-').nth(2).unwrap();
+            assert_eq!(num.len(), 3, "{codigo}");
+            let esperado = if *setor == "almox" { "ALM".to_string() } else { setor.to_uppercase() };
+            assert_eq!(sigla, esperado, "{codigo}");
+        }
+        assert!(!SEED_POPS.iter().any(|(_, c, _)| *c == "POP-EXP-043"));
+    }
 }
