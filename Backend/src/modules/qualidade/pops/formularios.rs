@@ -1,7 +1,7 @@
 //! Catálogo dos formulários da fase 1 (decisão de 2026-10-29).
 //! Entra sozinho na primeira leitura. Código já existente não é regravado.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 
@@ -19,6 +19,8 @@ pub struct Formulario {
     pub note: Option<String>,
     pub status: String,
     pub revision: i32,
+    /// `portrait` ou `landscape`. Só o FOR-CQL-048 nasce deitado, como o Word de origem.
+    pub orientation: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -99,6 +101,14 @@ const SEED: &[Seed] = &[
         campos: &[("Data","data",None),("Tanque pulmão nº","texto",None),("Procedimento","texto",None),("Executado por","rubrica",None),("Verificado (CQ)","rubrica",None)] },
 ];
 
+fn orientacao_do_seed(code: &str) -> &'static str {
+    if code == "FOR-CQL-048-01" {
+        "landscape"
+    } else {
+        "portrait"
+    }
+}
+
 fn campos_json(seed: &Seed) -> Value {
     json!(seed.campos.iter().map(|(label, kind, limit)| json!({
         "label": label, "kind": kind, "limit": limit,
@@ -120,6 +130,32 @@ async fn ensure(pool: &PgPool) -> Result<(), String> {
             note TEXT,
             status TEXT NOT NULL DEFAULT 'draft',
             revision INTEGER NOT NULL DEFAULT 0,
+            orientation TEXT NOT NULL DEFAULT 'portrait',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        "ALTER TABLE pop_formularios ADD COLUMN IF NOT EXISTS orientation TEXT NOT NULL DEFAULT 'portrait'",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS pop_formulario_revisoes (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL,
+            revision INTEGER NOT NULL,
+            pop_code TEXT NOT NULL,
+            title TEXT NOT NULL,
+            orientation TEXT NOT NULL,
+            motivo TEXT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         "#,
@@ -132,8 +168,8 @@ async fn ensure(pool: &PgPool) -> Result<(), String> {
         sqlx::query(
             r#"
             INSERT INTO pop_formularios
-                (code, pop_code, title, previous_code, periodicity, areas, fields, limits, note)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                (code, pop_code, title, previous_code, periodicity, areas, fields, limits, note, orientation)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (code) DO NOTHING
             "#,
         )
@@ -146,10 +182,20 @@ async fn ensure(pool: &PgPool) -> Result<(), String> {
         .bind(campos_json(s))
         .bind(s.limits)
         .bind(s.note)
+        .bind(orientacao_do_seed(s.code))
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
     }
+
+    // O Word de origem do 048 é paisagem. Não mexe se já houve revisão.
+    sqlx::query(
+        "UPDATE pop_formularios SET orientation = 'landscape' WHERE code = 'FOR-CQL-048-01' AND revision = 0 AND orientation <> 'landscape'",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
@@ -174,6 +220,7 @@ fn map_row(row: &sqlx::postgres::PgRow) -> Formulario {
         note: row.try_get("note").unwrap_or(None),
         status: row.get("status"),
         revision: row.get("revision"),
+        orientation: row.try_get("orientation").unwrap_or_else(|_| "portrait".into()),
     }
 }
 
@@ -184,4 +231,185 @@ pub async fn listar(pool: &PgPool) -> Result<Vec<Formulario>, String> {
         .await
         .map_err(|e| e.to_string())?;
     Ok(rows.iter().map(map_row).collect())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NovoFormulario {
+    pub code: String,
+    pub pop_code: String,
+    pub title: String,
+    pub periodicity: String,
+    pub orientation: Option<String>,
+    pub confirmar: Option<bool>,
+}
+
+fn orientacao_valida(v: &str) -> Result<&'static str, String> {
+    match v {
+        "landscape" => Ok("landscape"),
+        "portrait" | "" => Ok("portrait"),
+        _ => Err("Orientação deve ser portrait ou landscape.".into()),
+    }
+}
+
+/// Sem `confirmar` só devolve o que seria criado. Com `confirmar` grava o rascunho.
+pub async fn criar(pool: &PgPool, input: NovoFormulario) -> Result<serde_json::Value, String> {
+    ensure(pool).await?;
+    let code = input.code.trim().to_uppercase();
+    let pop = input.pop_code.trim().to_uppercase();
+    let title = input.title.trim().to_string();
+    if code.is_empty() || pop.is_empty() || title.is_empty() {
+        return Err("Informe código, POP vinculado e título.".into());
+    }
+    if !code.starts_with("FOR-") || !pop.starts_with("POP-") {
+        return Err("Código FOR-… vinculado a um POP-…".into());
+    }
+    let orientation = orientacao_valida(input.orientation.as_deref().unwrap_or("portrait"))?;
+    let per = if input.periodicity.trim().is_empty() {
+        "Por uso".to_string()
+    } else {
+        input.periodicity.trim().to_string()
+    };
+    if !input.confirmar.unwrap_or(false) {
+        return Ok(serde_json::json!({
+            "previa": true,
+            "code": code,
+            "popCode": pop,
+            "title": title,
+            "orientation": orientation,
+            "periodicity": per,
+            "revision": 0,
+        }));
+    }
+    let existe = sqlx::query("SELECT code FROM pop_formularios WHERE code = $1")
+        .bind(&code)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    if existe.is_some() {
+        return Err("Já existe formulário com esse código. Use uma revisão.".into());
+    }
+    let campos = json!([
+        {"label": "Data", "kind": "data", "limit": null},
+        {"label": "Executado por", "kind": "rubrica", "limit": null},
+        {"label": "Verificado (CQ)", "kind": "rubrica", "limit": null},
+    ]);
+    sqlx::query(
+        r#"
+        INSERT INTO pop_formularios
+            (code, pop_code, title, previous_code, periodicity, areas, fields, orientation, status, revision)
+        VALUES ($1, $2, $3, '', $4, '[]', $5, $6, 'draft', 0)
+        "#,
+    )
+    .bind(&code)
+    .bind(&pop)
+    .bind(&title)
+    .bind(&per)
+    .bind(campos)
+    .bind(orientation)
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    let row = sqlx::query("SELECT * FROM pop_formularios WHERE code = $1")
+        .bind(&code)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::to_value(map_row(&row)).map_err(|e| e.to_string())?)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RevisaoFormulario {
+    pub pop_code: Option<String>,
+    pub title: Option<String>,
+    pub orientation: Option<String>,
+    pub motivo: String,
+    pub confirmar: Option<bool>,
+}
+
+/// Guarda a revisão atual e sobe o número. Não apaga.
+pub async fn revisar(pool: &PgPool, code: &str, input: RevisaoFormulario) -> Result<serde_json::Value, String> {
+    ensure(pool).await?;
+    let motivo = input.motivo.trim().to_string();
+    if motivo.is_empty() {
+        return Err("Informe o motivo da revisão.".into());
+    }
+    let row = sqlx::query("SELECT * FROM pop_formularios WHERE code = $1")
+        .bind(code)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Formulário não encontrado.".to_string())?;
+    let atual = map_row(&row);
+    let pop = input
+        .pop_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(atual.pop_code.as_str())
+        .to_uppercase();
+    if !pop.starts_with("POP-") {
+        return Err("O vínculo precisa ser um código POP-…".into());
+    }
+    let title = input
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(atual.title.as_str())
+        .to_string();
+    let orientation = orientacao_valida(
+        input.orientation.as_deref().unwrap_or(atual.orientation.as_str()),
+    )?;
+    let nova = atual.revision + 1;
+    if !input.confirmar.unwrap_or(false) {
+        return Ok(serde_json::json!({
+            "previa": true,
+            "code": atual.code,
+            "popCode": pop,
+            "title": title,
+            "orientation": orientation,
+            "revision": nova,
+            "motivo": motivo,
+        }));
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        r#"
+        INSERT INTO pop_formulario_revisoes (id, code, revision, pop_code, title, orientation, motivo)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        "#,
+    )
+    .bind(&id)
+    .bind(&atual.code)
+    .bind(atual.revision)
+    .bind(&atual.pop_code)
+    .bind(&atual.title)
+    .bind(&atual.orientation)
+    .bind(&motivo)
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    sqlx::query(
+        r#"
+        UPDATE pop_formularios
+           SET pop_code = $2, title = $3, orientation = $4, revision = $5
+         WHERE code = $1
+        "#,
+    )
+    .bind(&atual.code)
+    .bind(&pop)
+    .bind(&title)
+    .bind(orientation)
+    .bind(nova)
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    let row = sqlx::query("SELECT * FROM pop_formularios WHERE code = $1")
+        .bind(&atual.code)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::to_value(map_row(&row)).map_err(|e| e.to_string())?)
 }

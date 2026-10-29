@@ -45,6 +45,27 @@ pub async fn list_formularios(State(state): State<Arc<AppState>>) -> impl IntoRe
     }
 }
 
+pub async fn criar_formulario(
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<super::formularios::NovoFormulario>,
+) -> impl IntoResponse {
+    match super::formularios::criar(state.db.pool(), input).await {
+        Ok(row) => (StatusCode::OK, Json(row)).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    }
+}
+
+pub async fn revisar_formulario(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+    Json(input): Json<super::formularios::RevisaoFormulario>,
+) -> impl IntoResponse {
+    match super::formularios::revisar(state.db.pool(), &code, input).await {
+        Ok(row) => (StatusCode::OK, Json(row)).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    }
+}
+
 pub async fn list_documents(
     State(state): State<Arc<AppState>>,
     Query(q): Query<DocumentsQuery>,

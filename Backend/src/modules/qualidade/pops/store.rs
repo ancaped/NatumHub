@@ -677,11 +677,6 @@ pub async fn publish_document(
         return Err("POP obsoleto não volta a vigente por esta ação.".into());
     }
     motivo_obrigatorio(input.change_summary.as_deref())?;
-    if doc.status == "in_review"
-        && input.approved_by.as_deref().unwrap_or("").trim().is_empty()
-    {
-        return Err("Informe o nome de quem aprova.".into());
-    }
     let base_content = input
         .content
         .or_else(|| doc.current_version.as_ref().map(|v| v.content.clone()))

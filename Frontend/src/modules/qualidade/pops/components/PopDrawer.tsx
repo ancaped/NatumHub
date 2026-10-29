@@ -11,6 +11,7 @@ import {
   type PopSector,
   type PopVersion,
 } from '../types';
+import type { Formulario } from './FormulariosTab';
 
 interface Props {
   open: boolean;
@@ -51,6 +52,7 @@ export default function PopDrawer({
   const [elaboratedBy, setElaboratedBy] = useState('');
   const [reviewedBy, setReviewedBy] = useState('');
   const [approvedBy, setApprovedBy] = useState('');
+  const [formsDoPop, setFormsDoPop] = useState<Formulario[]>([]);
   const [changeSummary, setChangeSummary] = useState('');
   const [versions, setVersions] = useState<PopVersion[]>([]);
   const [printVersion, setPrintVersion] = useState<PopVersion | null>(null);
@@ -95,12 +97,23 @@ export default function PopDrawer({
       setTitle('');
       setSectorId(sectors.find((s) => s.active)?.id ?? sectors[0]?.id ?? '');
       setContent(emptyContent());
-      setElaboratedBy('Responsável Técnico');
-      setReviewedBy('Equipe de Controle de Qualidade');
+      setElaboratedBy('');
+      setReviewedBy('');
       setApprovedBy('');
       setVersions([]);
     }
   }, [open, popDoc, sectors]);
+
+  useEffect(() => {
+    if (!open || !popDoc?.code) {
+      setFormsDoPop([]);
+      return;
+    }
+    const codigo = popDoc.code;
+    void apiJson<Formulario[]>('/qualidade/pops/formularios')
+      .then((rows) => setFormsDoPop((Array.isArray(rows) ? rows : []).filter((f) => f.popCode === codigo)))
+      .catch(() => setFormsDoPop([]));
+  }, [open, popDoc?.code]);
 
   const sectorName = useMemo(
     () => sectors.find((s) => s.id === sectorId)?.name ?? popDoc?.sectorName ?? '',
@@ -187,10 +200,6 @@ export default function PopDrawer({
 
   const publish = async () => {
     if (!popDoc || !exigirMotivo()) return;
-    if (isReview && !approvedBy.trim()) {
-      setError('Informe o nome de quem aprova.');
-      return;
-    }
     try {
       setBusy(true);
       setError(null);
@@ -441,64 +450,30 @@ export default function PopDrawer({
                     )}
                   </div>
 
-                  {/* Barra 3 — rodapé assinaturas */}
                   <table className="w-full border-collapse text-[11px]">
                     <tbody>
                       <tr>
-                        <td className="w-1/3 border border-zinc-800 p-2 align-top">
-                          <div className="font-semibold mb-1">Elaborado:</div>
-                          <input
-                            className="w-full border-0 border-b border-zinc-200 focus:outline-none bg-transparent"
-                            value={elaboratedBy}
-                            onChange={(e) => setElaboratedBy(e.target.value)}
-                          />
-                          <div className="mt-2 text-zinc-500">Data:</div>
-                          <input
-                            type="date"
-                            className="w-full border border-zinc-200 rounded px-1 py-0.5"
-                            value={content?.elaboratedAt?.slice(0, 10) || ''}
-                            onChange={(e) =>
-                              setContent((c) => ({ ...(c ?? emptyContent()), elaboratedAt: e.target.value || null }))
-                            }
-                          />
-                        </td>
-                        <td className="w-1/3 border border-zinc-800 p-2 align-top">
-                          <div className="font-semibold mb-1">Revisado:</div>
-                          <input
-                            className="w-full border-0 border-b border-zinc-200 focus:outline-none bg-transparent"
-                            value={reviewedBy}
-                            onChange={(e) => setReviewedBy(e.target.value)}
-                          />
-                          <div className="mt-2 text-zinc-500">Data:</div>
-                          <input
-                            type="date"
-                            className="w-full border border-zinc-200 rounded px-1 py-0.5"
-                            value={content?.reviewedAt?.slice(0, 10) || ''}
-                            onChange={(e) =>
-                              setContent((c) => ({ ...(c ?? emptyContent()), reviewedAt: e.target.value || null }))
-                            }
-                          />
-                        </td>
-                        <td className="border border-zinc-800 p-2 align-top">
-                          <div className="font-semibold mb-1">Aprovado:</div>
-                          <input
-                            className="w-full border-0 border-b border-zinc-200 focus:outline-none bg-transparent"
-                            value={approvedBy}
-                            onChange={(e) => setApprovedBy(e.target.value)}
-                          />
-                          <div className="mt-2 text-zinc-500">Data:</div>
-                          <input
-                            type="date"
-                            className="w-full border border-zinc-200 rounded px-1 py-0.5"
-                            value={content?.approvedAt?.slice(0, 10) || ''}
-                            onChange={(e) =>
-                              setContent((c) => ({ ...(c ?? emptyContent()), approvedAt: e.target.value || null }))
-                            }
-                          />
-                        </td>
+                        {['Elaborado:', 'Revisado:', 'Aprovado:'].map((rotulo) => (
+                          <td key={rotulo} className="w-1/3 border border-zinc-800 p-2 align-top">
+                            <div className="font-semibold mb-6">{rotulo}</div>
+                            <div className="border-b border-zinc-800 mb-3" />
+                            <div className="text-zinc-500">Data: ____/____/________</div>
+                          </td>
+                        ))}
                       </tr>
                     </tbody>
                   </table>
+                  <p className="text-[10px] text-zinc-500">Assinaturas à caneta, na folha impressa.</p>
+                  {formsDoPop.length > 0 && (
+                    <div className="text-[11px] text-zinc-600">
+                      <p className="font-semibold text-zinc-800 mb-1">Formulários deste POP</p>
+                      <ul className="space-y-0.5">
+                        {formsDoPop.map((f) => (
+                          <li key={f.code} className="font-mono">{f.code} · {f.title}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
 
                 {!isNew && (
@@ -644,12 +619,12 @@ export default function PopDrawer({
               data: fmtDate(printVersion.effectiveDate),
               setor: sectorName,
               corpo: printVersion.content?.body || '—',
-              elaboradoPor: printVersion.elaboratedBy || elaboratedBy || 'Responsável Técnico',
-              elaboradoEm: fmtDate(printVersion.content?.elaboratedAt || content?.elaboratedAt),
-              revisadoPor: printVersion.reviewedBy || reviewedBy || 'Equipe de Controle de Qualidade',
-              revisadoEm: fmtDate(printVersion.content?.reviewedAt || content?.reviewedAt),
-              aprovadoPor: printVersion.approvedBy || approvedBy || '—',
-              aprovadoEm: fmtDate(printVersion.content?.approvedAt || content?.approvedAt),
+              elaboradoPor: '',
+              elaboradoEm: '',
+              revisadoPor: '',
+              revisadoEm: '',
+              aprovadoPor: '',
+              aprovadoEm: '',
             }}
           />,
           portalTarget,

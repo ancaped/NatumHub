@@ -59,7 +59,11 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route(
             "/api/qualidade/pops/formularios",
-            get(handlers::list_formularios),
+            get(handlers::list_formularios).post(handlers::criar_formulario),
+        )
+        .route(
+            "/api/qualidade/pops/formularios/:code/revisao",
+            post(handlers::revisar_formulario),
         )
         .route(
             "/api/qualidade/pops/check-alerts",

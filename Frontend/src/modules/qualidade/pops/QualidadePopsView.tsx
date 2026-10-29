@@ -1,17 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BookOpen, CheckCircle2, Clock, FileText, Layers, Plus, RefreshCw, Search, Settings, Sparkles } from 'lucide-react';
+import { AlertTriangle, BookOpen, CheckCircle2, Clock, FileText, Layers, List, Plus, RefreshCw, Scale, Search, Settings, Sparkles } from 'lucide-react';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { apiJson } from '../../geral/lib/http';
 import { loadNatumLogoDataUrl } from '../../geral/lib/logoUtils';
 import PopDrawer from './components/PopDrawer';
 import FormulariosTab from './components/FormulariosTab';
+import ListaMestraTab from './components/ListaMestraTab';
+import NormasTab from './components/NormasTab';
 import { reviewBadge, type PopDocument, type PopSector, type PopSettings } from './types';
 
 interface Props {
   onBackToHub: () => void;
 }
 
-type TabId = 'pops' | 'formularios' | 'setores' | 'config';
+type TabId = 'pops' | 'formularios' | 'lista' | 'normas' | 'setores' | 'config';
 
 export default function QualidadePopsView({ onBackToHub }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('pops');
@@ -62,7 +64,7 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
 
   useEffect(() => {
     (window as unknown as { __current_page__?: string }).__current_page__ =
-      activeTab === 'pops' ? 'POPs' : activeTab === 'formularios' ? 'Formulários' : activeTab === 'setores' ? 'Setores' : 'Configuração';
+      activeTab === 'pops' ? 'POPs' : activeTab === 'formularios' ? 'Formulários' : activeTab === 'lista' ? 'Lista mestra' : activeTab === 'normas' ? 'Normas e regras' : activeTab === 'setores' ? 'Setores' : 'Configuração';
   }, [activeTab]);
 
   // Logo único: o geral (Configurações → Identidade & Logo)
@@ -94,6 +96,8 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
   const sidebarItems = [
     { id: 'pops', label: 'POPs', icon: BookOpen, badge: overdueCount || undefined },
     { id: 'formularios', label: 'Formulários', icon: FileText },
+    { id: 'lista', label: 'Lista mestra', icon: List },
+    { id: 'normas', label: 'Normas e regras', icon: Scale },
     { id: 'setores', label: 'Setores', icon: Layers },
     { id: 'config', label: 'Configuração', icon: Settings },
   ];
@@ -404,7 +408,11 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
           </div>
         )}
 
-        {activeTab === 'formularios' && <FormulariosTab />}
+        {activeTab === 'formularios' && <FormulariosTab logoSrc={logoSrc} />}
+
+        {activeTab === 'lista' && <ListaMestraTab />}
+
+        {activeTab === 'normas' && <NormasTab />}
 
         {activeTab === 'config' && (
           <div className="max-w-xl space-y-6 bg-white p-6 rounded-2xl border border-zinc-200/80 shadow-sm">

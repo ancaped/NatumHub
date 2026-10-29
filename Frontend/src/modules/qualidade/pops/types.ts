@@ -1,4 +1,4 @@
-export type PopStatus = 'draft' | 'published' | 'obsolete';
+export type PopStatus = 'draft' | 'in_review' | 'published' | 'obsolete';
 export type ChangeKind = 'initial' | 'revalidate' | 'content';
 
 export interface PopContent {

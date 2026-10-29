@@ -182,14 +182,14 @@ export default function PopFolhasImpressao({ dados }: { dados: PopFolhasDados })
               <div style={{ height: `${RODAPE_MM}mm`, flex: 'none', display: 'flex', flexDirection: 'column', borderTop: borda, boxSizing: 'border-box', fontSize: 10 }}>
                 <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
                   {[
-                    ['Elaborado:', dados.elaboradoPor, dados.elaboradoEm, '33%'],
-                    ['Revisado:', dados.revisadoPor, dados.revisadoEm, '33%'],
-                    ['Aprovado:', dados.aprovadoPor, dados.aprovadoEm, '34%'],
-                  ].map(([rotulo, nome, em, larg], i) => (
+                    ['Elaborado:', '33%'],
+                    ['Revisado:', '33%'],
+                    ['Aprovado:', '34%'],
+                  ].map(([rotulo, larg], i) => (
                     <div key={rotulo} style={{ width: larg, padding: '6px 8px', boxSizing: 'border-box', borderRight: i < 2 ? borda : undefined, overflow: 'hidden' }}>
-                      <div style={{ fontWeight: 700, marginBottom: 2 }}>{rotulo}</div>
-                      <div>{nome}</div>
-                      <div style={{ marginTop: 6, fontSize: 9, color: '#333' }}>Data: {em}</div>
+                      <div style={{ fontWeight: 700, marginBottom: 10 }}>{rotulo}</div>
+                      <div style={{ borderBottom: '1px solid #000', height: 14 }} />
+                      <div style={{ marginTop: 6, fontSize: 9 }}>Data: ____/____/________</div>
                     </div>
                   ))}
                 </div>
