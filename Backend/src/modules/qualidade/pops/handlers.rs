@@ -12,7 +12,7 @@ use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 
 use super::models::{
-    DocumentInput, DocumentUpdateInput, DocumentsQuery, PublishInput, RevalidateInput, SectorInput,
+    DocumentInput, DocumentUpdateInput, DocumentsQuery, MoverStatusInput, PublishInput, RevalidateInput, SectorInput,
     SeedInventoryInput,
 };
 use super::store;
@@ -94,6 +94,17 @@ pub async fn publish_document(
     Json(input): Json<PublishInput>,
 ) -> impl IntoResponse {
     match store::publish_document(state.db.pool(), &id, input, Some(&ctx.display_name)).await {
+        Ok(row) => (StatusCode::OK, Json(row)).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    }
+}
+
+pub async fn mover_status(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(input): Json<MoverStatusInput>,
+) -> impl IntoResponse {
+    match store::mover_status(state.db.pool(), &id, &input.status, Some(&input.motivo)).await {
         Ok(row) => (StatusCode::OK, Json(row)).into_response(),
         Err(e) => err(StatusCode::BAD_REQUEST, e),
     }

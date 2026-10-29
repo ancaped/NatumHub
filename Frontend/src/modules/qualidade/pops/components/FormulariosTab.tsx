@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Printer, Search } from 'lucide-react';
 import Drawer from '../../../geral/components/ui/Drawer';
 import { apiJson } from '../../../geral/lib/http';
@@ -23,57 +24,133 @@ export interface Formulario {
   revision: number;
 }
 
-function esc(s: string) {
-  return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c));
+const BORDA = '1.5px solid #000';
+const LINHAS = 14;
+
+const STATUS: Record<string, { rotulo: string; classe: string }> = {
+  draft: { rotulo: 'Rascunho', classe: 'bg-amber-50 text-amber-800 border-amber-200' },
+  in_review: { rotulo: 'Em aprovação', classe: 'bg-sky-50 text-sky-800 border-sky-200' },
+  published: { rotulo: 'Vigente', classe: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  obsolete: { rotulo: 'Obsoleto', classe: 'bg-zinc-100 text-zinc-600 border-zinc-200' },
+};
+
+function setorDe(code: string) {
+  return code.split('-')[1] || '';
 }
 
-function imprimir(f: Formulario) {
+function Folha({ f, area, pagina, total }: { f: Formulario; area: string; pagina: number; total: number }) {
+  const vazias = Array.from({ length: LINHAS });
+  return (
+    <div
+      className="for-folha"
+      style={{
+        width: '210mm',
+        height: '296mm',
+        boxSizing: 'border-box',
+        padding: '8mm',
+        background: '#fff',
+        color: '#000',
+        overflow: 'hidden',
+        fontFamily: 'Arial, Helvetica, sans-serif',
+      }}
+    >
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', border: BORDA, boxSizing: 'border-box' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '32mm 1fr 48mm', borderBottom: BORDA }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 11, letterSpacing: '0.04em', borderRight: BORDA, padding: 6 }}>
+            NÁTUM BIO
+          </div>
+          <div style={{ textAlign: 'center', padding: '4px 8px', borderRight: BORDA }}>
+            <div style={{ fontWeight: 700, fontSize: 12, textTransform: 'uppercase' }}>{f.title}</div>
+            <div style={{ fontSize: 9, marginTop: 2 }}>POP vinculado: {f.popCode}</div>
+          </div>
+          <div style={{ fontSize: 9, lineHeight: 1.45, padding: '4px 8px' }}>
+            <div><b>Código:</b> {f.code}</div>
+            <div><b>Revisão:</b> {String(f.revision).padStart(2, '0')}</div>
+            <div><b>Folha:</b> {pagina}/{total}</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 16, fontSize: 9, padding: '3px 8px', borderBottom: BORDA }}>
+          <span><b>Mês/Ano:</b> ____/______</span>
+          <span><b>{area ? 'Área:' : 'Setor/Área:'}</b> {area || '________________'}</span>
+          <span><b>Equipamento/ID:</b> ____________</span>
+        </div>
+        {f.limits && (
+          <div style={{ fontSize: 8.5, padding: '3px 8px', borderBottom: BORDA, background: '#f4f4f5' }}>
+            <b>Limites de aceitação:</b> {f.limits}
+          </div>
+        )}
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 8, tableLayout: 'fixed' }}>
+            <thead>
+              <tr>
+                {f.fields.map((c) => (
+                  <th key={c.label} style={{ border: '1px solid #000', padding: '2px 3px', background: '#e5e7eb', textAlign: 'center', lineHeight: 1.15 }}>
+                    {c.label}
+                    {c.limit ? <small style={{ display: 'block', fontWeight: 400 }}>{c.limit}</small> : null}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {vazias.map((_, i) => (
+                <tr key={i}>
+                  {f.fields.map((c) => (
+                    <td key={c.label} style={{ border: '1px solid #000', height: '7.2mm' }} />
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ borderTop: BORDA, fontSize: 8 }}>
+          <div style={{ padding: '3px 8px', borderBottom: BORDA, lineHeight: 1.35 }}>
+            <b>Instruções:</b> caneta azul ou preta. Sem corretivo. Erro = um traço + valor correto + rubrica + data + motivo. Campo não aplicável = N/A. Fora do limite → abrir Não Conformidade (POP-CQL-081).
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 36mm' }}>
+            <div style={{ padding: '4px 8px', borderRight: BORDA }}><b>Elaborado:</b><br />________________</div>
+            <div style={{ padding: '4px 8px', borderRight: BORDA }}><b>Aprovado (CQ):</b><br />________________</div>
+            <div style={{ padding: '4px 8px', borderRight: BORDA }}><b>Data:</b><br />__/__/____</div>
+            <div style={{ padding: '4px 8px', textAlign: 'right' }}>Página {pagina} de {total}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FolhasImpressao({ f }: { f: Formulario }) {
   const areas = f.areas.length ? f.areas : [''];
-  const folhas = areas.map((area, i) => {
-    const cols = f.fields.map((c) => `<th>${esc(c.label)}${c.limit ? `<small>${esc(c.limit)}</small>` : ''}</th>`).join('');
-    const vazias = Array.from({ length: 18 }, () => `<tr>${f.fields.map(() => '<td></td>').join('')}</tr>`).join('');
-    return `<section class="folha">
-      <header>
-        <div class="logo">NÁTUM BIO</div>
-        <div><strong>${esc(f.title)}</strong><div>POP vinculado: ${esc(f.popCode)}</div></div>
-        <div>Código: ${esc(f.code)}<br>Revisão: ${String(f.revision).padStart(2, '0')}<br>Folha: ${i + 1}/${areas.length}</div>
-      </header>
-      <div class="linha"><span>Mês/Ano: ____/______</span><span>${area ? `Área: ${esc(area)}` : 'Setor/Área: ________________'}</span><span>Equipamento/ID: ____________</span></div>
-      ${f.limits ? `<p class="limites"><strong>Limites de aceitação:</strong> ${esc(f.limits)}</p>` : ''}
-      <table><thead><tr>${cols}</tr></thead><tbody>${vazias}</tbody></table>
-      <footer>
-        <p>Caneta azul ou preta. Sem corretivo. Erro = um traço + valor correto + rubrica + data + motivo. Campo não aplicável = N/A. Fora do limite → abrir Não Conformidade (POP-CQL-081).</p>
-        <p>Elaborado: __________ &nbsp; Aprovado (CQ): __________ &nbsp; Data: __/__/____ &nbsp; Página ${i + 1} de ${areas.length}</p>
-      </footer>
-    </section>`;
-  }).join('');
-  const w = window.open('', '_blank', 'noopener');
-  if (!w) return;
-  w.document.write(`<!doctype html><html><head><title>${esc(f.code)}</title>
-    <style>
-      @page { size: A4; margin: 12mm; }
-      body { font-family: Arial, sans-serif; color: #18181b; }
-      .folha { break-after: page; }
-      header, .linha { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; }
-      header { border-bottom: 2px solid #18181b; padding-bottom: 6px; }
-      .logo { font-weight: 700; }
-      .linha { margin: 8px 0; }
-      .limites { font-size: 11px; background: #f4f4f5; padding: 6px; }
-      table { width: 100%; border-collapse: collapse; font-size: 10px; }
-      th, td { border: 1px solid #a1a1aa; padding: 4px; height: 18px; }
-      th small { display: block; font-weight: 400; color: #3f3f46; }
-      footer { margin-top: 8px; font-size: 9px; color: #3f3f46; }
-    </style></head><body>${folhas}</body></html>`);
-  w.document.close();
-  w.focus();
-  w.print();
+  return createPortal(
+    <>
+      <style>{`
+        @media screen { .for-print-root { display: none !important; } }
+        @media print {
+          @page { size: A4 portrait; margin: 0; }
+          html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+          body > *:not(.for-print-root) { display: none !important; }
+          .for-print-root { display: block !important; background: #fff !important; }
+          .for-folha { break-after: page; page-break-after: always; }
+          .for-folha:last-child { break-after: auto; page-break-after: auto; }
+        }
+      `}</style>
+      <div className="for-print-root">
+        {areas.map((area, i) => (
+          <Folha key={`${f.code}-${i}`} f={f} area={area} pagina={i + 1} total={areas.length} />
+        ))}
+      </div>
+    </>,
+    document.body,
+  );
 }
 
 export default function FormulariosTab() {
   const [lista, setLista] = useState<Formulario[]>([]);
   const [erro, setErro] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
+  const [setor, setSetor] = useState('');
   const [sel, setSel] = useState<Formulario | null>(null);
+  const [folha, setFolha] = useState(0);
+  const [imprimindo, setImprimindo] = useState<Formulario | null>(null);
 
   useEffect(() => {
     void apiJson<Formulario[]>('/qualidade/pops/formularios')
@@ -81,48 +158,113 @@ export default function FormulariosTab() {
       .catch((e: unknown) => setErro(e instanceof Error ? e.message : 'Falha ao carregar formulários'));
   }, []);
 
+  useEffect(() => {
+    const fim = () => setImprimindo(null);
+    window.addEventListener('afterprint', fim);
+    return () => window.removeEventListener('afterprint', fim);
+  }, []);
+
+  const setores = useMemo(() => Array.from(new Set(lista.map((f) => setorDe(f.code)).filter(Boolean))), [lista]);
+
   const visiveis = useMemo(() => {
     const q = busca.trim().toLowerCase();
-    if (!q) return lista;
-    return lista.filter((f) => `${f.code} ${f.title} ${f.popCode} ${f.previousCode}`.toLowerCase().includes(q));
-  }, [lista, busca]);
+    return lista.filter((f) => {
+      if (setor && setorDe(f.code) !== setor) return false;
+      if (!q) return true;
+      return `${f.code} ${f.title} ${f.popCode} ${f.previousCode}`.toLowerCase().includes(q);
+    });
+  }, [lista, busca, setor]);
+
+  const abrir = (f: Formulario) => {
+    setSel(f);
+    setFolha(0);
+  };
+
+  const imprimir = (f: Formulario) => {
+    setImprimindo(f);
+    window.setTimeout(() => window.print(), 180);
+  };
+
+  const areasSel = sel && sel.areas.length ? sel.areas : [''];
+  const areaAtual = areasSel[Math.min(folha, areasSel.length - 1)] ?? '';
 
   return (
     <div className="space-y-3">
       {erro && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{erro}</div>}
-      <div className="flex items-center gap-2 bg-white p-3 rounded-2xl border border-zinc-200/80">
-        <div className="relative flex-1">
+      <div className="flex flex-wrap items-center gap-2 bg-white p-3 rounded-2xl border border-zinc-200/80 shadow-sm">
+        <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
           <input
-            className="w-full rounded-xl border border-zinc-200 pl-9 pr-3 py-2 text-sm"
+            className="w-full rounded-xl border border-zinc-200 pl-9 pr-3 py-2 text-sm bg-zinc-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900/10 focus:border-zinc-400"
             placeholder="Buscar código, título ou POP…"
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
         </div>
+        <select
+          className="rounded-xl border border-zinc-200 px-3 py-2 text-sm bg-zinc-50/50"
+          value={setor}
+          onChange={(e) => setSetor(e.target.value)}
+        >
+          <option value="">Todos os setores</option>
+          {setores.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
         <span className="text-xs font-semibold text-zinc-500">{visiveis.length} formulários</span>
       </div>
-      <div className="bg-white rounded-2xl border border-zinc-200/80 overflow-hidden">
+
+      <div className="bg-white rounded-2xl border border-zinc-200/80 shadow-sm overflow-hidden">
         <table className="w-full text-sm text-left">
-          <thead className="bg-zinc-50 text-zinc-500 text-xs uppercase">
+          <thead className="bg-zinc-50/70 text-zinc-500 text-xs uppercase tracking-wider border-b border-zinc-200/80">
             <tr>
-              <th className="px-4 py-2">Código</th>
-              <th className="px-4 py-2">Título</th>
-              <th className="px-4 py-2">POP</th>
-              <th className="px-4 py-2">Folhas</th>
-              <th className="px-4 py-2">Quando</th>
+              <th className="px-4 py-3 font-semibold">Código</th>
+              <th className="px-4 py-3 font-semibold">Título</th>
+              <th className="px-4 py-3 font-semibold">POP</th>
+              <th className="px-4 py-3 font-semibold text-center">Folhas</th>
+              <th className="px-4 py-3 font-semibold">Quando</th>
+              <th className="px-4 py-3 font-semibold text-center">Status</th>
+              <th className="px-4 py-3 w-28" />
             </tr>
           </thead>
-          <tbody>
-            {visiveis.map((f) => (
-              <tr key={f.code} className="border-t border-zinc-100 hover:bg-zinc-50 cursor-pointer" onClick={() => setSel(f)}>
-                <td className="px-4 py-2 font-mono text-xs">{f.code}</td>
-                <td className="px-4 py-2">{f.title}</td>
-                <td className="px-4 py-2 font-mono text-xs">{f.popCode}</td>
-                <td className="px-4 py-2">{f.areas.length > 1 ? `${f.areas.length} (uma por área)` : '1'}</td>
-                <td className="px-4 py-2 text-zinc-500">{f.periodicity}</td>
+          <tbody className="divide-y divide-zinc-100">
+            {visiveis.map((f) => {
+              const st = STATUS[f.status] ?? { rotulo: f.status, classe: 'bg-zinc-100 text-zinc-600 border-zinc-200' };
+              return (
+                <tr key={f.code} className="hover:bg-zinc-50/80 cursor-pointer" onClick={() => abrir(f)}>
+                  <td className="px-4 py-3 align-middle">
+                    <div className="font-mono text-xs font-bold text-zinc-900">{f.code}</div>
+                    <div className="text-[10px] text-zinc-400">antes: {f.previousCode}</div>
+                  </td>
+                  <td className="px-4 py-3 font-medium text-zinc-900">{f.title}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{f.popCode}</td>
+                  <td className="px-4 py-3 text-center text-zinc-600">
+                    {f.areas.length > 1 ? `${f.areas.length} (por área)` : '1'}
+                  </td>
+                  <td className="px-4 py-3 text-zinc-500">{f.periodicity}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold border ${st.classe}`}>{st.rotulo}</span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        imprimir(f);
+                      }}
+                    >
+                      <Printer className="w-3.5 h-3.5" /> Imprimir
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+            {visiveis.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-10 text-center text-sm text-zinc-500">Nenhum formulário neste filtro.</td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>
@@ -132,9 +274,9 @@ export default function FormulariosTab() {
         onClose={() => setSel(null)}
         title={sel ? sel.code : ''}
         subtitle={sel?.title}
-        size="lg"
+        size="xl"
         headerActions={sel ? (
-          <button type="button" onClick={() => imprimir(sel)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 text-white text-xs">
+          <button type="button" onClick={() => imprimir(sel)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 text-white text-xs font-semibold">
             <Printer className="w-3.5 h-3.5" /> Imprimir
           </button>
         ) : null}
@@ -143,21 +285,42 @@ export default function FormulariosTab() {
           <div className="space-y-4 text-sm">
             <p className="text-zinc-500">Antes: {sel.previousCode} · Rev. {String(sel.revision).padStart(2, '0')} · {sel.periodicity}</p>
             {sel.note && <p className="rounded-xl bg-amber-50 border border-amber-200 text-amber-900 p-3">{sel.note}</p>}
-            <p><span className="text-zinc-500">POP vinculado </span><span className="font-mono">{sel.popCode}</span></p>
-            {sel.limits && <p><span className="text-zinc-500">Limites </span>{sel.limits}</p>}
-            {sel.areas.length > 0 && (
-              <div>
-                <p className="text-zinc-500 mb-1">Uma folha por área</p>
-                <ul className="list-disc pl-5 space-y-0.5">{sel.areas.map((a) => <li key={a}>{a}</li>)}</ul>
-              </div>
+            {sel.areas.length > 1 && (
+              <label className="block text-xs text-zinc-500">
+                Prévia da área
+                <select
+                  className="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-zinc-900"
+                  value={folha}
+                  onChange={(e) => setFolha(Number(e.target.value))}
+                >
+                  {sel.areas.map((a, i) => (
+                    <option key={a} value={i}>{a}</option>
+                  ))}
+                </select>
+              </label>
             )}
+            <div className="rounded-xl border border-zinc-200 bg-zinc-100 p-3 overflow-hidden">
+              <div style={{ width: 'calc(210mm * 0.48)', height: 'calc(296mm * 0.48)', overflow: 'hidden', margin: '0 auto' }}>
+                <div style={{ transform: 'scale(0.48)', transformOrigin: 'top left' }}>
+                  <Folha f={sel} area={areaAtual} pagina={Math.min(folha, areasSel.length - 1) + 1} total={areasSel.length} />
+                </div>
+              </div>
+              <p className="text-[11px] text-zinc-500 text-center mt-2">
+                {areasSel.length > 1
+                  ? `A impressão sai com ${areasSel.length} folhas A4, uma por área.`
+                  : 'A impressão sai em A4.'}
+              </p>
+            </div>
+            {sel.limits && <p><span className="text-zinc-500">Limites </span>{sel.limits}</p>}
             <table className="w-full text-left">
-              <thead className="text-xs uppercase text-zinc-500"><tr><th className="py-1">Coluna</th><th>Tipo</th><th>Limite</th></tr></thead>
+              <thead className="text-xs uppercase text-zinc-500">
+                <tr><th className="py-1">Coluna</th><th>Tipo</th><th>Limite</th></tr>
+              </thead>
               <tbody>
                 {sel.fields.map((c) => (
                   <tr key={c.label} className="border-t border-zinc-100">
                     <td className="py-1">{c.label}</td>
-                    <td>{c.kind}</td>
+                    <td className="text-zinc-500">{c.kind}</td>
                     <td>{c.limit || '—'}</td>
                   </tr>
                 ))}
@@ -166,6 +329,8 @@ export default function FormulariosTab() {
           </div>
         )}
       </Drawer>
+
+      {imprimindo && <FolhasImpressao f={imprimindo} />}
     </div>
   );
 }

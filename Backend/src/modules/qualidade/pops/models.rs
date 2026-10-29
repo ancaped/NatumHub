@@ -190,6 +190,13 @@ pub struct PublishInput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MoverStatusInput {
+    pub status: String,
+    pub motivo: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RevalidateInput {
     pub effective_date: Option<String>,
     pub change_summary: Option<String>,

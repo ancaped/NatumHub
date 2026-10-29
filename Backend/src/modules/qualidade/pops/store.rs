@@ -177,7 +177,7 @@ pub async fn ensure_tables(pool: &PgPool) -> Result<(), String> {
                 effective_date DATE,
                 next_review_date DATE,
                 status TEXT NOT NULL DEFAULT 'draft'
-                    CHECK (status IN ('draft', 'published', 'obsolete')),
+                    CHECK (status IN ('draft', 'in_review', 'published', 'obsolete')),
                 elaborated_by TEXT,
                 reviewed_by TEXT,
                 approved_by TEXT,
@@ -611,6 +611,57 @@ pub async fn update_document(
     get_document(pool, id).await
 }
 
+fn motivo_obrigatorio(texto: Option<&str>) -> Result<String, String> {
+    let m = texto.unwrap_or("").trim().to_string();
+    if m.is_empty() {
+        Err("Informe o motivo.".into())
+    } else {
+        Ok(m)
+    }
+}
+
+/// Rascunho → em aprovação, devolve para rascunho, ou vigente → obsoleto. Não apaga.
+pub async fn mover_status(
+    pool: &PgPool,
+    id: &str,
+    destino: &str,
+    motivo: Option<&str>,
+) -> Result<PopDocument, String> {
+    ensure_tables(pool).await?;
+    let doc = get_document(pool, id).await?;
+    let permitido = matches!(
+        (doc.status.as_str(), destino),
+        ("draft", "in_review") | ("in_review", "draft") | ("published", "obsolete") | ("in_review", "obsolete")
+    );
+    if !permitido {
+        return Err(format!(
+            "Não dá para ir de {} para {destino}.",
+            doc.status
+        ));
+    }
+    let motivo = motivo_obrigatorio(motivo)?;
+    sqlx::query(
+        r#"
+        UPDATE pop_documents SET status = $2, updated_at = NOW() WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .bind(destino)
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    if let Some(vid) = doc.current_version_id {
+        let _ = sqlx::query(
+            "UPDATE pop_versions SET change_summary = $2 WHERE id = $1",
+        )
+        .bind(vid)
+        .bind(&motivo)
+        .execute(pool)
+        .await;
+    }
+    get_document(pool, id).await
+}
+
 pub async fn publish_document(
     pool: &PgPool,
     id: &str,
@@ -619,6 +670,18 @@ pub async fn publish_document(
 ) -> Result<PopDocument, String> {
     ensure_tables(pool).await?;
     let doc = get_document(pool, id).await?;
+    if doc.status == "draft" {
+        return Err("Envie para aprovação antes de publicar.".into());
+    }
+    if doc.status == "obsolete" {
+        return Err("POP obsoleto não volta a vigente por esta ação.".into());
+    }
+    motivo_obrigatorio(input.change_summary.as_deref())?;
+    if doc.status == "in_review"
+        && input.approved_by.as_deref().unwrap_or("").trim().is_empty()
+    {
+        return Err("Informe o nome de quem aprova.".into());
+    }
     let base_content = input
         .content
         .or_else(|| doc.current_version.as_ref().map(|v| v.content.clone()))
@@ -711,8 +774,9 @@ pub async fn revalidate_document(
     ensure_tables(pool).await?;
     let doc = get_document(pool, id).await?;
     if doc.status != "published" {
-        return Err("Só é possível revalidar POPs publicados".into());
+        return Err("Só é possível revalidar POPs vigentes".into());
     }
+    motivo_obrigatorio(input.change_summary.as_deref())?;
     let content = doc
         .current_version
         .as_ref()

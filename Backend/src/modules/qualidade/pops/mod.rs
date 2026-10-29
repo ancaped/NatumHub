@@ -30,6 +30,10 @@ pub fn router() -> Router<Arc<AppState>> {
             post(handlers::publish_document),
         )
         .route(
+            "/api/qualidade/pops/documents/:id/status",
+            post(handlers::mover_status),
+        )
+        .route(
             "/api/qualidade/pops/documents/:id/revalidate",
             post(handlers::revalidate_document),
         )

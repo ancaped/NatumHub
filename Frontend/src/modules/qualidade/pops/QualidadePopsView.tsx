@@ -222,6 +222,7 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
                   <option value="all">Todos os status</option>
                   <option value="published">Publicado</option>
                   <option value="draft">Rascunho</option>
+                  <option value="in_review">Em aprovação</option>
                   <option value="obsolete">Obsoleto</option>
                 </select>
               </div>
@@ -322,7 +323,7 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
                                     {isPublished && (
                                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                        Publicado
+                                        Vigente
                                       </span>
                                     )}
                                     {isDraft && (
@@ -331,9 +332,14 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
                                         Rascunho
                                       </span>
                                     )}
-                                    {!isPublished && !isDraft && (
+                                    {d.status === 'in_review' && (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-800 border border-sky-200">
+                                        Em aprovação
+                                      </span>
+                                    )}
+                                    {d.status === 'obsolete' && (
                                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 text-zinc-600 border border-zinc-200">
-                                        {d.status}
+                                        Obsoleto
                                       </span>
                                     )}
                                     {badge && (

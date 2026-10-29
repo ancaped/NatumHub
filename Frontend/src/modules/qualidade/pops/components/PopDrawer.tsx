@@ -64,6 +64,7 @@ export default function PopDrawer({
 
   const isNew = !popDoc;
   const isDraft = popDoc?.status === 'draft';
+  const isReview = popDoc?.status === 'in_review';
   const isPublished = popDoc?.status === 'published';
 
   useEffect(() => {
@@ -158,8 +159,38 @@ export default function PopDrawer({
     }
   };
 
+  const exigirMotivo = () => {
+    if (!changeSummary.trim()) {
+      setError('Informe o motivo.');
+      return false;
+    }
+    return true;
+  };
+
+  const mover = async (status: string) => {
+    if (!popDoc || !exigirMotivo()) return;
+    try {
+      setBusy(true);
+      setError(null);
+      await apiJson(`/qualidade/pops/documents/${popDoc.id}/status`, {
+        method: 'POST',
+        body: JSON.stringify({ status, motivo: changeSummary.trim() }),
+      });
+      onSaved();
+      onClose();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Falha ao mudar o status');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const publish = async () => {
-    if (!popDoc) return;
+    if (!popDoc || !exigirMotivo()) return;
+    if (isReview && !approvedBy.trim()) {
+      setError('Informe o nome de quem aprova.');
+      return;
+    }
     try {
       setBusy(true);
       setError(null);
@@ -183,7 +214,7 @@ export default function PopDrawer({
   };
 
   const revalidate = async () => {
-    if (!popDoc) return;
+    if (!popDoc || !exigirMotivo()) return;
     try {
       setBusy(true);
       setError(null);
@@ -472,7 +503,7 @@ export default function PopDrawer({
 
                 {!isNew && (
                   <label className="block text-sm bg-white rounded-xl border border-zinc-200 p-3">
-                    <span className="text-zinc-600">Resumo da mudança (publicar / revalidar)</span>
+                    <span className="text-zinc-600">Motivo (obrigatório para enviar, aprovar, revalidar ou tornar obsoleto)</span>
                     <input
                       className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
                       value={changeSummary}
@@ -538,14 +569,54 @@ export default function PopDrawer({
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Salvar
             </button>
-            {!isNew && (isDraft || isPublished) && (
+            {isDraft && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void mover('in_review')}
+                className="px-3 py-2 rounded-lg bg-zinc-900 text-white text-sm hover:bg-zinc-800 transition-colors disabled:opacity-50"
+              >
+                Enviar para aprovação
+              </button>
+            )}
+            {isReview && (
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void mover('draft')}
+                  className="px-3 py-2 rounded-lg border border-zinc-300 text-sm hover:bg-zinc-50 transition-colors disabled:opacity-50"
+                >
+                  Devolver ao rascunho
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void publish()}
+                  className="px-3 py-2 rounded-lg bg-zinc-900 text-white text-sm hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                >
+                  Aprovar
+                </button>
+              </>
+            )}
+            {isPublished && (
               <button
                 type="button"
                 disabled={busy}
                 onClick={() => void publish()}
                 className="px-3 py-2 rounded-lg bg-zinc-900 text-white text-sm hover:bg-zinc-800 transition-colors disabled:opacity-50"
               >
-                {isDraft ? 'Publicar' : 'Publicar revisão'}
+                Publicar revisão
+              </button>
+            )}
+            {(isPublished || isReview) && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void mover('obsolete')}
+                className="px-3 py-2 rounded-lg border border-zinc-300 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors disabled:opacity-50"
+              >
+                Tornar obsoleto
               </button>
             )}
             {isPublished && (
