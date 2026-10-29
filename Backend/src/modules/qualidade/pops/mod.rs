@@ -1,3 +1,4 @@
+pub mod formularios;
 pub mod handlers;
 pub mod models;
 pub mod store;
@@ -53,6 +54,10 @@ pub fn router() -> Router<Arc<AppState>> {
             post(handlers::seed_inventory),
         )
         .route(
+            "/api/qualidade/pops/formularios",
+            get(handlers::list_formularios),
+        )
+        .route(
             "/api/qualidade/pops/check-alerts",
             post(handlers::check_alerts),
         )
@@ -67,6 +72,13 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
             "qualidade_pops",
             "Lista os setores dos POPs.",
             "/api/qualidade/pops/sectors",
+            vec![],
+        ),
+        Acao::leitura(
+            "listar_formularios_pop",
+            "qualidade_pops",
+            "Lista os formulários vinculados aos POPs (fase 1, CQL e PRD).",
+            "/api/qualidade/pops/formularios",
             vec![],
         ),
         Acao::leitura(

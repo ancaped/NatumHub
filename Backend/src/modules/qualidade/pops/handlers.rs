@@ -38,6 +38,13 @@ pub async fn create_sector(
     }
 }
 
+pub async fn list_formularios(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match super::formularios::listar(state.db.pool()).await {
+        Ok(rows) => (StatusCode::OK, Json(rows)).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e),
+    }
+}
+
 pub async fn list_documents(
     State(state): State<Arc<AppState>>,
     Query(q): Query<DocumentsQuery>,

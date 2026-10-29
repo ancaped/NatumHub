@@ -4,13 +4,14 @@ import AppLayout from '../../geral/components/layout/AppLayout';
 import { apiJson } from '../../geral/lib/http';
 import { loadNatumLogoDataUrl } from '../../geral/lib/logoUtils';
 import PopDrawer from './components/PopDrawer';
+import FormulariosTab from './components/FormulariosTab';
 import { reviewBadge, type PopDocument, type PopSector, type PopSettings } from './types';
 
 interface Props {
   onBackToHub: () => void;
 }
 
-type TabId = 'pops' | 'setores' | 'config';
+type TabId = 'pops' | 'formularios' | 'setores' | 'config';
 
 export default function QualidadePopsView({ onBackToHub }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('pops');
@@ -35,7 +36,7 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
     try {
       const params = new URLSearchParams();
       if (sectorFilter) params.set('sectorId', sectorFilter);
-      if (statusFilter) params.set('status', statusFilter);
+      if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter);
       if (search.trim()) params.set('q', search.trim());
       const qs = params.toString();
       const [secs, docs, sett] = await Promise.all([
@@ -61,7 +62,7 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
 
   useEffect(() => {
     (window as unknown as { __current_page__?: string }).__current_page__ =
-      activeTab === 'pops' ? 'POPs' : activeTab === 'setores' ? 'Setores' : 'Configuração';
+      activeTab === 'pops' ? 'POPs' : activeTab === 'formularios' ? 'Formulários' : activeTab === 'setores' ? 'Setores' : 'Configuração';
   }, [activeTab]);
 
   // Logo único: o geral (Configurações → Identidade & Logo)
@@ -92,6 +93,7 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
 
   const sidebarItems = [
     { id: 'pops', label: 'POPs', icon: BookOpen, badge: overdueCount || undefined },
+    { id: 'formularios', label: 'Formulários', icon: FileText },
     { id: 'setores', label: 'Setores', icon: Layers },
     { id: 'config', label: 'Configuração', icon: Settings },
   ];
@@ -154,15 +156,20 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
     }
   };
 
+  const visiveis = useMemo(
+    () => (statusFilter === '' ? documents.filter((d) => d.status !== 'obsolete') : documents),
+    [documents, statusFilter],
+  );
+
   const grouped = useMemo(() => {
     const map = new Map<string, PopDocument[]>();
-    for (const d of documents) {
+    for (const d of visiveis) {
       const key = d.sectorName || d.sectorId || '—';
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(d);
     }
     return Array.from(map.entries());
-  }, [documents]);
+  }, [visiveis]);
 
   return (
     <AppLayout
@@ -211,7 +218,8 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                 >
-                  <option value="">Todos os status</option>
+                  <option value="">Em uso</option>
+                  <option value="all">Todos os status</option>
                   <option value="published">Publicado</option>
                   <option value="draft">Rascunho</option>
                   <option value="obsolete">Obsoleto</option>
@@ -389,6 +397,8 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
             </ul>
           </div>
         )}
+
+        {activeTab === 'formularios' && <FormulariosTab />}
 
         {activeTab === 'config' && (
           <div className="max-w-xl space-y-6 bg-white p-6 rounded-2xl border border-zinc-200/80 shadow-sm">
