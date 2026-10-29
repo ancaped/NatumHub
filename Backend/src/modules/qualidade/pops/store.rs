@@ -237,7 +237,7 @@ pub async fn ensure_tables(pool: &PgPool) -> Result<(), String> {
             ('exp', 'Expedição', 50),
             ('prd', 'Produção', 60),
             ('cql', 'Controle de Qualidade', 70)
-        ON CONFLICT (id) DO NOTHING
+        ON CONFLICT DO NOTHING
         "#,
     )
     .await;
@@ -955,12 +955,53 @@ pub struct SeedBodyEntry {
     pub approved_by: Option<String>,
 }
 
+/// Setores que o seed usa (id, nome). Em produção um setor pode já existir com o mesmo nome e outro id (criado pela tela):
+/// o nome é único, então inserir pelo id falharia. Acha pelo id ou pelo nome; cria só se não houver nenhum dos dois.
+const SETORES_DO_SEED: &[(&str, &str, i32)] = &[
+    ("adm", "Administração", 10),
+    ("almox", "Almoxarifado", 20),
+    ("atd", "Atendimento", 30),
+    ("exp", "Expedição", 50),
+    ("prd", "Produção", 60),
+    ("cql", "Controle de Qualidade", 70),
+];
+
+async fn resolver_setores_do_seed(pool: &PgPool) -> Result<std::collections::HashMap<String, String>, String> {
+    let mut mapa = std::collections::HashMap::new();
+    for (id, nome, ordem) in SETORES_DO_SEED {
+        let achado: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM pop_sectors WHERE id = $1 OR lower(trim(name)) = lower($2) ORDER BY (id = $1) DESC LIMIT 1",
+        )
+        .bind(id)
+        .bind(nome)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+        let real = match achado {
+            Some(r) => r,
+            None => {
+                sqlx::query("INSERT INTO pop_sectors (id, name, sort_order) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING")
+                    .bind(id)
+                    .bind(nome)
+                    .bind(ordem)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                id.to_string()
+            }
+        };
+        mapa.insert(id.to_string(), real);
+    }
+    Ok(mapa)
+}
+
 pub async fn seed_inventory(
     pool: &PgPool,
     created_by: Option<&str>,
     force: bool,
 ) -> Result<SeedResult, String> {
     ensure_tables(pool).await?;
+    let setor_real = resolver_setores_do_seed(pool).await?;
     let sectors = list_sectors(pool).await?.len();
     let bodies = load_seed_bodies();
     let mut created = 0usize;
@@ -992,7 +1033,7 @@ pub async fn seed_inventory(
                 DocumentInput {
                     code: code.to_string(),
                     title: title.to_string(),
-                    sector_id: sector.to_string(),
+                    sector_id: setor_real.get(*sector).cloned().unwrap_or_else(|| sector.to_string()),
                     content: Some(PopContent {
                         body: body.to_string(),
                         elaborated_at: eff_date.clone(),
@@ -1235,6 +1276,26 @@ pub async fn check_alerts(pool: &PgPool) -> Result<CheckAlertsResult, String> {
 #[cfg(test)]
 mod testes_revisao {
     use super::*;
+
+    /// Produção tinha "Controle de Qualidade" com outro id: o seed tem de usar esse id, sem tentar inserir 'cql' (nome é único).
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn setor_do_seed_reaproveita_setor_de_mesmo_nome() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        ensure_tables(&pool).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("DELETE FROM pop_sectors WHERE id = 'cql' AND NOT EXISTS (SELECT 1 FROM pop_documents WHERE sector_id = 'cql')")
+            .execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+        let ja_tem_cql: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pop_sectors WHERE id = 'cql')").fetch_one(&pool).await.unwrap();
+        if ja_tem_cql { return; } // banco com POPs CQL reais: o caso não se reproduz aqui
+        sqlx::query("INSERT INTO pop_sectors (id, name, sort_order) VALUES ('zz_cq', 'Controle de Qualidade', 99)")
+            .execute(&pool).await.unwrap();
+        let mapa = resolver_setores_do_seed(&pool).await.unwrap();
+        assert_eq!(mapa.get("cql").map(String::as_str), Some("zz_cq"));
+        sqlx::query("DELETE FROM pop_sectors WHERE id = 'zz_cq'").execute(&pool).await.unwrap();
+    }
 
     #[test]
     fn proxima_revisao_soma_dois_anos() {

@@ -1,7 +1,9 @@
 -- 072_pops_codigos.sql
 -- Padroniza os códigos dos POPs: POP-<SETOR>-<NNN> (decisão do Edson, 2026-10-29).
 -- Aditiva e idempotente: só renomeia quando o código novo ainda não existe; nunca apaga.
-INSERT INTO pop_sectors (id, name, sort_order) VALUES ('cql', 'Controle de Qualidade', 70) ON CONFLICT (id) DO NOTHING;
+INSERT INTO pop_sectors (id, name, sort_order)
+SELECT 'cql', 'Controle de Qualidade', 70
+WHERE NOT EXISTS (SELECT 1 FROM pop_sectors WHERE id = 'cql' OR lower(trim(name)) = lower('Controle de Qualidade'));
 
 -- POP 001 e 002 (Elaboração e Revalidação do POP) passam para o setor ADM.
 UPDATE pop_documents SET code = 'POP-ADM-001', sector_id = 'adm', updated_at = NOW()
