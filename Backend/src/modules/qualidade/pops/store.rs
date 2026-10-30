@@ -1,5 +1,5 @@
 use chrono::{Duration, NaiveDate, Utc};
-use sqlx::{PgPool, Row};
+use sqlx::{PgConnection, PgPool, Row};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -9,6 +9,8 @@ use super::models::{
     PopDocument, PopSector, PopSettings, PopVersion, PublishInput, RevalidateInput, SectorInput,
     SeedResult,
 };
+use super::eventos;
+use crate::core::acao::ErroApi;
 use crate::core::app_config::saves_dir;
 use crate::modules::geral::notifications::store as notif_store;
 
@@ -242,6 +244,8 @@ pub async fn ensure_tables(pool: &PgPool) -> Result<(), String> {
     )
     .await;
 
+    eventos::garantir(pool).await?;
+
     TABLES_READY.store(true, Ordering::Relaxed);
     Ok(())
 }
@@ -251,7 +255,7 @@ fn parse_date(s: &str) -> Result<NaiveDate, String> {
         .map_err(|e| format!("Data inválida ({s}): {e}"))
 }
 
-fn today() -> NaiveDate {
+pub(super) fn today() -> NaiveDate {
     Utc::now().date_naive()
 }
 
@@ -259,7 +263,7 @@ fn today() -> NaiveDate {
 const ANOS_ENTRE_REVISOES: i64 = 2;
 
 /// Data da próxima revisão: vigência + 2 anos.
-fn proxima_revisao(d: NaiveDate) -> NaiveDate {
+pub(super) fn proxima_revisao(d: NaiveDate) -> NaiveDate {
     d.checked_add_signed(Duration::days(365 * ANOS_ENTRE_REVISOES))
         .unwrap_or(d)
 }
@@ -432,7 +436,7 @@ pub async fn list_documents(
     Ok(rows.iter().map(|r| map_document(r, None)).collect())
 }
 
-async fn load_version(pool: &PgPool, id: &str) -> Result<Option<PopVersion>, String> {
+async fn load_version(conn: &mut PgConnection, id: &str) -> Result<Option<PopVersion>, sqlx::Error> {
     let row = sqlx::query(
         r#"
         SELECT id, document_id, revision, effective_date, next_review_date,
@@ -442,14 +446,13 @@ async fn load_version(pool: &PgPool, id: &str) -> Result<Option<PopVersion>, Str
         "#,
     )
     .bind(id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| e.to_string())?;
+    .fetch_optional(&mut *conn)
+    .await?;
     Ok(row.as_ref().map(map_version))
 }
 
-pub async fn get_document(pool: &PgPool, id: &str) -> Result<PopDocument, String> {
-    ensure_tables(pool).await?;
+/// Lê o POP numa conexão (a da transação do 2 passos, quando for o caso).
+pub async fn get_document_conn(conn: &mut PgConnection, id: &str) -> Result<PopDocument, ErroApi> {
     let row = sqlx::query(
         r#"
         SELECT d.*, s.name AS sector_name
@@ -459,35 +462,44 @@ pub async fn get_document(pool: &PgPool, id: &str) -> Result<PopDocument, String
         "#,
     )
     .bind(id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| e.to_string())?
-    .ok_or_else(|| "POP não encontrado".to_string())?;
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or_else(|| ErroApi::nao_encontrado("POP não encontrado"))?;
 
     let vid: Option<String> = row.get("current_version_id");
     let current = match vid {
-        Some(ref v) => load_version(pool, v).await?,
+        Some(ref v) => load_version(&mut *conn, v).await?,
         None => None,
     };
     Ok(map_document(&row, current))
 }
 
-pub async fn create_document(
-    pool: &PgPool,
-    input: DocumentInput,
-    created_by: Option<&str>,
-) -> Result<PopDocument, String> {
+pub async fn get_document(pool: &PgPool, id: &str) -> Result<PopDocument, String> {
     ensure_tables(pool).await?;
+    let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
+    get_document_conn(&mut conn, id).await.map_err(|e| e.mensagem)
+}
+
+/// Código repetido vira conflito; setor inexistente vira pedido inválido.
+fn erro_de_gravacao(e: sqlx::Error) -> ErroApi {
+    match e.as_database_error().and_then(|d| d.code()).as_deref() {
+        Some("23505") => ErroApi::conflito("Já existe um POP com esse código."),
+        Some("23503") => ErroApi::invalido("Setor inexistente."),
+        _ => ErroApi::from(e),
+    }
+}
+
+/// Cria o POP em rascunho (versão 0). Chamado dentro da transação do 2 passos; o evento `criado` vai junto.
+pub async fn create_document_tx(conn: &mut PgConnection, input: DocumentInput, created_by: &str) -> Result<PopDocument, ErroApi> {
     let code = input.code.trim().to_uppercase();
     let title = input.title.trim().to_string();
     if code.is_empty() || title.is_empty() {
-        return Err("Código e título obrigatórios".into());
+        return Err(ErroApi::invalido("Código e título obrigatórios"));
     }
     let id = Uuid::new_v4().to_string();
     let content = input.content.unwrap_or_default();
     let content_json = content.to_value();
 
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     sqlx::query(
         r#"
         INSERT INTO pop_documents
@@ -504,9 +516,9 @@ pub async fn create_document(
     .bind(&input.reviewed_by)
     .bind(&input.approved_by)
     .bind(created_by)
-    .execute(&mut *tx)
+    .execute(&mut *conn)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(erro_de_gravacao)?;
 
     // Draft version 0 (não publicada)
     let vid = Uuid::new_v4().to_string();
@@ -530,50 +542,58 @@ pub async fn create_document(
     .bind(&input.reviewed_by)
     .bind(&input.approved_by)
     .bind(created_by)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .execute(&mut *conn)
+    .await?;
 
     sqlx::query(
         "UPDATE pop_documents SET current_version_id = $2, updated_at = NOW() WHERE id = $1",
     )
     .bind(&id)
     .bind(&vid)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .execute(&mut *conn)
+    .await?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
-    get_document(pool, &id).await
+    eventos::registrar(&mut *conn, "pop", &id, "criado", None, Some("draft"), None, created_by).await?;
+    get_document_conn(conn, &id).await
 }
 
-pub async fn update_document(
-    pool: &PgPool,
+/// Segura a linha do POP até o fim da transação (duas mudanças de status ao mesmo tempo).
+async fn travar_documento(conn: &mut PgConnection, id: &str) -> Result<(), ErroApi> {
+    let existe: Option<i32> = sqlx::query_scalar("SELECT 1 FROM pop_documents WHERE id = $1 FOR UPDATE")
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await?;
+    existe.map(|_| ()).ok_or_else(|| ErroApi::nao_encontrado("POP não encontrado"))
+}
+
+/// Edita título, setor, responsáveis e (só em rascunho) o corpo. Evento `editado`.
+pub async fn update_document_tx(
+    conn: &mut PgConnection,
     id: &str,
     input: DocumentUpdateInput,
-) -> Result<PopDocument, String> {
-    ensure_tables(pool).await?;
-    let doc = get_document(pool, id).await?;
+    usuario: &str,
+) -> Result<PopDocument, ErroApi> {
+    travar_documento(&mut *conn, id).await?;
+    let doc = get_document_conn(&mut *conn, id).await?;
     let vid = doc
         .current_version_id
         .clone()
-        .ok_or_else(|| "POP sem versão atual".to_string())?;
+        .ok_or_else(|| ErroApi::regra("POP sem versão atual"))?;
 
     if let Some(ref title) = input.title {
         sqlx::query("UPDATE pop_documents SET title = $2, updated_at = NOW() WHERE id = $1")
             .bind(id)
             .bind(title.trim())
-            .execute(pool)
-            .await
-            .map_err(|e| e.to_string())?;
+            .execute(&mut *conn)
+            .await?;
     }
     if let Some(ref sector) = input.sector_id {
         sqlx::query("UPDATE pop_documents SET sector_id = $2, updated_at = NOW() WHERE id = $1")
             .bind(id)
             .bind(sector)
-            .execute(pool)
+            .execute(&mut *conn)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(erro_de_gravacao)?;
     }
     if input.elaborated_by.is_some() || input.reviewed_by.is_some() || input.approved_by.is_some() {
         sqlx::query(
@@ -590,99 +610,108 @@ pub async fn update_document(
         .bind(&input.elaborated_by)
         .bind(&input.reviewed_by)
         .bind(&input.approved_by)
-        .execute(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        .execute(&mut *conn)
+        .await?;
     }
     if let Some(ref content) = input.content {
         if doc.status != "draft" {
-            return Err(
-                "Conteúdo de POP publicado só muda via «Publicar revisão» (preserva histórico)"
-                    .into(),
-            );
+            return Err(ErroApi::regra(
+                "Conteúdo de POP publicado só muda via «Publicar revisão» (preserva histórico)",
+            ));
         }
         sqlx::query("UPDATE pop_versions SET content_json = $2 WHERE id = $1")
             .bind(&vid)
             .bind(content.to_value())
-            .execute(pool)
-            .await
-            .map_err(|e| e.to_string())?;
+            .execute(&mut *conn)
+            .await?;
     }
-    get_document(pool, id).await
+    eventos::registrar(&mut *conn, "pop", id, "editado", Some(&doc.status), Some(&doc.status), None, usuario).await?;
+    get_document_conn(conn, id).await
 }
 
-fn motivo_obrigatorio(texto: Option<&str>) -> Result<String, String> {
+fn motivo_obrigatorio(texto: Option<&str>) -> Result<String, ErroApi> {
     let m = texto.unwrap_or("").trim().to_string();
     if m.is_empty() {
-        Err("Informe o motivo.".into())
+        Err(ErroApi::invalido("Informe o motivo."))
     } else {
         Ok(m)
     }
 }
 
-/// Rascunho → em aprovação, devolve para rascunho, ou vigente → obsoleto. Não apaga.
-pub async fn mover_status(
-    pool: &PgPool,
+/// Transições permitidas do POP: rascunho ↔ em aprovação, e vigente/em aprovação → obsoleto.
+pub fn transicao_permitida(de: &str, para: &str) -> bool {
+    matches!(
+        (de, para),
+        ("draft", "in_review") | ("in_review", "draft") | ("published", "obsolete") | ("in_review", "obsolete")
+    )
+}
+
+/// Nome do evento na trilha para o status de destino.
+pub fn evento_do_destino(destino: &str) -> &'static str {
+    match destino {
+        "in_review" => "enviado_aprovacao",
+        "draft" => "devolvido",
+        "obsolete" => "obsoleto",
+        _ => "editado",
+    }
+}
+
+/// Rascunho → em aprovação, devolve para rascunho, ou vigente → obsoleto. Não apaga; o motivo vai para a trilha
+/// (`pop_eventos`) e não sobrescreve mais o resumo da versão.
+pub async fn mover_status_tx(
+    conn: &mut PgConnection,
     id: &str,
     destino: &str,
     motivo: Option<&str>,
-) -> Result<PopDocument, String> {
-    ensure_tables(pool).await?;
-    let doc = get_document(pool, id).await?;
-    let permitido = matches!(
-        (doc.status.as_str(), destino),
-        ("draft", "in_review") | ("in_review", "draft") | ("published", "obsolete") | ("in_review", "obsolete")
-    );
-    if !permitido {
-        return Err(format!(
-            "Não dá para ir de {} para {destino}.",
-            doc.status
-        ));
+    usuario: &str,
+) -> Result<PopDocument, ErroApi> {
+    travar_documento(&mut *conn, id).await?;
+    let doc = get_document_conn(&mut *conn, id).await?;
+    if !transicao_permitida(&doc.status, destino) {
+        return Err(ErroApi::regra(format!("Não dá para ir de {} para {destino}.", doc.status)));
     }
     let motivo = motivo_obrigatorio(motivo)?;
-    sqlx::query(
-        r#"
-        UPDATE pop_documents SET status = $2, updated_at = NOW() WHERE id = $1
-        "#,
+    sqlx::query("UPDATE pop_documents SET status = $2, updated_at = NOW() WHERE id = $1")
+        .bind(id)
+        .bind(destino)
+        .execute(&mut *conn)
+        .await?;
+    eventos::registrar(
+        &mut *conn,
+        "pop",
+        id,
+        evento_do_destino(destino),
+        Some(&doc.status),
+        Some(destino),
+        Some(&motivo),
+        usuario,
     )
-    .bind(id)
-    .bind(destino)
-    .execute(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-    if let Some(vid) = doc.current_version_id {
-        let _ = sqlx::query(
-            "UPDATE pop_versions SET change_summary = $2 WHERE id = $1",
-        )
-        .bind(vid)
-        .bind(&motivo)
-        .execute(pool)
-        .await;
-    }
-    get_document(pool, id).await
+    .await?;
+    get_document_conn(conn, id).await
 }
 
-pub async fn publish_document(
-    pool: &PgPool,
+/// Aprova/publica uma revisão (de «em aprovação» ou de vigente). Evento `publicado` com o motivo.
+pub async fn publish_document_tx(
+    conn: &mut PgConnection,
     id: &str,
     input: PublishInput,
-    created_by: Option<&str>,
-) -> Result<PopDocument, String> {
-    ensure_tables(pool).await?;
-    let doc = get_document(pool, id).await?;
+    created_by: &str,
+) -> Result<PopDocument, ErroApi> {
+    travar_documento(&mut *conn, id).await?;
+    let doc = get_document_conn(&mut *conn, id).await?;
     if doc.status == "draft" {
-        return Err("Envie para aprovação antes de publicar.".into());
+        return Err(ErroApi::regra("Envie para aprovação antes de publicar."));
     }
     if doc.status == "obsolete" {
-        return Err("POP obsoleto não volta a vigente por esta ação.".into());
+        return Err(ErroApi::regra("POP obsoleto não volta a vigente por esta ação."));
     }
-    motivo_obrigatorio(input.change_summary.as_deref())?;
+    let motivo = motivo_obrigatorio(input.change_summary.as_deref())?;
     let base_content = input
         .content
         .or_else(|| doc.current_version.as_ref().map(|v| v.content.clone()))
         .unwrap_or_default();
     let eff = match input.effective_date.as_deref() {
-        Some(s) if !s.trim().is_empty() => parse_date(s)?,
+        Some(s) if !s.trim().is_empty() => parse_date(s).map_err(ErroApi::invalido)?,
         _ => today(),
     };
     let next = proxima_revisao(eff);
@@ -703,7 +732,6 @@ pub async fn publish_document(
     let rev = input.reviewed_by.or(doc.reviewed_by.clone());
     let appr = input.approved_by.or(doc.approved_by.clone());
 
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     sqlx::query(
         r#"
         INSERT INTO pop_versions
@@ -719,15 +747,14 @@ pub async fn publish_document(
     .bind(eff)
     .bind(next)
     .bind(kind)
-    .bind(&input.change_summary)
+    .bind(&motivo)
     .bind(base_content.to_value())
     .bind(&elab)
     .bind(&rev)
     .bind(&appr)
     .bind(created_by)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .execute(&mut *conn)
+    .await?;
 
     sqlx::query(
         r#"
@@ -752,43 +779,39 @@ pub async fn publish_document(
     .bind(&elab)
     .bind(&rev)
     .bind(&appr)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .execute(&mut *conn)
+    .await?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
-    get_document(pool, id).await
+    eventos::registrar(&mut *conn, "pop", id, "publicado", Some(&doc.status), Some("published"), Some(&motivo), created_by).await?;
+    get_document_conn(conn, id).await
 }
 
-pub async fn revalidate_document(
-    pool: &PgPool,
+/// Revalida um POP vigente (nova vigência e próxima revisão, mesmo texto). Evento `revalidado`.
+pub async fn revalidate_document_tx(
+    conn: &mut PgConnection,
     id: &str,
     input: RevalidateInput,
-    created_by: Option<&str>,
-) -> Result<PopDocument, String> {
-    ensure_tables(pool).await?;
-    let doc = get_document(pool, id).await?;
+    created_by: &str,
+) -> Result<PopDocument, ErroApi> {
+    travar_documento(&mut *conn, id).await?;
+    let doc = get_document_conn(&mut *conn, id).await?;
     if doc.status != "published" {
-        return Err("Só é possível revalidar POPs vigentes".into());
+        return Err(ErroApi::regra("Só é possível revalidar POPs vigentes"));
     }
-    motivo_obrigatorio(input.change_summary.as_deref())?;
+    let summary = motivo_obrigatorio(input.change_summary.as_deref())?;
     let content = doc
         .current_version
         .as_ref()
         .map(|v| v.content.clone())
         .unwrap_or_default();
     let eff = match input.effective_date.as_deref() {
-        Some(s) if !s.trim().is_empty() => parse_date(s)?,
+        Some(s) if !s.trim().is_empty() => parse_date(s).map_err(ErroApi::invalido)?,
         _ => today(),
     };
     let next = proxima_revisao(eff);
     let new_rev = doc.current_revision + 1;
     let vid = Uuid::new_v4().to_string();
-    let summary = input
-        .change_summary
-        .unwrap_or_else(|| "Revalidação anual".into());
 
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     sqlx::query(
         r#"
         INSERT INTO pop_versions
@@ -809,9 +832,8 @@ pub async fn revalidate_document(
     .bind(&doc.reviewed_by)
     .bind(&doc.approved_by)
     .bind(created_by)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .execute(&mut *conn)
+    .await?;
 
     sqlx::query(
         r#"
@@ -829,12 +851,11 @@ pub async fn revalidate_document(
     .bind(eff)
     .bind(next)
     .bind(&vid)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    .execute(&mut *conn)
+    .await?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
-    get_document(pool, id).await
+    eventos::registrar(&mut *conn, "pop", id, "revalidado", Some("published"), Some("published"), Some(&summary), created_by).await?;
+    get_document_conn(conn, id).await
 }
 
 pub async fn list_versions(pool: &PgPool, document_id: &str) -> Result<Vec<PopVersion>, String> {
@@ -1087,8 +1108,9 @@ pub async fn seed_inventory(
         let eff_date = entry.and_then(|e| e.effective_date.clone());
 
         if !exists {
-            let doc = create_document(
-                pool,
+            let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+            let doc = create_document_tx(
+                &mut tx,
                 DocumentInput {
                     code: code.to_string(),
                     title: title.to_string(),
@@ -1103,9 +1125,11 @@ pub async fn seed_inventory(
                     reviewed_by: rev_by.clone(),
                     approved_by: app_by.clone(),
                 },
-                created_by,
+                created_by.unwrap_or("Importação"),
             )
-            .await?;
+            .await
+            .map_err(|e| e.mensagem)?;
+            tx.commit().await.map_err(|e| e.to_string())?;
 
             if let Some(ref vid) = doc.current_version_id {
                 let eff = eff_date
@@ -1253,6 +1277,20 @@ pub async fn seed_inventory(
         .await
         .map_err(|e| e.to_string())?;
 
+        if let Ok(mut c) = pool.acquire().await {
+            let id: String = row.get("id");
+            let _ = eventos::registrar(
+                &mut c,
+                "pop",
+                &id,
+                "editado",
+                Some(&status),
+                Some(&status),
+                Some("Corpo preenchido pela importação do inventário"),
+                created_by.unwrap_or("Importação"),
+            )
+            .await;
+        }
         bodies_filled += 1;
     }
 
@@ -1282,9 +1320,11 @@ fn load_seed_bodies() -> std::collections::HashMap<String, SeedBodyEntry> {
 
 pub async fn check_alerts(pool: &PgPool) -> Result<CheckAlertsResult, String> {
     ensure_tables(pool).await?;
+    // POPs e formulários vigentes com próxima revisão marcada: (tipo da mensagem, código, título, próxima revisão).
+    let mut itens: Vec<(&str, String, String, NaiveDate)> = Vec::new();
     let rows = sqlx::query(
         r#"
-        SELECT id, code, title, next_review_date
+        SELECT code, title, next_review_date
         FROM pop_documents
         WHERE status = 'published' AND next_review_date IS NOT NULL
         "#,
@@ -1292,22 +1332,36 @@ pub async fn check_alerts(pool: &PgPool) -> Result<CheckAlertsResult, String> {
     .fetch_all(pool)
     .await
     .map_err(|e| e.to_string())?;
+    for row in rows {
+        itens.push(("pop", row.get("code"), row.get("title"), row.get("next_review_date")));
+    }
+    let rows = sqlx::query(
+        r#"
+        SELECT code, title, next_review_date
+        FROM pop_formularios
+        WHERE status = 'published' AND next_review_date IS NOT NULL
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    for row in rows {
+        itens.push(("form", row.get("code"), row.get("title"), row.get("next_review_date")));
+    }
 
     let mut notified = 0usize;
     let today = today();
-    for row in rows {
-        let code: String = row.get("code");
-        let title: String = row.get("title");
-        let next: NaiveDate = row.get("next_review_date");
+    for (tipo, code, title, next) in itens {
+        let (rotulo, chave) = if tipo == "pop" { ("POP", "pop") } else { ("Formulário", "form") };
         let days = (next - today).num_days();
         if days < 0 {
             let _ = notif_store::create_notification(
                 pool,
                 "qualidade_pops",
                 "warning",
-                &format!("POP vencido: {code}"),
+                &format!("{rotulo} vencido: {code}"),
                 &format!("{title} — revisão vencida em {}", next.format("%d/%m/%Y")),
-                Some(&format!("pop:{code}:overdue")),
+                Some(&format!("{chave}:{code}:overdue")),
             )
             .await;
             notified += 1;
@@ -1319,9 +1373,9 @@ pub async fn check_alerts(pool: &PgPool) -> Result<CheckAlertsResult, String> {
                     pool,
                     "qualidade_pops",
                     "info",
-                    &format!("POP vence em {th}d: {code}"),
+                    &format!("{rotulo} vence em {th}d: {code}"),
                     &format!("{title} — próxima revisão {}", next.format("%d/%m/%Y")),
-                    Some(&format!("pop:{code}:warn:{th}")),
+                    Some(&format!("{chave}:{code}:warn:{th}")),
                 )
                 .await;
                 notified += 1;

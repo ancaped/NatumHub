@@ -1,8 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, Printer, Save, Sparkles, X } from 'lucide-react';
+import { Printer, Save, Sparkles, X } from 'lucide-react';
 import { apiJson } from '../../../geral/lib/http';
+import { usePreviaServidor } from '../../../producao/lib/usePreviaServidor';
 import PopFolhasImpressao from './PopFolhasImpressao';
+import TrilhaEventos from './formularios/TrilhaEventos';
+import type { EventoPop } from './formularios/tipos';
 import {
   emptyContent,
   normalizeContent,
@@ -22,7 +25,7 @@ interface Props {
   onSaved: () => void;
 }
 
-type DrawerTab = 'documento' | 'historico';
+type DrawerTab = 'documento' | 'historico' | 'trilha';
 
 function fmtDate(iso?: string | null) {
   if (!iso) return '—';
@@ -55,10 +58,11 @@ export default function PopDrawer({
   const [formsDoPop, setFormsDoPop] = useState<Formulario[]>([]);
   const [changeSummary, setChangeSummary] = useState('');
   const [versions, setVersions] = useState<PopVersion[]>([]);
+  const [eventos, setEventos] = useState<EventoPop[]>([]);
   const [printVersion, setPrintVersion] = useState<PopVersion | null>(null);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const { pedir, elemento: previaElemento } = usePreviaServidor((mensagem) => setError(mensagem));
 
   useEffect(() => {
     setMounted(true);
@@ -92,6 +96,9 @@ export default function PopDrawer({
           ),
         )
         .catch(() => setVersions([]));
+      void apiJson<EventoPop[]>(`/qualidade/pops/documents/${popDoc.id}/eventos`)
+        .then((rows) => setEventos(Array.isArray(rows) ? rows : []))
+        .catch(() => setEventos([]));
     } else {
       setCode('');
       setTitle('');
@@ -101,6 +108,7 @@ export default function PopDrawer({
       setReviewedBy('');
       setApprovedBy('');
       setVersions([]);
+      setEventos([]);
     }
   }, [open, popDoc, sectors]);
 
@@ -133,43 +141,42 @@ export default function PopDrawer({
     approvedAt: content?.approvedAt || null,
   });
 
-  const saveDraft = async () => {
-    try {
-      setBusy(true);
-      setError(null);
-      if (isNew) {
-        await apiJson('/qualidade/pops/documents', {
-          method: 'POST',
-          body: JSON.stringify({
-            code,
-            title,
-            sectorId,
-            content: payloadContent(),
-            elaboratedBy: elaboratedBy || undefined,
-            reviewedBy: reviewedBy || undefined,
-            approvedBy: approvedBy || undefined,
-          }),
-        });
-      } else {
-        await apiJson(`/qualidade/pops/documents/${popDoc.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            title,
-            sectorId,
-            content: payloadContent(),
-            elaboratedBy: elaboratedBy || undefined,
-            reviewedBy: reviewedBy || undefined,
-            approvedBy: approvedBy || undefined,
-          }),
-        });
-      }
-      onSaved();
-      onClose();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Falha ao salvar rascunho');
-    } finally {
-      setBusy(false);
+  const concluir = async () => {
+    onSaved();
+    onClose();
+  };
+
+  const saveDraft = () => {
+    const corpo = {
+      title,
+      sectorId,
+      content: payloadContent(),
+      elaboratedBy: elaboratedBy || undefined,
+      reviewedBy: reviewedBy || undefined,
+      approvedBy: approvedBy || undefined,
+    };
+    setError(null);
+    if (isNew) {
+      void pedir({
+        url: '/qualidade/pops/documents',
+        init: { method: 'POST', body: JSON.stringify({ code, ...corpo }) },
+        titulo: 'Criar POP',
+        confirmarRotulo: 'Criar rascunho',
+        linhas: (d) => [{ titulo: String(d?.code ?? code), detalhe: `${title} · rascunho` }],
+        erroPadrao: 'Falha ao salvar rascunho',
+        aoConcluir: concluir,
+      });
+      return;
     }
+    void pedir({
+      url: `/qualidade/pops/documents/${popDoc.id}`,
+      init: { method: 'PUT', body: JSON.stringify(corpo) },
+      titulo: 'Salvar POP',
+      confirmarRotulo: 'Salvar',
+      linhas: (d) => [{ titulo: String(d?.code ?? popDoc.code), detalhe: `${title} · ${(content?.body ?? '').length} caracteres no corpo` }],
+      erroPadrao: 'Falha ao salvar rascunho',
+      aoConcluir: concluir,
+    });
   };
 
   const exigirMotivo = () => {
@@ -180,30 +187,28 @@ export default function PopDrawer({
     return true;
   };
 
-  const mover = async (status: string) => {
+  const ROTULO: Record<string, string> = { in_review: 'Em aprovação', draft: 'Rascunho', obsolete: 'Obsoleto' };
+
+  const mover = (status: string) => {
     if (!popDoc || !exigirMotivo()) return;
-    try {
-      setBusy(true);
-      setError(null);
-      await apiJson(`/qualidade/pops/documents/${popDoc.id}/status`, {
-        method: 'POST',
-        body: JSON.stringify({ status, motivo: changeSummary.trim() }),
-      });
-      onSaved();
-      onClose();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Falha ao mudar o status');
-    } finally {
-      setBusy(false);
-    }
+    setError(null);
+    void pedir({
+      url: `/qualidade/pops/documents/${popDoc.id}/status`,
+      init: { method: 'POST', body: JSON.stringify({ status, motivo: changeSummary.trim() }) },
+      titulo: status === 'in_review' ? 'Enviar para aprovação' : status === 'draft' ? 'Devolver ao rascunho' : 'Tornar obsoleto',
+      confirmarRotulo: 'Confirmar',
+      linhas: () => [{ titulo: popDoc.code, detalhe: `${ROTULO[popDoc.status] ?? popDoc.status} → ${ROTULO[status] ?? status} · ${changeSummary.trim()}` }],
+      erroPadrao: 'Falha ao mudar o status',
+      aoConcluir: concluir,
+    });
   };
 
-  const publish = async () => {
+  const publish = () => {
     if (!popDoc || !exigirMotivo()) return;
-    try {
-      setBusy(true);
-      setError(null);
-      await apiJson(`/qualidade/pops/documents/${popDoc.id}/publish`, {
+    setError(null);
+    void pedir({
+      url: `/qualidade/pops/documents/${popDoc.id}/publish`,
+      init: {
         method: 'POST',
         body: JSON.stringify({
           content: payloadContent(),
@@ -212,34 +217,33 @@ export default function PopDrawer({
           reviewedBy: reviewedBy || undefined,
           approvedBy: approvedBy || undefined,
         }),
-      });
-      onSaved();
-      onClose();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Falha ao publicar versão');
-    } finally {
-      setBusy(false);
-    }
+      },
+      titulo: isReview ? 'Aprovar POP' : 'Publicar revisão',
+      confirmarRotulo: isReview ? 'Aprovar' : 'Publicar',
+      linhas: (d) => [{
+        titulo: `${popDoc.code} · Rev. ${String(d?.currentRevision ?? popDoc.currentRevision + 1).padStart(2, '0')}`,
+        detalhe: `Vigência ${fmtDate(d?.effectiveDate)} · próxima revisão ${fmtDate(d?.nextReviewDate)} · ${changeSummary.trim()}`,
+      }],
+      erroPadrao: 'Falha ao publicar versão',
+      aoConcluir: concluir,
+    });
   };
 
-  const revalidate = async () => {
+  const revalidate = () => {
     if (!popDoc || !exigirMotivo()) return;
-    try {
-      setBusy(true);
-      setError(null);
-      await apiJson(`/qualidade/pops/documents/${popDoc.id}/revalidate`, {
-        method: 'POST',
-        body: JSON.stringify({
-          changeSummary: changeSummary || undefined,
-        }),
-      });
-      onSaved();
-      onClose();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Falha ao revalidar POP');
-    } finally {
-      setBusy(false);
-    }
+    setError(null);
+    void pedir({
+      url: `/qualidade/pops/documents/${popDoc.id}/revalidate`,
+      init: { method: 'POST', body: JSON.stringify({ changeSummary: changeSummary || undefined }) },
+      titulo: 'Revalidar POP',
+      confirmarRotulo: 'Revalidar',
+      linhas: (d) => [{
+        titulo: `${popDoc.code} · Rev. ${String(d?.currentRevision ?? popDoc.currentRevision + 1).padStart(2, '0')}`,
+        detalhe: `Vigência ${fmtDate(d?.effectiveDate)} · próxima revisão ${fmtDate(d?.nextReviewDate)} · ${changeSummary.trim()}`,
+      }],
+      erroPadrao: 'Falha ao revalidar POP',
+      aoConcluir: concluir,
+    });
   };
 
   const openPrint = (version?: PopVersion | null) => {
@@ -295,6 +299,7 @@ export default function PopDrawer({
                 [
                   ['documento', 'Documento'],
                   ['historico', 'Histórico'],
+                  ['trilha', 'Trilha'],
                 ] as const
               ).map(([id, label]) => (
                 <button
@@ -522,6 +527,8 @@ export default function PopDrawer({
                 ))}
               </div>
             )}
+
+            {tab === 'trilha' && <TrilhaEventos eventos={eventos} />}
           </div>
 
           <footer className="border-t border-zinc-200 px-4 py-3 flex flex-wrap gap-2 justify-end bg-white">
@@ -537,18 +544,17 @@ export default function PopDrawer({
             )}
             <button
               type="button"
-              disabled={busy || !title.trim() || (isNew && !code.trim())}
-              onClick={() => void saveDraft()}
+              disabled={!title.trim() || (isNew && !code.trim())}
+              onClick={saveDraft}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-300 text-sm hover:bg-zinc-50 transition-colors disabled:opacity-50"
             >
-              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              <Save className="w-4 h-4" />
               Salvar
             </button>
             {isDraft && (
               <button
                 type="button"
-                disabled={busy}
-                onClick={() => void mover('in_review')}
+                onClick={() => mover('in_review')}
                 className="px-3 py-2 rounded-lg bg-zinc-900 text-white text-sm hover:bg-zinc-800 transition-colors disabled:opacity-50"
               >
                 Enviar para aprovação
@@ -558,16 +564,14 @@ export default function PopDrawer({
               <>
                 <button
                   type="button"
-                  disabled={busy}
-                  onClick={() => void mover('draft')}
+                  onClick={() => mover('draft')}
                   className="px-3 py-2 rounded-lg border border-zinc-300 text-sm hover:bg-zinc-50 transition-colors disabled:opacity-50"
                 >
                   Devolver ao rascunho
                 </button>
                 <button
                   type="button"
-                  disabled={busy}
-                  onClick={() => void publish()}
+                  onClick={publish}
                   className="px-3 py-2 rounded-lg bg-zinc-900 text-white text-sm hover:bg-zinc-800 transition-colors disabled:opacity-50"
                 >
                   Aprovar
@@ -577,8 +581,7 @@ export default function PopDrawer({
             {isPublished && (
               <button
                 type="button"
-                disabled={busy}
-                onClick={() => void publish()}
+                onClick={publish}
                 className="px-3 py-2 rounded-lg bg-zinc-900 text-white text-sm hover:bg-zinc-800 transition-colors disabled:opacity-50"
               >
                 Publicar revisão
@@ -587,8 +590,7 @@ export default function PopDrawer({
             {(isPublished || isReview) && (
               <button
                 type="button"
-                disabled={busy}
-                onClick={() => void mover('obsolete')}
+                onClick={() => mover('obsolete')}
                 className="px-3 py-2 rounded-lg border border-zinc-300 text-sm text-zinc-700 hover:bg-zinc-50 transition-colors disabled:opacity-50"
               >
                 Tornar obsoleto
@@ -597,8 +599,7 @@ export default function PopDrawer({
             {isPublished && (
               <button
                 type="button"
-                disabled={busy}
-                onClick={() => void revalidate()}
+                onClick={revalidate}
                 className="px-3 py-2 rounded-lg bg-emerald-700 text-white text-sm hover:bg-emerald-800 transition-colors disabled:opacity-50"
               >
                 Revalidar
@@ -607,6 +608,7 @@ export default function PopDrawer({
           </footer>
         </aside>
       )}
+      {previaElemento}
 
       {portalTarget && printVersion &&
         createPortal(

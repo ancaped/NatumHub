@@ -8,6 +8,7 @@ use axum::{
 use serde_json::json;
 use std::sync::Arc;
 
+use crate::core::acao::{corpo_acao, Confirmar, ErroApi, RespostaAcao};
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 
@@ -15,10 +16,20 @@ use super::models::{
     DocumentInput, DocumentUpdateInput, DocumentsQuery, MoverStatusInput, PublishInput, RevalidateInput, SectorInput,
     SeedInventoryInput,
 };
-use super::store;
+use super::{eventos, formularios, servicos, store};
 
 fn err(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(json!({ "error": msg.into() }))).into_response()
+}
+
+fn autor(ctx: &AuthContext) -> String {
+    let n = ctx.display_name.trim();
+    if n.is_empty() { "Operador".to_string() } else { n.to_string() }
+}
+
+/// Resposta das escritas em 2 passos (campos do resultado também na raiz, para a tela).
+fn resposta(r: &RespostaAcao<serde_json::Value>, status: Option<StatusCode>) -> Response {
+    (status.unwrap_or(StatusCode::OK), Json(corpo_acao(r))).into_response()
 }
 
 pub async fn list_sectors(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -47,23 +58,81 @@ pub async fn list_formularios(State(state): State<Arc<AppState>>) -> impl IntoRe
 
 pub async fn criar_formulario(
     State(state): State<Arc<AppState>>,
-    Json(input): Json<super::formularios::NovoFormulario>,
-) -> impl IntoResponse {
-    match super::formularios::criar(state.db.pool(), input).await {
-        Ok(row) => (StatusCode::OK, Json(row)).into_response(),
-        Err(e) => err(StatusCode::BAD_REQUEST, e),
-    }
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(input): Json<formularios::NovoFormulario>,
+) -> Result<Response, ErroApi> {
+    // `confirmar` no corpo é a forma da tela antiga.
+    let confirmar = c.confirmar || input.confirmar.unwrap_or(false);
+    let r = formularios::criar(state.db.pool(), input, &autor(&ctx), confirmar).await?;
+    Ok(resposta(&r, None))
+}
+
+pub async fn get_formulario(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+) -> Result<Response, ErroApi> {
+    let v = formularios::detalhar(state.db.pool(), &code).await?;
+    Ok((StatusCode::OK, Json(v)).into_response())
+}
+
+pub async fn editar_formulario(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(code): Path<String>,
+    Query(c): Query<Confirmar>,
+    Json(input): Json<formularios::EditarFormulario>,
+) -> Result<Response, ErroApi> {
+    let r = formularios::editar(state.db.pool(), &code, input, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct StatusFormularioInput {
+    #[serde(alias = "status")]
+    pub destino: String,
+    #[serde(default)]
+    pub motivo: String,
+}
+
+pub async fn mover_status_formulario(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(code): Path<String>,
+    Query(c): Query<Confirmar>,
+    Json(input): Json<StatusFormularioInput>,
+) -> Result<Response, ErroApi> {
+    let r = formularios::mover_status(state.db.pool(), &code, &input.destino, &input.motivo, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct PublicarFormularioInput {
+    #[serde(default)]
+    pub motivo: String,
+}
+
+pub async fn publicar_formulario(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(code): Path<String>,
+    Query(c): Query<Confirmar>,
+    Json(input): Json<PublicarFormularioInput>,
+) -> Result<Response, ErroApi> {
+    let r = formularios::publicar(state.db.pool(), &code, &input.motivo, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
 }
 
 pub async fn revisar_formulario(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(code): Path<String>,
-    Json(input): Json<super::formularios::RevisaoFormulario>,
-) -> impl IntoResponse {
-    match super::formularios::revisar(state.db.pool(), &code, input).await {
-        Ok(row) => (StatusCode::OK, Json(row)).into_response(),
-        Err(e) => err(StatusCode::BAD_REQUEST, e),
-    }
+    Query(c): Query<Confirmar>,
+    Json(input): Json<formularios::RevisaoFormulario>,
+) -> Result<Response, ErroApi> {
+    let confirmar = c.confirmar || input.confirmar.unwrap_or(false);
+    let r = formularios::nova_revisao(state.db.pool(), &code, input, &autor(&ctx), confirmar).await?;
+    Ok(resposta(&r, None))
 }
 
 pub async fn list_documents(
@@ -79,12 +148,11 @@ pub async fn list_documents(
 pub async fn create_document(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
     Json(input): Json<DocumentInput>,
-) -> impl IntoResponse {
-    match store::create_document(state.db.pool(), input, Some(&ctx.display_name)).await {
-        Ok(row) => (StatusCode::CREATED, Json(row)).into_response(),
-        Err(e) => err(StatusCode::BAD_REQUEST, e),
-    }
+) -> Result<Response, ErroApi> {
+    let r = servicos::criar_documento(state.db.pool(), input, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, c.confirmar.then_some(StatusCode::CREATED)))
 }
 
 pub async fn get_document(
@@ -99,47 +167,55 @@ pub async fn get_document(
 
 pub async fn update_document(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
+    Query(c): Query<Confirmar>,
     Json(input): Json<DocumentUpdateInput>,
-) -> impl IntoResponse {
-    match store::update_document(state.db.pool(), &id, input).await {
-        Ok(row) => (StatusCode::OK, Json(row)).into_response(),
-        Err(e) => err(StatusCode::BAD_REQUEST, e),
-    }
+) -> Result<Response, ErroApi> {
+    let r = servicos::atualizar_documento(state.db.pool(), &id, input, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
 }
 
 pub async fn publish_document(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
+    Query(c): Query<Confirmar>,
     Json(input): Json<PublishInput>,
-) -> impl IntoResponse {
-    match store::publish_document(state.db.pool(), &id, input, Some(&ctx.display_name)).await {
-        Ok(row) => (StatusCode::OK, Json(row)).into_response(),
-        Err(e) => err(StatusCode::BAD_REQUEST, e),
-    }
+) -> Result<Response, ErroApi> {
+    let r = servicos::publicar_documento(state.db.pool(), &id, input, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
 }
 
 pub async fn mover_status(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
+    Query(c): Query<Confirmar>,
     Json(input): Json<MoverStatusInput>,
-) -> impl IntoResponse {
-    match store::mover_status(state.db.pool(), &id, &input.status, Some(&input.motivo)).await {
-        Ok(row) => (StatusCode::OK, Json(row)).into_response(),
-        Err(e) => err(StatusCode::BAD_REQUEST, e),
-    }
+) -> Result<Response, ErroApi> {
+    let r = servicos::mover_status(state.db.pool(), &id, &input.status, &input.motivo, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
 }
 
 pub async fn revalidate_document(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
+    Query(c): Query<Confirmar>,
     Json(input): Json<RevalidateInput>,
+) -> Result<Response, ErroApi> {
+    let r = servicos::revalidar_documento(state.db.pool(), &id, input, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
+}
+
+pub async fn list_eventos_documento(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
 ) -> impl IntoResponse {
-    match store::revalidate_document(state.db.pool(), &id, input, Some(&ctx.display_name)).await {
-        Ok(row) => (StatusCode::OK, Json(row)).into_response(),
-        Err(e) => err(StatusCode::BAD_REQUEST, e),
+    match eventos::listar(state.db.pool(), "pop", &id).await {
+        Ok(rows) => (StatusCode::OK, Json(rows)).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
 }
 

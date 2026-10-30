@@ -81,8 +81,8 @@ export default function ListaMestraTab() {
           setor: setorDoCodigo(f.code),
           revision: f.revision,
           status: f.status,
-          vigencia: '',
-          proxima: '',
+          vigencia: dataCurta(f.effectiveDate),
+          proxima: dataCurta(f.nextReviewDate),
           vinculo: f.popCode,
         }));
         setLinhas([...pops, ...fors].sort((a, b) => a.code.localeCompare(b.code, 'pt-BR')));
