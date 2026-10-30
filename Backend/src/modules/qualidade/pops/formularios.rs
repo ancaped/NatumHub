@@ -129,12 +129,9 @@ const SEED: &[Seed] = &[
         campos: &[("Data","data",None),("Tanque pulmão nº","texto",None),("Procedimento","texto",None),("Executado por","rubrica",None),("Verificado (CQ)","rubrica",None)] },
 ];
 
-fn orientacao_do_seed(code: &str) -> &'static str {
-    if code == "FOR-CQL-048-01" {
-        "landscape"
-    } else {
-        "portrait"
-    }
+/// FOR-CQL-048 é diário: o mês inteiro (31 linhas) numa folha em pé (decisão do Edson, 2026-10-30; deitada daria linhas de ~4 mm).
+fn linhas_do_seed(code: &str) -> Option<i32> {
+    if code == "FOR-CQL-048-01" { Some(31) } else { None }
 }
 
 fn campos_json(seed: &Seed) -> Value {
@@ -248,8 +245,8 @@ async fn ensure(pool: &PgPool) -> Result<(), String> {
         sqlx::query(
             r#"
             INSERT INTO pop_formularios
-                (code, pop_code, title, previous_code, periodicity, areas, fields, limits, note, orientation)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                (code, pop_code, title, previous_code, periodicity, areas, fields, limits, note, orientation, rows_per_sheet)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'portrait', $10)
             ON CONFLICT (code) DO NOTHING
             "#,
         )
@@ -262,19 +259,11 @@ async fn ensure(pool: &PgPool) -> Result<(), String> {
         .bind(campos_json(s))
         .bind(s.limits)
         .bind(s.note)
-        .bind(orientacao_do_seed(s.code))
+        .bind(linhas_do_seed(s.code))
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
     }
-
-    // O Word de origem do 048 é paisagem. Não mexe se já foi publicado.
-    sqlx::query(
-        "UPDATE pop_formularios SET orientation = 'landscape' WHERE code = 'FOR-CQL-048-01' AND revision = 0 AND status = 'draft' AND orientation <> 'landscape'",
-    )
-    .execute(pool)
-    .await
-    .map_err(|e| e.to_string())?;
 
     SEMEADO.store(true, Ordering::Relaxed);
     Ok(())

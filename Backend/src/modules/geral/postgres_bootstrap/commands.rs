@@ -321,6 +321,10 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         "075_pops_controle_documentos.sql",
         include_str!("../../../../supabase/075_pops_controle_documentos.sql"),
     ),
+    (
+        "076_for_cql_048_retrato.sql",
+        include_str!("../../../../supabase/076_for_cql_048_retrato.sql"),
+    ),
 ];
 
 #[derive(Debug, Serialize)]
