@@ -128,6 +128,7 @@ export function OrderDetailsDrawer({
                     <th className="px-3 py-2 text-right">Qtde</th>
                     <th className="px-3 py-2 text-right">Fat.</th>
                     <th className="px-3 py-2 text-right">Falta</th>
+                    <th className="px-3 py-2 text-right">Estoque</th>
                     <th className="px-3 py-2 text-right">Preço</th>
                     <th className="px-3 py-2">Lote</th>
                   </tr>
@@ -150,11 +151,24 @@ export function OrderDetailsDrawer({
                           ) : (
                             <span className="font-mono font-bold">{item.c_cod_prod}</span>
                           )}
+                          {item.descricao && (
+                            <div className="text-[11px] text-zinc-500 truncate max-w-[320px]" title={item.descricao}>
+                              {item.descricao}
+                            </div>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-right font-medium">{item.n_qtde}</td>
                         <td className="px-3 py-2 text-right text-zinc-500">{item.n_qtde_fat}</td>
                         <td className={cn('px-3 py-2 text-right font-extrabold', falta > 0 ? 'text-rose-600' : 'text-zinc-400')}>
                           {falta}
+                        </td>
+                        <td
+                          className={cn(
+                            'px-3 py-2 text-right',
+                            falta > 0 && item.estoque != null && item.estoque < falta ? 'text-amber-600 font-bold' : 'text-zinc-500',
+                          )}
+                        >
+                          {item.estoque != null ? Math.round(item.estoque) : '—'}
                         </td>
                         <td className="px-3 py-2 text-right">{formatSalesCurrency(item.n_preco)}</td>
                         <td className="px-3 py-2 text-zinc-500">{item.c_lote || '—'}</td>

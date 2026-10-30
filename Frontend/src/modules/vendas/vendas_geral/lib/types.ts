@@ -40,6 +40,9 @@ export interface SalesOrderItem {
   n_qtde_fat: number;
   n_preco: number;
   c_lote: string | null;
+  /** Só no detalhe do pedido. */
+  descricao?: string | null;
+  estoque?: number | null;
 }
 
 export interface SalesOrder {

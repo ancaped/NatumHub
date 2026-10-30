@@ -217,6 +217,11 @@ pub struct SalesOrderItem {
     pub n_qtde_fat: i32,
     pub n_preco: f64,
     pub c_lote: Option<String>,
+    /// Só no detalhe do pedido: descrição do produto e estoque atual (`estoque_atual`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub descricao: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estoque: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

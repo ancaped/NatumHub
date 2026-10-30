@@ -247,6 +247,8 @@ async fn fetch_sales_orders_with_items(
                     n_qtde_fat: crate::core::pg_row::pg_i32(&row_item, 6),
                     n_preco: crate::core::pg_row::pg_f64(&row_item, 7),
                     c_lote: row_item.get(8),
+                    descricao: None,
+                    estoque: None,
                 });
         }
     }
@@ -324,10 +326,13 @@ pub async fn get_sales_order_detail(
 
     let item_rows = match sqlx::query(
         r#"
-        SELECT id, n_pedido, d_pedido, n_registro, c_cod_prod, n_qtde, n_qtde_fat, n_preco, c_lote
-        FROM sales_order_items
-        WHERE n_pedido = $1 AND d_pedido = $2
-        ORDER BY n_registro NULLS LAST, c_cod_prod
+        SELECT soi.id, soi.n_pedido, soi.d_pedido, soi.n_registro, soi.c_cod_prod, soi.n_qtde,
+               soi.n_qtde_fat, soi.n_preco, soi.c_lote, p.descricao, ea.estoque::float8
+        FROM sales_order_items soi
+        LEFT JOIN produtos p ON p.codigo = soi.c_cod_prod
+        LEFT JOIN estoque_atual ea ON ea.codigo = soi.c_cod_prod
+        WHERE soi.n_pedido = $1 AND soi.d_pedido = $2
+        ORDER BY soi.n_registro NULLS LAST, soi.c_cod_prod
         "#,
     )
     .bind(n_pedido)
@@ -357,6 +362,8 @@ pub async fn get_sales_order_detail(
             n_qtde_fat: crate::core::pg_row::pg_i32(&row_item, 6),
             n_preco: crate::core::pg_row::pg_f64(&row_item, 7),
             c_lote: row_item.get(8),
+            descricao: row_item.get(9),
+            estoque: row_item.get(10),
         })
         .collect();
 
