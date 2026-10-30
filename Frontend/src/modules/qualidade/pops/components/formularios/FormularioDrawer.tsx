@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Printer } from 'lucide-react';
 import Drawer from '../../../../geral/components/ui/Drawer';
 import { apiJson } from '../../../../geral/lib/http';
@@ -175,7 +175,19 @@ export default function FormularioDrawer({ code, logoSrc, onClose, onMudou, onIm
 
   const folhas = previa ? montarFolhas(previa.form.areas) : [null];
   const idxFolha = Math.min(folha, folhas.length - 1);
-  const escala = previa && deitado(previa.form) ? 0.42 : 0.48;
+  // A prévia ocupa a largura do painel. Usa `zoom` (não `transform: scale`): reduz o layout e o navegador mantém as bordas
+  // com pelo menos 1 pixel; com `scale` as linhas de 1px viravam meio pixel e sumiam na tela.
+  const caixaPrevia = useRef<HTMLDivElement | null>(null);
+  const [larguraPrevia, setLarguraPrevia] = useState(0);
+  useEffect(() => {
+    const el = caixaPrevia.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setLarguraPrevia(e.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [aba, det]);
+  const larguraFolhaPx = (previa && deitado(previa.form) ? 297 : 210) * (96 / 25.4);
+  const escala = larguraPrevia > 0 ? Math.min(1, larguraPrevia / larguraFolhaPx) : 0.6;
   const st = det ? rotuloStatus(det.status) : null;
 
   const abas = [
@@ -275,8 +287,8 @@ export default function FormularioDrawer({ code, logoSrc, onClose, onMudou, onIm
                   </label>
                 )}
                 <div className="rounded-xl border border-zinc-200 bg-zinc-100 p-3 overflow-auto">
-                  <div style={{ width: `calc(${deitado(previa.form) ? 297 : 210}mm * ${escala})`, height: `calc(${deitado(previa.form) ? 209 : 296}mm * ${escala})`, overflow: 'hidden', margin: '0 auto' }}>
-                    <div style={{ transform: `scale(${escala})`, transformOrigin: 'top left' }}>
+                  <div ref={caixaPrevia} style={{ width: '100%' }}>
+                    <div style={{ zoom: escala, background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,.15)', width: 'fit-content', margin: '0 auto' }}>
                       <Folha f={previa.form} area={folhas[idxFolha]} pagina={idxFolha + 1} total={folhas.length} logoSrc={logoSrc} marca={previa.marca} />
                     </div>
                   </div>
