@@ -235,6 +235,12 @@ pub struct SalesOrder {
     /// SUM GREATEST(n_qtde - n_qtde_fat, 0) dos itens.
     #[serde(default)]
     pub residual_un: i32,
+    /// Status em aberto (regra do servidor: `core::sales_open::pedido_aberto`).
+    #[serde(default)]
+    pub aberto: bool,
+    /// Aberto, com residual e previsão vencida (`core::sales_open::pedido_atrasado`).
+    #[serde(default)]
+    pub atrasado: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

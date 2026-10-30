@@ -3,11 +3,12 @@ import { X, RefreshCw, Package } from 'lucide-react';
 import { apiFetch } from '../../../geral/lib/http';
 import { cn } from '../../../geral/lib/utils';
 import Drawer from '../../../geral/components/ui/Drawer';
+import { StatusBadge } from '../../../geral/components/ui/ReportKit';
 import type { SalesOrder } from '../lib/types';
 import {
   formatSalesCurrency,
   formatSalesDate,
-  salesOrderStatusColor,
+  salesOrderStatusVariante,
   salesOrderStatusLabel,
 } from '../lib/salesStatusUi';
 
@@ -97,14 +98,9 @@ export function OrderDetailsDrawer({
       <div className="space-y-4">
         {order && !loading && (
           <div className="p-3 border border-zinc-200/80 rounded-xl bg-zinc-50 flex flex-wrap items-center gap-2 text-xs">
-            <span
-              className={cn(
-                'px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase',
-                salesOrderStatusColor(order.c_status),
-              )}
-            >
+            <StatusBadge variante={salesOrderStatusVariante(order.c_status)}>
               {salesOrderStatusLabel(order.c_status)}
-            </span>
+            </StatusBadge>
             <span className="font-semibold text-zinc-800 truncate max-w-[220px]">
               {order.c_nome || 'Consumidor final'}
             </span>

@@ -1,21 +1,20 @@
 import { salesOrderStatusLabel } from '../../../geral/lib/salesOrderStatus';
+import type { VarianteBadge } from '../../../geral/components/ui/ReportKit';
 
-/** Cores de pill para CSTATUS do ERP Natum. */
-export const SALES_ORDER_STATUS_COLORS: Record<string, string> = {
-  FT: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  CA: 'bg-rose-50 text-rose-700 border-rose-200',
-  FP: 'bg-amber-50 text-amber-700 border-amber-200',
-  EX: 'bg-sky-50 text-sky-700 border-sky-200',
-  PP: 'bg-violet-50 text-violet-700 border-violet-200',
-  CF: 'bg-zinc-100 text-zinc-700 border-zinc-200',
-  LB: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-  AL: 'bg-orange-50 text-orange-700 border-orange-200',
+/** Variante do `StatusBadge` (ReportKit) para o CSTATUS do ERP Natum. */
+const VARIANTE_STATUS: Record<string, VarianteBadge> = {
+  FT: 'saudavel',
+  CA: 'critico',
+  FP: 'ordem',
+  AL: 'ordem',
+  EX: 'aguardando',
+  LB: 'abundante',
+  PP: 'apoio',
+  CF: 'descontinuado',
 };
 
-export function salesOrderStatusColor(code: string | null | undefined): string {
-  if (!code) return 'bg-zinc-50 text-zinc-500 border-zinc-200';
-  const trimmed = code.trim();
-  return SALES_ORDER_STATUS_COLORS[trimmed] || 'bg-zinc-50 text-zinc-600 border-zinc-200';
+export function salesOrderStatusVariante(code: string | null | undefined): VarianteBadge {
+  return VARIANTE_STATUS[(code || '').trim()] ?? 'descontinuado';
 }
 
 export { salesOrderStatusLabel };
@@ -42,8 +41,6 @@ export function formatSalesCurrency(val: number): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
 }
 
-export const OPEN_STATUS_CODES = ['PP', 'AL', 'LB', 'EX', 'CF'] as const;
-
 export const STATUS_FILTER_CHIPS: { id: string; label: string }[] = [
   { id: 'ativos', label: 'Abertos' },
   { id: 'PP', label: 'Pré-pedido' },
@@ -53,4 +50,13 @@ export const STATUS_FILTER_CHIPS: { id: string; label: string }[] = [
   { id: 'CF', label: 'Conferido' },
   { id: 'concluidos', label: 'Concluídos' },
   { id: 'ALL', label: 'Todos' },
+];
+
+/** Janelas (dias) oferecidas nas telas; `0` = sem limite. */
+export const JANELAS_DIAS: { valor: string; rotulo: string }[] = [
+  { valor: '30', rotulo: '30 dias' },
+  { valor: '90', rotulo: '90 dias' },
+  { valor: '180', rotulo: '180 dias' },
+  { valor: '365', rotulo: '1 ano' },
+  { valor: '0', rotulo: 'Sem limite' },
 ];

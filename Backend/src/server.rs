@@ -225,17 +225,7 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         .merge(modules::qualidade::router())
         .merge(modules::administrativo::router())
         .merge(modules::ferramentas::router())
-        .route("/api/vendas/pedidos", get(handlers::list_sales_orders))
-        .route(
-            "/api/vendas/pedidos/detalhe",
-            get(handlers::get_sales_order_detail),
-        )
-        .route("/api/vendas/faltas", get(handlers::list_sales_faltas))
-        .route("/api/vendas/clientes", get(handlers::list_sales_clientes))
-        .route(
-            "/api/vendas/clientes/:codigo/pedidos",
-            get(handlers::list_cliente_sales_orders),
-        )
+        .merge(handlers::vendas::router())
         .route(
             "/api/produtos/:code/pedidos-pendentes",
             get(handlers::get_product_pending_orders),

@@ -1,16 +1,33 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::IntoResponse,
-    Json,
+    response::{IntoResponse, Response},
+    routing::{get, put},
+    Extension, Json, Router,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
 use serde_json::json;
 use sqlx::Row;
 
+use crate::core::acao::{corpo_acao, Confirmar, ErroApi};
 use crate::core::catalogo::{param, Acao};
+use crate::core::sales_open::{pedido_aberto, pedido_atrasado, resumir_pedidos};
 use crate::handlers::AppState;
+use crate::modules::estoque::escrita::{gravar_auditado, Resp};
+use crate::modules::geral::auth::models::AuthContext;
+
+/// Rotas HTTP de Vendas (mesmos caminhos de sempre).
+pub fn router() -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/api/vendas/pedidos", get(list_sales_orders))
+        .route("/api/vendas/pedidos/resumo", get(resumo_sales_orders))
+        .route("/api/vendas/pedidos/detalhe", get(get_sales_order_detail))
+        .route("/api/vendas/faltas", get(list_sales_faltas))
+        .route("/api/vendas/clientes", get(list_sales_clientes))
+        .route("/api/vendas/clientes/:codigo/pedidos", get(list_cliente_sales_orders))
+        .route("/api/vendas/janela-faltas", put(alterar_janela_faltas))
+}
 
 #[derive(Debug, serde::Deserialize)]
 pub struct FaltasParams {
@@ -75,6 +92,31 @@ fn residual_from_items(items: &[crate::models::SalesOrderItem]) -> i32 {
         .sum()
 }
 
+/// Busca (cliente ou nº do pedido) e janela em dias sobre `sales_orders`, iguais para a lista e o resumo.
+fn aplicar_busca_e_janela(
+    qb: &mut sqlx::QueryBuilder<'_, sqlx::Postgres>,
+    search: Option<&str>,
+    days: Option<i32>,
+) {
+    if let Some(search) = search.map(str::trim).filter(|s| !s.is_empty()) {
+        let like_pattern = format!("%{search}%");
+        qb.push(" AND (c_nome LIKE ");
+        qb.push_bind(like_pattern.clone());
+        qb.push(" OR CAST(n_pedido AS TEXT) LIKE ");
+        qb.push_bind(like_pattern);
+        qb.push(")");
+    }
+    if let Some(days) = days.filter(|d| *d > 0) {
+        qb.push(format!(
+            " AND d_pedido::date >= (CURRENT_DATE - INTERVAL '{days} days')"
+        ));
+    }
+}
+
+fn hoje() -> chrono::NaiveDate {
+    chrono::Local::now().date_naive()
+}
+
 fn normalize_d_pedido(d: &str) -> String {
     let t = d.trim();
     if t.len() >= 10 {
@@ -96,26 +138,8 @@ pub async fn list_sales_orders(
          FROM sales_orders WHERE 1=1",
     );
 
-    if let Some(ref search) = params.search {
-        if !search.trim().is_empty() {
-            let like_pattern = format!("%{}%", search.trim());
-            qb.push(" AND (c_nome LIKE ");
-            qb.push_bind(like_pattern.clone());
-            qb.push(" OR CAST(n_pedido AS TEXT) LIKE ");
-            qb.push_bind(like_pattern);
-            qb.push(")");
-        }
-    }
-
     apply_status_filter(&mut qb, params.status.as_deref());
-
-    if let Some(days) = params.days {
-        if days > 0 {
-            qb.push(format!(
-                " AND d_pedido::date >= (CURRENT_DATE - INTERVAL '{days} days')"
-            ));
-        }
-    }
+    aplicar_busca_e_janela(&mut qb, params.search.as_deref(), params.days);
 
     qb.push(" ORDER BY d_pedido DESC, n_pedido DESC");
 
@@ -134,6 +158,32 @@ pub async fn list_sales_orders(
         )
             .into_response(),
     }
+}
+
+/// GET /api/vendas/pedidos/resumo?search=&days= — contagens (abertos, atrasados, total) e residual dos abertos.
+pub async fn resumo_sales_orders(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<SalesOrdersQueryParams>,
+) -> Result<Json<crate::core::sales_open::ResumoPedidos>, ErroApi> {
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT c_status, d_previsao, \
+                COALESCE((SELECT SUM(GREATEST(i.n_qtde - i.n_qtde_fat, 0)) FROM sales_order_items i \
+                          WHERE i.n_pedido = sales_orders.n_pedido AND i.d_pedido = sales_orders.d_pedido), 0)::bigint \
+         FROM sales_orders WHERE 1=1",
+    );
+    aplicar_busca_e_janela(&mut qb, params.search.as_deref(), params.days);
+    let rows = qb.build().fetch_all(state.db.pool()).await?;
+    let linhas: Vec<(Option<String>, Option<String>, i64)> = rows
+        .iter()
+        .map(|r| {
+            (
+                r.get::<Option<String>, _>(0),
+                r.get::<Option<String>, _>(1),
+                crate::core::pg_row::pg_i64(r, 2),
+            )
+        })
+        .collect();
+    Ok(Json(resumir_pedidos(&linhas, hoje())))
 }
 
 async fn fetch_sales_orders_with_items(
@@ -208,6 +258,8 @@ async fn fetch_sales_orders_with_items(
             .remove(&(n_pedido, d_pedido.clone()))
             .unwrap_or_default();
         let residual_un = residual_from_items(&items);
+        let aberto = pedido_aberto(c_status.as_deref());
+        let atrasado = pedido_atrasado(aberto, residual_un as i64, d_previsao.as_deref(), hoje());
         sales_orders.push(crate::models::SalesOrder {
             n_pedido,
             d_pedido,
@@ -221,6 +273,8 @@ async fn fetch_sales_orders_with_items(
             m_observac,
             items,
             residual_un,
+            aberto,
+            atrasado,
         });
     }
 
@@ -307,19 +361,25 @@ pub async fn get_sales_order_detail(
         .collect();
 
     let residual_un = residual_from_items(&items);
+    let c_status: Option<String> = row.get(5);
+    let d_previsao: Option<String> = row.get(7);
+    let aberto = pedido_aberto(c_status.as_deref());
+    let atrasado = pedido_atrasado(aberto, residual_un as i64, d_previsao.as_deref(), hoje());
     let order = crate::models::SalesOrder {
         n_pedido,
         d_pedido,
         n_codigo: crate::core::pg_row::pg_opt_i32(&row, 2),
         c_nome: row.get(3),
         n_valor_tot: row.get(4),
-        c_status: row.get(5),
+        c_status,
         n_nota_fiscal: crate::core::pg_row::pg_i32(&row, 6),
-        d_previsao: row.get(7),
+        d_previsao,
         d_entrega: row.get(8),
         m_observac: row.get(9),
         items,
         residual_un,
+        aberto,
+        atrasado,
     };
 
     (StatusCode::OK, Json(order)).into_response()
@@ -675,6 +735,63 @@ pub async fn list_sales_faltas(
         .into_response()
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct JanelaFaltasCorpo {
+    /// Janela em dias dos pedidos considerados (1 a 365; 0 = sem limite).
+    pub dias: i32,
+}
+
+/// Janela (dias) usada por Faltas, Pedidos e Clientes: grava a setting `sales_faltas_days_limit`.
+/// Escrita em 2 passos, auditada. Devolve `{ antes, depois }`.
+pub async fn definir_janela_faltas(
+    pool: &sqlx::PgPool,
+    dias: i32,
+    autor: &str,
+    confirmar: bool,
+) -> Resp {
+    if !(0..=365).contains(&dias) {
+        return Err(ErroApi::invalido("A janela deve ter de 1 a 365 dias (0 = sem limite)."));
+    }
+    gravar_auditado(
+        pool,
+        "alterar_janela_faltas_venda",
+        autor,
+        "sales_faltas_days_limit",
+        json!({ "dias": dias }),
+        confirmar,
+        move |c| {
+            Box::pin(async move {
+                let antes: Option<String> =
+                    sqlx::query_scalar("SELECT value FROM settings WHERE key = 'sales_faltas_days_limit' FOR UPDATE")
+                        .fetch_optional(&mut *c)
+                        .await?;
+                sqlx::query(
+                    "INSERT INTO settings (key, value) VALUES ('sales_faltas_days_limit', $1)
+                     ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
+                )
+                .bind(dias.to_string())
+                .execute(&mut *c)
+                .await?;
+                let antes = crate::core::sales_open::parse_faltas_days(antes.as_deref());
+                Ok(json!({ "antes": antes, "depois": dias }))
+            })
+        },
+    )
+    .await
+}
+
+/// PUT /api/vendas/janela-faltas?confirmar= — corpo `{ "dias": N }`.
+pub async fn alterar_janela_faltas(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(corpo): Json<JanelaFaltasCorpo>,
+) -> Result<Response, ErroApi> {
+    let autor = if ctx.display_name.trim().is_empty() { "Operador" } else { ctx.display_name.trim() };
+    let r = definir_janela_faltas(state.db.pool(), corpo.dias, autor, c.confirmar).await?;
+    Ok((StatusCode::OK, Json(corpo_acao(&r))).into_response())
+}
+
 /// Ações de Vendas descritas para agentes (ver `core::catalogo`).
 pub fn acoes_vendas() -> Vec<Acao> {
     const M: &str = "vendas";
@@ -690,6 +807,16 @@ pub fn acoes_vendas() -> Vec<Acao> {
                 param("days", "query", "inteiro", false, "Só pedidos dos últimos N dias."),
                 param("limite", "query", "inteiro", false, "Pedidos por página (1 a 1000; 100 se só `pagina` for informada)."),
                 param("pagina", "query", "inteiro", false, "Número da página, a partir de 1 (usa `limite`)."),
+            ],
+        ),
+        Acao::leitura(
+            "resumir_pedidos_venda",
+            M,
+            "Contagens da lista de pedidos de venda: abertos, atrasados (aberto, com residual e previsão vencida), total e residual somado dos abertos.",
+            "/api/vendas/pedidos/resumo",
+            vec![
+                param("search", "query", "texto", false, "Parte do nome do cliente ou do número do pedido."),
+                param("days", "query", "inteiro", false, "Só pedidos dos últimos N dias."),
             ],
         ),
         Acao::leitura(
@@ -729,6 +856,18 @@ pub fn acoes_vendas() -> Vec<Acao> {
             "Produtos com falta nos pedidos em aberto (ativas e históricas), com estoque, produção e compras em trânsito.",
             "/api/vendas/faltas",
             vec![param("days", "query", "inteiro", false, "Janela em dias dos pedidos considerados.")],
+        ),
+        Acao::gravacao(
+            "alterar_janela_faltas_venda",
+            M,
+            "Altera a janela padrão (dias) das telas de Vendas (Pedidos, Faltas, Clientes). A prévia mostra o valor de antes e o de depois.",
+            "PUT",
+            "/api/vendas/janela-faltas",
+            true,
+            vec![
+                param("dias", "corpo", "inteiro", true, "Janela em dias (1 a 365; 0 = sem limite)."),
+                param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),
+            ],
         ),
     ]
 }

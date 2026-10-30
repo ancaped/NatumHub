@@ -191,6 +191,7 @@ mod tests {
             include_str!("../modules/financeiro/mod.rs"),
             include_str!("../modules/hub_api/microbio.rs"),
             include_str!("../modules/hub_api/fisco.rs"),
+            include_str!("../handlers/vendas.rs"),
             include_str!("../server.rs"),
         ]
         .concat();

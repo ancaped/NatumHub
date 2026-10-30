@@ -55,6 +55,17 @@ export interface SalesOrder {
   m_observac: string | null;
   items: SalesOrderItem[];
   residual_un?: number;
+  /** Regras do servidor (`aberto` = status em aberto; `atrasado` = aberto com residual e previsão vencida). */
+  aberto?: boolean;
+  atrasado?: boolean;
+}
+
+/** `GET /api/vendas/pedidos/resumo`. */
+export interface ResumoPedidos {
+  abertos: number;
+  atrasados: number;
+  total: number;
+  residual_abertos_un: number;
 }
 
 export interface ProductFaltaItem {
@@ -99,11 +110,3 @@ export interface SalesCliente {
 }
 
 export type VendasTab = 'pedidos' | 'faltas' | 'clientes' | 'produtos';
-
-export function orderResidual(order: SalesOrder): number {
-  if (typeof order.residual_un === 'number') return order.residual_un;
-  return (order.items || []).reduce(
-    (sum, i) => sum + Math.max(0, (i.n_qtde || 0) - (i.n_qtde_fat || 0)),
-    0,
-  );
-}

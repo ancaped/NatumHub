@@ -10,7 +10,11 @@ import {
 import { apiFetch } from '../../geral/lib/http';
 import { cn } from '../../geral/lib/utils';
 import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
+import { BotaoAcao, ReportHeader } from '../../geral/components/ui/ReportKit';
+import { useAviso } from '../../geral/components/ui/Aviso';
+import { usePreviaServidor } from '../../producao/lib/usePreviaServidor';
 import type { VendasTab } from './lib/types';
+import { JANELAS_DIAS } from './lib/salesStatusUi';
 import { PedidosTab } from './components/PedidosTab';
 import { FaltasTab } from './components/FaltasTab';
 import { ClientesTab } from './components/ClientesTab';
@@ -45,6 +49,8 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
   const [activeTab, setActiveTab] = useState<VendasTab>('pedidos');
   const [daysLimit, setDaysLimit] = useState(90);
   const [refreshToken, setRefreshToken] = useState(0);
+  const { avisar, aviso } = useAviso();
+  const { pedir: pedirPrevia, elemento: elementoPrevia } = usePreviaServidor(avisar);
 
   const [orderDrawer, setOrderDrawer] = useState<{
     nPedido: number;
@@ -69,17 +75,29 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
     loadSettings();
   }, []);
 
-  const handleDaysLimitChange = async (val: number) => {
-    setDaysLimit(val);
-    try {
-      await apiFetch(`/settings/sales_faltas_days_limit`, {
-        method: 'POST',
+  const rotuloJanela = (dias: unknown) =>
+    JANELAS_DIAS.find((j) => j.valor === String(dias))?.rotulo ?? `${dias} dias`;
+
+  // A janela é gravada pelo servidor (2 passos, auditada); a tela só muda depois do OK.
+  const handleDaysLimitChange = (val: number) => {
+    void pedirPrevia({
+      url: '/vendas/janela-faltas',
+      init: {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value: String(val) }),
-      });
-    } catch (e) {
-      console.error('Erro ao salvar limite de dias de vendas:', e);
-    }
+        body: JSON.stringify({ dias: val }),
+      },
+      titulo: 'Alterar janela de pedidos',
+      confirmarRotulo: 'Alterar janela',
+      linhas: (d) => [
+        {
+          titulo: 'Janela dos pedidos considerados',
+          detalhe: `${rotuloJanela(d?.resultado?.antes ?? d?.antes)} → ${rotuloJanela(d?.resultado?.depois ?? d?.depois ?? val)}`,
+        },
+      ],
+      erroPadrao: 'Não foi possível alterar a janela.',
+      aoConcluir: () => setDaysLimit(val),
+    });
   };
 
   const openOrder = (nPedido: number, dPedido: string) => {
@@ -132,19 +150,15 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
       </div>
 
       <div className="flex-1 flex flex-col overflow-hidden relative bg-zinc-50/50">
-        <header className="h-16 bg-white border-b border-zinc-200 flex items-center justify-between px-8 shrink-0 shadow-sm">
-          <h2 className="text-xl font-bold text-zinc-800">{TITLES[activeTab]}</h2>
-          <button
-            type="button"
-            onClick={() => setRefreshToken((n) => n + 1)}
-            className="p-2 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors flex items-center gap-1.5 text-xs font-semibold border border-zinc-200 shadow-sm cursor-pointer bg-white"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Atualizar
-          </button>
-        </header>
-
         <main className="flex-1 overflow-y-auto p-4 lg:p-6 text-left">
+          <ReportHeader
+            titulo={TITLES[activeTab]}
+            acoes={
+              <BotaoAcao onClick={() => setRefreshToken((n) => n + 1)}>
+                <RefreshCw size={13} /> Atualizar
+              </BotaoAcao>
+            }
+          />
           {activeTab === 'pedidos' && (
             <PedidosTab
               daysLimit={daysLimit}
@@ -196,6 +210,8 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
           openOrder(n, d);
         }}
       />
+      {elementoPrevia}
+      {aviso}
     </div>
   );
 }

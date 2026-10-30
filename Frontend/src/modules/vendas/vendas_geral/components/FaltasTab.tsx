@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, RefreshCw, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
+import { RefreshCw, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import { apiFetch } from '../../../geral/lib/http';
-import { cn } from '../../../geral/lib/utils';
+import { FilterBar, ReportTabs, StatusBadge, TabelaPainel } from '../../../geral/components/ui/ReportKit';
 import type { ProductFaltaGroup } from '../lib/types';
 import {
   formatSalesDate,
   salesOrderKey,
-  salesOrderStatusColor,
   salesOrderStatusLabel,
+  salesOrderStatusVariante,
 } from '../lib/salesStatusUi';
+import { JanelaSelect } from './JanelaSelect';
 
 interface FaltasTabProps {
   daysLimit: number;
@@ -69,87 +70,51 @@ export function FaltasTab({
   }, [list, search]);
 
   return (
-    <div className="space-y-4 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-2 duration-200">
-      <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-zinc-100 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
-          <div className="flex gap-1 bg-zinc-100 p-1 rounded-lg">
-            <button
-              type="button"
-              onClick={() => setSubTab('ativas')}
-              className={cn(
-                'px-3 py-1.5 rounded-md text-xs font-bold cursor-pointer',
-                subTab === 'ativas' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500',
-              )}
-            >
-              Faltas ativas ({data.ativas.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setSubTab('historicas')}
-              className={cn(
-                'px-3 py-1.5 rounded-md text-xs font-bold cursor-pointer',
-                subTab === 'historicas' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500',
-              )}
-            >
-              Históricas / cortes ({data.historicas.length})
-            </button>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-            <div className="relative w-full sm:w-64">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Produto ou linha…"
-                className="w-full pl-9 pr-3 py-2 text-sm border border-zinc-200 rounded-lg"
-              />
-            </div>
-            <select
-              value={daysLimit}
-              onChange={(e) => onDaysLimitChange(Number(e.target.value))}
-              className="text-sm border border-zinc-200 rounded-lg px-2 py-2"
-            >
-              <option value={30}>30 dias</option>
-              <option value={90}>90 dias</option>
-              <option value={180}>180 dias</option>
-              <option value={365}>1 ano</option>
-              <option value={0}>Sem limite</option>
-            </select>
-          </div>
-        </div>
+    <div>
+      <ReportTabs
+        ativa={subTab}
+        onChange={(id) => setSubTab(id as 'ativas' | 'historicas')}
+        abas={[
+          { id: 'ativas', label: 'Faltas ativas', contagem: data.ativas.length },
+          { id: 'historicas', label: 'Históricas / cortes', contagem: data.historicas.length },
+        ]}
+      />
+      <FilterBar busca={search} onBusca={setSearch} placeholder="Produto ou linha…">
+        <JanelaSelect dias={daysLimit} onChange={onDaysLimitChange} />
+      </FilterBar>
 
-        {loading ? (
-          <div className="flex flex-col items-center justify-center h-64 gap-3 text-zinc-400">
-            <RefreshCw className="h-8 w-8 animate-spin" />
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="text-center py-16 text-sm text-zinc-400">
-            <AlertTriangle className="h-8 w-8 mx-auto mb-2 opacity-40" />
-            Nenhuma falta neste filtro.
-          </div>
-        ) : (
-          <table className="w-full text-left text-xs">
-            <thead className="bg-zinc-50 text-[10px] uppercase text-zinc-500 font-bold border-b">
+      {loading ? (
+        <div className="flex flex-col items-center justify-center h-64 gap-3 text-zinc-400">
+          <RefreshCw className="h-8 w-8 animate-spin" />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16 text-sm text-zinc-400">
+          <AlertTriangle className="h-8 w-8 mx-auto mb-2 opacity-40" />
+          Nenhuma falta neste filtro.
+        </div>
+      ) : (
+        <TabelaPainel>
+            <thead>
               <tr>
-                <th className="px-4 py-3 w-8" />
-                <th className="px-4 py-3">Produto</th>
-                <th className="px-4 py-3 text-right">Falta</th>
+                <th style={{ width: 32 }} />
+                <th>Produto</th>
+                <th style={{ textAlign: 'right' }}>Falta</th>
                 {subTab === 'ativas' && (
                   <>
-                    <th className="px-4 py-3 text-right">Estoque+Prod+T</th>
-                    <th className="px-4 py-3 text-right">Net</th>
+                    <th style={{ textAlign: 'right' }}>Estoque+Prod+T</th>
+                    <th style={{ textAlign: 'right' }}>Net</th>
                   </>
                 )}
-                <th className="px-4 py-3 text-right">Pedidos</th>
+                <th style={{ textAlign: 'right' }}>Pedidos</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100">
+            <tbody>
               {filtered.map((g) => {
                 const open = !!expanded[g.c_cod_prod];
                 return (
                   <React.Fragment key={g.c_cod_prod}>
-                    <tr className="hover:bg-zinc-50/50">
-                      <td className="px-4 py-3">
+                    <tr>
+                      <td>
                         <button
                           type="button"
                           onClick={() =>
@@ -167,7 +132,7 @@ export function FaltasTab({
                           )}
                         </button>
                       </td>
-                      <td className="px-4 py-3">
+                      <td>
                         <button
                           type="button"
                           onClick={() => onOpenProduct(g.c_cod_prod)}
@@ -179,26 +144,26 @@ export function FaltasTab({
                           </span>
                         </button>
                       </td>
-                      <td className="px-4 py-3 text-right font-extrabold text-rose-600">
+                      <td style={{ textAlign: 'right', fontWeight: 700 }}>
                         {g.total_falta.toLocaleString('pt-BR')}
                       </td>
                       {subTab === 'ativas' && (
                         <>
-                          <td className="px-4 py-3 text-right text-zinc-500">
+                          <td style={{ textAlign: 'right' }}>
                             {(g.estoque + g.producao + g.transit_purchase).toLocaleString('pt-BR')}
                           </td>
-                          <td className="px-4 py-3 text-right font-bold text-amber-700">
+                          <td style={{ textAlign: 'right', fontWeight: 700 }}>
                             {g.falta_net.toLocaleString('pt-BR')}
                           </td>
                         </>
                       )}
-                      <td className="px-4 py-3 text-right text-zinc-600">
+                      <td style={{ textAlign: 'right' }}>
                         {g.pedidos_afetados.length}
                       </td>
                     </tr>
                     {open && (
-                      <tr className="bg-zinc-50/40">
-                        <td colSpan={subTab === 'ativas' ? 6 : 4} className="px-4 py-3">
+                      <tr>
+                        <td colSpan={subTab === 'ativas' ? 6 : 4}>
                           <table className="w-full text-[11px]">
                             <thead>
                               <tr className="text-[9px] uppercase text-zinc-400">
@@ -223,18 +188,13 @@ export function FaltasTab({
                                     </span>
                                   </td>
                                   <td className="py-1.5">{item.c_nome || '—'}</td>
-                                  <td className="py-1.5 text-right font-extrabold text-rose-600">
+                                  <td className="py-1.5 text-right font-bold">
                                     {item.falta}
                                   </td>
                                   <td className="py-1.5 text-center">
-                                    <span
-                                      className={cn(
-                                        'px-2 py-0.5 rounded-full text-[9px] font-bold border',
-                                        salesOrderStatusColor(item.c_status),
-                                      )}
-                                    >
+                                    <StatusBadge variante={salesOrderStatusVariante(item.c_status)}>
                                       {salesOrderStatusLabel(item.c_status)}
-                                    </span>
+                                    </StatusBadge>
                                   </td>
                                   <td className="py-1.5">{formatSalesDate(item.d_previsao)}</td>
                                 </tr>
@@ -248,9 +208,8 @@ export function FaltasTab({
                 );
               })}
             </tbody>
-          </table>
-        )}
-      </div>
+        </TabelaPainel>
+      )}
     </div>
   );
 }

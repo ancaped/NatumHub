@@ -3,6 +3,7 @@ import { X, RefreshCw, Truck, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../../../geral/lib/http';
 import { cn } from '../../../geral/lib/utils';
 import Drawer from '../../../geral/components/ui/Drawer';
+import { StatusBadge } from '../../../geral/components/ui/ReportKit';
 import type {
   PendingPurchaseOrderItem,
   ProductDetails,
@@ -10,7 +11,7 @@ import type {
 } from '../lib/types';
 import {
   formatSalesDate,
-  salesOrderStatusColor,
+  salesOrderStatusVariante,
   salesOrderStatusLabel,
 } from '../lib/salesStatusUi';
 
@@ -200,14 +201,9 @@ export function ProductSalesDrawer({
                         <td className="px-3 py-2 truncate max-w-[160px]">{p.c_nome || '—'}</td>
                         <td className="px-3 py-2 text-right font-extrabold text-rose-600">{p.falta}</td>
                         <td className="px-3 py-2">
-                          <span
-                            className={cn(
-                              'px-2 py-0.5 rounded-full text-[9px] font-bold border',
-                              salesOrderStatusColor(p.c_status),
-                            )}
-                          >
+                          <StatusBadge variante={salesOrderStatusVariante(p.c_status)}>
                             {salesOrderStatusLabel(p.c_status)}
-                          </span>
+                          </StatusBadge>
                         </td>
                       </tr>
                     ))}
