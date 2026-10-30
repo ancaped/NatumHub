@@ -4,6 +4,8 @@ import AppLayout from '../../geral/components/layout/AppLayout';
 import { apiJson } from '../../geral/lib/http';
 import { loadNatumLogoDataUrl } from '../../geral/lib/logoUtils';
 import PopDrawer from './components/PopDrawer';
+import { useEmitirLote } from './components/EmitirLote';
+import { useAviso } from '../../geral/components/ui/Aviso';
 import FormulariosTab from './components/FormulariosTab';
 import ListaMestraTab from './components/ListaMestraTab';
 import NormasTab from './components/NormasTab';
@@ -31,6 +33,8 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
   const [newSectorName, setNewSectorName] = useState('');
   const [seedMsg, setSeedMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  const { avisar, aviso } = useAviso();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,6 +65,11 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const { abrir: abrirLote, elemento: loteElemento } = useEmitirLote(avisar, () => {
+    setMarcados(new Set());
+    void load();
+  });
 
   useEffect(() => {
     (window as unknown as { __current_page__?: string }).__current_page__ =
@@ -175,6 +184,27 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
     return Array.from(map.entries());
   }, [visiveis]);
 
+  const emitivel = (d: PopDocument) => d.status === 'draft' || d.status === 'in_review';
+
+  const alternarMarca = (id: string) =>
+    setMarcados((atual) => {
+      const novo = new Set(atual);
+      if (!novo.delete(id)) novo.add(id);
+      return novo;
+    });
+
+  const alternarSetor = (docs: PopDocument[]) =>
+    setMarcados((atual) => {
+      const ids = docs.filter(emitivel).map((d) => d.id);
+      const novo = new Set(atual);
+      if (ids.every((id) => novo.has(id))) ids.forEach((id) => novo.delete(id));
+      else ids.forEach((id) => novo.add(id));
+      return novo;
+    });
+
+  const emitir = (ids: string[], descricao: string) =>
+    abrirLote({ url: '/qualidade/pops/documents/emitir-lote', selecao: { ids }, descricao, tipo: 'POPs' });
+
   return (
     <AppLayout
       moduleTitle="POPs"
@@ -240,6 +270,16 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
                   <RefreshCw className="w-4 h-4 text-zinc-500" />
                   Atualizar
                 </button>
+                {marcados.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => emitir(Array.from(marcados), `${marcados.size} ${marcados.size === 1 ? 'POP selecionado' : 'POPs selecionados'}`)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-sm font-semibold text-emerald-800 transition-colors shadow-sm"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    Emitir selecionados ({marcados.size})
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={openNew}
@@ -278,20 +318,41 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
                   <section key={sector} className="bg-white rounded-2xl border border-zinc-200/80 shadow-sm overflow-hidden">
                     <div className="px-4 py-3 bg-zinc-50/70 border-b border-zinc-200/70 flex items-center justify-between">
                       <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          aria-label={`Selecionar os POPs emitíveis de ${sector}`}
+                          title="Selecionar rascunhos e em aprovação do setor"
+                          disabled={!docs.some(emitivel)}
+                          checked={docs.some(emitivel) && docs.filter(emitivel).every((d) => marcados.has(d.id))}
+                          onChange={() => alternarSetor(docs)}
+                          className="w-4 h-4 accent-zinc-900 cursor-pointer disabled:cursor-default"
+                        />
                         <Layers className="w-4 h-4 text-zinc-500" />
                         <h2 className="text-sm font-bold text-zinc-800 tracking-wide uppercase">
                           {sector}
                         </h2>
                       </div>
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-zinc-200/60 text-zinc-700">
-                        {docs.length} {docs.length === 1 ? 'procedimento' : 'procedimentos'}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {docs.some(emitivel) && (
+                          <button
+                            type="button"
+                            onClick={() => emitir(docs.filter(emitivel).map((d) => d.id), `${docs.filter(emitivel).length} POPs do setor ${sector}`)}
+                            className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700"
+                          >
+                            Emitir setor
+                          </button>
+                        )}
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-zinc-200/60 text-zinc-700">
+                          {docs.length} {docs.length === 1 ? 'procedimento' : 'procedimentos'}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm text-left table-fixed">
                         <thead className="bg-zinc-50/70 text-zinc-500 text-xs uppercase tracking-wider border-b border-zinc-200/80">
                           <tr>
+                            <th className="w-10 px-4 py-3" />
                             <th className="w-36 px-4 py-3 font-semibold text-left">Código</th>
                             <th className="px-4 py-3 font-semibold text-left">Título do POP</th>
                             <th className="w-28 px-4 py-3 font-semibold text-center">Revisão</th>
@@ -311,6 +372,17 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
                                 className="hover:bg-zinc-50/80 cursor-pointer transition-colors group"
                                 onClick={() => void openDoc(d)}
                               >
+                                <td className="w-10 px-4 py-3.5 align-middle" onClick={(e) => e.stopPropagation()}>
+                                  {emitivel(d) && (
+                                    <input
+                                      type="checkbox"
+                                      aria-label={`Selecionar ${d.code}`}
+                                      checked={marcados.has(d.id)}
+                                      onChange={() => alternarMarca(d.id)}
+                                      className="w-4 h-4 accent-zinc-900 cursor-pointer"
+                                    />
+                                  )}
+                                </td>
                                 <td className="w-36 px-4 py-3.5 font-mono text-xs font-bold text-zinc-900 group-hover:text-black align-middle text-left truncate">
                                   {d.code}
                                 </td>
@@ -445,6 +517,9 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
           </div>
         )}
       </div>
+
+      {loteElemento}
+      {aviso}
 
       <PopDrawer
         open={drawerOpen}

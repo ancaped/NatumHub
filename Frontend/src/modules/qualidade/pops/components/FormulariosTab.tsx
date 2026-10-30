@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Printer, Search } from 'lucide-react';
+import { Layers, Printer, Search } from 'lucide-react';
 import { apiJson } from '../../../geral/lib/http';
 import { useAviso } from '../../../geral/components/ui/Aviso';
 import { usePreviaServidor } from '../../../producao/lib/usePreviaServidor';
+import { useEmitirLote } from './EmitirLote';
+import type { PopSector } from '../types';
 import FormularioDrawer from './formularios/FormularioDrawer';
 import { FolhasImpressao, type ImpressaoDados } from './formularios/FormularioFolhas';
 import { fmtData, linhasPorFolha, montarFolhas, paraImpressao, rev2, rotuloStatus } from './formularios/montagem';
@@ -13,6 +15,13 @@ export type { Formulario, FormCampo } from './formularios/tipos';
 function setorDe(code: string) {
   return code.split('-')[1] || '';
 }
+
+/** Sigla do código (FOR-<SIGLA>-…) → id do setor em `pop_sectors`. */
+function idDoSetor(sigla: string) {
+  return sigla === 'ALM' ? 'almox' : sigla.toLowerCase();
+}
+
+const emitivel = (f: Formulario) => f.status === 'draft' || f.status === 'in_review';
 
 export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null }) {
   const { avisar, aviso } = useAviso();
@@ -25,6 +34,8 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
   const [aberto, setAberto] = useState<string | null>(null);
   const [imprimindo, setImprimindo] = useState<ImpressaoDados | null>(null);
   const [novoAberto, setNovoAberto] = useState(false);
+  const [sectors, setSectors] = useState<PopSector[]>([]);
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [novo, setNovo] = useState({ code: '', popCode: '', title: '', periodicity: 'Por uso', orientation: 'portrait' });
 
   const carregar = useCallback(() => {
@@ -41,12 +52,31 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
   }, [carregar]);
 
   useEffect(() => {
+    void apiJson<PopSector[]>('/qualidade/pops/sectors')
+      .then((rows) => setSectors(Array.isArray(rows) ? rows : []))
+      .catch(() => setSectors([]));
+  }, []);
+
+  const { abrir: abrirLote, elemento: loteElemento } = useEmitirLote(avisar, () => {
+    setMarcados(new Set());
+    carregar();
+  });
+
+  const nomeDoSetor = useCallback(
+    (sigla: string) => sectors.find((s) => s.id === idDoSetor(sigla))?.name ?? sigla,
+    [sectors],
+  );
+
+  useEffect(() => {
     const fim = () => setImprimindo(null);
     window.addEventListener('afterprint', fim);
     return () => window.removeEventListener('afterprint', fim);
   }, []);
 
-  const setores = useMemo(() => Array.from(new Set(lista.map((f) => setorDe(f.code)).filter(Boolean))), [lista]);
+  const setores = useMemo(() => {
+    const ordem = (sigla: string) => sectors.find((s) => s.id === idDoSetor(sigla))?.sortOrder ?? 999;
+    return Array.from(new Set(lista.map((f) => setorDe(f.code)).filter(Boolean))).sort((a, b) => ordem(a) - ordem(b) || a.localeCompare(b));
+  }, [lista, sectors]);
 
   const visiveis = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -57,6 +87,33 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
       return `${f.code} ${f.title} ${f.popCode} ${f.previousCode}`.toLowerCase().includes(q);
     });
   }, [lista, busca, setor, status]);
+
+  const grupos = useMemo(
+    () =>
+      setores
+        .map((sigla) => [sigla, visiveis.filter((f) => setorDe(f.code) === sigla)] as const)
+        .filter(([, fs]) => fs.length > 0),
+    [setores, visiveis],
+  );
+
+  const alternarMarca = (code: string) =>
+    setMarcados((atual) => {
+      const novo = new Set(atual);
+      if (!novo.delete(code)) novo.add(code);
+      return novo;
+    });
+
+  const alternarSetor = (fs: readonly Formulario[]) =>
+    setMarcados((atual) => {
+      const codes = fs.filter(emitivel).map((f) => f.code);
+      const novo = new Set(atual);
+      if (codes.every((c) => novo.has(c))) codes.forEach((c) => novo.delete(c));
+      else codes.forEach((c) => novo.add(c));
+      return novo;
+    });
+
+  const emitir = (codes: string[], descricao: string) =>
+    abrirLote({ url: '/qualidade/pops/formularios/emitir-lote', selecao: { codes }, descricao, tipo: 'formulários' });
 
   const imprimir = useCallback((d: ImpressaoDados) => {
     setImprimindo(d);
@@ -106,7 +163,7 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
         </div>
         <select className="rounded-xl border border-zinc-200 px-3 py-2 text-sm bg-zinc-50/50" value={setor} onChange={(e) => setSetor(e.target.value)}>
           <option value="">Todos os setores</option>
-          {setores.map((s) => <option key={s} value={s}>{s}</option>)}
+          {setores.map((s) => <option key={s} value={s}>{nomeDoSetor(s)}</option>)}
         </select>
         <select className="rounded-xl border border-zinc-200 px-3 py-2 text-sm bg-zinc-50/50" value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">Todos os status</option>
@@ -116,6 +173,15 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
           <option value="obsolete">Obsoleto</option>
         </select>
         <span className="text-xs font-semibold text-zinc-500">{visiveis.length} formulários</span>
+        {marcados.size > 0 && (
+          <button
+            type="button"
+            onClick={() => emitir(Array.from(marcados), `${marcados.size} ${marcados.size === 1 ? 'formulário selecionado' : 'formulários selecionados'}`)}
+            className="px-3 py-2 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-sm font-semibold text-emerald-800"
+          >
+            Emitir selecionados ({marcados.size})
+          </button>
+        )}
         <button type="button" onClick={() => setNovoAberto((v) => !v)} className="px-3 py-2 rounded-xl bg-zinc-900 text-white text-sm font-medium">
           Novo
         </button>
@@ -136,10 +202,45 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-zinc-200/80 shadow-sm overflow-hidden">
+      {grupos.length === 0 && (
+        <div className="bg-white rounded-2xl border border-zinc-200/80 shadow-sm px-4 py-10 text-center text-sm text-zinc-500">Nenhum formulário neste filtro.</div>
+      )}
+      {grupos.map(([sigla, fs]) => (
+        <section key={sigla} className="bg-white rounded-2xl border border-zinc-200/80 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 bg-zinc-50/70 border-b border-zinc-200/70 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                aria-label={`Selecionar os formulários emitíveis de ${nomeDoSetor(sigla)}`}
+                title="Selecionar rascunhos e em aprovação do setor"
+                disabled={!fs.some(emitivel)}
+                checked={fs.some(emitivel) && fs.filter(emitivel).every((f) => marcados.has(f.code))}
+                onChange={() => alternarSetor(fs)}
+                className="w-4 h-4 accent-zinc-900 cursor-pointer disabled:cursor-default"
+              />
+              <Layers className="w-4 h-4 text-zinc-500" />
+              <h2 className="text-sm font-bold text-zinc-800 tracking-wide uppercase">{nomeDoSetor(sigla)}</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              {fs.some(emitivel) && (
+                <button
+                  type="button"
+                  onClick={() => emitir(fs.filter(emitivel).map((f) => f.code), `${fs.filter(emitivel).length} formulários do setor ${nomeDoSetor(sigla)}`)}
+                  className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700"
+                >
+                  Emitir setor
+                </button>
+              )}
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-zinc-200/60 text-zinc-700">
+                {fs.length} {fs.length === 1 ? 'formulário' : 'formulários'}
+              </span>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
         <table className="w-full text-sm text-left">
           <thead className="bg-zinc-50/70 text-zinc-500 text-xs uppercase tracking-wider border-b border-zinc-200/80">
             <tr>
+              <th className="w-10 px-4 py-3" />
               <th className="px-4 py-3 font-semibold">Código</th>
               <th className="px-4 py-3 font-semibold">Título</th>
               <th className="px-4 py-3 font-semibold">POP</th>
@@ -152,11 +253,22 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
-            {visiveis.map((f) => {
+            {fs.map((f) => {
               const st = rotuloStatus(f.status);
               const vencida = f.status === 'published' && (f.daysToReview ?? 1) < 0;
               return (
                 <tr key={f.code} className="hover:bg-zinc-50/80 cursor-pointer" onClick={() => setAberto(f.code)}>
+                  <td className="w-10 px-4 py-3 align-middle" onClick={(e) => e.stopPropagation()}>
+                    {emitivel(f) && (
+                      <input
+                        type="checkbox"
+                        aria-label={`Selecionar ${f.code}`}
+                        checked={marcados.has(f.code)}
+                        onChange={() => alternarMarca(f.code)}
+                        className="w-4 h-4 accent-zinc-900 cursor-pointer"
+                      />
+                    )}
+                  </td>
                   <td className="px-4 py-3 align-middle">
                     <div className="font-mono text-xs font-bold text-zinc-900">{f.code}</div>
                     <div className="text-[10px] text-zinc-400">antes: {f.previousCode}</div>
@@ -194,14 +306,11 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
                 </tr>
               );
             })}
-            {visiveis.length === 0 && (
-              <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-sm text-zinc-500">Nenhum formulário neste filtro.</td>
-              </tr>
-            )}
           </tbody>
         </table>
-      </div>
+          </div>
+        </section>
+      ))}
 
       <FormularioDrawer
         code={aberto}
@@ -213,6 +322,7 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
       />
 
       {previaElemento}
+      {loteElemento}
       {aviso}
       {imprimindo && <FolhasImpressao dados={imprimindo} />}
     </div>

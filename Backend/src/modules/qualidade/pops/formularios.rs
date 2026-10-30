@@ -223,7 +223,7 @@ fn orientacao_valida(v: &str) -> Result<&'static str, ErroApi> {
     }
 }
 
-fn exigir_motivo(m: &str) -> Result<String, ErroApi> {
+pub(super) fn exigir_motivo(m: &str) -> Result<String, ErroApi> {
     let m = m.trim();
     if m.is_empty() {
         Err(ErroApi::invalido("Informe o motivo."))
@@ -234,7 +234,7 @@ fn exigir_motivo(m: &str) -> Result<String, ErroApi> {
 
 // ───────────────────────── leitura ─────────────────────────
 
-async fn ensure(pool: &PgPool) -> Result<(), String> {
+pub(super) async fn ensure(pool: &PgPool) -> Result<(), String> {
     if SEMEADO.load(Ordering::Relaxed) {
         return Ok(());
     }
@@ -328,7 +328,7 @@ fn map_row(row: &sqlx::postgres::PgRow) -> Formulario {
 }
 
 /// Lê um formulário; `travar` segura a linha até o fim da transação (mudança de status concorrente).
-async fn buscar(conn: &mut PgConnection, code: &str, travar: bool) -> Result<Formulario, ErroApi> {
+pub(super) async fn buscar(conn: &mut PgConnection, code: &str, travar: bool) -> Result<Formulario, ErroApi> {
     let sql = format!("{SELECT_FORM} WHERE f.code = $1{}", if travar { " FOR UPDATE OF f" } else { "" });
     let row = sqlx::query(&sql)
         .bind(code)
@@ -389,7 +389,7 @@ pub async fn detalhar(pool: &PgPool, code: &str) -> Result<Value, ErroApi> {
 
 // ───────────────────────── escritas (2 passos + auditoria + evento) ─────────────────────────
 
-fn para_json(f: &Formulario) -> Result<Value, ErroApi> {
+pub(super) fn para_json(f: &Formulario) -> Result<Value, ErroApi> {
     serde_json::to_value(f).map_err(|e| ErroApi::interno(e.to_string()))
 }
 
@@ -576,34 +576,27 @@ pub async fn mover_status(pool: &PgPool, code: &str, destino: &str, motivo: &str
     let entrada = json!({ "code": code, "destino": destino, "motivo": motivo });
     let alvo = code.clone();
     gravar_auditado(pool, "mover_status_formulario_pop", autor, &alvo, entrada, confirmar, move |c| {
-        Box::pin(async move {
-            let atual = buscar(&mut *c, &code, true).await?;
-            if !transicao_permitida(&atual.status, &destino_s) {
-                return Err(ErroApi::regra(format!("Não dá para ir de {} para {destino_s}.", atual.status)));
-            }
-            sqlx::query(
-                "UPDATE pop_formularios SET status = $2, elaborated_by = CASE WHEN $2 = 'in_review' THEN $3 ELSE elaborated_by END, updated_at = NOW() WHERE code = $1",
-            )
-            .bind(&code)
-            .bind(&destino_s)
-            .bind(&quem)
-            .execute(&mut *c)
-            .await?;
-            eventos::registrar(
-                &mut *c,
-                "formulario",
-                &code,
-                evento_do_destino(&destino_s),
-                Some(&atual.status),
-                Some(&destino_s),
-                Some(&motivo),
-                &quem,
-            )
-            .await?;
-            para_json(&buscar(&mut *c, &code, false).await?)
-        })
+        Box::pin(async move { mover_status_tx(&mut *c, &code, &destino_s, &motivo, &quem).await })
     })
     .await
+}
+
+/// Troca o status (na transação do 2 passos): valida a transição, grava e acrescenta o evento. `motivo` já validado.
+pub(super) async fn mover_status_tx(c: &mut PgConnection, code: &str, destino: &str, motivo: &str, quem: &str) -> Result<Value, ErroApi> {
+    let atual = buscar(&mut *c, code, true).await?;
+    if !transicao_permitida(&atual.status, destino) {
+        return Err(ErroApi::regra(format!("Não dá para ir de {} para {destino}.", atual.status)));
+    }
+    sqlx::query(
+        "UPDATE pop_formularios SET status = $2, elaborated_by = CASE WHEN $2 = 'in_review' THEN $3 ELSE elaborated_by END, updated_at = NOW() WHERE code = $1",
+    )
+    .bind(code)
+    .bind(destino)
+    .bind(quem)
+    .execute(&mut *c)
+    .await?;
+    eventos::registrar(&mut *c, "formulario", code, evento_do_destino(destino), Some(&atual.status), Some(destino), Some(motivo), quem).await?;
+    para_json(&buscar(&mut *c, code, false).await?)
 }
 
 /// Aprova (só de «em aprovação»): vira vigente, grava vigência/próxima revisão/aprovador e a cópia no histórico.
@@ -615,52 +608,55 @@ pub async fn publicar(pool: &PgPool, code: &str, motivo: &str, autor: &str, conf
     let entrada = json!({ "code": code, "motivo": motivo });
     let alvo = code.clone();
     gravar_auditado(pool, "publicar_formulario_pop", autor, &alvo, entrada, confirmar, move |c| {
-        Box::pin(async move {
-            let atual = buscar(&mut *c, &code, true).await?;
-            if atual.status != "in_review" {
-                return Err(ErroApi::regra("Só formulário «em aprovação» pode ser publicado. Envie para aprovação antes."));
-            }
-            let nova = revisao_ao_publicar(atual.ja_publicado, atual.revision);
-            let vigencia = store::today();
-            let proxima = store::proxima_revisao(vigencia);
-            sqlx::query(
-                r#"
-                UPDATE pop_formularios SET
-                    status = 'published', revision = $2, effective_date = $3, next_review_date = $4,
-                    approved_by = $5, approved_at = NOW(), elaborated_by = COALESCE(elaborated_by, $5), updated_at = NOW()
-                WHERE code = $1
-                "#,
-            )
-            .bind(&code)
-            .bind(nova)
-            .bind(vigencia)
-            .bind(proxima)
-            .bind(&quem)
-            .execute(&mut *c)
-            .await?;
-            let publicado = buscar(&mut *c, &code, false).await?;
-            sqlx::query(
-                r#"
-                INSERT INTO pop_formulario_revisoes (id, code, revision, pop_code, title, orientation, motivo, snapshot, created_by)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                "#,
-            )
-            .bind(uuid::Uuid::new_v4().to_string())
-            .bind(&code)
-            .bind(nova)
-            .bind(&publicado.pop_code)
-            .bind(&publicado.title)
-            .bind(&publicado.orientation)
-            .bind(&motivo)
-            .bind(para_json(&publicado)?)
-            .bind(&quem)
-            .execute(&mut *c)
-            .await?;
-            eventos::registrar(&mut *c, "formulario", &code, "publicado", Some("in_review"), Some("published"), Some(&motivo), &quem).await?;
-            para_json(&publicado)
-        })
+        Box::pin(async move { publicar_tx(&mut *c, &code, &motivo, &quem).await })
     })
     .await
+}
+
+/// Publica na transação do 2 passos (só de «em aprovação»). `motivo` já validado.
+pub(super) async fn publicar_tx(c: &mut PgConnection, code: &str, motivo: &str, quem: &str) -> Result<Value, ErroApi> {
+    let atual = buscar(&mut *c, code, true).await?;
+    if atual.status != "in_review" {
+        return Err(ErroApi::regra("Só formulário «em aprovação» pode ser publicado. Envie para aprovação antes."));
+    }
+    let nova = revisao_ao_publicar(atual.ja_publicado, atual.revision);
+    let vigencia = store::today();
+    let proxima = store::proxima_revisao(vigencia);
+    sqlx::query(
+        r#"
+        UPDATE pop_formularios SET
+            status = 'published', revision = $2, effective_date = $3, next_review_date = $4,
+            approved_by = $5, approved_at = NOW(), elaborated_by = COALESCE(elaborated_by, $5), updated_at = NOW()
+        WHERE code = $1
+        "#,
+    )
+    .bind(code)
+    .bind(nova)
+    .bind(vigencia)
+    .bind(proxima)
+    .bind(quem)
+    .execute(&mut *c)
+    .await?;
+    let publicado = buscar(&mut *c, code, false).await?;
+    sqlx::query(
+        r#"
+        INSERT INTO pop_formulario_revisoes (id, code, revision, pop_code, title, orientation, motivo, snapshot, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        "#,
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(code)
+    .bind(nova)
+    .bind(&publicado.pop_code)
+    .bind(&publicado.title)
+    .bind(&publicado.orientation)
+    .bind(motivo)
+    .bind(para_json(&publicado)?)
+    .bind(quem)
+    .execute(&mut *c)
+    .await?;
+    eventos::registrar(&mut *c, "formulario", code, "publicado", Some("in_review"), Some("published"), Some(motivo), quem).await?;
+    para_json(&publicado)
 }
 
 #[derive(Debug, Deserialize)]

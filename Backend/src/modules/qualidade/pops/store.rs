@@ -690,6 +690,48 @@ pub async fn mover_status_tx(
     get_document_conn(conn, id).await
 }
 
+/// O que uma aprovação grava: revisão, vigência e próxima revisão.
+#[derive(Debug, PartialEq, Eq)]
+pub struct DecisaoPublicacao {
+    pub revisao: i32,
+    pub vigencia: NaiveDate,
+    pub proxima: NaiveDate,
+    /// Primeira emissão do POP (nunca foi publicado).
+    pub inicial: bool,
+}
+
+/// Emissão inicial mantém a revisão (a do Word; mínimo 1) e a vigência já gravada (hoje se vazia);
+/// revisão nova soma 1 e usa a vigência informada (hoje por padrão). A próxima revisão é vigência + 2 anos,
+/// mesmo que já tenha passado (o alerta mostra como vencida).
+pub fn decidir_publicacao(
+    ja_publicado: bool,
+    revisao_atual: i32,
+    vigencia_gravada: Option<NaiveDate>,
+    vigencia_informada: Option<NaiveDate>,
+    hoje: NaiveDate,
+) -> DecisaoPublicacao {
+    let (revisao, vigencia) = if ja_publicado {
+        (revisao_atual + 1, vigencia_informada.unwrap_or(hoje))
+    } else {
+        (revisao_atual.max(1), vigencia_informada.or(vigencia_gravada).unwrap_or(hoje))
+    };
+    DecisaoPublicacao { revisao, vigencia, proxima: proxima_revisao(vigencia), inicial: !ja_publicado }
+}
+
+/// O POP já teve alguma publicação: há evento de publicação/revalidação ou outra versão além da corrente.
+async fn ja_foi_publicado(conn: &mut PgConnection, id: &str, versao_corrente: Option<&str>) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (SELECT 1 FROM pop_eventos WHERE tipo = 'pop' AND ref = $1 AND acao IN ('publicado', 'revalidado'))
+            OR EXISTS (SELECT 1 FROM pop_versions WHERE document_id = $1 AND id <> COALESCE($2, ''))
+        "#,
+    )
+    .bind(id)
+    .bind(versao_corrente)
+    .fetch_one(&mut *conn)
+    .await
+}
+
 /// Aprova/publica uma revisão (de «em aprovação» ou de vigente). Evento `publicado` com o motivo.
 pub async fn publish_document_tx(
     conn: &mut PgConnection,
@@ -710,51 +752,75 @@ pub async fn publish_document_tx(
         .content
         .or_else(|| doc.current_version.as_ref().map(|v| v.content.clone()))
         .unwrap_or_default();
-    let eff = match input.effective_date.as_deref() {
-        Some(s) if !s.trim().is_empty() => parse_date(s).map_err(ErroApi::invalido)?,
-        _ => today(),
+    let informada = match input.effective_date.as_deref() {
+        Some(s) if !s.trim().is_empty() => Some(parse_date(s).map_err(ErroApi::invalido)?),
+        _ => None,
     };
-    let next = proxima_revisao(eff);
-    let new_rev = if doc.status == "draft" && doc.current_revision == 0 {
-        1
-    } else {
-        doc.current_revision + 1
-    };
-    let kind = if doc.status == "draft" && doc.current_revision == 0 {
-        "initial"
-    } else {
-        "content"
-    };
-    let vid = Uuid::new_v4().to_string();
+    let gravada = doc.effective_date.as_deref().and_then(|s| parse_date(s).ok());
+    let ja_publicado = doc.status == "published" || ja_foi_publicado(&mut *conn, id, doc.current_version_id.as_deref()).await?;
+    let d = decidir_publicacao(ja_publicado, doc.current_revision, gravada, informada, today());
+    let (eff, next, new_rev) = (d.vigencia, d.proxima, d.revisao);
+    let kind = if d.inicial { "initial" } else { "content" };
     let elab = input
         .elaborated_by
         .or(doc.elaborated_by.clone());
     let rev = input.reviewed_by.or(doc.reviewed_by.clone());
     let appr = input.approved_by.or(doc.approved_by.clone());
 
-    sqlx::query(
-        r#"
-        INSERT INTO pop_versions
-            (id, document_id, revision, effective_date, next_review_date,
-             change_kind, change_summary, content_json,
-             elaborated_by, reviewed_by, approved_by, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        "#,
-    )
-    .bind(&vid)
-    .bind(id)
-    .bind(new_rev)
-    .bind(eff)
-    .bind(next)
-    .bind(kind)
-    .bind(&motivo)
-    .bind(base_content.to_value())
-    .bind(&elab)
-    .bind(&rev)
-    .bind(&appr)
-    .bind(created_by)
-    .execute(&mut *conn)
-    .await?;
+    // Emissão inicial que mantém a revisão da versão corrente (veio do Word): atualiza essa versão no lugar;
+    // nos demais casos acrescenta uma versão nova.
+    let versao_corrente_mesma_revisao = d.inicial
+        && doc.current_version.as_ref().is_some_and(|v| v.revision == new_rev)
+        && doc.current_version_id.is_some();
+    let vid = if versao_corrente_mesma_revisao {
+        let vid = doc.current_version_id.clone().unwrap_or_default();
+        sqlx::query(
+            r#"
+            UPDATE pop_versions SET
+                effective_date = $2, next_review_date = $3, change_kind = $4, change_summary = $5, content_json = $6,
+                elaborated_by = $7, reviewed_by = $8, approved_by = $9
+            WHERE id = $1
+            "#,
+        )
+        .bind(&vid)
+        .bind(eff)
+        .bind(next)
+        .bind(kind)
+        .bind(&motivo)
+        .bind(base_content.to_value())
+        .bind(&elab)
+        .bind(&rev)
+        .bind(&appr)
+        .execute(&mut *conn)
+        .await?;
+        vid
+    } else {
+        let vid = Uuid::new_v4().to_string();
+        sqlx::query(
+            r#"
+            INSERT INTO pop_versions
+                (id, document_id, revision, effective_date, next_review_date,
+                 change_kind, change_summary, content_json,
+                 elaborated_by, reviewed_by, approved_by, created_by)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            "#,
+        )
+        .bind(&vid)
+        .bind(id)
+        .bind(new_rev)
+        .bind(eff)
+        .bind(next)
+        .bind(kind)
+        .bind(&motivo)
+        .bind(base_content.to_value())
+        .bind(&elab)
+        .bind(&rev)
+        .bind(&appr)
+        .bind(created_by)
+        .execute(&mut *conn)
+        .await?;
+        vid
+    };
 
     sqlx::query(
         r#"

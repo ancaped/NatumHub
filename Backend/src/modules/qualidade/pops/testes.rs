@@ -5,7 +5,9 @@ use sqlx::PgPool;
 
 use super::formularios::{self, Campo, EditarFormulario, NovoFormulario};
 use super::models::{DocumentInput, PublishInput};
-use super::{eventos, servicos};
+use super::lote::{self, LoteFormularios, LotePops};
+use super::{eventos, servicos, store};
+use chrono::NaiveDate;
 
 #[test]
 fn transicoes_do_formulario_seguem_as_do_pop() {
@@ -241,4 +243,157 @@ async fn pop_enviar_devolver_enviar_aprovar_preserva_os_motivos() {
     assert_eq!(resumo, "Rascunho inicial");
 
     sqlx::query("DELETE FROM pop_documents WHERE id = $1").bind(&id).execute(&pool).await.unwrap();
+}
+
+fn dia(a: i32, m: u32, d: u32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(a, m, d).unwrap()
+}
+
+#[test]
+fn lote_so_aceita_rascunho_e_em_aprovacao() {
+    assert!(lote::classificar_emissao("draft").is_ok());
+    assert!(lote::classificar_emissao("in_review").is_ok());
+    assert_eq!(lote::classificar_emissao("published"), Err("já vigente"));
+    assert_eq!(lote::classificar_emissao("obsolete"), Err("obsoleto"));
+    assert!(lote::classificar_emissao("xyz").is_err());
+}
+
+#[test]
+fn emissao_inicial_mantem_revisao_e_vigencia_e_revisao_nova_soma_1() {
+    let hoje = dia(2026, 10, 30);
+    // inicial: Rev 08 e vigência do Word mantidas; próxima = +2 anos (já passou: não se inventa data)
+    let d = store::decidir_publicacao(false, 8, Some(dia(2025, 9, 2)), None, hoje);
+    assert_eq!((d.revisao, d.vigencia, d.proxima, d.inicial), (8, dia(2025, 9, 2), dia(2027, 9, 2), true));
+    let d = store::decidir_publicacao(false, 2, Some(dia(2023, 1, 10)), None, hoje);
+    assert!(d.proxima < hoje, "fica no passado e aparece como vencida");
+    // sem vigência gravada: hoje; revisão 0 vira 1
+    let d = store::decidir_publicacao(false, 0, None, None, hoje);
+    assert_eq!((d.revisao, d.vigencia), (1, hoje));
+    // vigência informada vence a gravada
+    assert_eq!(store::decidir_publicacao(false, 8, Some(dia(2025, 9, 2)), Some(hoje), hoje).vigencia, hoje);
+    // já publicado: +1 e vigência informada (ou hoje)
+    let d = store::decidir_publicacao(true, 8, Some(dia(2025, 9, 2)), None, hoje);
+    assert_eq!((d.revisao, d.vigencia, d.proxima, d.inicial), (9, hoje, dia(2028, 10, 29), false));
+}
+
+async fn novo_pop(pool: &PgPool, code: &str) -> String {
+    let r = servicos::criar_documento(
+        pool,
+        DocumentInput { code: code.into(), title: "POP de lote".into(), sector_id: "adm".into(), content: None, elaborated_by: None, reviewed_by: None, approved_by: None },
+        "Teste Automatizado",
+        true,
+    )
+    .await
+    .unwrap();
+    r.resultado["id"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+#[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+async fn emitir_lote_de_pops_mantem_revisao_do_word_e_ignora_vigente() {
+    let pool = pool_de_teste().await;
+    let n = sufixo();
+    let quem = "Teste Automatizado";
+    let (c1, c2, c3) = (format!("POP-ZZL-{n}-1"), format!("POP-ZZL-{n}-2"), format!("POP-ZZL-{n}-3"));
+    let (id1, id2, id3) = (novo_pop(&pool, &c1).await, novo_pop(&pool, &c2).await, novo_pop(&pool, &c3).await);
+
+    // 1: veio do Word com Rev 08 e vigência 2025-09-02 (como a importação grava); 2: sem vigência; 3: já vigente
+    sqlx::query("UPDATE pop_versions SET revision = 8, effective_date = '2025-09-02', next_review_date = '2027-09-02' WHERE document_id = $1").bind(&id1).execute(&pool).await.unwrap();
+    sqlx::query("UPDATE pop_documents SET current_revision = 8, effective_date = '2025-09-02', next_review_date = '2027-09-02' WHERE id = $1").bind(&id1).execute(&pool).await.unwrap();
+    servicos::mover_status(&pool, &id3, "in_review", "enviar", quem, true).await.unwrap();
+    servicos::publicar_documento(
+        &pool, &id3,
+        PublishInput { effective_date: None, change_summary: Some("ok".into()), content: None, elaborated_by: None, reviewed_by: None, approved_by: None },
+        quem, true,
+    )
+    .await
+    .unwrap();
+
+    let lote_de = |confirmar: bool, motivo: &str| {
+        lote::emitir_pops(&pool, LotePops { ids: vec![id1.clone(), id2.clone(), id3.clone(), "nao-existe".into()], setor: None, motivo: motivo.into() }, quem, confirmar)
+    };
+    assert!(lote_de(true, " ").await.is_err(), "motivo obrigatório");
+    let previa = lote_de(false, "Emissão inicial na codificação nova").await.unwrap();
+    assert!(previa.previa);
+    assert_eq!(previa.resultado["total"], 2);
+    assert_eq!(previa.resultado["ignorados"].as_array().unwrap().len(), 2);
+    let status: String = sqlx::query_scalar("SELECT status FROM pop_documents WHERE id = $1").bind(&id1).fetch_one(&pool).await.unwrap();
+    assert_eq!(status, "draft", "a prévia não grava");
+
+    let r = lote_de(true, "Emissão inicial na codificação nova").await.unwrap();
+    assert_eq!(r.resultado["total"], 2);
+    assert_eq!(r.resultado["vencidos"], 0);
+    let e1 = &r.resultado["emitidos"][0];
+    assert_eq!(e1["code"], c1.as_str());
+    assert_eq!(e1["revisao"], 8);
+    assert_eq!(e1["vigencia"], "2025-09-02");
+    assert_eq!(e1["proximaRevisao"], "2027-09-02");
+    let motivos: Vec<_> = r.resultado["ignorados"].as_array().unwrap().iter().map(|i| i["motivo"].as_str().unwrap().to_string()).collect();
+    assert!(motivos.contains(&"já vigente".to_string()) && motivos.contains(&"não encontrado".to_string()));
+
+    for id in [&id1, &id2] {
+        let t = eventos::listar(&pool, "pop", id).await.unwrap();
+        assert_eq!(acoes(&t), ["criado", "enviado_aprovacao", "publicado"]);
+        assert!(t.iter().all(|e| e.usuario == quem));
+    }
+    // o vigente não ganhou eventos nem revisão
+    assert_eq!(eventos::listar(&pool, "pop", &id3).await.unwrap().len(), 3);
+    let (rev, eff, aprovador): (i32, String, Option<String>) = sqlx::query_as("SELECT current_revision, effective_date::text, approved_by FROM pop_documents WHERE id = $1").bind(&id1).fetch_one(&pool).await.unwrap();
+    assert_eq!((rev, eff.as_str(), aprovador.as_deref()), (8, "2025-09-02", Some(quem)));
+    let versoes: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pop_versions WHERE document_id = $1").bind(&id1).fetch_one(&pool).await.unwrap();
+    assert_eq!(versoes, 1, "a versão do Word é atualizada no lugar");
+    // sem vigência do Word: hoje, revisão mínima 1
+    let (rev2, eff2): (i32, String) = sqlx::query_as("SELECT current_revision, effective_date::text FROM pop_documents WHERE id = $1").bind(&id2).fetch_one(&pool).await.unwrap();
+    assert_eq!((rev2, eff2), (1, store::today().format("%Y-%m-%d").to_string()));
+
+    for id in [&id1, &id2, &id3] {
+        sqlx::query("DELETE FROM pop_documents WHERE id = $1").bind(id).execute(&pool).await.unwrap();
+    }
+}
+
+#[tokio::test]
+#[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+async fn emitir_lote_de_formularios_publica_rev_00_com_snapshot() {
+    let pool = pool_de_teste().await;
+    formularios::listar(&pool).await.unwrap();
+    let n = sufixo();
+    let quem = "Teste Automatizado";
+    let pop = format!("POP-ZZF-{n}");
+    novo_pop(&pool, &pop).await;
+    let codes = [format!("FOR-ZZF-{n}-01"), format!("FOR-ZZF-{n}-02")];
+    for c in &codes {
+        formularios::criar(&pool, NovoFormulario { code: c.clone(), pop_code: pop.clone(), title: "Form de lote".into(), periodicity: "Diária".into(), orientation: None, confirmar: None }, quem, true)
+            .await
+            .unwrap();
+    }
+    // um deles já em aprovação: entra do mesmo jeito (um evento só a mais)
+    formularios::mover_status(&pool, &codes[1], "in_review", "enviar", quem, true).await.unwrap();
+
+    let entrada = |setor: Option<&str>| LoteFormularios { codes: if setor.is_some() { vec![] } else { codes.to_vec() }, setor: setor.map(String::from), motivo: "Emissão inicial".into() };
+    let previa = lote::emitir_formularios(&pool, entrada(None), quem, false).await.unwrap();
+    assert!(previa.previa);
+    assert_eq!(previa.resultado["total"], 2);
+    let r = lote::emitir_formularios(&pool, entrada(Some("zzf")), quem, true).await.unwrap();
+    assert_eq!(r.resultado["total"], 2);
+    for e in r.resultado["emitidos"].as_array().unwrap() {
+        assert_eq!(e["revisao"], 0);
+        assert_eq!(e["vigencia"], store::today().format("%Y-%m-%d").to_string());
+    }
+    // repetir: agora ambos são ignorados como já vigentes
+    let de_novo = lote::emitir_formularios(&pool, entrada(None), quem, true).await.unwrap();
+    assert_eq!(de_novo.resultado["total"], 0);
+    assert_eq!(de_novo.resultado["ignorados"].as_array().unwrap().len(), 2);
+
+    let t0 = eventos::listar(&pool, "formulario", &codes[0]).await.unwrap();
+    assert_eq!(acoes(&t0), ["criado", "enviado_aprovacao", "publicado"]);
+    let d = formularios::detalhar(&pool, &codes[1]).await.unwrap();
+    assert_eq!(d["status"], "published");
+    assert_eq!(d["revisoes"].as_array().unwrap().len(), 1);
+    assert!(d["revisoes"][0]["snapshot"]["fields"].as_array().unwrap().len() >= 3);
+
+    for c in &codes {
+        sqlx::query("DELETE FROM pop_formulario_revisoes WHERE code = $1").bind(c).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM pop_formularios WHERE code = $1").bind(c).execute(&pool).await.unwrap();
+    }
+    sqlx::query("DELETE FROM pop_documents WHERE code = $1").bind(&pop).execute(&pool).await.unwrap();
 }

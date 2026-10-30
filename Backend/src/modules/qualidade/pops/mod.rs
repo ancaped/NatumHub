@@ -1,6 +1,7 @@
 pub mod eventos;
 pub mod formularios;
 pub mod handlers;
+pub mod lote;
 pub mod models;
 pub mod servicos;
 pub mod store;
@@ -24,6 +25,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/api/qualidade/pops/documents",
             get(handlers::list_documents).post(handlers::create_document),
+        )
+        .route(
+            "/api/qualidade/pops/documents/emitir-lote",
+            post(handlers::emitir_lote_pops),
         )
         .route(
             "/api/qualidade/pops/documents/:id",
@@ -68,6 +73,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/api/qualidade/pops/formularios",
             get(handlers::list_formularios).post(handlers::criar_formulario),
+        )
+        .route(
+            "/api/qualidade/pops/formularios/emitir-lote",
+            post(handlers::emitir_lote_formularios),
         )
         .route(
             "/api/qualidade/pops/formularios/:code",
@@ -261,6 +270,34 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
                 param("id", "caminho", "texto", true, "Id do POP."),
                 param("changeSummary", "corpo", "texto", true, "Motivo."),
                 param("effectiveDate", "corpo", "data", false, "Vigência AAAA-MM-DD (hoje por padrão)."),
+                confirmar(),
+            ],
+        ),
+        Acao::gravacao(
+            "emitir_lote_pops",
+            "qualidade_pops",
+            "Emite POPs em lote (rascunho/em aprovação → vigente): mantém a revisão e a vigência do Word na emissão inicial, próxima revisão em 2 anos. Passe ids ou setor; ignora o que já está vigente ou obsoleto. Motivo obrigatório.",
+            "POST",
+            "/api/qualidade/pops/documents/emitir-lote",
+            true,
+            vec![
+                param("ids", "corpo", "lista", false, "Ids dos POPs."),
+                param("setor", "corpo", "texto", false, "Id do setor (ex.: cql), alternativa a ids."),
+                param("motivo", "corpo", "texto", true, "Motivo (ex.: Emissão inicial na codificação nova)."),
+                confirmar(),
+            ],
+        ),
+        Acao::gravacao(
+            "emitir_lote_formularios_pop",
+            "qualidade_pops",
+            "Emite formulários em lote (rascunho/em aprovação → vigente): primeira publicação Rev. 00, vigência hoje, com cópia no histórico. Passe codes ou setor (sigla, ex.: CQL). Motivo obrigatório.",
+            "POST",
+            "/api/qualidade/pops/formularios/emitir-lote",
+            true,
+            vec![
+                param("codes", "corpo", "lista", false, "Códigos dos formulários."),
+                param("setor", "corpo", "texto", false, "Sigla do setor no código (ex.: CQL), alternativa a codes."),
+                param("motivo", "corpo", "texto", true, "Motivo (ex.: Emissão inicial na codificação nova)."),
                 confirmar(),
             ],
         ),

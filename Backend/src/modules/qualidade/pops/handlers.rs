@@ -16,7 +16,7 @@ use super::models::{
     DocumentInput, DocumentUpdateInput, DocumentsQuery, MoverStatusInput, PublishInput, RevalidateInput, SectorInput,
     SeedInventoryInput,
 };
-use super::{eventos, formularios, servicos, store};
+use super::{eventos, formularios, lote, servicos, store};
 
 fn err(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(json!({ "error": msg.into() }))).into_response()
@@ -308,4 +308,24 @@ pub async fn check_alerts(State(state): State<Arc<AppState>>) -> impl IntoRespon
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
+}
+
+pub async fn emitir_lote_pops(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(input): Json<lote::LotePops>,
+) -> Result<Response, ErroApi> {
+    let r = lote::emitir_pops(state.db.pool(), input, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
+}
+
+pub async fn emitir_lote_formularios(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(input): Json<lote::LoteFormularios>,
+) -> Result<Response, ErroApi> {
+    let r = lote::emitir_formularios(state.db.pool(), input, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
 }
