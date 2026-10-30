@@ -12,6 +12,7 @@ pub mod core {
     pub mod pg_row;
     pub mod sales_open;
     pub mod production_reserve;
+    pub mod vendas_atendimento;
     pub mod mdns;
     pub mod regras_produto;
 }

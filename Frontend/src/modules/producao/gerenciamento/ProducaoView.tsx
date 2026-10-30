@@ -35,9 +35,12 @@ type ProducaoLockedView = 'bases' | 'lotes';
 export default function ProducaoView({
   onBackToHub,
   lockedView = null,
+  buscaInicial,
 }: {
   onBackToHub: () => void;
   lockedView?: ProducaoLockedView | null;
+  /** Preenche a busca da tela de Demandas uma vez, ao abrir. */
+  buscaInicial?: string;
 }) {
   // Navigation State
   const [currentView, setCurrentView] = useState(lockedView || 'inventory');
@@ -65,7 +68,7 @@ export default function ProducaoView({
   
   // Filtering & Pagination State
   const [activeTab, setActiveTab] = useState('ALL');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(buscaInicial ?? '');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
   const [selectedBase, setSelectedBase] = useState('ALL');
   const [page, setPage] = useState(1);

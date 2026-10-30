@@ -10,6 +10,7 @@ import {
   salesOrderKey,
   salesOrderStatusLabel,
   salesOrderStatusVariante,
+  atendimentoUi,
 } from '../lib/salesStatusUi';
 import { JanelaSelect } from './JanelaSelect';
 
@@ -20,7 +21,7 @@ interface PedidosTabProps {
   refreshToken: number;
 }
 
-type AbaPedidos = 'abertos' | 'atrasados' | 'todos';
+type AbaPedidos = 'abertos' | 'prontos' | 'atrasados' | 'todos';
 
 // "ativos" e "ALL" são as visões das abas; o seletor só oferece os status individuais.
 const STATUS_INDIVIDUAIS = STATUS_FILTER_CHIPS.filter((c) => c.id !== 'ativos');
@@ -69,8 +70,9 @@ export function PedidosTab({
     const load = async () => {
       setLoading(true);
       try {
+        const atend = aba === 'prontos' ? '&atendimento=completo' : '';
         const res = await apiFetch(
-          `/vendas/pedidos?search=${encodeURIComponent(debouncedSearch)}&status=${statusConsulta}&days=${daysLimit}`,
+          `/vendas/pedidos?search=${encodeURIComponent(debouncedSearch)}&status=${statusConsulta}&days=${daysLimit}${atend}`,
         );
         if (res.ok && !cancelled) {
           setOrders((await res.json()) || []);
@@ -85,7 +87,7 @@ export function PedidosTab({
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearch, statusConsulta, daysLimit, refreshToken]);
+  }, [debouncedSearch, statusConsulta, aba, daysLimit, refreshToken]);
 
   const visiveis = useMemo(
     () => (aba === 'atrasados' ? orders.filter((o) => o.atrasado) : orders),
@@ -99,6 +101,7 @@ export function PedidosTab({
         onChange={(id) => setAba(id as AbaPedidos)}
         abas={[
           { id: 'abertos', label: 'Abertos', contagem: resumo?.abertos },
+          { id: 'prontos', label: 'Prontos p/ faturar', contagem: resumo?.prontos },
           { id: 'atrasados', label: 'Atrasados', contagem: resumo?.atrasados },
           { id: 'todos', label: 'Todos', contagem: resumo?.total },
         ]}
@@ -130,6 +133,7 @@ export function PedidosTab({
               <th>Pedido</th>
               <th>Cliente</th>
               <th>Status</th>
+              <th>Atende</th>
               <th style={{ textAlign: 'right' }}>Valor</th>
               <th style={{ textAlign: 'right' }}>Residual</th>
               <th>Previsão</th>
@@ -157,6 +161,12 @@ export function PedidosTab({
                   <StatusBadge variante={salesOrderStatusVariante(o.c_status)}>
                     {salesOrderStatusLabel(o.c_status)}
                   </StatusBadge>
+                </td>
+                <td>
+                  {(() => {
+                    const at = atendimentoUi(o.atendimento);
+                    return at ? <StatusBadge variante={at.variante}>{at.rotulo}</StatusBadge> : null;
+                  })()}
                 </td>
                 <td style={{ textAlign: 'right' }}>{formatSalesCurrency(o.n_valor_tot)}</td>
                 <td style={{ textAlign: 'right', fontWeight: 700 }}>

@@ -13,6 +13,7 @@ use sqlx::Row;
 use crate::core::acao::{corpo_acao, Confirmar, ErroApi};
 use crate::core::catalogo::{param, Acao};
 use crate::core::sales_open::{pedido_aberto, pedido_atrasado, resumir_pedidos};
+use crate::core::vendas_atendimento::{calcular_atendimento, Atendimento};
 use crate::handlers::AppState;
 use crate::modules::estoque::escrita::{gravar_auditado, Resp};
 use crate::modules::geral::auth::models::AuthContext;
@@ -42,7 +43,11 @@ pub struct SalesOrdersQueryParams {
     /// Paginação opcional (só em `GET /api/vendas/pedidos`).
     pub limite: Option<i64>,
     pub pagina: Option<i64>,
+    /// Só `GET /api/vendas/pedidos`: `completo`, `parcial` ou `sem_estoque` (pedidos abertos da janela de faltas).
+    pub atendimento: Option<String>,
 }
+
+type MapaAtendimento = HashMap<(i32, String), Atendimento>;
 
 #[derive(Debug, serde::Deserialize)]
 pub struct SalesOrderDetailParams {
@@ -141,6 +146,29 @@ pub async fn list_sales_orders(
     apply_status_filter(&mut qb, params.status.as_deref());
     aplicar_busca_e_janela(&mut qb, params.search.as_deref(), params.days);
 
+    let atendimentos = match mapa_atendimento(&state).await {
+        Ok(m) => m,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+    if let Some(situacao) = params.atendimento.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let (pedidos, datas): (Vec<i32>, Vec<String>) = atendimentos
+            .iter()
+            .filter(|(_, a)| a.situacao == situacao)
+            .map(|((n, d), _)| (*n, d.clone()))
+            .unzip();
+        qb.push(" AND (n_pedido, d_pedido) IN (SELECT v.n, v.d FROM UNNEST(");
+        qb.push_bind(pedidos);
+        qb.push("::int4[], ");
+        qb.push_bind(datas);
+        qb.push("::text[]) AS v(n, d))");
+    }
+
     qb.push(" ORDER BY d_pedido DESC, n_pedido DESC");
 
     if let Some((limite, offset)) = paginacao(params.limite, params.pagina) {
@@ -150,7 +178,7 @@ pub async fn list_sales_orders(
         qb.push_bind(offset);
     }
 
-    match fetch_sales_orders_with_items(pool, qb).await {
+    match fetch_sales_orders_with_items(pool, qb, &atendimentos).await {
         Ok(sales_orders) => (StatusCode::OK, Json(sales_orders)).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -160,7 +188,13 @@ pub async fn list_sales_orders(
     }
 }
 
-/// GET /api/vendas/pedidos/resumo?search=&days= — contagens (abertos, atrasados, total) e residual dos abertos.
+/// Atendimento dos pedidos abertos na janela de faltas (mesma janela da Demanda de Produção).
+async fn mapa_atendimento(state: &AppState) -> Result<MapaAtendimento, sqlx::Error> {
+    let days = crate::core::sales_open::resolve_faltas_days(&state.db).await;
+    calcular_atendimento(state.db.pool(), days).await
+}
+
+/// GET /api/vendas/pedidos/resumo?search=&days= — contagens (abertos, atrasados, total, prontos, parciais, sem estoque) e residual dos abertos.
 pub async fn resumo_sales_orders(
     State(state): State<Arc<AppState>>,
     Query(params): Query<SalesOrdersQueryParams>,
@@ -168,7 +202,8 @@ pub async fn resumo_sales_orders(
     let mut qb = sqlx::QueryBuilder::new(
         "SELECT c_status, d_previsao, \
                 COALESCE((SELECT SUM(GREATEST(i.n_qtde - i.n_qtde_fat, 0)) FROM sales_order_items i \
-                          WHERE i.n_pedido = sales_orders.n_pedido AND i.d_pedido = sales_orders.d_pedido), 0)::bigint \
+                          WHERE i.n_pedido = sales_orders.n_pedido AND i.d_pedido = sales_orders.d_pedido), 0)::bigint, \
+                n_pedido, d_pedido \
          FROM sales_orders WHERE 1=1",
     );
     aplicar_busca_e_janela(&mut qb, params.search.as_deref(), params.days);
@@ -183,12 +218,24 @@ pub async fn resumo_sales_orders(
             )
         })
         .collect();
-    Ok(Json(resumir_pedidos(&linhas, hoje())))
+    let mut resumo = resumir_pedidos(&linhas, hoje());
+    let atendimentos = mapa_atendimento(&state).await?;
+    for r in &rows {
+        let chave = (crate::core::pg_row::pg_i32(r, 3), r.get::<String, _>(4));
+        match atendimentos.get(&chave).map(|a| a.situacao) {
+            Some(crate::core::vendas_atendimento::COMPLETO) => resumo.prontos += 1,
+            Some(crate::core::vendas_atendimento::PARCIAL) => resumo.parciais += 1,
+            Some(crate::core::vendas_atendimento::SEM_ESTOQUE) => resumo.sem_estoque += 1,
+            _ => {}
+        }
+    }
+    Ok(Json(resumo))
 }
 
 async fn fetch_sales_orders_with_items(
     pool: &sqlx::PgPool,
     mut qb: sqlx::QueryBuilder<'_, sqlx::Postgres>,
+    atendimentos: &MapaAtendimento,
 ) -> Result<Vec<crate::models::SalesOrder>, sqlx::Error> {
     let rows = qb.build().fetch_all(pool).await?;
 
@@ -249,6 +296,7 @@ async fn fetch_sales_orders_with_items(
                     c_lote: row_item.get(8),
                     descricao: None,
                     estoque: None,
+                    alocado: None,
                 });
         }
     }
@@ -262,6 +310,9 @@ async fn fetch_sales_orders_with_items(
         let residual_un = residual_from_items(&items);
         let aberto = pedido_aberto(c_status.as_deref());
         let atrasado = pedido_atrasado(aberto, residual_un as i64, d_previsao.as_deref(), hoje());
+        let atendimento = atendimentos
+            .get(&(n_pedido, d_pedido.clone()))
+            .map(|a| a.situacao.to_string());
         sales_orders.push(crate::models::SalesOrder {
             n_pedido,
             d_pedido,
@@ -277,6 +328,7 @@ async fn fetch_sales_orders_with_items(
             residual_un,
             aberto,
             atrasado,
+            atendimento,
         });
     }
 
@@ -350,7 +402,7 @@ pub async fn get_sales_order_detail(
         }
     };
 
-    let items: Vec<crate::models::SalesOrderItem> = item_rows
+    let mut items: Vec<crate::models::SalesOrderItem> = item_rows
         .into_iter()
         .map(|row_item| crate::models::SalesOrderItem {
             id: crate::core::pg_row::pg_i64(&row_item, 0),
@@ -364,8 +416,32 @@ pub async fn get_sales_order_detail(
             c_lote: row_item.get(8),
             descricao: row_item.get(9),
             estoque: row_item.get(10),
+            alocado: None,
         })
         .collect();
+
+    let atendimentos = match mapa_atendimento(&state).await {
+        Ok(m) => m,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+    let atendimento = atendimentos.get(&(n_pedido, d_pedido.clone()));
+    if let Some(a) = atendimento {
+        // Reparte o alocado de cada código pelos itens do pedido, na ordem das linhas.
+        let mut restante = a.itens.clone();
+        for item in items.iter_mut() {
+            let residual = (item.n_qtde - item.n_qtde_fat).max(0) as f64;
+            let saldo = restante.entry(item.c_cod_prod.trim().to_string()).or_insert(0.0);
+            let alocado = residual.min(*saldo);
+            *saldo -= alocado;
+            item.alocado = Some(alocado);
+        }
+    }
 
     let residual_un = residual_from_items(&items);
     let c_status: Option<String> = row.get(5);
@@ -387,6 +463,7 @@ pub async fn get_sales_order_detail(
         residual_un,
         aberto,
         atrasado,
+        atendimento: atendimento.map(|a| a.situacao.to_string()),
     };
 
     (StatusCode::OK, Json(order)).into_response()
@@ -485,7 +562,17 @@ pub async fn list_cliente_sales_orders(
 
     qb.push(" ORDER BY d_pedido DESC, n_pedido DESC");
 
-    match fetch_sales_orders_with_items(pool, qb).await {
+    let atendimentos = match mapa_atendimento(&state).await {
+        Ok(m) => m,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+    match fetch_sales_orders_with_items(pool, qb, &atendimentos).await {
         Ok(sales_orders) => (StatusCode::OK, Json(sales_orders)).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -535,6 +622,24 @@ pub async fn list_sales_faltas(
             purchase_transit_map.insert(code, qty.round() as i64);
         }
     }
+
+    // Lotes de produção abertos por produto (código sem zero à esquerda) e códigos que são kits.
+    let mut lotes_por_produto: HashMap<String, Vec<crate::models::LoteAbertoResumo>> = HashMap::new();
+    for l in crate::core::production_reserve::fetch_open_lotes_por_produto(pool).await {
+        let chave = l.item_code.trim().trim_start_matches('0').to_string();
+        lotes_por_produto.entry(chave).or_default().push(crate::models::LoteAbertoResumo {
+            lote: l.lote,
+            data: l.data,
+            unidades: l.unidades,
+        });
+    }
+    let kits: std::collections::HashSet<String> =
+        sqlx::query_scalar::<_, String>("SELECT DISTINCT TRIM(kit_codigo) FROM kit_composicao")
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
 
     let open_st = crate::core::sales_open::OPEN_STATUS_SQL;
     let join_linha = crate::core::regras_produto::JOIN_LINHA_EFETIVA_SQL;
@@ -627,6 +732,11 @@ pub async fn list_sales_faltas(
             } else {
                 0
             };
+            let lotes_abertos = lotes_por_produto
+                .get(code.trim().trim_start_matches('0'))
+                .cloned()
+                .unwrap_or_default();
+            let eh_kit = kits.contains(code.trim());
             crate::models::ProductFaltaGroup {
                 c_cod_prod: code,
                 c_nome_prod: desc,
@@ -637,6 +747,8 @@ pub async fn list_sales_faltas(
                 producao,
                 transit_purchase: transit,
                 falta_net: net,
+                lotes_abertos,
+                eh_kit,
             }
         })
         .collect();
@@ -728,6 +840,8 @@ pub async fn list_sales_faltas(
             producao: 0,
             transit_purchase: 0,
             falta_net: 0,
+            lotes_abertos: Vec::new(),
+            eh_kit: false,
         })
         .collect();
     hist_groups.sort_by(|a, b| b.total_falta.cmp(&a.total_falta));
@@ -806,7 +920,7 @@ pub fn acoes_vendas() -> Vec<Acao> {
         Acao::leitura(
             "listar_pedidos_venda",
             M,
-            "Lista pedidos de venda com itens, do mais novo ao mais antigo. A base tem dezenas de milhares de pedidos: prefira `days`/`status` e use `limite`+`pagina`. Sem `limite` nem `pagina` devolve tudo.",
+            "Lista pedidos de venda com itens, do mais novo ao mais antigo; cada pedido aberto traz `atendimento` (completo, parcial ou sem_estoque: estoque atual dividido do pedido mais antigo ao mais novo). A base tem dezenas de milhares de pedidos: prefira `days`/`status` e use `limite`+`pagina`. Sem `limite` nem `pagina` devolve tudo.",
             "/api/vendas/pedidos",
             vec![
                 param("search", "query", "texto", false, "Parte do nome do cliente ou do número do pedido."),
@@ -814,12 +928,13 @@ pub fn acoes_vendas() -> Vec<Acao> {
                 param("days", "query", "inteiro", false, "Só pedidos dos últimos N dias."),
                 param("limite", "query", "inteiro", false, "Pedidos por página (1 a 1000; 100 se só `pagina` for informada)."),
                 param("pagina", "query", "inteiro", false, "Número da página, a partir de 1 (usa `limite`)."),
+                param("atendimento", "query", "texto", false, "completo, parcial ou sem_estoque: só pedidos abertos (na janela de faltas) que o estoque atual cobre por inteiro, em parte ou nada."),
             ],
         ),
         Acao::leitura(
             "resumir_pedidos_venda",
             M,
-            "Contagens da lista de pedidos de venda: abertos, atrasados (aberto, com residual e previsão vencida), total e residual somado dos abertos.",
+            "Contagens da lista de pedidos de venda: abertos, atrasados (aberto, com residual e previsão vencida), total, residual somado dos abertos e quantos estão prontos (estoque cobre tudo), parciais e sem estoque.",
             "/api/vendas/pedidos/resumo",
             vec![
                 param("search", "query", "texto", false, "Parte do nome do cliente ou do número do pedido."),
@@ -829,7 +944,7 @@ pub fn acoes_vendas() -> Vec<Acao> {
         Acao::leitura(
             "detalhar_pedido_venda",
             M,
-            "Detalhe de um pedido de venda (cabeçalho, itens e residual).",
+            "Detalhe de um pedido de venda (cabeçalho, itens, residual, `atendimento` e `alocado` por item: quanto do estoque atual fica para o pedido).",
             "/api/vendas/pedidos/detalhe",
             vec![
                 param("n_pedido", "query", "inteiro", true, "Número do pedido."),
@@ -860,7 +975,7 @@ pub fn acoes_vendas() -> Vec<Acao> {
         Acao::leitura(
             "listar_faltas_venda",
             M,
-            "Produtos com falta nos pedidos em aberto (ativas e históricas), com estoque, produção e compras em trânsito.",
+            "Produtos com falta nos pedidos em aberto (ativas e históricas), com estoque, produção, compras em trânsito, lotes de produção abertos (`lotes_abertos`) e se o código é kit (`eh_kit`).",
             "/api/vendas/faltas",
             vec![param("days", "query", "inteiro", false, "Janela em dias dos pedidos considerados.")],
         ),

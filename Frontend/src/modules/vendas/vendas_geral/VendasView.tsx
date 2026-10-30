@@ -24,6 +24,8 @@ import { ProductSalesDrawer } from './components/ProductSalesDrawer';
 
 interface VendasViewProps {
   onBackToHub: () => void;
+  /** Abre a Demanda de Produção (`producao`) ou a Central de Kits (`montagem_kits`) já buscando o código. */
+  onAbrirProducao?: (codigo: string, destino: 'producao' | 'montagem_kits') => void;
 }
 
 const NAV: { id: VendasTab; label: string; icon: typeof Layers }[] = [
@@ -40,7 +42,7 @@ const TITLES: Record<VendasTab, string> = {
   produtos: 'Consulta de produtos',
 };
 
-export default function VendasView({ onBackToHub }: VendasViewProps) {
+export default function VendasView({ onBackToHub, onAbrirProducao }: VendasViewProps) {
   React.useEffect(() => {
     (window as any).__current_page__ = 'Módulo de Vendas';
   }, []);
@@ -173,6 +175,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
               onDaysLimitChange={handleDaysLimitChange}
               onOpenProduct={openProduct}
               onOpenOrder={openOrder}
+              onAbrirProducao={onAbrirProducao}
               refreshToken={refreshToken}
             />
           )}

@@ -16,6 +16,8 @@ interface FaltasTabProps {
   onDaysLimitChange: (days: number) => void;
   onOpenProduct: (code: string) => void;
   onOpenOrder: (nPedido: number, dPedido: string) => void;
+  /** Abre a Demanda de Produção (ou a Central de Kits) já buscando o código. */
+  onAbrirProducao?: (codigo: string, destino: 'producao' | 'montagem_kits') => void;
   refreshToken: number;
 }
 
@@ -24,6 +26,7 @@ export function FaltasTab({
   onDaysLimitChange,
   onOpenProduct,
   onOpenOrder,
+  onAbrirProducao,
   refreshToken,
 }: FaltasTabProps) {
   const [data, setData] = useState<{ ativas: ProductFaltaGroup[]; historicas: ProductFaltaGroup[] }>({
@@ -143,6 +146,12 @@ export function FaltasTab({
                             {g.c_cod_prod} · {g.c_nome_linha}
                           </span>
                         </button>
+                        {(g.lotes_abertos ?? []).map((l) => (
+                          <span key={l.lote} className="block text-[10px] text-zinc-500">
+                            Em produção: lote {l.lote}
+                            {l.data ? ` · ${formatSalesDate(l.data)}` : ''} · {Math.round(l.unidades).toLocaleString('pt-BR')} un
+                          </span>
+                        ))}
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 700 }}>
                         {g.total_falta.toLocaleString('pt-BR')}
@@ -164,6 +173,26 @@ export function FaltasTab({
                     {open && (
                       <tr>
                         <td colSpan={subTab === 'ativas' ? 6 : 4}>
+                          {subTab === 'ativas' && onAbrirProducao && (
+                            <div className="flex items-center gap-3 pb-2 text-[11px]">
+                              <button
+                                type="button"
+                                onClick={() => onAbrirProducao(g.c_cod_prod, 'producao')}
+                                className="font-semibold text-zinc-600 hover:text-zinc-900 hover:underline cursor-pointer"
+                              >
+                                Ver na produção
+                              </button>
+                              {g.eh_kit && (
+                                <button
+                                  type="button"
+                                  onClick={() => onAbrirProducao(g.c_cod_prod, 'montagem_kits')}
+                                  className="font-semibold text-zinc-600 hover:text-zinc-900 hover:underline cursor-pointer"
+                                >
+                                  Ver na Central de Kits
+                                </button>
+                              )}
+                            </div>
+                          )}
                           <table className="w-full text-[11px]">
                             <thead>
                               <tr className="text-[9px] uppercase text-zinc-400">

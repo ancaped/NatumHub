@@ -1,5 +1,6 @@
 import { salesOrderStatusLabel } from '../../../geral/lib/salesOrderStatus';
 import type { VarianteBadge } from '../../../geral/components/ui/ReportKit';
+import type { AtendimentoPedido } from './types';
 
 /** Variante do `StatusBadge` (ReportKit) para o CSTATUS do ERP Natum. */
 const VARIANTE_STATUS: Record<string, VarianteBadge> = {
@@ -18,6 +19,17 @@ export function salesOrderStatusVariante(code: string | null | undefined): Varia
 }
 
 export { salesOrderStatusLabel };
+
+const ATENDIMENTO: Record<AtendimentoPedido, { rotulo: string; variante: VarianteBadge }> = {
+  completo: { rotulo: 'Completo', variante: 'saudavel' },
+  parcial: { rotulo: 'Parcial', variante: 'ordem' },
+  sem_estoque: { rotulo: 'Sem estoque', variante: 'descontinuado' },
+};
+
+/** Rótulo e cor do selo de atendimento; `null` para pedido fora da conta. */
+export function atendimentoUi(a: AtendimentoPedido | null | undefined) {
+  return a ? ATENDIMENTO[a] ?? null : null;
+}
 
 /** Chave composta ERP: n_pedido + d_pedido (YYYY-MM-DD). */
 export function salesOrderKey(nPedido: number, dPedido: string): string {

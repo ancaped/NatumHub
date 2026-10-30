@@ -34,11 +34,20 @@ fn parse_unidades_from_details(details: &str) -> f64 {
     0.0
 }
 
-/// Soma `Unidades` (fallback `nQtde`) por produto em lotes abertos — fonte Hub para coluna Prod.
-pub async fn fetch_open_production_units_map(pool: &PgPool) -> HashMap<String, f64> {
-    let mut out: HashMap<String, f64> = HashMap::new();
+/// Lote de produção aberto de um produto, com as unidades em produção.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoteAbertoProduto {
+    pub item_code: String,
+    pub lote: String,
+    pub data: Option<String>,
+    pub unidades: f64,
+}
+
+/// Lotes abertos por produto (um por lote e produto), do mais antigo ao mais novo.
+/// Unidades = `Unidades` dos details (fallback `nQtde`); lote sem unidades fica de fora.
+pub async fn fetch_open_lotes_por_produto(pool: &PgPool) -> Vec<LoteAbertoProduto> {
     let sql = format!(
-        "SELECT DISTINCT ON (document_number, item_code) item_code, quantity, details
+        "SELECT DISTINCT ON (document_number, item_code) item_code, quantity, details, document_number, date
          FROM stock_movements
          WHERE item_type = 'produto' AND movement_type = 'entrada'
            AND COALESCE(document_number, '') <> ''
@@ -47,8 +56,9 @@ pub async fn fetch_open_production_units_map(pool: &PgPool) -> HashMap<String, f
          ORDER BY document_number, item_code, ctid DESC"
     );
     let Ok(rows) = sqlx::query(&sql).fetch_all(pool).await else {
-        return out;
+        return Vec::new();
     };
+    let mut out = Vec::new();
     for row in rows {
         let Ok(item_code) = row.try_get::<String, _>(0) else {
             continue;
@@ -64,13 +74,31 @@ pub async fn fetch_open_production_units_map(pool: &PgPool) -> HashMap<String, f
         if units <= 0.0 {
             continue;
         }
-        let norm = item_code
+        let lote = row.try_get::<Option<String>, _>(3).ok().flatten().unwrap_or_default();
+        let data = row
+            .try_get::<Option<String>, _>(4)
+            .ok()
+            .flatten()
+            .filter(|d| !d.trim().is_empty());
+        out.push(LoteAbertoProduto { item_code, lote, data, unidades: units });
+    }
+    out.sort_by(|a, b| (&a.data, &a.lote).cmp(&(&b.data, &b.lote)));
+    out
+}
+
+/// Soma `Unidades` (fallback `nQtde`) por produto em lotes abertos — fonte Hub para coluna Prod.
+pub async fn fetch_open_production_units_map(pool: &PgPool) -> HashMap<String, f64> {
+    let mut out: HashMap<String, f64> = HashMap::new();
+    for lote in fetch_open_lotes_por_produto(pool).await {
+        let units = lote.unidades;
+        let norm = lote
+            .item_code
             .strip_prefix('0')
-            .unwrap_or(&item_code)
+            .unwrap_or(&lote.item_code)
             .to_string();
         *out.entry(norm.clone()).or_insert(0.0) += units;
-        if norm != item_code {
-            *out.entry(item_code).or_insert(0.0) += units;
+        if norm != lote.item_code {
+            *out.entry(lote.item_code).or_insert(0.0) += units;
         }
     }
     out

@@ -118,6 +118,12 @@ pub struct ResumoPedidos {
     pub total: i64,
     /// Soma do residual (un) dos pedidos em aberto.
     pub residual_abertos_un: i64,
+    /// Pedidos abertos que o estoque atual cobre por inteiro (`core::vendas_atendimento`).
+    pub prontos: i64,
+    /// Abertos que o estoque cobre só em parte.
+    pub parciais: i64,
+    /// Abertos sem nada de estoque.
+    pub sem_estoque: i64,
 }
 
 /// Resume linhas `(c_status, d_previsao, residual_un)` de pedidos.
@@ -181,6 +187,6 @@ mod tests {
             (None, None, 0),
         ];
         let r = resumir_pedidos(&linhas, hoje);
-        assert_eq!(r, ResumoPedidos { abertos: 2, atrasados: 1, total: 4, residual_abertos_un: 14 });
+        assert_eq!(r, ResumoPedidos { abertos: 2, atrasados: 1, total: 4, residual_abertos_un: 14, ..Default::default() });
     }
 }

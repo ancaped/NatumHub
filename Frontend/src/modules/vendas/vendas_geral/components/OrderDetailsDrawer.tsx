@@ -10,6 +10,7 @@ import {
   formatSalesDate,
   salesOrderStatusVariante,
   salesOrderStatusLabel,
+  atendimentoUi,
 } from '../lib/salesStatusUi';
 
 interface OrderDetailsDrawerProps {
@@ -101,6 +102,14 @@ export function OrderDetailsDrawer({
             <StatusBadge variante={salesOrderStatusVariante(order.c_status)}>
               {salesOrderStatusLabel(order.c_status)}
             </StatusBadge>
+            {(() => {
+              const at = atendimentoUi(order.atendimento);
+              return at ? (
+                <StatusBadge variante={at.variante} title="Estoque atual dividido entre os pedidos, do mais antigo ao mais novo">
+                  {at.rotulo}
+                </StatusBadge>
+              ) : null;
+            })()}
             <span className="font-semibold text-zinc-800 truncate max-w-[220px]">
               {order.c_nome || 'Consumidor final'}
             </span>
@@ -129,6 +138,7 @@ export function OrderDetailsDrawer({
                     <th className="px-3 py-2 text-right">Fat.</th>
                     <th className="px-3 py-2 text-right">Falta</th>
                     <th className="px-3 py-2 text-right">Estoque</th>
+                    <th className="px-3 py-2 text-right">Atende</th>
                     <th className="px-3 py-2 text-right">Preço</th>
                     <th className="px-3 py-2">Lote</th>
                   </tr>
@@ -165,10 +175,13 @@ export function OrderDetailsDrawer({
                         <td
                           className={cn(
                             'px-3 py-2 text-right',
-                            falta > 0 && item.estoque != null && item.estoque < falta ? 'text-amber-600 font-bold' : 'text-zinc-500',
+                            falta > 0 && item.alocado != null && item.alocado < falta ? 'text-amber-600 font-bold' : 'text-zinc-500',
                           )}
                         >
                           {item.estoque != null ? Math.round(item.estoque) : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-right text-zinc-700">
+                          {item.alocado != null ? Math.round(item.alocado) : '—'}
                         </td>
                         <td className="px-3 py-2 text-right">{formatSalesCurrency(item.n_preco)}</td>
                         <td className="px-3 py-2 text-zinc-500">{item.c_lote || '—'}</td>

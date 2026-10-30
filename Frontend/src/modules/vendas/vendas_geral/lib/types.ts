@@ -43,7 +43,12 @@ export interface SalesOrderItem {
   /** Só no detalhe do pedido. */
   descricao?: string | null;
   estoque?: number | null;
+  /** Só no detalhe do pedido: quanto do estoque atual fica para este item. */
+  alocado?: number | null;
 }
+
+/** Quanto do estoque atual cobre o pedido aberto (servidor: `core::vendas_atendimento`). */
+export type AtendimentoPedido = 'completo' | 'parcial' | 'sem_estoque';
 
 export interface SalesOrder {
   n_pedido: number;
@@ -61,6 +66,7 @@ export interface SalesOrder {
   /** Regras do servidor (`aberto` = status em aberto; `atrasado` = aberto com residual e previsão vencida). */
   aberto?: boolean;
   atrasado?: boolean;
+  atendimento?: AtendimentoPedido | null;
 }
 
 /** `GET /api/vendas/pedidos/resumo`. */
@@ -69,6 +75,9 @@ export interface ResumoPedidos {
   atrasados: number;
   total: number;
   residual_abertos_un: number;
+  prontos?: number;
+  parciais?: number;
+  sem_estoque?: number;
 }
 
 export interface ProductFaltaItem {
@@ -83,6 +92,12 @@ export interface ProductFaltaItem {
   n_codigo?: number | null;
 }
 
+export interface LoteAbertoResumo {
+  lote: string;
+  data: string | null;
+  unidades: number;
+}
+
 export interface ProductFaltaGroup {
   c_cod_prod: string;
   c_nome_prod: string;
@@ -93,6 +108,8 @@ export interface ProductFaltaGroup {
   producao: number;
   transit_purchase: number;
   falta_net: number;
+  lotes_abertos?: LoteAbertoResumo[];
+  eh_kit?: boolean;
 }
 
 export interface PendingPurchaseOrderItem {

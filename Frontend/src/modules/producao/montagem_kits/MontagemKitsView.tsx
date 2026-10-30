@@ -25,10 +25,10 @@ import {
   type ViraPackagingLine,
 } from '../lib/viraPackaging';
 
-export default function MontagemKitsView({ onBackToHub }) {
+export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBackToHub: () => void; buscaInicial?: string }) {
   const { avisar, aviso } = useAviso();
   const { pedir: pedirPrevia, abrir: abrirPrevia, elemento: previaElemento } = usePreviaServidor(avisar);
-  const [activeSubTab, setActiveSubTab] = useState('ordens'); // 'ordens', 'componentes' ou 'composicao'
+  const [activeSubTab, setActiveSubTab] = useState(buscaInicial ? 'componentes' : 'ordens'); // 'ordens', 'componentes' ou 'composicao'
   const [loading, setLoading] = useState(false);
 
   // States: Drawer de Composição de Kits
@@ -52,7 +52,7 @@ export default function MontagemKitsView({ onBackToHub }) {
 
   // States: Componentes e Alertas (Listagem de Kits)
   const [kits, setKits] = useState([]);
-  const [kitsSearch, setKitsSearch] = useState('');
+  const [kitsSearch, setKitsSearch] = useState(buscaInicial ?? '');
   const [kitsSelectedStatus, setKitsSelectedStatus] = useState('ALL');
   const [kitsActiveTab, setKitsActiveTab] = useState('ALL');
   const [kitsPage, setKitsPage] = useState(1);

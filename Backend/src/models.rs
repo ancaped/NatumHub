@@ -222,6 +222,9 @@ pub struct SalesOrderItem {
     pub descricao: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub estoque: Option<f64>,
+    /// Só no detalhe do pedido: quanto do estoque atual fica para este item (`core::vendas_atendimento`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alocado: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -246,6 +249,9 @@ pub struct SalesOrder {
     /// Aberto, com residual e previsão vencida (`core::sales_open::pedido_atrasado`).
     #[serde(default)]
     pub atrasado: bool,
+    /// `completo`, `parcial` ou `sem_estoque`; ausente para pedido fora da conta (não aberto, sem residual ou fora da janela).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub atendimento: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -273,6 +279,19 @@ pub struct ProductFaltaGroup {
     pub producao: i64,
     pub transit_purchase: i64,
     pub falta_net: i64,
+    /// Lotes de produção abertos deste produto (mesma fonte da coluna Prod da Demanda de Produção).
+    #[serde(default)]
+    pub lotes_abertos: Vec<LoteAbertoResumo>,
+    /// O código é um kit (existe como `kit_codigo` em `kit_composicao`).
+    #[serde(default)]
+    pub eh_kit: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LoteAbertoResumo {
+    pub lote: String,
+    pub data: Option<String>,
+    pub unidades: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

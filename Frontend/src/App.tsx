@@ -94,6 +94,11 @@ const getInitialView = (): HubView => {
 
 export default function App() {
   const [view, setView] = useState<HubView>(getInitialView);
+  // Busca inicial enviada por outra tela (ex.: Faltas de Vendas -> Demanda de Produção); vale só para o destino.
+  const [buscaInicial, setBuscaInicial] = useState<{ destino: HubView; busca: string } | null>(null);
+  useEffect(() => {
+    if (buscaInicial && view !== buscaInicial.destino) setBuscaInicial(null);
+  }, [view, buscaInicial]);
   // Telas filhas recebem a navegação como string (chaves vindas do registry).
   const setViewByKey = (v: string) => setView(v as HubView);
   const [currentUser, setCurrentUser] = useState<any>(() => getAuthUser());
@@ -414,7 +419,10 @@ export default function App() {
     if (view === 'producao') {
       return (
         <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Produção">
-          <ProducaoView onBackToHub={() => setView('producao_hub')} />
+          <ProducaoView
+            onBackToHub={() => setView('producao_hub')}
+            buscaInicial={buscaInicial?.destino === 'producao' ? buscaInicial.busca : undefined}
+          />
         </ErrorBoundary>
       );
     }
@@ -438,7 +446,10 @@ export default function App() {
     if (view === 'montagem_kits') {
       return (
         <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Kits">
-          <MontagemKitsView onBackToHub={() => setView('producao_hub')} />
+          <MontagemKitsView
+            onBackToHub={() => setView('producao_hub')}
+            buscaInicial={buscaInicial?.destino === 'montagem_kits' ? buscaInicial.busca : undefined}
+          />
         </ErrorBoundary>
       );
     }
@@ -910,7 +921,13 @@ export default function App() {
     if (view === 'vendas') {
       return (
         <ErrorBoundary onReset={() => setView('vendas_hub')} fallbackTitle="Erro no módulo de Vendas">
-          <VendasView onBackToHub={() => setView('hub')} />
+          <VendasView
+            onBackToHub={() => setView('hub')}
+            onAbrirProducao={(codigo, destino) => {
+              setBuscaInicial({ destino, busca: codigo });
+              setView(destino);
+            }}
+          />
         </ErrorBoundary>
       );
     }
