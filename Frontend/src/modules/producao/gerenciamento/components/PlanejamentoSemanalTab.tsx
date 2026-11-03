@@ -2505,17 +2505,6 @@ export function PlanejamentoSemanalTab({
                                 );
                               })}
 
-                              {/* Capacidade livre do reator no dia */}
-                              {cellItems.length > 0 && !ehBombona(reator) && (() => {
-                                const usado = cellItems.reduce((acc, it) => acc + (Number(it.quantidade_planejada) || 0), 0);
-                                const livre = Math.round(reator.capacidade_kg - usado);
-                                return livre < 0 ? (
-                                  <div className="text-[10px] text-red-600/80 text-right">excede {Math.abs(livre).toLocaleString('pt-BR')} kg</div>
-                                ) : (
-                                  <div className="text-[10px] text-zinc-500 text-right">{livre.toLocaleString('pt-BR')} kg livres</div>
-                                );
-                              })()}
-
                               {/* Botão de Agendamento Rápido na Célula Vaga */}
                               {cellItems.length === 0 && podeEditar && (
                                 <button
