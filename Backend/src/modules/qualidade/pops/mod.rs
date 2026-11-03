@@ -113,7 +113,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_setores_pop",
             "qualidade_pops",
-            "Lista os setores dos POPs.",
+            "Lista os setores dos POPs na ordem de exibição (id, nome, ordem, ativo). Use para obter o `sectorId` dos filtros e da criação de POPs.",
             "/api/qualidade/pops/sectors",
             vec![],
         ),
@@ -127,7 +127,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_formularios_pop",
             "qualidade_pops",
-            "Lista os formulários vinculados aos POPs (fase 1, CQL e PRD).",
+            "Lista todos os formulários vinculados aos POPs (códigos FOR-...), por código: POP vinculado, título, periodicidade, campos, status, revisão vigente, orientação, vigência e próxima revisão. Sem filtros; para um só use a rota do formulário.",
             "/api/qualidade/pops/formularios",
             vec![],
         ),
@@ -148,7 +148,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_documentos_pop",
             "qualidade_pops",
-            "Lista os POPs.",
+            "Lista os POPs por setor e código: código, título, setor, revisão vigente, vigência, próxima revisão com dias restantes (`daysToReview`, negativo = atrasado), status e responsáveis. Filtre por `sectorId`, `status` ou busca em código/título. Para o conteúdo use `detalhar_documento_pop`.",
             "/api/qualidade/pops/documents",
             vec![
                 param("sectorId", "query", "texto", false, "Só POPs deste setor."),
@@ -159,7 +159,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "detalhar_documento_pop",
             "qualidade_pops",
-            "Detalhe de um POP.",
+            "Um POP pelo id, com os mesmos campos da lista e a versão vigente completa (`currentVersion`, com o conteúdo do POP, responsáveis e resumo da mudança). Para o histórico use `listar_versoes_documento_pop`.",
             "/api/qualidade/pops/documents/:id",
             vec![
                 param("id", "caminho", "texto", true, "Id do POP."),
@@ -168,7 +168,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_versoes_documento_pop",
             "qualidade_pops",
-            "Versões de um POP.",
+            "Histórico de revisões de um POP, da mais nova à mais antiga: revisão, vigência, próxima revisão, tipo e resumo da mudança, responsáveis e o conteúdo de cada versão. Para uma só versão use `detalhar_versao_documento_pop`.",
             "/api/qualidade/pops/documents/:id/versions",
             vec![
                 param("id", "caminho", "texto", true, "Id do POP."),
@@ -177,7 +177,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "detalhar_versao_documento_pop",
             "qualidade_pops",
-            "Conteúdo de uma versão de POP.",
+            "Uma versão específica de um POP (`vid`): revisão, vigência, próxima revisão, tipo e resumo da mudança, responsáveis e o conteúdo completo. Use para comparar com a versão vigente.",
             "/api/qualidade/pops/documents/:id/versions/:vid",
             vec![
                 param("id", "caminho", "texto", true, "Id do POP."),
@@ -188,7 +188,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "criar_documento_pop",
             "qualidade_pops",
-            "Cria um POP em rascunho.",
+            "Cria um POP novo em rascunho (código POP-SET-NNN, título, setor e, opcionalmente, o corpo). Devolve o POP criado. Depois de escrito, envie para aprovação com `enviar_aprovacao_pop`. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/qualidade/pops/documents",
             true,
@@ -203,7 +203,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "editar_documento_pop",
             "qualidade_pops",
-            "Edita título, setor, responsáveis e, só em rascunho, o corpo do POP.",
+            "Edita título, setor, responsáveis e, só enquanto está em rascunho, o corpo do POP. Devolve o POP atualizado. Para mudar o status use `enviar_aprovacao_pop`, `devolver_pop` ou `revalidar_pop`. Sem `confirmar=true` mostra só a prévia.",
             "PUT",
             "/api/qualidade/pops/documents/:id",
             true,
@@ -218,7 +218,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "enviar_aprovacao_pop",
             "qualidade_pops",
-            "Envia o POP em rascunho para aprovação (status=in_review). Motivo obrigatório.",
+            "Envia o POP em rascunho para aprovação (`status`=in_review); o motivo é obrigatório e fica na trilha. Devolve o POP com o novo status. Para voltar ao rascunho use `devolver_pop`. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/qualidade/pops/documents/:id/status",
             true,
@@ -232,7 +232,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "devolver_pop",
             "qualidade_pops",
-            "Devolve o POP em aprovação ao rascunho (status=draft). Motivo obrigatório.",
+            "Devolve o POP em aprovação ao rascunho (`status`=draft) para correção; o motivo é obrigatório e fica na trilha. Devolve o POP com o novo status. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/qualidade/pops/documents/:id/status",
             true,
@@ -274,7 +274,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "revalidar_pop",
             "qualidade_pops",
-            "Revalida um POP vigente (mesmo texto, nova vigência e próxima revisão).",
+            "Revalida um POP vigente sem mudar o texto: soma uma revisão, define nova vigência (hoje por padrão) e nova data de próxima revisão. Só vale para POP publicado (senão dá erro de regra); o motivo (`changeSummary`) é obrigatório. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/qualidade/pops/documents/:id/revalidate",
             true,
@@ -317,7 +317,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "criar_formulario_pop",
             "qualidade_pops",
-            "Cria um formulário em rascunho (nasce com Data, Executado por e Verificado (CQ)).",
+            "Cria um formulário em rascunho vinculado a um POP (código FOR-SET-NNN-NN), já com os campos Data, Executado por e Verificado (CQ). Devolve o formulário; ajuste os campos com a edição do formulário e envie com `enviar_formulario_aprovacao`. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/qualidade/pops/formularios",
             true,
@@ -354,13 +354,13 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "enviar_formulario_aprovacao",
             "qualidade_pops",
-            "Envia o formulário em rascunho para aprovação (destino=in_review). Motivo obrigatório.",
+            "Envia o formulário em rascunho para aprovação (`status`=in_review, nome antigo `destino`); o motivo é obrigatório e vai para a trilha. Devolve o formulário com o novo status. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/qualidade/pops/formularios/:code/status",
             true,
             vec![
                 param("code", "caminho", "texto", true, "Código do formulário."),
-                param("destino", "corpo", "texto", true, "in_review."),
+                param("status", "corpo", "texto", true, "in_review. (Nome antigo `destino` continua aceito; se vierem os dois têm que ser iguais.)"),
                 param("motivo", "corpo", "texto", true, "Motivo."),
                 confirmar(),
             ],
@@ -368,13 +368,13 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "devolver_formulario",
             "qualidade_pops",
-            "Devolve o formulário em aprovação ao rascunho (destino=draft). Motivo obrigatório.",
+            "Devolve o formulário em aprovação ao rascunho (`status`=draft, nome antigo `destino`) para correção; o motivo é obrigatório e vai para a trilha. Devolve o formulário com o novo status. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/qualidade/pops/formularios/:code/status",
             true,
             vec![
                 param("code", "caminho", "texto", true, "Código do formulário."),
-                param("destino", "corpo", "texto", true, "draft."),
+                param("status", "corpo", "texto", true, "draft. (Nome antigo `destino` continua aceito; se vierem os dois têm que ser iguais.)"),
                 param("motivo", "corpo", "texto", true, "Motivo."),
                 confirmar(),
             ],
@@ -382,13 +382,13 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "tornar_formulario_obsoleto",
             "qualidade_pops",
-            "Torna o formulário vigente (ou em aprovação) obsoleto (destino=obsolete). Não apaga. Motivo obrigatório.",
+            "Torna o formulário vigente (ou em aprovação) obsoleto (status=obsolete). Não apaga. Motivo obrigatório.",
             "POST",
             "/api/qualidade/pops/formularios/:code/status",
             true,
             vec![
                 param("code", "caminho", "texto", true, "Código do formulário."),
-                param("destino", "corpo", "texto", true, "obsolete."),
+                param("status", "corpo", "texto", true, "obsolete. (Nome antigo `destino` continua aceito; se vierem os dois têm que ser iguais.)"),
                 param("motivo", "corpo", "texto", true, "Motivo."),
                 confirmar(),
             ],

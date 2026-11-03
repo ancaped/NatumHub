@@ -460,3 +460,14 @@ async fn migracao_077_preenche_especificacoes_uma_vez_so_e_grava_o_evento() {
     assert_eq!(eventos_de_correcao(&mut tx, code).await, 1);
     tx.rollback().await.unwrap();
 }
+
+#[test]
+fn status_do_formulario_aceita_status_ou_destino() {
+    use super::handlers::StatusFormularioInput as I;
+    let i = |s: Option<&str>, d: Option<&str>| I { status: s.map(Into::into), destino: d.map(Into::into), motivo: String::new() };
+    assert_eq!(i(Some("draft"), None).status_final().unwrap(), "draft");
+    assert_eq!(i(None, Some("draft")).status_final().unwrap(), "draft");
+    assert_eq!(i(Some("draft"), Some("draft")).status_final().unwrap(), "draft");
+    assert_eq!(i(Some("draft"), Some("obsolete")).status_final().unwrap_err().codigo, "invalido");
+    assert!(i(None, None).status_final().is_err());
+}

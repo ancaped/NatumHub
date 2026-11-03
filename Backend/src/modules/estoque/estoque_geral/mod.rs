@@ -47,14 +47,14 @@ pub fn acoes() -> Vec<Acao> {
         Acao::leitura(
             "listar_contagens_estoque",
             M,
-            "Lista as listas de contagem de estoque de um escopo.",
+            "Lista as listas de contagem de estoque de um escopo (matéria-prima, embalagens, coloração, apoio, produtos ou insumos), da mais nova à mais antiga: id, criação, quem criou, status, encerramento e os itens (código, descrição, saldo, reservado, em pedido e as contagens 1 a 3). `escopo` é obrigatório.",
             "/api/estoque/contagens",
             vec![param("escopo", "query", "texto", true, "materia_prima, embalagens, coloracao, apoio, produtos ou insumos.")],
         ),
         Acao::leitura(
             "historico_contagem_produto",
             "estoque_produtos",
-            "Histórico de contagens físicas de um produto.",
+            "Histórico de contagens físicas de um produto, da mais recente à mais antiga: saldo registrado, quantidade contada, diferença, quem contou, quando e observações. Use para conferir a confiabilidade do saldo do produto.",
             "/api/estoque/produtos/:code/contagem/historico",
             vec![param("code", "caminho", "texto", true, "Código do produto.")],
         ),

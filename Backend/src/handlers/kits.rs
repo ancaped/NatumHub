@@ -44,14 +44,14 @@ pub fn acoes_kits_composicao() -> Vec<Acao> {
         Acao::leitura(
             "listar_composicao_kits",
             M,
-            "Lista as relações kit → componente (manuais e vindas do ERP).",
+            "Lista as relações kit → componente (manuais e vindas do ERP): kit, componente, quantidade, fator de proporção, origem e estoque do componente. Use para ver do que cada kit é montado; para achar componentes novos use `buscar_candidatos_componente_kit`.",
             "/api/kits/composicao",
             vec![],
         ),
         Acao::leitura(
             "buscar_candidatos_componente_kit",
             M,
-            "Busca produtos que podem ser componentes de um kit.",
+            "Busca produtos e itens que podem ser componentes de um kit pelo código ou parte da descrição (codigo, descricao e fonte). Sem `q` devolve lista vazia. Use antes de cadastrar uma relação de kit.",
             "/api/kits/component-candidates",
             vec![
                 param("q", "query", "texto", false, "Parte do código ou da descrição."),

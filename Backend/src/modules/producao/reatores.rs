@@ -26,7 +26,7 @@ pub fn acoes() -> Vec<Acao> {
     vec![Acao::leitura(
         "listar_reatores",
         permissao::MODULO_PLANEJAMENTO,
-        "Lista os reatores com capacidade em kg, tipo, ordem e se estão ativos.",
+        "Lista os reatores cadastrados com capacidade em kg, tipo, ordem de exibição e se estão ativos. Use para saber onde e quanto cabe numa batelada ao planejar.",
         "/api/producao/reatores",
         vec![],
     )]

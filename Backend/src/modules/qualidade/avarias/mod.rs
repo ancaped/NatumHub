@@ -70,7 +70,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_avarias",
             "qualidade_avarias",
-            "Lista avarias registradas.",
+            "Lista as avarias registradas (até 300, da mais nova à mais antiga), cada uma com número do registro, item, lote, quantidade, local, status, folha, encaminhamento e dados da FQ. Filtre por `status` e/ou busque por texto em número, item, descrição, lote ou local. Para uma só use `detalhar_avaria`.",
             "/api/qualidade/avarias",
             vec![
                 param("status", "query", "texto", false, "Filtra por status."),
@@ -80,7 +80,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "consultar_item_avaria",
             "qualidade_avarias",
-            "Busca produtos para registrar avaria (mínimo 2 letras).",
+            "Busca lotes/produtos para registrar uma avaria: com 2 letras ou mais procura por lote, código ou descrição nos laudos de lote (até 15), e se não achar procura nos produtos. Devolve lote, código do produto e descrição. Use antes de registrar a avaria.",
             "/api/qualidade/avarias/lookup-item",
             vec![
                 param("q", "query", "texto", true, "Código ou descrição."),
@@ -89,14 +89,14 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_folhas_avaria",
             "qualidade_avarias",
-            "Lista as folhas de avaria.",
+            "Lista as folhas de avaria (documento que leva avarias a um destino), da mais nova à mais antiga: número, destino, status, quem criou e devolveu, quantidade de itens e de caixas. Para os itens de uma folha use `detalhar_folha_avaria`.",
             "/api/qualidade/avarias/folhas",
             vec![],
         ),
         Acao::leitura(
             "listar_folhas_avaria_pendentes",
             "qualidade_avarias",
-            "Folhas de avaria pendentes de devolução.",
+            "Lista as avarias que ainda não estão em nenhuma folha e esperam o destino pedido (`expedicao` = retorno ao estoque, `embalagem` ou `reparo`; padrão expedicao), da mais antiga à mais nova, até 200. Devolve avarias, não folhas; use para montar uma folha nova.",
             "/api/qualidade/avarias/folhas/pendentes",
             vec![
                 param("destination", "query", "texto", false, "Destino (expedicao por padrão)."),
@@ -105,7 +105,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "detalhar_folha_avaria",
             "qualidade_avarias",
-            "Detalhe de uma folha de avaria.",
+            "Uma folha de avaria pelo id, com número, destino, status, quem criou e devolveu, quantidade de caixas e a lista de avarias dela (registro, item, lote, quantidade, local, status). Dá 404 se não existir.",
             "/api/qualidade/avarias/folhas/:id",
             vec![
                 param("id", "caminho", "inteiro", true, "Id da folha."),
@@ -114,7 +114,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "detalhar_avaria",
             "qualidade_avarias",
-            "Detalhe de uma avaria.",
+            "Uma avaria pelo id, com registro, item, lote, quantidade, local, status, observações, foto, quem criou e decidiu, folha, tipo de reparo, problema, encaminhamento e dados da FQ (necessária, resultado, observação). Dá 404 se não existir.",
             "/api/qualidade/avarias/:id",
             vec![
                 param("id", "caminho", "inteiro", true, "Id da avaria."),

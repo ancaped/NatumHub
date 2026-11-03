@@ -26,7 +26,7 @@ use crate::handlers::AppState;
 use crate::modules::geral::audit;
 use crate::modules::geral::auth::models::{AuthContext, OperatorRole, Origem};
 use crate::modules::geral::auth::modules_registry::all_module_keys_vec;
-use crate::modules::geral::auth::store::{get_operator_modules_and_permissions, has_read_access, has_write_access};
+use crate::modules::geral::auth::store::{get_operator_modules_and_permissions, has_read_access, has_write_access, modulos_da_rota};
 
 pub const PREFIXO_TOKEN: &str = "nxa_";
 const MODULO_AUDITORIA: &str = "hub_settings";
@@ -106,6 +106,8 @@ pub struct Eu {
     pub supervisor: bool,
     /// módulo → `ver` ou `editar`
     pub modulos: BTreeMap<String, &'static str>,
+    /// Como ler o campo `modulo` das ações e de onde vem a permissão.
+    pub como_ler: &'static str,
 }
 
 /// Quem está chamando e o que pode fazer. Serve para o agente se orientar antes de agir.
@@ -120,8 +122,11 @@ pub fn eu(ctx: &AuthContext) -> Eu {
             .iter()
             .map(|m| (m.clone(), if ctx.can_edit_module(m) { "editar" } else { "ver" }))
             .collect(),
+        como_ler: COMO_LER,
     }
 }
+
+const COMO_LER: &str = "A permissão de cada ação vem dos módulos da rota (campo liberadaPor em /api/agentes/acoes); o campo modulo da ação é só onde ela fica.";
 
 /// Ação do catálogo com a informação de o chamador poder executá-la.
 #[derive(Debug, Serialize)]
@@ -130,6 +135,25 @@ pub struct AcaoVisivel {
     #[serde(flatten)]
     pub acao: Acao,
     pub permitida: bool,
+    /// Módulos que dão acesso à rota (`modulos_da_rota`); a permissão vem daqui, não do campo `modulo`.
+    pub liberada_por: Vec<LiberadaPor>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LiberadaPor {
+    pub modulo: &'static str,
+    /// O chamador tem este módulo (agente: o que está na sua lista; operador/supervisor: todos).
+    pub tem: bool,
+}
+
+fn liberada_por(ctx: &AuthContext, caminho: &str) -> Vec<LiberadaPor> {
+    let mut v: Vec<LiberadaPor> = Vec::new();
+    for m in modulos_da_rota(caminho).unwrap_or(&[]) {
+        if v.iter().all(|x| x.modulo != *m) {
+            v.push(LiberadaPor { modulo: m, tem: !ctx.is_agente() || ctx.has_module(m) });
+        }
+    }
+    v
 }
 
 /// Ações do catálogo que o chamador enxerga. Operador: todas, permitidas. Agente: só as de módulos que ele pode
@@ -140,13 +164,15 @@ pub fn acoes_para(ctx: &AuthContext, modulo: Option<&str>) -> Vec<AcaoVisivel> {
         .filter(|a| modulo.map_or(true, |m| a.modulo == m))
         .filter_map(|a| {
             if !ctx.is_agente() {
-                return Some(AcaoVisivel { acao: a, permitida: true });
+                let liberada_por = liberada_por(ctx, a.caminho);
+                return Some(AcaoVisivel { acao: a, permitida: true, liberada_por });
             }
             if !has_read_access(ctx, a.caminho, "GET") {
                 return None;
             }
             let permitida = !a.escrita || has_write_access(ctx, a.caminho, a.metodo);
-            Some(AcaoVisivel { acao: a, permitida })
+            let liberada_por = liberada_por(ctx, a.caminho);
+            Some(AcaoVisivel { acao: a, permitida, liberada_por })
         })
         .collect()
 }
@@ -505,6 +531,21 @@ mod tests {
 
         let filtrado = acoes_para(&ctx_teste(Origem::Agente, "edit"), Some("planejamento_producao"));
         assert!(!filtrado.is_empty() && filtrado.iter().all(|a| a.acao.modulo == "planejamento_producao"));
+    }
+
+    #[test]
+    fn acao_traz_liberada_por_com_modulo_que_o_agente_tem() {
+        // Agente só com `producao`: ações cujo `modulo` é outro (ex.: planejamento_producao, producao_lotes)
+        // aparecem liberadas por um módulo que ele tem.
+        let ctx = agente_com(&[("producao", "view")]);
+        let v = acoes_para(&ctx, None);
+        let fora: Vec<_> = v.iter().filter(|a| a.acao.modulo != "producao").collect();
+        assert!(!fora.is_empty());
+        for a in fora {
+            assert!(a.liberada_por.iter().any(|l| l.tem && l.modulo == "producao"), "{}", a.acao.nome);
+            assert!(a.liberada_por.iter().all(|l| l.tem == (l.modulo == "producao")), "{}", a.acao.nome);
+        }
+        assert!(eu(&ctx).como_ler.contains("liberadaPor"));
     }
 
     #[test]

@@ -1129,7 +1129,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_lotes_fisco",
             "fisco_quimica",
-            "Lista lotes do ERP com situação do laudo fisco-químico, paginados.",
+            "Lista os lotes do ERP com a situação do laudo fisco-químico, paginados (padrão 50, máximo 500 por página). Filtre por busca, `status_laudo` (ALL por padrão), `status_erp` e período. Use para achar lotes sem laudo; para o insumo de um lote use `listar_insumos_lote_fisco`.",
             "/api/hub/fisco/erp-lotes",
             vec![
                 param("search", "query", "texto", false, "Texto de busca."),
@@ -1144,7 +1144,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_insumos_lote_fisco",
             "fisco_quimica",
-            "Insumos consumidos em um lote.",
+            "Insumos consumidos em um lote (movimentos de saída do ERP), do maior para o menor: código, descrição, unidade e quantidade. Use para consultar o que entrou no lote ao fazer o laudo.",
             "/api/hub/fisco/erp-lotes/:lote/insumos",
             vec![
                 param("lote", "caminho", "texto", true, "Número do lote."),
@@ -1153,14 +1153,21 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_analises_fisco",
             "fisco_quimica",
-            "Lista as análises fisco-químicas salvas.",
+            "Lista as análises fisco-químicas salvas (laudos): produto, lote, data, técnico, pH, viscosidade e densidade medidos, ajuste com agente corretivo e se foi enviada ao ERP. Sem filtro devolve todas (muitas): use `desde`/`ate`, `busca`, `lote`, `id` e `limite` (padrão 500 com filtro, máximo 5000).",
             "/api/hub/fisco/analyses",
-            vec![],
+            vec![
+                param("desde", "query", "data", false, "Análises a partir desta data (AAAA-MM-DD)."),
+                param("ate", "query", "data", false, "Análises até esta data (AAAA-MM-DD)."),
+                param("busca", "query", "texto", false, "Parte do lote, do código ou do nome do produto."),
+                param("lote", "query", "texto", false, "Lote exato."),
+                param("id", "query", "texto", false, "Id de uma análise."),
+                param("limite", "query", "inteiro", false, "Máximo de análises (500 por padrão com filtro; máximo 5000)."),
+            ],
         ),
         Acao::leitura(
             "listar_lotes_corretivos_fisco",
             "fisco_quimica",
-            "Lotes corretivos por semana e situação da baixa.",
+            "Lotes que precisaram de agente corretivo (viscosidade ou pH), agrupados por semana: agente, dose por litro, tamanho do lote, total em kg, e se a baixa do agente no estoque já foi feita (quem e quando). Use para conferir as baixas pendentes.",
             "/api/hub/fisco/corrective-batches",
             vec![],
         ),

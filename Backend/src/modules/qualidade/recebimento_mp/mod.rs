@@ -49,7 +49,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_recebimentos_mp_erp",
             "qualidade_recebimento_mp",
-            "Lista recebimentos de matéria-prima vindos do ERP.",
+            "Lista os recebimentos de insumos importados do ERP, do mais recente ao mais antigo (padrão 200, classificação MATERIA_PRIMA): registro, fornecedor, nota, insumo, quantidade, lote do fornecedor, validade, código de recebimento e, se já existe, o laudo (id, código e parecer). A busca olha insumo, código, lote, fornecedor, recebimento e nota. Use para achar o que ainda precisa de laudo.",
             "/api/qualidade/recebimento-mp/erp",
             vec![
                 param("search", "query", "texto", false, "Texto de busca."),
@@ -61,7 +61,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_laudos_mp",
             "qualidade_recebimento_mp",
-            "Lista laudos de recebimento de MP.",
+            "Lista os laudos de recebimento de matéria-prima (do mais recente ao mais antigo, padrão 100): código do laudo, registro do ERP, insumo, fornecedor, nota, lote, quantidade, datas, responsável CQ, parecer, ensaios e observações. Para um só use `detalhar_laudo_mp`.",
             "/api/qualidade/recebimento-mp/laudos",
             vec![
                 param("search", "query", "texto", false, "Texto de busca."),
@@ -72,7 +72,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "detalhar_laudo_mp",
             "qualidade_recebimento_mp",
-            "Detalhe de um laudo de MP.",
+            "Um laudo de recebimento de matéria-prima pelo id, com insumo, fornecedor, nota, lote do fornecedor, quantidade, datas de entrada, validade e análise, responsável CQ, parecer, ensaios (ensaio, especificação, resultado, conforme) e observações. Dá 404 se não existir.",
             "/api/qualidade/recebimento-mp/laudos/:id",
             vec![
                 param("id", "caminho", "inteiro", true, "Id do laudo."),
@@ -81,7 +81,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_amostras_mp",
             "qualidade_recebimento_mp",
-            "Lista amostras de contraprova de MP.",
+            "Lista as amostras de retenção de matéria-prima (da entrada mais recente à mais antiga, padrão 100): código da amostra, laudo, insumo, lote, fornecedor, data de coleta, validade da retenção, localização, quantidade, status e responsável.",
             "/api/qualidade/recebimento-mp/amostras",
             vec![
                 param("search", "query", "texto", false, "Texto de busca."),

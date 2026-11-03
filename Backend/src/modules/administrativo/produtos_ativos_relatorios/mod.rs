@@ -17,7 +17,7 @@ pub fn acoes() -> Vec<Acao> {
     vec![Acao::leitura(
         "relatorio_produtos_ativos",
         "admin_linha_produtos",
-        "Relatório dos produtos ativos agrupados por linha e categoria, com estoque e status.",
+        "Relatório dos produtos ativos agrupados por linha e categoria, com estoque e status de cada um. Filtre por `linha`, `categoria`, `search` (código ou descrição) e `includeTerceirizados`. Use para uma visão geral do portfólio ativo; para um produto só use `detalhar_produto`.",
         "/api/admin/produtos-ativos/relatorio",
         vec![
             param("linha", "query", "texto", false, "Prefixo da linha (ALL ou vazio = todas)."),

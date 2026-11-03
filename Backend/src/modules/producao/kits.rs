@@ -31,7 +31,7 @@ pub fn acoes() -> Vec<Acao> {
         Acao::leitura(
             "listar_kits",
             "montagem_kits",
-            "Lista os kits com estoque dos componentes e quanto dá para montar.",
+            "Lista os kits paginados (`items`, `total`, `page`, `totalPages`) com `stats` por situação (montar, crítico, aguardando, ordem, saudável, abundante). Cada kit traz estoque e produção, quanto dá para montar (`maxMontavel`, `maxMontavelEstoque`), os componentes (estoque, produção, pedidos, status, necessidade de produção) e os componentes críticos. Filtre por busca, linha e status; para só as relações use `listar_composicao_kits`.",
             "/api/kits",
             vec![
                 param("search", "query", "texto", false, "Busca por código ou descrição."),

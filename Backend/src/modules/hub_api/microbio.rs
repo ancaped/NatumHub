@@ -145,14 +145,14 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_produtos_microbio",
             "microbiologia",
-            "Lista os produtos acompanhados pela microbiologia.",
+            "Lista os produtos acompanhados pela microbiologia: código, nome, embalagem e validade. Use para saber quais produtos têm laudo microbiológico previsto.",
             "/api/hub/microbio/products",
             vec![],
         ),
         Acao::leitura(
             "listar_laudos_microbio",
             "microbiologia",
-            "Lista os laudos microbiológicos.",
+            "Lista os laudos microbiológicos: número, produto, lote, data de coleta, data de fabricação, técnico e se já foi impresso (e quando). Sem filtros; devolve todos.",
             "/api/hub/microbio/reports",
             vec![],
         ),

@@ -93,14 +93,14 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "obter_painel_almox",
             "estoque_almoxarifado",
-            "Indicadores gerais do almoxarifado (itens, abaixo do mínimo, demandas).",
+            "Indicadores gerais do almoxarifado: totais de itens por seção (almoxarifado, supermercado, peças), quantos estão abaixo do mínimo, peças vencidas ou a vencer, equipamentos (total, em operação, em manutenção, parados) e manutenções abertas. Use como visão inicial antes de `listar_reposicao_almox`.",
             "/api/almox/dashboard/stats",
             vec![],
         ),
         Acao::leitura(
             "listar_itens_almox",
             "estoque_almoxarifado",
-            "Lista os itens do almoxarifado com saldo, mínimo e seção.",
+            "Lista os itens do almoxarifado por descrição, com unidade, seção, saldo (`qtyOnHand`), mínimo, ideal, local, custo médio, saldo no ERP e se está abaixo do mínimo (`belowMin`). Filtre por seção e `onlyActive`. Para um item só use `detalhar_item_almox`.",
             "/api/almox/items",
             vec![
                 param("onlyActive", "query", "booleano", false, "Só itens ativos."),
@@ -110,7 +110,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "buscar_catalogo_almox",
             "estoque_itens",
-            "Busca itens do catálogo do ERP por código ou descrição (para vincular ao almoxarifado).",
+            "Busca itens do catálogo do ERP por código ou descrição para vincular ao almoxarifado (padrão 40, ignora os marcados como ignorados). Sem texto devolve lista vazia. Devolve código, descrição, unidade e categoria.",
             "/api/almox/items/search",
             vec![
                 param("q", "query", "texto", true, "Texto da busca."),
@@ -120,7 +120,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "detalhar_item_almox",
             "estoque_almoxarifado",
-            "Detalhe de um item do almoxarifado pelo código.",
+            "Um item do almoxarifado pelo código (dentro de `item`): descrição, unidade, seção, saldo, mínimo, ideal, local, custo médio, saldo no ERP e configuração de vida útil/troca. Dá 404 se o item não está no catálogo operacional.",
             "/api/almox/items/:code",
             vec![
                 param("code", "caminho", "texto", true, "Código do item."),
@@ -129,7 +129,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "obter_estatisticas_item_almox",
             "estoque_almoxarifado",
-            "Estatísticas de movimentação e saldo de um item.",
+            "Estatísticas de um item: saldo, mínimo e ideal, saída média diária nos últimos 30 e 90 dias, custo médio dos últimos 30 dias, quantidade de compra sugerida (`suggestedBuyQty`) e se está abaixo do mínimo. Use para decidir quanto comprar.",
             "/api/almox/items/:code/stats",
             vec![
                 param("code", "caminho", "texto", true, "Código do item."),
@@ -138,7 +138,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "obter_consumo_item_almox",
             "estoque_almoxarifado",
-            "Consumo histórico de um item.",
+            "Consumo histórico de um item (saídas do almoxarifado somadas ao consumo do ERP): `consumptionYoy` (total por ano) e `monthlyConsumption` (por mês, até 24 meses). Use para ver sazonalidade antes de definir o mínimo.",
             "/api/almox/items/:code/consumption",
             vec![
                 param("code", "caminho", "texto", true, "Código do item."),
@@ -147,14 +147,14 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_familias_almox",
             "estoque_almoxarifado",
-            "Lista as famílias de itens do almoxarifado.",
+            "Lista as famílias (seções) de itens do almoxarifado em `familias`: id, nome, ícone, cor e ordem. Use para obter o id da seção ao criar ou configurar itens.",
             "/api/almox/familias",
             vec![],
         ),
         Acao::leitura(
             "listar_movimentos_almox",
             "estoque_almoxarifado",
-            "Lista movimentações de estoque do almoxarifado, mais novas primeiro.",
+            "Lista as movimentações do almoxarifado (mais novas primeiro, padrão 200): item, tipo (entrada, saída ou ajuste), quantidade, custo unitário, motivo, documento, quem lançou, data e setor. Filtre por item e período. Para lançar use `lancar_movimento_almox`.",
             "/api/almox/movements",
             vec![
                 param("itemCode", "query", "texto", false, "Só movimentos deste item."),
@@ -166,28 +166,28 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "obter_ultima_contagem_almox",
             "estoque_almoxarifado",
-            "Situação da última contagem de estoque aplicada.",
+            "Situação da contagem de estoque: data da última contagem aplicada, data da próxima (7 dias depois; hoje se nunca houve) e se está vencida (`due`). Use antes de `aplicar_contagem_almox`.",
             "/api/almox/counts/latest",
             vec![],
         ),
         Acao::leitura(
             "listar_reposicao_almox",
             "estoque_almoxarifado",
-            "Itens que precisam de reposição (abaixo do mínimo).",
+            "Itens ativos abaixo do mínimo que precisam de reposição, com as estatísticas de cada um (saldo, mínimo, ideal, saída média e quantidade sugerida), da maior sugestão de compra para a menor. Para gerar a demanda de uma vez use `criar_demanda_do_minimo_almox`.",
             "/api/almox/replenishment",
             vec![],
         ),
         Acao::leitura(
             "listar_demandas_almox",
             "estoque_almoxarifado",
-            "Lista as demandas de compra do almoxarifado com seu status.",
+            "Lista as demandas de compra do almoxarifado (até 300, da mais nova): título, status, quem pediu, origem, valor cotado e comprado, loja, código de rastreio, datas de compra e recebimento, e os itens (pedida x recebida). Para o histórico de um item use `consultar_historico_compra_almox`.",
             "/api/almox/demands",
             vec![],
         ),
         Acao::leitura(
             "consultar_historico_compra_almox",
             "estoque_almoxarifado",
-            "Histórico de compras de um item do almoxarifado.",
+            "Histórico de compras de um item (ou busca por texto): demanda, título, loja, data da compra, valor comprado e cotado, custo unitário, quantidade e cotações. Use para saber onde e por quanto foi comprado antes.",
             "/api/almox/demands/history",
             vec![
                 param("itemCode", "query", "texto", false, "Código do item."),
@@ -197,14 +197,14 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_equipamentos_almox",
             "estoque_equipamentos",
-            "Lista equipamentos e peças do parque.",
+            "Lista os equipamentos e peças do parque por nome: código, setor, status, marca, modelo, tipo, local, intervalo e datas de manutenção (última e próxima), peças vinculadas, total gasto e manutenções abertas.",
             "/api/almox/equipments",
             vec![],
         ),
         Acao::leitura(
             "detalhar_equipamento_almox",
             "estoque_equipamentos",
-            "Detalhe de um equipamento.",
+            "Um equipamento pelo id, com cadastro completo (código, nome, setor, status, marca, modelo, série, local, fornecedor, aquisição, valor, intervalo e datas de manutenção, peças, total gasto). Para as manutenções use `listar_manutencoes_almox`.",
             "/api/almox/equipments/:id",
             vec![
                 param("id", "caminho", "texto", true, "Id do equipamento."),
@@ -213,7 +213,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_manutencoes_almox",
             "estoque_manutencoes",
-            "Lista manutenções de equipamentos.",
+            "Lista as manutenções de equipamentos: equipamento, tipo, status, rotina, peça, técnico, custo, datas (ocorrência, agendada, conclusão) e recorrência. Filtre por `equipmentId`.",
             "/api/almox/maintenances",
             vec![
                 param("equipmentId", "query", "texto", false, "Só manutenções deste equipamento."),
@@ -223,7 +223,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "criar_item_local_almox",
             "estoque_almoxarifado",
-            "Cadastra um item local do Supermercado (fora do ERP).",
+            "Cadastra um item local do Supermercado (fora do ERP): descrição, unidade, seção e, opcionalmente, código, mínimo, ideal, local e validade. Devolve o item criado. Vai para a auditoria. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/almox/items/local",
             true,
@@ -236,7 +236,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "salvar_config_item_almox",
             "estoque_almoxarifado",
-            "Salva a configuração de um item do almoxarifado (seção, mínimo, ideal, ativo).",
+            "Salva a configuração de um item do almoxarifado: seção, mínimo, ideal, local, ativo, observações, vida útil e datas de troca, embalagem padrão e foto. Campos omitidos ficam como estão. Vai para a auditoria. Sem `confirmar=true` mostra só a prévia.",
             "PUT",
             "/api/almox/items/:code/config",
             true,
@@ -249,7 +249,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "excluir_item_almox",
             "estoque_almoxarifado",
-            "Remove um item do almoxarifado (apaga a configuração, o saldo e as fotos dele).",
+            "Remove um item do almoxarifado: apaga a configuração, o saldo e as fotos dele (não mexe no catálogo do ERP). Vai para a auditoria. Sem `confirmar=true` mostra só a prévia do que seria apagado.",
             "DELETE",
             "/api/almox/items/:code",
             true,
@@ -261,7 +261,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "salvar_familia_almox",
             "estoque_almoxarifado",
-            "Cria ou atualiza uma família (seção) de itens do almoxarifado.",
+            "Cria ou atualiza uma família (seção) de itens do almoxarifado pelo `id`, com nome e, opcionalmente, ícone, cor e ordem. Vai para a auditoria. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/almox/familias",
             true,
@@ -274,7 +274,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "excluir_familia_almox",
             "estoque_almoxarifado",
-            "Remove uma família; os itens dela passam para 'outros'.",
+            "Remove uma família (seção); os itens dela passam para 'outros'. Vai para a auditoria. Sem `confirmar=true` mostra só a prévia.",
             "DELETE",
             "/api/almox/familias/:id",
             true,
@@ -313,7 +313,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "criar_demanda_almox",
             "estoque_almoxarifado",
-            "Cria uma demanda de compra do almoxarifado.",
+            "Cria uma demanda de compra do almoxarifado com título, observações, origem, setor, urgência, equipamento e os itens a comprar (código, descrição, quantidade). Devolve a demanda criada. Para incluir todos os itens abaixo do mínimo use `criar_demanda_do_minimo_almox`. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/almox/demands",
             true,
@@ -326,7 +326,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "criar_demanda_do_minimo_almox",
             "estoque_almoxarifado",
-            "Cria uma demanda de compra com todos os itens abaixo do mínimo.",
+            "Cria uma demanda de compra com todos os itens ativos abaixo do mínimo, na quantidade sugerida de cada um (a mesma lista de `listar_reposicao_almox`). Sem `confirmar=true` mostra só a prévia com os itens.",
             "POST",
             "/api/almox/demands/from-min",
             true,
@@ -335,7 +335,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "adicionar_foto_almox",
             "estoque_almoxarifado",
-            "Anexa uma foto a um item ou equipamento.",
+            "Anexa uma foto (data URL) a um item (`entity_type`=item, com o código) ou a um equipamento (`equipment`, com o id). Devolve a foto gravada. Vai para a auditoria. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/almox/fotos/:entity_type/:entity_id",
             true,
@@ -349,7 +349,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "excluir_foto_almox",
             "estoque_almoxarifado",
-            "Remove uma foto anexada.",
+            "Remove uma foto anexada a item ou equipamento pelo id. Vai para a auditoria. Sem `confirmar=true` mostra só a prévia.",
             "DELETE",
             "/api/almox/fotos/:id",
             true,
@@ -361,7 +361,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "criar_equipamento_almox",
             "estoque_equipamentos",
-            "Cadastra um equipamento do parque.",
+            "Cadastra um equipamento do parque: código e nome obrigatórios; opcionais setor, status, marca, modelo, série, local, fornecedor, aquisição, valor, intervalo de manutenção e peças. Devolve o equipamento criado. Vai para a auditoria. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/almox/equipments",
             true,
@@ -374,7 +374,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "atualizar_equipamento_almox",
             "estoque_equipamentos",
-            "Atualiza o cadastro de um equipamento.",
+            "Atualiza o cadastro de um equipamento (mesmos campos de `criar_equipamento_almox`; código e nome são obrigatórios). Devolve o equipamento atualizado. Vai para a auditoria. Sem `confirmar=true` mostra só a prévia.",
             "PUT",
             "/api/almox/equipments/:id",
             true,
@@ -388,7 +388,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "criar_manutencao_almox",
             "estoque_manutencoes",
-            "Registra uma manutenção de equipamento (e a próxima, se for recorrente).",
+            "Registra uma manutenção de equipamento (tipo obrigatório; opcionais rotina, peça, técnico, custo, datas e recorrência em dias); se for recorrente, cria também a próxima. Devolve a manutenção criada. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/almox/maintenances",
             true,
@@ -401,7 +401,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "atualizar_manutencao_almox",
             "estoque_manutencoes",
-            "Atualiza uma manutenção (status, datas, peças).",
+            "Atualiza uma manutenção: status, datas (ocorrência, agendada, conclusão), técnico, custo, observações e as peças usadas. Devolve a manutenção atualizada. Vai para a auditoria. Sem `confirmar=true` mostra só a prévia.",
             "PUT",
             "/api/almox/maintenances/:id",
             true,

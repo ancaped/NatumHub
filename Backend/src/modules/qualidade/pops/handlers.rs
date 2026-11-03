@@ -93,10 +93,23 @@ pub async fn editar_formulario(
 
 #[derive(Debug, serde::Deserialize)]
 pub struct StatusFormularioInput {
-    #[serde(alias = "status")]
-    pub destino: String,
+    /// Nome principal (igual ao dos documentos POP).
+    pub status: Option<String>,
+    /// Nome antigo, ainda aceito.
+    pub destino: Option<String>,
     #[serde(default)]
     pub motivo: String,
+}
+
+impl StatusFormularioInput {
+    /// `status` e `destino` significam o mesmo; se vierem os dois, têm que ser iguais.
+    pub(super) fn status_final(&self) -> Result<&str, ErroApi> {
+        match (self.status.as_deref(), self.destino.as_deref()) {
+            (Some(s), Some(d)) if s != d => Err(ErroApi::invalido("`status` e `destino` são o mesmo campo e vieram diferentes; envie só `status`.")),
+            (Some(s), _) | (None, Some(s)) => Ok(s),
+            (None, None) => Err(ErroApi::invalido("Informe `status` (in_review, draft ou obsolete).")),
+        }
+    }
 }
 
 pub async fn mover_status_formulario(
@@ -106,7 +119,7 @@ pub async fn mover_status_formulario(
     Query(c): Query<Confirmar>,
     Json(input): Json<StatusFormularioInput>,
 ) -> Result<Response, ErroApi> {
-    let r = formularios::mover_status(state.db.pool(), &code, &input.destino, &input.motivo, &autor(&ctx), c.confirmar).await?;
+    let r = formularios::mover_status(state.db.pool(), &code, input.status_final()?, &input.motivo, &autor(&ctx), c.confirmar).await?;
     Ok(resposta(&r, None))
 }
 

@@ -30,7 +30,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_pedidos_ecommerce",
             "expedicao_ecommerce",
-            "Lista pedidos do e-commerce na expedição.",
+            "Lista os pedidos do e-commerce na expedição, dos mais recentes aos mais antigos: data de emissão, NF, cliente, plataforma e forma de envio, status, quem separou, se pagamento e frete estão ok, data de envio e observações. Filtre por busca (NF, cliente, observação), status e plataforma.",
             "/api/expedicao/ecommerce",
             vec![
                 param("search", "query", "texto", false, "NF, cliente ou observação."),
@@ -41,21 +41,21 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_plataformas_expedicao",
             "expedicao",
-            "Lista as plataformas de venda cadastradas.",
+            "Lista as plataformas de venda cadastradas na expedição (id, nome, ativa), por nome. Use para obter o valor de `plataforma` dos filtros de `listar_pedidos_ecommerce`.",
             "/api/expedicao/lookups/platforms",
             vec![],
         ),
         Acao::leitura(
             "listar_transportes_expedicao",
             "expedicao",
-            "Lista as formas de envio cadastradas.",
+            "Lista as formas de envio cadastradas na expedição (id, nome, ativa), por nome. Use para conferir os valores válidos de forma de envio dos pedidos.",
             "/api/expedicao/lookups/shipping",
             vec![],
         ),
         Acao::leitura(
             "listar_clientes_expedicao",
             "expedicao",
-            "Lista os clientes cadastrados na expedição.",
+            "Lista os clientes cadastrados na expedição (id, nome, ativo), por nome. É o cadastro de apoio da expedição, não o de clientes de Vendas (para esses use `listar_clientes_venda`).",
             "/api/expedicao/lookups/clients",
             vec![],
         ),

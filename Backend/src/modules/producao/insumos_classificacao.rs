@@ -49,7 +49,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "buscar_insumos_classificacao",
             "producao",
-            "Busca insumos para classificar, por código ou descrição (mínimo 2 letras).",
+            "Busca insumos de produção (códigos 9.x) por código ou descrição, com pelo menos 2 letras (até 20, por descrição). Devolve código, descrição e unidade. Use para achar o insumo antes de marcar como sem controle de estoque ou de definir uma troca.",
             "/api/producao/insumos-classificacao/buscar",
             vec![param("q", "query", "texto", true, "Parte do código ou da descrição.")],
         ),

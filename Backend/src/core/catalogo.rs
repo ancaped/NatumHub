@@ -145,6 +145,14 @@ mod tests {
         }
     }
 
+    /// Descrição de uma linha só não diz ao agente o que volta nem quando usar: mínimo de 90 caracteres.
+    #[test]
+    fn descricoes_tem_tamanho_minimo() {
+        for a in todas() {
+            assert!(a.descricao.chars().count() >= 90, "{}: descrição curta demais ({} caracteres)", a.nome, a.descricao.chars().count());
+        }
+    }
+
     #[test]
     fn metodo_e_escrita_batem() {
         for a in todas() {

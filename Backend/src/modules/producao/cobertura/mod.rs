@@ -60,7 +60,7 @@ pub fn acoes() -> Vec<Acao> {
         Acao::leitura(
             "listar_faltas_por_linha",
             M,
-            "Insumos em falta na semana, agrupados pela linha de envase.",
+            "Insumos em falta na semana, agrupados por linha de envase, produto e embalagem/matéria-prima: só entram os que faltam, chegam depois, têm pedido atrasado ou sem data, e produtos sem fórmula. Devolve `ordens` (ordens da semana, consumo acumulado), `fila` (cada item da fila avaliado sozinho) e `filaSemKg`. Use para saber o que comprar ou cobrar antes de fechar a semana.",
             "/api/producao/cobertura/faltas-por-linha",
             vec![param("week", "query", "texto", false, "Semana 2026-W43; padrão: semana de hoje.")],
         ),

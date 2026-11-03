@@ -157,7 +157,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_acompanhamento_producao",
             "admin_acompanhamento_producao",
-            "Lista os lotes do acompanhamento de produção (status do ERP e status próprio).",
+            "Lista os lotes do acompanhamento de produção: lote, produto, quantidade em unidades e kg, data, status do ERP (`erpStatus`, com rótulo), status próprio do Nexus, categoria e quem/quando atualizou. Filtre por busca, status, categoria, período, `limit` ou `apenasTerceirizados`. Para o histórico de um lote use `consultar_historico_lote_acompanhamento`.",
             "/api/administrativo/acompanhamento-producao",
             vec![
                 param("search", "query", "texto", false, "Texto de busca."),
@@ -180,14 +180,14 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "auditar_lotes_acompanhamento",
             "admin_acompanhamento_producao",
-            "Auditoria de divergências entre os lotes do ERP e o acompanhamento.",
+            "Auditoria somente leitura (não corrige nada) que aponta lotes duplicados ou inconsistentes entre o planejamento e o ERP: `paresPlanErp` (a mesma ordem aparece como planejamento sem lote e como lote ERP), `loteErpInexistente` (lote ERP digitado que não existe) e `loteRepetido` (mesmo lote e produto em mais de uma ordem, até 200), mais `total`.",
             "/api/administrativo/acompanhamento-producao/auditoria",
             vec![],
         ),
         Acao::leitura(
             "consultar_historico_lote_acompanhamento",
             "admin_acompanhamento_producao",
-            "Histórico de mudanças de status de um lote.",
+            "Histórico de mudanças de status de um lote, do mais recente ao mais antigo: status, categoria, quem mudou, quando e observação. Use para entender como o lote chegou ao status atual.",
             "/api/administrativo/lote-status/:number/history",
             vec![
                 param("number", "caminho", "texto", true, "Número do lote."),
@@ -196,7 +196,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_solicitacoes_terceirizados",
             "admin_acompanhamento_producao",
-            "Lista solicitações de produção terceirizada.",
+            "Lista as solicitações de produção terceirizada: produto, quantidade (kg e unidades), status (SOLICITADO, APROVADO, VINCULADO, EM_FABRICACAO, ENTREGUE, FINALIZADO ou CANCELADO), lote vinculado, fornecedor, previsão de entrega, observações, quem solicitou e aprovação de embalagem.",
             "/api/administrativo/terceirizados/solicitacoes",
             vec![],
         ),
@@ -238,7 +238,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "alterar_previsao_solicitacao_terceirizado",
             "admin_acompanhamento_producao",
-            "Altera a previsão de entrega da solicitação (e do lote vinculado).",
+            "Altera a previsão de entrega de uma solicitação terceirizada e, se ela tem lote vinculado, a previsão do lote (data vazia limpa a previsão da solicitação). Vai para a auditoria. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/administrativo/terceirizados/solicitacoes/:id/previsao",
             true,
@@ -264,7 +264,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "desvincular_solicitacao_terceirizado",
             "admin_acompanhamento_producao",
-            "Desfaz o vínculo com o lote; a solicitação volta para APROVADO ou SOLICITADO.",
+            "Desfaz o vínculo da solicitação com o lote; ela volta para APROVADO (ou SOLICITADO, se ainda não tinha sido aprovada). Vai para a auditoria. Use para trocar o lote errado; para vincular outro, use a rota de vínculo. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/administrativo/terceirizados/solicitacoes/:id/desvincular",
             true,
@@ -303,7 +303,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "marcar_lote_terceirizado",
             "admin_acompanhamento_producao",
-            "Marca ou desmarca um lote como terceirizado.",
+            "Marca (`isTerceirizado`=true) ou desmarca um lote como terceirizado no acompanhamento, o que muda onde ele aparece e o filtro `apenasTerceirizados`. Vai para a auditoria. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/administrativo/lote-status/:number/terceirizado",
             true,
@@ -316,7 +316,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "consultar_produto_terceirizado",
             "admin_acompanhamento_producao",
-            "Consulta um produto pelo código para terceirização.",
+            "Consulta um produto pelo código para montar uma solicitação terceirizada: devolve código, descrição e o peso unitário em kg (média histórica dos lotes do ERP com unidades), ou nada se o código não existe.",
             "/api/administrativo/terceirizados/produto/:code",
             vec![
                 param("code", "caminho", "texto", true, "Código do produto."),
@@ -325,7 +325,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_programacao_envase",
             "admin_acompanhamento_producao",
-            "Programação de envase do dia.",
+            "Programação de envase de um dia (hoje por padrão): linha, ordem, lote, produto, quantidade em unidades e kg, categoria de envase, se é colorido e a cor, status do envase e observações.",
             "/api/administrativo/envase/programacao",
             vec![
                 param("data", "query", "data", false, "Dia (AAAA-MM-DD; hoje por padrão)."),
@@ -334,7 +334,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_programacao_rotulagem",
             "admin_acompanhamento_producao",
-            "Programação de rotulagem do dia.",
+            "Programação de rotulagem de um dia (hoje por padrão): tipo (MAQUINA ou MANUAL), ordem, lote, produto, quantidade em unidades e kg, status da rotulagem e observações. Devolve os dois tipos juntos, ordenados por tipo e ordem (o parâmetro `tipo` é aceito mas a rota não filtra por ele).",
             "/api/administrativo/rotulagem/programacao",
             vec![
                 param("data", "query", "data", false, "Dia (AAAA-MM-DD; hoje por padrão)."),

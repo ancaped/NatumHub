@@ -58,14 +58,14 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_familias_documentacao",
             "qualidade_documentacao",
-            "Lista as famílias de documentos da qualidade.",
+            "Lista as famílias de documentos da qualidade (licenças, certificados etc.), por nome, com código, dias de aviso antes do vencimento (`warnDays`), se exige pagamento e se está ativa. Use para obter o `family_id` dos filtros de documentos e tipos.",
             "/api/qualidade/documentacao/families",
             vec![],
         ),
         Acao::leitura(
             "listar_tipos_documentacao",
             "qualidade_documentacao",
-            "Lista os tipos de documento.",
+            "Lista os tipos de documento da qualidade, por nome (id, família, nome, ativo). Passe `family_id` para ver só os de uma família.",
             "/api/qualidade/documentacao/types",
             vec![
                 param("family_id", "query", "texto", false, "Só tipos desta família."),
@@ -74,7 +74,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "listar_documentos_documentacao",
             "qualidade_documentacao",
-            "Lista os documentos da qualidade (licenças, certificados etc.).",
+            "Lista os documentos da qualidade (licenças, certificados etc.) por vencimento mais próximo: título, família, tipo, local físico, emissão, validade, situação e dados de pagamento e arquivos. Filtre por busca, família, `payment_status` ou `pending_only` (pagamento pendente, sem validade ou vencendo em 30 dias).",
             "/api/qualidade/documentacao/documents",
             vec![
                 param("search", "query", "texto", false, "Texto de busca."),
@@ -86,7 +86,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "detalhar_documento_documentacao",
             "qualidade_documentacao",
-            "Detalhe de um documento.",
+            "Um documento da qualidade pelo id, com família, tipo, título, local físico, etiqueta, emissão, validade, dados de pagamento, observações e a lista de arquivos anexados. Dá erro se não existir.",
             "/api/qualidade/documentacao/documents/:id",
             vec![
                 param("id", "caminho", "texto", true, "Id do documento."),

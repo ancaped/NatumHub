@@ -28,7 +28,7 @@ pub fn acoes() -> Vec<Acao> {
     vec![Acao::leitura(
         "listar_auditoria_producao",
         "producao",
-        "Lista quem fez o quê no Gerenciamento de Produção (mais recentes primeiro).",
+        "Lista quem fez o quê no Gerenciamento de Produção, das mais recentes para as mais antigas: data/hora, usuário (operador ou agente), ação, alvo e o detalhe gravado (motivo, antes/depois). Use `limite` (1 a 500; padrão 50). Serve para conferir o que um agente ou operador gravou.",
         "/api/producao/auditoria",
         vec![param("limite", "query", "inteiro", false, "Quantos registros (1 a 500; padrão 50).")],
     )]

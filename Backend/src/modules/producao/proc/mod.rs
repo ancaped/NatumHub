@@ -17,7 +17,7 @@ pub fn acoes() -> Vec<Acao> {
         Acao::leitura(
             "listar_procs",
             M,
-            "Lista os PROC (processos) de produtos, com totais por status.",
+            "Lista os PROC (processos de fabricação) de produtos: id, código do produto, descrição, número do PROC, status (ATIVO, EM_BRANCO, CANCELADO ou VENCIDO), categoria/família e observações, com totais. Filtre por busca, status e categoria; pagine com `limit` e `offset`. Para um só use `obter_proc`.",
             "/api/producao/proc",
             vec![
                 param("search", "query", "texto", false, "Código do produto ou descrição."),
@@ -37,14 +37,14 @@ pub fn acoes() -> Vec<Acao> {
         Acao::leitura(
             "resumo_procs",
             M,
-            "Totais dos PROC por status.",
+            "Totais dos PROC: quantos no total, ativos, em branco e quantas famílias. Use para ver a cobertura de processos sem listar todos.",
             "/api/producao/proc/summary",
             vec![],
         ),
         Acao::leitura(
             "obter_proc",
             M,
-            "Um PROC pelo id.",
+            "Um PROC pelo id: produto, descrição, número, status (ATIVO, EM_BRANCO, CANCELADO ou VENCIDO), categoria/família, observações e as instruções do processo. Use depois de `listar_procs`.",
             "/api/producao/proc/:id",
             vec![param("id", "caminho", "texto", true, "Id do PROC.")],
         ),

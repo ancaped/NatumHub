@@ -35,14 +35,14 @@ pub fn acoes_linha_produtos() -> Vec<Acao> {
         Acao::leitura(
             "listar_overrides_produto",
             M,
-            "Lista os ajustes manuais por produto (status, linha, estoque ideal, regras PCP etc.).",
+            "Lista todos os ajustes manuais por produto (status, linha, estoque ideal, observação, regras PCP etc.), um registro por produto ajustado. Use para saber o que foi mexido à mão; para alterar vários de uma vez use `alterar_overrides_em_lote`.",
             "/api/overrides",
             vec![],
         ),
         Acao::leitura(
             "candidatos_graduacao_lancamento",
             M,
-            "Produtos em lançamento que já têm meses de venda suficientes para graduar.",
+            "Produtos em status lançamento que já têm meses de venda suficientes (meta do produto ou a global) para graduar. Cada item traz código, descrição, linha, meses com venda e a meta. Use antes de graduar com `alterar_overrides_em_lote` (action graduar_lancamento).",
             "/api/lancamento/graduation-check",
             vec![],
         ),

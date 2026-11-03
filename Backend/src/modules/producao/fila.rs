@@ -101,7 +101,7 @@ pub fn acoes() -> Vec<Acao> {
         Acao::gravacao(
             "limpar_fila_demandas",
             M,
-            "Esvazia a Fila de Demandas (apaga todos os itens; não lembra motivo por produto). Sem `confirmar=true` mostra só a lista do que sairia.",
+            "Esvazia a Fila de Demandas: apaga todos os itens colocados à mão (os automáticos não são apagados). Exige `motivo` ao confirmar; ele vai para a auditoria junto com a lista dos itens que saíram. Não marca os produtos como descartados: os automáticos voltam à fila enquanto forem necessários (para tirar um produto e lembrar o motivo, use `retirar_da_fila`). Sem `confirmar=true` mostra só a lista do que sairia.",
             "POST",
             "/api/producao/fila-demandas/limpar",
             true,

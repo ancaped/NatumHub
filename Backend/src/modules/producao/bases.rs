@@ -33,7 +33,7 @@ pub fn acoes() -> Vec<Acao> {
         Acao::leitura(
             "listar_produtos_mesma_formulacao",
             M,
-            "Produtos que usam a mesma fórmula de um produto (úteis para produzir juntos).",
+            "Produtos que usam a mesma fórmula do produto informado (úteis para produzir juntos na mesma batelada), com o cálculo de estoque de cada um. Use ao montar uma batelada que aproveite a base.",
             "/api/producao/produtos-mesma-formulacao/:code",
             vec![param("code", "caminho", "texto", true, "Código do produto.")],
         ),

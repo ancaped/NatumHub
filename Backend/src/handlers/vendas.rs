@@ -954,7 +954,7 @@ pub fn acoes_vendas() -> Vec<Acao> {
         Acao::leitura(
             "listar_clientes_venda",
             M,
-            "Lista clientes com pedidos em aberto no período.",
+            "Lista os clientes dos pedidos de venda no período, com total de pedidos, pedidos abertos e valor dos abertos (n_codigo, c_nome, pedidos_total, pedidos_abertos, valor_abertos). Use para escolher o cliente antes de `listar_pedidos_do_cliente`.",
             "/api/vendas/clientes",
             vec![
                 param("search", "query", "texto", false, "Parte do nome do cliente."),
@@ -964,7 +964,7 @@ pub fn acoes_vendas() -> Vec<Acao> {
         Acao::leitura(
             "listar_pedidos_do_cliente",
             M,
-            "Pedidos de um cliente, com itens.",
+            "Pedidos de venda de um cliente do ERP, do mais novo ao mais antigo, cada um com seus itens e a situação de atendimento (`atendimento`). Filtre por status e janela em dias; para um pedido só use `detalhar_pedido_venda`.",
             "/api/vendas/clientes/:codigo/pedidos",
             vec![
                 param("codigo", "caminho", "inteiro", true, "Código do cliente no ERP."),
