@@ -28,8 +28,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+WORKDIR /app/Backend
+# Camada só das dependências: compila com um código vazio e fica no cache do GitHub (cache-to gha) enquanto
+# Cargo.toml/Cargo.lock não mudarem. Assim cada commit recompila só o crate do Nexus (~2 min a menos por build).
+COPY Backend/Cargo.toml Backend/Cargo.lock ./
+RUN mkdir -p src/bin \
+    && echo 'fn main() {}' > src/main.rs \
+    && for b in discover_laudos_erp discover_recebimento_erp run_import_recebimento_mp; do echo 'fn main() {}' > "src/bin/$b.rs"; done \
+    && touch src/lib.rs \
+    && echo 'fn main() {}' > build.rs \
+    && cargo build --release --bin nexus-server --no-default-features \
+    && rm -rf src build.rs target/release/.fingerprint/nexus-*
+
 WORKDIR /app
-COPY Backend/Cargo.toml Backend/Cargo.lock ./Backend/
 # Copia código-fonte necessário para o build
 COPY Backend ./Backend
 COPY erp-import ./erp-import
@@ -37,10 +48,7 @@ COPY erp-import ./erp-import
 COPY Frontend/src ./Frontend/src
 
 WORKDIR /app/Backend
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/Backend/target \
-    cargo build --release --bin nexus-server --no-default-features && \
+RUN cargo build --release --bin nexus-server --no-default-features && \
     cp target/release/nexus-server /app/nexus-server
 
 # --- ESTÁGIO 3: RUNTIME FINAL (LEVE) ---

@@ -90,7 +90,7 @@ Rota HTTP           → natumhub-api
 ## Fluxo de Deploy (GitHub Actions + GHCR)
 
 - **O servidor ZimaOS nunca compila.** Compilar o Rust lá (3,7 GB de RAM) derrubou a produção em 20/10/2026.
-- Push na `main` → GitHub Actions (`.github/workflows/build-image.yml`) roda os testes (`npm run build` + `cargo test`), compila e publica `ghcr.io/ancaped/nexus:0.2.N` e `:sha-<7 do commit>`. Pull requests e `workflow_dispatch` só testam.
+- Push na `main` → GitHub Actions (`.github/workflows/build-image.yml`) roda os testes (`npm run build` + `cargo test`) e, em paralelo, compila a imagem (`:ci-<sha>`); só com os testes passando publica `ghcr.io/ancaped/nexus:0.2.N` e `:sha-<7 do commit>`. Commit novo na `main` cancela o build anterior ainda em andamento. Pull requests e `workflow_dispatch` só testam.
 - O timer `nexus-autodeploy` (a cada 2 min) roda `scripts/autodeploy_zimaos.sh`, instalado por cópia manual em `/DATA/AppData/nexus/scripts/autodeploy.sh`: puxa a imagem do commit mais novo, troca o container, roda o smoke test (`/api/health`) e notifica no sino do Nexus; volta a imagem anterior (`nexus:prod-prev`) se falhar. A imagem leva alguns minutos para existir; até lá ele só espera.
 - Trocar ou voltar de versão à mão: `scripts/deploy_zimaos.sh [0.2.N | sha-XXXXXXX]`. Para segurar um rollback, pare antes o timer (`sudo systemctl stop nexus-autodeploy.timer`).
 - Estado e logs: `/DATA/AppData/nexus/saves-prod/.autodeploy/` e `autodeploy.log`. Retentar um commit que esgotou as tentativas: apagar `.autodeploy/failed`.
