@@ -44,10 +44,11 @@ pub struct LoteAbertoProduto {
 }
 
 /// Lotes abertos por produto (um por lote e produto), do mais antigo ao mais novo.
-/// Unidades = `Unidades` dos details (fallback `nQtde`); lote sem unidades fica de fora.
+/// Unidades pela regra `unidades_do_lote` ("Unidades" do ERP acima de 1, senão kg / peso unitário); lote sem unidades fica de fora.
 pub async fn fetch_open_lotes_por_produto(pool: &PgPool) -> Vec<LoteAbertoProduto> {
     let sql = format!(
-        "SELECT DISTINCT ON (document_number, item_code) item_code, quantity, details, document_number, date
+        "SELECT DISTINCT ON (document_number, item_code) item_code, quantity, details, document_number, date,
+                (SELECT p.descricao FROM produtos p WHERE p.codigo = TRIM(stock_movements.item_code))
          FROM stock_movements
          WHERE item_type = 'produto' AND movement_type = 'entrada'
            AND COALESCE(document_number, '') <> ''
@@ -70,7 +71,22 @@ pub async fn fetch_open_lotes_por_produto(pool: &PgPool) -> Vec<LoteAbertoProdut
             .flatten()
             .unwrap_or_default();
         let unidades = parse_unidades_from_details(&details);
-        let units = if unidades > 0.0 { unidades } else { qty_kg };
+        // Mesma regra das telas de lote (`unidades_do_lote`): "Unidades" do ERP só vale acima de 1; senão kg / peso unitário.
+        let descricao = row.try_get::<Option<String>, _>(5).ok().flatten().unwrap_or_default();
+        let peso = crate::core::regras_produto::peso_unitario_kg(
+            &descricao,
+            crate::core::regras_produto::e_base(item_code.trim(), "", ""),
+        );
+        let (calculadas, peso_desconhecido) = crate::core::regras_produto::unidades_do_lote(
+            Some(unidades).filter(|u| *u > 0.0),
+            qty_kg,
+            peso,
+        );
+        let units = if peso_desconhecido {
+            if unidades > 0.0 { unidades } else { qty_kg }
+        } else {
+            calculadas
+        };
         if units <= 0.0 {
             continue;
         }
