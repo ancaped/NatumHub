@@ -805,7 +805,8 @@ pub async fn list_active_operators(pool: &PgPool) -> Result<Vec<OperatorPublic>,
 
 pub async fn list_all_operators(pool: &PgPool) -> Result<Vec<OperatorDetail>, String> {
     let rows: Vec<(String, String, String, i32, String, Option<String>)> = sqlx::query_as(
-        "SELECT id, display_name, role, active, update_channel, password_hash FROM hub_operators ORDER BY LOWER(display_name)",
+        "SELECT id, display_name, role, active, update_channel, password_hash FROM hub_operators \
+         WHERE COALESCE(to_jsonb(hub_operators) ->> 'kind', 'humano') <> 'agente' ORDER BY LOWER(display_name)",
     )
     .fetch_all(pool)
     .await

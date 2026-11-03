@@ -73,6 +73,8 @@ export default function AgentesPanel({ setMessage }: Props) {
   const [tokenMostrado, setTokenMostrado] = useState<{ agente: string; token: string } | null>(null);
   const [copiado, setCopiado] = useState(false);
   const [comoConectar, setComoConectar] = useState(false);
+  // Erro do formulário de novo agente, mostrado ao lado do botão (o aviso do topo fica fora da vista).
+  const [erroNovo, setErroNovo] = useState('');
 
   const erro = useCallback(
     (e: unknown, padrao: string) => {
@@ -126,6 +128,7 @@ export default function AgentesPanel({ setMessage }: Props) {
     const modulos = paraModulosApi(novaGrade);
     type R = { id: string; nome: string; token?: string };
     setSaving(true);
+    setErroNovo('');
     try {
       await post<R>('/admin/agentes', { nome, modulos, confirmar: false });
       setPrevia({
@@ -143,7 +146,7 @@ export default function AgentesPanel({ setMessage }: Props) {
         },
       });
     } catch (e) {
-      erro(e, 'Erro ao criar agente');
+      setErroNovo(e instanceof Error && e.message ? e.message : 'Erro ao criar agente.');
     } finally {
       setSaving(false);
     }
@@ -340,6 +343,11 @@ export default function AgentesPanel({ setMessage }: Props) {
             onChange={setNovaGrade}
             descricao="Defina se o agente não acessa, apenas lê ou pode alterar dados."
           />
+          {erroNovo && (
+            <div className="px-3 py-2 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs font-semibold">
+              {erroNovo}
+            </div>
+          )}
           <div className="flex gap-2 justify-end pt-2 border-t border-zinc-200">
             <button
               type="button"

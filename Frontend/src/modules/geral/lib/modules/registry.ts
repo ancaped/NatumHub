@@ -176,7 +176,8 @@ export function moduleRegistry(): ModuleGroup[] {
       hubView: 'administrativo',
       children: [
         { key: MODULE_KEYS.ADMIN_LINHA_PRODUTOS, label: 'Linha de Produtos' },
-        { key: MODULE_KEYS.ADMIN_RELATORIOS, label: 'Relatórios' },
+        // Mesma chave do servidor (modules_registry.rs); 'admin_relatorios' é só o nome da tela.
+        { key: MODULE_KEYS.ADMIN_PRODUTOS_ATIVOS_RELATORIOS, label: 'Relatórios' },
         { key: MODULE_KEYS.ADMIN_FUNCIONARIOS, label: 'Funcionários' },
       ],
     },
