@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import Drawer from '../../../geral/components/ui/Drawer';
 import { apiFetch } from '../../../geral/lib/http';
+import { canEdit, getAuthUser } from '../../../geral/lib/auth';
+import RegrasPanel from './RegrasPanel';
 import { 
   TrendingUp, Layers, ClipboardList, Package, Clock, 
-  Sparkles, Calculator, AlertCircle, CheckCircle2 
+  Sparkles, Calculator, AlertCircle, CheckCircle2, StickyNote 
 } from 'lucide-react';
 
 /** Raiz da categoria do insumo (`categoryId`, já resolvida no servidor): embalagens, matéria-prima (inclui sem categoria) ou outras. */
@@ -37,7 +39,7 @@ export const ProductDetailsDrawer: React.FC<ProductDetailsDrawerProps> = ({
   onClose,
   onOpenLoteDetails
 }) => {
-  const [activeTab, setActiveTab] = useState<'geral' | 'formula' | 'lotes' | 'pedidos'>('geral');
+  const [activeTab, setActiveTab] = useState<'geral' | 'formula' | 'lotes' | 'pedidos' | 'regras'>('geral');
   const [loading, setLoading] = useState(false);
   const [details, setDetails] = useState<any | null>(null);
   const [pendingOrders, setPendingOrders] = useState<any | null>(null);
@@ -95,6 +97,7 @@ export const ProductDetailsDrawer: React.FC<ProductDetailsDrawerProps> = ({
         { id: 'formula', label: 'Fórmula & Ingredientes', icon: Layers },
         { id: 'lotes', label: 'Lotes de Produção', icon: ClipboardList, badge: details?.lastLots?.length || 0 },
         { id: 'pedidos', label: 'Pedidos', icon: Package, badge: pendingOrders?.pending_sales_orders?.length || 0 },
+        { id: 'regras', label: 'Regras e notas', icon: StickyNote },
       ]}
       activeTab={activeTab}
       onTabChange={(id) => setActiveTab(id as any)}
@@ -283,6 +286,13 @@ export const ProductDetailsDrawer: React.FC<ProductDetailsDrawerProps> = ({
                   </table>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* TAB: REGRAS E NOTAS */}
+          {activeTab === 'regras' && (
+            <div className="animate-in fade-in duration-150">
+              <RegrasPanel produto={details.code || productCode || ''} podeEditar={canEdit(getAuthUser(), 'planejamento_producao')} />
             </div>
           )}
 

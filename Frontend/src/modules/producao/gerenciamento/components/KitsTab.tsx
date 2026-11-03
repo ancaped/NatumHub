@@ -109,7 +109,7 @@ export function KitsTab({
   const handleEnqueueItem = async (code: string, desc: string, qty: number, compObj?: any) => {
     const cleanQty = Math.max(1, qty);
     try {
-      const res = await apiFetch('/producao/fila-demandas', {
+      const res = await apiFetch('/producao/fila-demandas?confirmar=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -269,7 +269,7 @@ export function KitsTab({
 
   const handleEnqueueBatch = async (items: any[]) => {
     try {
-      const res = await apiFetch('/producao/fila-demandas', {
+      const res = await apiFetch('/producao/fila-demandas?confirmar=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(items)

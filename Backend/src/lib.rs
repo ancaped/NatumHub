@@ -41,6 +41,9 @@ pub mod modules {
         pub mod equivalencia;
         pub mod auditoria;
         pub mod insumos_classificacao;
+        pub mod regras;
+        pub mod contexto;
+        pub mod roteiro;
     }
     pub mod compras;
     pub mod estoque;

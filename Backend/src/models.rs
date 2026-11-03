@@ -182,7 +182,7 @@ pub struct ProductCalculationResult {
     pub conflito_regra: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct QueryParams {
     pub search: Option<String>,
     pub linha: Option<String>,

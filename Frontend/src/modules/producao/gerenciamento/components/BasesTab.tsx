@@ -78,7 +78,7 @@ export function BasesTab({
     const qtyKg = customKg ?? (b.sugestao_base_kg > 0 ? Math.ceil(b.sugestao_base_kg) : (b.lote_padrao_kg || 200));
     setSavingQueue(true);
     try {
-      const res = await apiFetch('/producao/fila-demandas', {
+      const res = await apiFetch('/producao/fila-demandas?confirmar=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -167,7 +167,7 @@ export function BasesTab({
     const qty = fp.producao_recomendada > 0 ? fp.producao_recomendada : 100;
     const kg = Math.round(qty * (fp.unit_weight_kg || 1) * 10) / 10;
     try {
-      const res = await apiFetch('/producao/fila-demandas', {
+      const res = await apiFetch('/producao/fila-demandas?confirmar=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -5,7 +5,7 @@ import {
   Clock, ChevronDown, ChevronUp, Package, Truck, Boxes, Sparkles, Settings,
   ShieldCheck, ShieldAlert, Layers, Plus, ChevronLeft, ChevronRight, Filter,
   TrendingDown, CheckCircle, Info, Flame, Snowflake, AlertCircle, ArrowUpDown, Tag,
-  FileSpreadsheet, Download, GripVertical, AlertOctagon, SlidersHorizontal, FlaskConical, Zap
+  FileSpreadsheet, Download, GripVertical, AlertOctagon, SlidersHorizontal, FlaskConical, Zap, BookOpen
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { apiFetch } from '../../../geral/lib/http';
@@ -18,6 +18,7 @@ import { ProductDetailsDrawer } from './ProductDetailsDrawer';
 import CoberturaInsumosDrawer from './CoberturaInsumosDrawer';
 import RetirarDaFilaDrawer from './RetirarDaFilaDrawer';
 import LimparFilaDrawer from './LimparFilaDrawer';
+import RegrasPanel from './RegrasPanel';
 import PreviaAcaoDrawer, { PreviaAcao } from './PreviaAcaoDrawer';
 import { canEdit, getAuthUser } from '../../../geral/lib/auth';
 import { useAviso } from '../../../geral/components/ui/Aviso';
@@ -349,6 +350,7 @@ export function PlanejamentoSemanalTab({
   const [filaDemandas, setFilaDemandas] = useState<any[]>([]);
   const [retirarFilaId, setRetirarFilaId] = useState<string | null>(null);
   const [limparFilaAberto, setLimparFilaAberto] = useState(false);
+  const [regrasAberto, setRegrasAberto] = useState(false);
   const [adicionarFila, setAdicionarFila] = useState<{ codigo?: string; qtdKg?: number } | null>(null);
   const [basesResumo, setBasesResumo] = useState<any[]>([]);
   const [basesBusca, setBasesBusca] = useState('');
@@ -732,7 +734,7 @@ export function PlanejamentoSemanalTab({
         };
       });
     if (payload.length === 0) return;
-    const res = await apiFetch('/producao/fila-demandas', {
+    const res = await apiFetch('/producao/fila-demandas?confirmar=true', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -771,7 +773,7 @@ export function PlanejamentoSemanalTab({
   const handleSaveItems = async (items: PlanejamentoItem[], consumirFila?: { filaId: string; kg: number }[]): Promise<boolean> => {
     if (items.length === 0) return true;
     try {
-      const res = await apiFetch('/producao/planejamento-semanal/bulk', {
+      const res = await apiFetch('/producao/planejamento-semanal/bulk?confirmar=true', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(consumirFila && consumirFila.length > 0 ? { itens: items, consumirFila } : items)
@@ -2007,7 +2009,7 @@ export function PlanejamentoSemanalTab({
         .filter(([filaId]) => filaDemandas.some((f: any) => f.id === filaId))
         .map(([filaId, kg]) => ({ filaId, kg }));
       // Ordens e consumo da fila gravam juntos no servidor (mesma transação).
-      const res = await apiFetch('/producao/planejamento-semanal/bulk', {
+      const res = await apiFetch('/producao/planejamento-semanal/bulk?confirmar=true', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itens: heuristicProposal, consumirFila })
@@ -2705,8 +2707,18 @@ export function PlanejamentoSemanalTab({
                 </span>
               </div>
 
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setRegrasAberto(true)}
+                  className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                  title="Regras gerais do planejamento (também lidas pelo agente de IA)"
+                >
+                  <BookOpen size={12} />
+                  Regras
+                </button>
               {podeEditar && (
-                <div className="flex items-center gap-1.5">
+                <>
                   <button
                     type="button"
                     onClick={() => setAdicionarFila({})}
@@ -2725,8 +2737,9 @@ export function PlanejamentoSemanalTab({
                     <Trash2 size={12} />
                     Limpar fila
                   </button>
-                </div>
+                </>
               )}
+              </div>
 
               {/* Abas */}
               <div className="flex items-center gap-1">
@@ -3079,6 +3092,13 @@ export function PlanejamentoSemanalTab({
 
       {/* MODAL: RELATÓRIO DE CONSUMO DE MATÉRIAS-PRIMAS E EMBALAGENS */}
       {previaAcao && <PreviaAcaoDrawer previa={previaAcao} onClose={() => setPreviaAcao(null)} />}
+      {regrasAberto && (
+        <Drawer onClose={() => setRegrasAberto(false)} size="md" title="Regras do planejamento" subtitle="Regras gerais e anotações que o planejamento (e o agente de IA) segue">
+          <div className="p-4">
+            <RegrasPanel podeEditar={podeEditar} />
+          </div>
+        </Drawer>
+      )}
       {limparFilaAberto && (
         <LimparFilaDrawer
           onClose={() => setLimparFilaAberto(false)}

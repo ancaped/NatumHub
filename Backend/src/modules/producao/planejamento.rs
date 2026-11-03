@@ -55,11 +55,12 @@ pub fn acoes() -> Vec<Acao> {
         Acao::gravacao(
             "gravar_ordens_planejamento",
             M,
-            "Cria ou atualiza ordens no quadro numa única transação (se uma falhar, nenhuma grava). Em `consumirFila`, informe as demandas da Fila de Demandas que essas ordens atendem: a fila é abatida (kg) na mesma transação.",
+            "Cria ou atualiza ordens no quadro numa única transação (se uma falhar, nenhuma grava). Sem `confirmar=true` mostra só a prévia. Em `consumirFila`, informe as demandas da Fila de Demandas que essas ordens atendem: a fila é abatida (kg) na mesma transação.",
             "PUT",
             "/api/producao/planejamento-semanal/bulk",
-            false,
+            true,
             vec![
+                param("confirmar", "query", "booleano", false, "true para gravar de fato; sem ele só a prévia (ordens antes e depois, e o que sairia da fila)."),
                 param("itens", "corpo", "lista de ordens", true, "Ordens: id, week_key, data_planejada, reator_id, codigo_produto, quantidade_planejada, ordem_status, etc."),
                 param("consumirFila", "corpo", "lista {filaId, kg}", false, "Demandas da fila consumidas por estas ordens (kg agendados por item)."),
             ],
@@ -584,10 +585,10 @@ async fn instantaneo_ordens(conn: &mut sqlx::PgConnection, ids: &[String]) -> Re
     .map_err(db)
 }
 
-/// Grava uma ou várias ordens numa única transação: se qualquer uma falhar ou violar regra, nada é gravado.
-/// O consumo da Fila de Demandas entra na mesma transação (ordem gravada e demanda consumida, ou nenhuma).
-async fn gravar_planejamento(
-    pool: &PgPool,
+/// Grava uma ou várias ordens na conexão/transação do chamador: se qualquer uma falhar ou violar regra, o chamador
+/// desfaz tudo. O consumo da Fila de Demandas entra na mesma transação (ordem gravada e demanda consumida, ou nenhuma).
+async fn gravar_planejamento_em(
+    conn: &mut sqlx::PgConnection,
     itens: &mut [PlanejamentoItemDto],
     consumir: &[PedidoConsumoFila],
     usuario: &str,
@@ -596,20 +597,31 @@ async fn gravar_planejamento(
         normalizar_planejamento_item(it)?;
     }
     let ids: Vec<String> = itens.iter().map(|i| i.id.clone()).collect();
-    let mut tx = pool.begin().await.map_err(db)?;
-    let antes = instantaneo_ordens(&mut tx, &ids).await?;
+    let antes = instantaneo_ordens(&mut *conn, &ids).await?;
     for it in itens.iter() {
-        validar_status_planejamento(&mut tx, it).await?;
-        upsert_planejamento_item(&mut tx, it, usuario).await.map_err(db)?;
+        validar_status_planejamento(&mut *conn, it).await?;
+        upsert_planejamento_item(&mut *conn, it, usuario).await.map_err(db)?;
     }
-    validar_alocacoes_planejamento(&mut tx, itens).await?;
+    validar_alocacoes_planejamento(&mut *conn, itens).await?;
     let mut consumos = Vec::with_capacity(consumir.len());
     for c in consumir {
-        consumos.push(consumir_fila(&mut tx, &c.fila_id, c.kg).await.map_err(db)?);
+        consumos.push(consumir_fila(&mut *conn, &c.fila_id, c.kg).await.map_err(db)?);
     }
-    let depois = instantaneo_ordens(&mut tx, &ids).await?;
-    tx.commit().await.map_err(db)?;
+    let depois = instantaneo_ordens(&mut *conn, &ids).await?;
     Ok(ResultadoGravacao { consumos, antes, depois })
+}
+
+/// Grava uma ou várias ordens numa única transação própria (commit ao final).
+async fn gravar_planejamento(
+    pool: &PgPool,
+    itens: &mut [PlanejamentoItemDto],
+    consumir: &[PedidoConsumoFila],
+    usuario: &str,
+) -> Result<ResultadoGravacao, ErroApi> {
+    let mut tx = pool.begin().await.map_err(db)?;
+    let r = gravar_planejamento_em(&mut tx, itens, consumir, usuario).await?;
+    tx.commit().await.map_err(db)?;
+    Ok(r)
 }
 
 pub async fn save_planejamento_item(
@@ -641,6 +653,7 @@ pub async fn save_planejamento_item(
 pub async fn bulk_save_planejamento(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
+    Query(q): Query<ConfirmarParams>,
     Json(payload): Json<BulkPlanejamentoPayload>,
 ) -> impl IntoResponse {
     if let Err(r) = permissao::exigir_edicao(&ctx) {
@@ -651,16 +664,33 @@ pub async fn bulk_save_planejamento(
         BulkPlanejamentoPayload::Completo { itens, consumir_fila } => (itens, consumir_fila),
     };
     let ids: Vec<String> = itens.iter().map(|i| i.id.clone()).collect();
-    match gravar_planejamento(state.db.pool(), &mut itens, &consumir, &ctx.display_name).await {
+    let usuario = ctx.display_name.clone();
+    let pool = state.db.pool();
+    // Sem `confirmar=true` a mesma gravação roda numa transação que é desfeita: a prévia é o que seria gravado.
+    let r = executar_em_2_passos(pool, "gravar_ordens_planejamento", q.confirmar == Some(true), |tx| {
+        Box::pin(async move { gravar_planejamento_em(&mut **tx, &mut itens, &consumir, &usuario).await })
+    })
+    .await;
+    match r {
+        Ok(r) if r.previa => (
+            StatusCode::OK,
+            Json(json!({
+                "previa": true, "acao": "gravar_ordens_planejamento", "ordens": ids.len(),
+                "antes": r.resultado.antes, "depois": r.resultado.depois, "fila": r.resultado.consumos,
+                "confirmar": "repita com confirmar=true para gravar"
+            })),
+        )
+            .into_response(),
         Ok(r) => {
-            let fila = r.consumos;
+            let res = r.resultado;
+            let fila = res.consumos;
             let fila_ids: Vec<&str> = fila.iter().map(|c| c.fila_id.as_str()).collect();
             auditoria::registrar(
-                state.db.pool(),
+                pool,
                 &ctx.display_name,
                 "gravar_planejamento",
                 &format!("{} ordens", ids.len()),
-                json!({ "ids": ids, "antes": r.antes, "depois": r.depois, "filaConsumida": fila_ids, "filaResultado": fila }),
+                json!({ "ids": ids, "antes": res.antes, "depois": res.depois, "filaConsumida": fila_ids, "filaResultado": fila }),
             )
             .await;
             (StatusCode::OK, Json(json!({ "ok": true, "fila": fila }))).into_response()
@@ -1208,6 +1238,41 @@ mod tests {
         assert_eq!(r[0].resultado, crate::modules::producao::fila::ResultadoConsumo::NaoEncontrado);
 
         sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id LIKE $1").bind(format!("{week}-%")).execute(&pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn gravar_ordens_so_grava_com_confirmar() {
+        let pool = pool_teste().await;
+        sqlx::query("INSERT INTO producao_reatores_config (id, nome, capacidade_kg, ativo) VALUES ('R_100', 'R100', 100, TRUE) ON CONFLICT (id) DO NOTHING")
+            .execute(&pool)
+            .await
+            .ok();
+        let week = format!("teste-{}", uuid::Uuid::new_v4());
+        let fila_id = format!("{week}-fila");
+        criar_fila_teste(&pool, &fila_id).await;
+        for confirmar in [false, true] {
+            let mut itens = vec![item(&format!("{week}-a"), "2026-10-23")];
+            itens[0].week_key = week.clone();
+            let consumir = vec![PedidoConsumoFila { fila_id: fila_id.clone(), kg: 40.0 }];
+            let r = executar_em_2_passos(&pool, "gravar_ordens_planejamento", confirmar, |tx| {
+                Box::pin(async move { gravar_planejamento_em(&mut **tx, &mut itens, &consumir, "teste").await })
+            })
+            .await
+            .unwrap();
+            assert_eq!(r.previa, !confirmar);
+            assert_eq!(r.resultado.depois.len(), 1, "a prévia mostra a ordem que ficaria");
+            let ordens: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM producao_planejamento_semanal WHERE id = $1")
+                .bind(format!("{week}-a"))
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(ordens, if confirmar { 1 } else { 0 }, "sem confirmar não grava a ordem");
+            let fila = ler_fila(&pool, &fila_id).await;
+            assert_eq!(fila, Some(if confirmar { (120.0, 60.0) } else { (200.0, 100.0) }), "nem consome a fila");
+        }
+        sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1").bind(&fila_id).execute(&pool).await.unwrap();
+        limpar_teste(&pool, &week).await;
     }
 
     #[tokio::test]

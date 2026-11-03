@@ -268,7 +268,7 @@ export function InventoryTab({
 
     setSavingQueueCode(p.codigo);
     try {
-      const res = await apiFetch('/producao/fila-demandas', {
+      const res = await apiFetch('/producao/fila-demandas?confirmar=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -360,7 +360,7 @@ export function InventoryTab({
   // Enqueue batch from BatchOpportunityModal
   const handleEnqueueBatch = async (items: any[]) => {
     try {
-      const res = await apiFetch('/producao/fila-demandas', {
+      const res = await apiFetch('/producao/fila-demandas?confirmar=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(items)
@@ -404,7 +404,7 @@ export function InventoryTab({
         };
       });
 
-      const res = await apiFetch('/producao/fila-demandas', {
+      const res = await apiFetch('/producao/fila-demandas?confirmar=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

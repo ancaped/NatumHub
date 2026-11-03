@@ -317,7 +317,16 @@ pub async fn get_production_lotes(
     State(state): State<Arc<AppState>>,
     Query(params): Query<QueryParams>,
 ) -> impl IntoResponse {
-    let pool = state.db.pool();
+    match listar_lotes(&state.db, &params).await {
+        Ok(lotes) => (StatusCode::OK, Json(lotes)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// Lotes produzidos (agrupados por número) com status, conferências e snapshot. Serviço da rota `GET /api/producao/lotes`
+/// e do contexto do produto para agentes.
+pub async fn listar_lotes(db: &crate::core::db::Db, params: &QueryParams) -> Result<Vec<crate::models::ProductionLote>, String> {
+    let pool = db.pool();
 
     let mut qb = sqlx::QueryBuilder::new(
         "SELECT m.id, m.document_number, m.item_code, p.descricao, m.quantity, m.date, m.details, r.is_resolved, r.observations,
@@ -362,13 +371,7 @@ pub async fn get_production_lotes(
 
     let rows = match qb.build().fetch_all(pool).await {
         Ok(r) => r,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
+        Err(e) => return Err(e.to_string()),
     };
 
     let mut raw_lotes = Vec::new();
@@ -751,7 +754,7 @@ pub async fn get_production_lotes(
 
     // 2. Carrega métricas reais calculadas dos produtos para o snapshot de lotes ERP novos (só exibição aqui;
     // quem grava em historico_producao é `gravar_snapshots_lotes_novos`, no fim do sync do ERP)
-    let prod_metrics_map = carregar_metricas_produtos(&state.db).await;
+    let prod_metrics_map = carregar_metricas_produtos(db).await;
 
     // 3. Itera pelos lotes e associa snapshot (o existente ou o calculado agora, só para a resposta)
     for lote in &mut grouped_lotes {
@@ -795,7 +798,7 @@ pub async fn get_production_lotes(
         }
     }
 
-    (StatusCode::OK, Json(grouped_lotes)).into_response()
+    Ok(grouped_lotes)
 }
 
 /// Um produto de um lote para o teste de rendimento. `kg` é o `quantity` da entrada no ERP (sempre em kg);

@@ -46,11 +46,14 @@ pub fn acoes() -> Vec<Acao> {
         Acao::gravacao(
             "enviar_para_fila",
             M,
-            "Coloca um ou vários produtos na Fila de Demandas.",
+            "Coloca um ou vários produtos na Fila de Demandas. Sem `confirmar=true` mostra só a prévia.",
             "POST",
             "/api/producao/fila-demandas",
-            false,
-            vec![param("itens", "corpo", "item ou lista", true, "Cada item: codigoProduto, descricao, quantidade, unidade, quantidadeKg, origemDemanda, linhaEnvase, baseCodigo, observacoes, prioridade.")],
+            true,
+            vec![
+                param("confirmar", "query", "booleano", false, "true para gravar de fato; sem ele só a prévia (linhas da fila antes e depois)."),
+                param("itens", "corpo", "item ou lista", true, "Cada item: codigoProduto, descricao, quantidade, unidade, quantidadeKg, origemDemanda, linhaEnvase, baseCodigo, observacoes, prioridade."),
+            ],
         ),
         Acao::gravacao(
             "atualizar_demanda_fila",
@@ -443,6 +446,7 @@ pub async fn list_fila_demandas(
 pub async fn create_fila_demandas(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
+    Query(q): Query<Confirmar>,
     Json(payload): Json<CreateFilaDemandaPayload>,
 ) -> impl IntoResponse {
     if let Err(r) = permissao::exigir_edicao(&ctx) {
@@ -454,8 +458,25 @@ pub async fn create_fila_demandas(
         CreateFilaDemandaPayload::Single(item) => vec![item],
     };
 
-    match gravar_fila_demandas(pool, items).await {
-        Ok((ids, antes, depois)) => {
+    // Sem `confirmar=true` a mesma gravação roda numa transação que é desfeita: a prévia é o que entraria.
+    let r = executar_em_2_passos(pool, "enviar_para_fila", q.confirmar, |tx| {
+        Box::pin(async move { gravar_fila_demandas(&mut **tx, items).await.map_err(|e| ErroApi::interno(format!("Erro ao gravar a fila de demandas: {e}"))) })
+    })
+    .await;
+    match r {
+        Ok(r) if r.previa => {
+            let (ids, antes, depois) = r.resultado;
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "previa": true, "acao": "enviar_para_fila", "count": ids.len(), "ids": ids,
+                    "antes": antes, "depois": depois, "confirmar": "repita com confirmar=true para gravar"
+                })),
+            )
+                .into_response()
+        }
+        Ok(r) => {
+            let (ids, antes, depois) = r.resultado;
             auditoria::registrar(
                 pool,
                 &ctx.display_name,
@@ -470,7 +491,7 @@ pub async fn create_fila_demandas(
             )
                 .into_response()
         }
-        Err(e) => ErroApi::interno(format!("Erro ao gravar a fila de demandas: {}", e)).into_response(),
+        Err(e) => e.into_response(),
     }
 }
 
@@ -488,27 +509,26 @@ async fn instantaneo_fila(conn: &mut sqlx::PgConnection, ids: &[String]) -> Resu
 
 /// Devolve os ids gravados e as linhas antes e depois (para a auditoria).
 async fn gravar_fila_demandas(
-    pool: &PgPool,
+    conn: &mut sqlx::PgConnection,
     items: Vec<CreateFilaDemandaItem>,
 ) -> Result<(Vec<String>, Vec<Value>, Vec<Value>), sqlx::Error> {
-    let mut tx = pool.begin().await?;
     let mut ids = Vec::new();
     let mut antes: Vec<Value> = Vec::new();
     for it in items {
         sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
             .bind(&it.codigo_produto)
-            .execute(&mut *tx)
+            .execute(&mut *conn)
             .await?;
 
         let existing_id: Option<String> = sqlx::query_scalar(
             "SELECT id FROM producao_fila_demandas WHERE codigo_produto = $1 LIMIT 1",
         )
         .bind(&it.codigo_produto)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut *conn)
         .await?;
 
         if let Some(eid) = existing_id {
-            antes.extend(instantaneo_fila(&mut tx, std::slice::from_ref(&eid)).await?);
+            antes.extend(instantaneo_fila(&mut *conn, std::slice::from_ref(&eid)).await?);
             if it.modo.as_deref() == Some("somar") {
                 sqlx::query(
                     r#"
@@ -526,7 +546,7 @@ async fn gravar_fila_demandas(
                 .bind(&it.unidade)
                 .bind(&it.observacoes)
                 .bind(&eid)
-                .execute(&mut *tx)
+                .execute(&mut *conn)
                 .await?;
             } else {
                 sqlx::query(
@@ -551,7 +571,7 @@ async fn gravar_fila_demandas(
                 .bind(&it.base_nome)
                 .bind(&it.observacoes)
                 .bind(&eid)
-                .execute(&mut *tx)
+                .execute(&mut *conn)
                 .await?;
             }
             ids.push(eid);
@@ -580,12 +600,11 @@ async fn gravar_fila_demandas(
         .bind(&it.base_nome)
         .bind(&it.observacoes)
         .bind(it.prioridade.unwrap_or(1))
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await?;
         ids.push(new_id);
     }
-    let depois = instantaneo_fila(&mut tx, &ids).await?;
-    tx.commit().await?;
+    let depois = instantaneo_fila(&mut *conn, &ids).await?;
     Ok((ids, antes, depois))
 }
 
@@ -903,6 +922,41 @@ mod tests {
         for c in ["TF.001", "TF.002"] {
             decisoes::remover(&pool, decisoes::TIPO_FILA_DESCARTADA, c).await.unwrap();
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn enviar_para_fila_so_grava_com_confirmar() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        let cod = format!("EF.{}", uuid::Uuid::new_v4().simple());
+        let item = || CreateFilaDemandaItem {
+            codigo_produto: cod.clone(),
+            descricao: "teste".into(),
+            quantidade: 10.0,
+            unidade: "un".into(),
+            quantidade_kg: Some(5.0),
+            origem_demanda: "manual".into(),
+            linha_envase: None,
+            base_codigo: None,
+            base_nome: None,
+            observacoes: None,
+            prioridade: Some(1),
+            modo: None,
+        };
+        let contar = || async { sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM producao_fila_demandas WHERE codigo_produto = $1").bind(&cod).fetch_one(&pool).await.unwrap() };
+        for confirmar in [false, true] {
+            let itens = vec![item()];
+            let r = executar_em_2_passos(&pool, "enviar_para_fila", confirmar, |tx| {
+                Box::pin(async move { gravar_fila_demandas(&mut **tx, itens).await.map_err(|e| ErroApi::interno(e.to_string())) })
+            })
+            .await
+            .unwrap();
+            assert_eq!(r.previa, !confirmar);
+            assert_eq!(r.resultado.0.len(), 1, "a prévia traz o item que entraria");
+            assert_eq!(contar().await, if confirmar { 1 } else { 0 }, "sem confirmar não grava");
+        }
+        sqlx::query("DELETE FROM producao_fila_demandas WHERE codigo_produto = $1").bind(&cod).execute(&pool).await.unwrap();
     }
 
     #[tokio::test]

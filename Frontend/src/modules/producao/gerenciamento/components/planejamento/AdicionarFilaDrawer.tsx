@@ -62,7 +62,7 @@ export function AdicionarFilaDrawer({ products, codigosNaFila, inicial, onClose,
     setSalvando(true);
     setErro('');
     try {
-      const res = await apiFetch('/producao/fila-demandas', {
+      const res = await apiFetch('/producao/fila-demandas?confirmar=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

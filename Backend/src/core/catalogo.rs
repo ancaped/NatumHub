@@ -68,6 +68,7 @@ pub fn todas() -> Vec<Acao> {
         auditoria, bases, calculo, cobertura, decisoes, fila, historico, insumos_classificacao, kits, lotes, planejamento, proc,
         reatores, trocas,
     };
+    use crate::modules::producao::{contexto, regras, roteiro};
     let mut v = Vec::new();
     v.extend(planejamento::acoes());
     v.extend(fila::acoes());
@@ -80,6 +81,9 @@ pub fn todas() -> Vec<Acao> {
     v.extend(kits::acoes());
     v.extend(auditoria::acoes());
     v.extend(decisoes::acoes());
+    v.extend(regras::acoes());
+    v.extend(contexto::acoes());
+    v.extend(roteiro::acoes());
     v.extend(trocas::acoes());
     v.extend(insumos_classificacao::acoes());
     v.extend(historico::acoes());
@@ -114,10 +118,7 @@ mod tests {
     use std::collections::HashSet;
 
     /// Escritas que ainda gravam direto, sem prévia. Escrita nova sem 2 passos fora desta lista reprova o teste.
-    const ESCRITAS_SEM_DOIS_PASSOS: &[&str] = &[
-        "gravar_ordens_planejamento",
-        "enviar_para_fila",
-    ];
+    const ESCRITAS_SEM_DOIS_PASSOS: &[&str] = &[];
 
     #[test]
     fn nomes_sao_unicos() {
@@ -169,6 +170,9 @@ mod tests {
             include_str!("../modules/producao/kits.rs"),
             include_str!("../modules/producao/auditoria.rs"),
             include_str!("../modules/producao/decisoes.rs"),
+            include_str!("../modules/producao/regras.rs"),
+            include_str!("../modules/producao/contexto.rs"),
+            include_str!("../modules/producao/roteiro.rs"),
             include_str!("../modules/producao/trocas.rs"),
             include_str!("../modules/producao/insumos_classificacao.rs"),
             include_str!("../modules/producao/historico.rs"),
