@@ -303,11 +303,24 @@ export const api = {
   deleteFiscoQuimicaAgent(id: string): Promise<void> {
     return hubJson(`fisco/agents/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
-  getFiscoQuimicaAnalyses(): Promise<FiscoQuimicaAnalysis[]> {
-    return hubJson('fisco/analyses');
+  /** Sem filtros devolve todas; a tela sempre filtra (`desde`/`ate` AAAA-MM-DD, `busca`, `lote`, `id`, `limite`). */
+  getFiscoQuimicaAnalyses(params?: {
+    desde?: string;
+    ate?: string;
+    busca?: string;
+    lote?: string;
+    id?: string;
+    limite?: number;
+  }): Promise<FiscoQuimicaAnalysis[]> {
+    return hubJson(`fisco/analyses${qs(params ?? {})}`);
   },
-  saveFiscoQuimicaAnalysis(analysis: FiscoQuimicaAnalysis): Promise<void> {
-    return hubJson('fisco/analyses', { method: 'POST', body: JSON.stringify(analysis) });
+  /** `editar=false` só cria (id repetido dá 409 e não altera nada); `editar=true` atualiza um laudo existente. Devolve a linha gravada. */
+  async saveFiscoQuimicaAnalysis(analysis: FiscoQuimicaAnalysis, editar = false): Promise<FiscoQuimicaAnalysis> {
+    const res = await hubJson<{ analise: FiscoQuimicaAnalysis }>(`fisco/analyses${editar ? '?editar=true' : ''}`, {
+      method: 'POST',
+      body: JSON.stringify(analysis),
+    });
+    return res.analise;
   },
   deleteFiscoQuimicaAnalysis(id: string): Promise<void> {
     return hubJson(`fisco/analyses/${encodeURIComponent(id)}`, { method: 'DELETE' });

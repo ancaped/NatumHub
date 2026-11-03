@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::IntoResponse,
     routing::{delete, get},
     Json, Router,
@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::handlers::AppState;
 use crate::{FiscoQuimicaPattern, FiscoQuimicaAgent, FiscoQuimicaAnalysis};
 use crate::lab_queries::*;
-use crate::modules::hub_api::util::{ok_json, ok_status, with_pool};
+use crate::modules::hub_api::util::{bad_request, db_err, not_found, ok_json, ok_status, with_pool};
 
 async fn get_patterns_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match with_pool(&state, |pool| get_fisco_quimica_patterns_query(pool)).await {
@@ -85,17 +85,45 @@ async fn get_all_fisco_products_handler(State(state): State<Arc<AppState>>) -> i
     }
 }
 
-async fn get_analyses_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match with_pool(&state, |pool| get_fisco_quimica_analyses_query(pool)).await {
+async fn get_analyses_handler(
+    State(state): State<Arc<AppState>>,
+    Query(filtro): Query<FiltroAnalisesFisco>,
+) -> impl IntoResponse {
+    match get_fisco_quimica_analyses_query(state.db.pool().clone(), &filtro).await {
         Ok(v) => ok_json(v).into_response(),
-        Err(e) => e.into_response(),
+        // data fora do formato é erro de quem chamou; o resto é do banco
+        Err(e) if e.starts_with('`') => bad_request(e).into_response(),
+        Err(e) => db_err(e).into_response(),
     }
 }
 
-async fn save_analysis_handler(State(state): State<Arc<AppState>>, Json(analysis): Json<FiscoQuimicaAnalysis>) -> impl IntoResponse {
-    match with_pool(&state, |pool| save_fisco_quimica_analysis_query(pool, &analysis)).await {
-        Ok(()) => ok_status().into_response(),
-        Err(e) => e.into_response(),
+#[derive(Debug, serde::Deserialize)]
+struct SalvarAnaliseQuery {
+    /// `?editar=true` atualiza um laudo existente; sem isso a rota só cria.
+    editar: Option<bool>,
+}
+
+async fn save_analysis_handler(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<SalvarAnaliseQuery>,
+    Json(analysis): Json<FiscoQuimicaAnalysis>,
+) -> impl IntoResponse {
+    let editar = q.editar.unwrap_or(false);
+    match save_fisco_quimica_analysis_query(state.db.pool().clone(), &analysis, editar).await {
+        Ok(gravada) => ok_json(serde_json::json!({
+            "status": "success",
+            "id": gravada.id,
+            "analise": gravada,
+        }))
+        .into_response(),
+        Err(ErroGravarAnalise::Invalida(m)) => bad_request(m).into_response(),
+        Err(ErroGravarAnalise::Conflito(m)) => (
+            axum::http::StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": m })),
+        )
+            .into_response(),
+        Err(ErroGravarAnalise::NaoEncontrada(m)) => not_found(m).into_response(),
+        Err(ErroGravarAnalise::Banco(m)) => db_err(m).into_response(),
     }
 }
 

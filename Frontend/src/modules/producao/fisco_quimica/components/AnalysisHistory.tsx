@@ -67,6 +67,11 @@ interface AnalysisHistoryProps {
   onDeleteAnalysis: (id: string, batch: string) => void;
   onRefresh: () => void;
   onEditAnalysis?: (analysis: FiscoQuimicaAnalysis) => void;
+  /** Laudos de antes dessa data (AAAA-MM-DD) ainda não foram carregados. */
+  desdeCarregado?: string;
+  onCarregarMaisAntigos?: () => Promise<void>;
+  /** Busca no servidor (lote, código ou nome) e junta o resultado à lista. */
+  onBuscarServidor?: (busca: string) => Promise<number>;
 }
 
 export function AnalysisHistory({
@@ -82,11 +87,16 @@ export function AnalysisHistory({
   onDeleteAnalysis,
   onRefresh,
   onEditAnalysis,
+  desdeCarregado,
+  onCarregarMaisAntigos,
+  onBuscarServidor,
 }: AnalysisHistoryProps) {
   const [selectedMonthYear, setSelectedMonthYear] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'conforme' | 'em_correcao' | 'ajustado' | 'fora' | 'pendente_erp'>('all');
   const [pushingErp, setPushingErp] = useState(false);
+  const [carregandoAntigos, setCarregandoAntigos] = useState(false);
+  const [buscandoServidor, setBuscandoServidor] = useState(false);
   const [zoomMedia, setZoomMedia] = useState<{ url: string; title: string; isVideo?: boolean } | null>(null);
 
   // Paginação
@@ -205,6 +215,29 @@ export function AnalysisHistory({
       setSelectedMonthYear('ALL');
     }
   }, [selectedMonthYear]);
+
+  // A lista só tem os laudos recentes: a busca também procura no servidor.
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 3 || !onBuscarServidor) return;
+    const t = setTimeout(() => {
+      setBuscandoServidor(true);
+      onBuscarServidor(q).catch(() => {}).finally(() => setBuscandoServidor(false));
+    }, 500);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  const handleCarregarAntigos = async () => {
+    if (!onCarregarMaisAntigos) return;
+    setCarregandoAntigos(true);
+    try {
+      await onCarregarMaisAntigos();
+    } catch (err) {
+      alert(`Erro ao carregar laudos anteriores: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setCarregandoAntigos(false);
+    }
+  };
 
   // Reset de página ao alterar filtros
   useEffect(() => {
@@ -353,7 +386,7 @@ export function AnalysisHistory({
             )}
           >
             <Calendar size={13} />
-            Todos os Anos ({analyses.length})
+            Todos os carregados ({analyses.length})
           </button>
 
           {monthGroups.map((g) => (
@@ -377,6 +410,18 @@ export function AnalysisHistory({
               </span>
             </button>
           ))}
+
+          {onCarregarMaisAntigos && desdeCarregado && (
+            <button
+              type="button"
+              onClick={handleCarregarAntigos}
+              disabled={carregandoAntigos}
+              title="Carrega mais 12 meses de laudos do servidor"
+              className="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 border border-dashed border-zinc-300 text-zinc-600 hover:bg-zinc-50 disabled:opacity-60"
+            >
+              {carregandoAntigos ? 'Carregando...' : `Carregar anteriores a ${desdeCarregado.split('-').reverse().join('/')}`}
+            </button>
+          )}
         </div>
       )}
 
@@ -392,6 +437,9 @@ export function AnalysisHistory({
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-zinc-300 rounded-xl text-sm bg-white text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900"
           />
+          {buscandoServidor && (
+            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-zinc-400">Buscando...</span>
+          )}
         </div>
 
         {/* Filtros de Status */}

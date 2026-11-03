@@ -349,7 +349,8 @@ interface AnalysisCreationFlowProps {
   technicianName: string;
   setTechnicianName: (val: string) => void;
   config?: FiscoTemplateConfig;
-  onSaved: () => void;
+  /** `completo=false`: parte dos laudos de um lote múltiplo foi salva e o resto falhou (a tela continua aberta). */
+  onSaved: (salvos: FiscoQuimicaAnalysis[], completo: boolean) => void;
   onAgentsChanged?: () => void;
   onOpenAddPattern: (productCode: string, productName: string) => void;
   initialBatch?: string;
@@ -362,7 +363,7 @@ export function AnalysisCreationFlow({
   products,
   patterns,
   agents,
-  analyses,
+  analyses: analysesProp,
   technicianName,
   setTechnicianName,
   config,
@@ -613,6 +614,37 @@ export function AnalysisCreationFlow({
   const [adjPhBatchSize, setAdjPhBatchSize] = useState('');
 
   const [saving, setSaving] = useState(false);
+
+  // A lista central traz só os laudos recentes: o mesmo lote e o histórico do produto vêm do servidor.
+  const [analisesExtras, setAnalisesExtras] = useState<FiscoQuimicaAnalysis[]>([]);
+  const analyses = useMemo(() => {
+    const base = analysesProp || [];
+    if (!analisesExtras.length) return base;
+    const ids = new Set(base.map((a) => a.id));
+    return [...base, ...analisesExtras.filter((a) => !ids.has(a.id))];
+  }, [analysesProp, analisesExtras]);
+  const mesclarExtras = (novas: FiscoQuimicaAnalysis[]) =>
+    setAnalisesExtras((prev) => {
+      const ids = new Set(prev.map((a) => a.id));
+      const faltam = novas.filter((a) => !ids.has(a.id));
+      return faltam.length ? [...prev, ...faltam] : prev;
+    });
+  useEffect(() => {
+    const lote = formBatch.trim();
+    if (!lote) return;
+    const t = setTimeout(() => {
+      api.getFiscoQuimicaAnalyses({ lote, limite: 20 }).then(mesclarExtras).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [formBatch]);
+  useEffect(() => {
+    const code = formProductCode.trim();
+    if (!code || code === '__ALL__') return;
+    const t = setTimeout(() => {
+      api.getFiscoQuimicaAnalyses({ busca: code, limite: 100 }).then(mesclarExtras).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [formProductCode]);
 
   const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1235,8 +1267,19 @@ export function AnalysisCreationFlow({
       alert('Informe o número do lote.');
       return;
     }
-    if (existingAnalysisForBatch) {
-      alert(`Não é permitido cadastrar mais de um laudo para o mesmo lote (Lote ${formBatch.trim()}).\n\nEste lote já possui uma análise registrada para "${existingAnalysisForBatch.productName}".\nPara fazer alterações ou correções, localize o lote na aba "Histórico de Laudos" e clique em "Editar".`);
+    // Confere no servidor (a lista da tela só tem os laudos recentes).
+    let laudoDoLote = existingAnalysisForBatch;
+    if (!laudoDoLote) {
+      try {
+        const doLote = await api.getFiscoQuimicaAnalyses({ lote: formBatch.trim(), limite: 20 });
+        laudoDoLote = doLote.find((a) => a.id !== editingAnalysis?.id) || null;
+      } catch (err) {
+        alert(`Não foi possível conferir se o lote ${formBatch.trim()} já tem laudo: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+    }
+    if (laudoDoLote) {
+      alert(`Não é permitido cadastrar mais de um laudo para o mesmo lote (Lote ${formBatch.trim()}).\n\nEste lote já possui uma análise registrada para "${laudoDoLote.productName}".\nPara fazer alterações ou correções, localize o lote na aba "Histórico de Laudos" e clique em "Editar".`);
       return;
     }
     if (!formProductCode) {
@@ -1329,9 +1372,12 @@ export function AnalysisCreationFlow({
 
     setSaving(true);
     const createdAnalyses: FiscoQuimicaAnalysis[] = [];
+    // Só o primeiro laudo reaproveita o id de quem está sendo editado; os demais (lote múltiplo) são novos.
+    const editandoId = editingAnalysis?.id || null;
+    let falha: { produto: string; motivo: string } | null = null;
 
     try {
-      for (const t of targets) {
+      for (const [idx, t] of targets.entries()) {
         const batchSizeVal = analyzeAll && t.qty > 0 ? t.qty : adjBatchSizeNum || phBatchNum || null;
         let totalAgentReq: number | null = null;
         const viscOn = hasAdjustment && !!adjAgentId && adjFinalQtyNum != null && !isNaN(adjFinalQtyNum) && adjFinalQtyNum > 0;
@@ -1341,8 +1387,9 @@ export function AnalysisCreationFlow({
           totalAgentReq = Number(((phDoseNum * batchSizeVal) / 1000).toFixed(3));
         }
 
+        const editar = !!editandoId && idx === 0;
         const payload: FiscoQuimicaAnalysis = {
-          id: editingAnalysis?.id || randomId(),
+          id: editar && editandoId ? editandoId : randomId(),
           productCode: t.code,
           productName: t.name,
           batch: formBatch.trim(),
@@ -1380,8 +1427,27 @@ export function AnalysisCreationFlow({
           viscometerSeconds: viscSeconds > 0 ? viscSeconds : null,
         };
 
-        await api.saveFiscoQuimicaAnalysis(payload);
-        createdAnalyses.push(payload);
+        try {
+          await api.saveFiscoQuimicaAnalysis(payload, editar);
+          // Confere no servidor que o laudo existe de verdade antes de dar como salvo.
+          const conferido = await api.getFiscoQuimicaAnalyses({ id: payload.id, limite: 1 });
+          if (!conferido.length) throw new Error('o servidor não confirmou o laudo gravado');
+          createdAnalyses.push(conferido[0]);
+        } catch (err) {
+          falha = { produto: `${t.code} ${t.name}`.trim(), motivo: err instanceof Error ? err.message : String(err) };
+          break;
+        }
+      }
+
+      if (falha) {
+        if (createdAnalyses.length > 0) onSaved(createdAnalyses, false);
+        const salvos = createdAnalyses.map((a) => a.productCode).join(', ');
+        alert(
+          `O laudo do lote ${formBatch.trim()} NÃO foi salvo por completo.\n` +
+          (salvos ? `Já salvos (veja no Histórico): ${salvos}.\n` : '') +
+          `Falhou em ${falha.produto}: ${falha.motivo}`
+        );
+        return;
       }
 
       // Enviar medições e dados necessários para o ERP automaticamente
@@ -1437,10 +1503,10 @@ export function AnalysisCreationFlow({
       setAdjPhFinalQty('');
       setAdjPhBatchSize('');
 
-      onSaved();
+      onSaved(createdAnalyses, true);
     } catch (err) {
       console.error(err);
-      alert('Erro ao salvar registro de análise físico-química.');
+      alert(`Erro ao salvar o laudo do lote ${formBatch.trim()}: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSaving(false);
     }

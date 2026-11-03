@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../../geral/lib/api';
 import { apiFetch } from '../../geral/lib/http';
 import { getAuthUser } from '../../geral/lib/auth';
@@ -44,6 +44,30 @@ interface FiscoQuimicaViewProps {
   onBackToHub: () => void;
 }
 
+/** A tela abre só com os laudos dos últimos dias; o resto vem do servidor sob demanda (busca, calendário, "carregar anteriores"). */
+const DIAS_CARREGADOS = 120;
+
+function isoDia(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function somaDias(iso: string, dias: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return isoDia(new Date(y, m - 1, d + dias));
+}
+
+/** Data da análise como AAAA-MM-DD (aceita DD/MM/AAAA); '' quando não dá para entender. */
+function dataIsoDaAnalise(s?: string | null): string {
+  const t = String(s || '').trim().slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  const m = t.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
+}
+
+function ordenarAnalises(a: FiscoQuimicaAnalysis, b: FiscoQuimicaAnalysis): number {
+  return (b.analysisDate || '').localeCompare(a.analysisDate || '') || (b.createdAt || '').localeCompare(a.createdAt || '');
+}
+
 export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps) {
   const [activeTab, setActiveTab] = useState<'new' | 'calendar' | 'history' | 'erp_lotes' | 'correctives' | 'patterns' | 'settings'>('new');
   const [correctiveSection, setCorrectiveSection] = useState<'baixas' | 'catalogo'>('baixas');
@@ -59,6 +83,59 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
   const [items, setItems] = useState<Item[]>([]);
   const [config, setConfig] = useState<FiscoAppConfig | null>(null);
   const [editingAnalysis, setEditingAnalysis] = useState<FiscoQuimicaAnalysis | null>(null);
+  const desdeInicial = useRef(somaDias(isoDia(new Date()), -DIAS_CARREGADOS)).current;
+  // Laudos de antes dessa data já foram pedidos ao servidor (por "carregar anteriores").
+  const [desdeCarregado, setDesdeCarregado] = useState(desdeInicial);
+  const desdeCarregadoRef = useRef(desdeInicial);
+  const mesesBuscados = useRef(new Set<string>());
+  const [erroAnalises, setErroAnalises] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  // Insere/substitui por id, na ordem do histórico (data da análise, depois criação).
+  const mesclarAnalises = (novas: FiscoQuimicaAnalysis[]) =>
+    setAnalyses((prev) => {
+      const porId = new Map(prev.map((a) => [a.id, a] as const));
+      for (const a of novas) porId.set(a.id, a);
+      return Array.from(porId.values()).sort(ordenarAnalises);
+    });
+
+  const buscarNoServidor = async (params: { busca?: string; desde?: string; ate?: string }): Promise<number> => {
+    const lista = await api.getFiscoQuimicaAnalyses({ limite: 5000, ...params });
+    mesclarAnalises(lista);
+    return lista.length;
+  };
+
+  const carregarMaisAntigos = async () => {
+    const fim = somaDias(desdeCarregadoRef.current, -1);
+    const ini = somaDias(fim, -364);
+    await buscarNoServidor({ desde: ini, ate: fim });
+    desdeCarregadoRef.current = ini;
+    setDesdeCarregado(ini);
+  };
+
+  // Calendário: ao abrir um mês anterior ao carregado, busca aquele mês.
+  const garantirMes = (ano: number, mes0: number) => {
+    const ini = `${ano}-${String(mes0 + 1).padStart(2, '0')}-01`;
+    if (ini >= desdeCarregadoRef.current) return;
+    const chave = ini.slice(0, 7);
+    if (mesesBuscados.current.has(chave)) return;
+    mesesBuscados.current.add(chave);
+    buscarNoServidor({ desde: ini, ate: isoDia(new Date(ano, mes0 + 1, 0)) }).catch(() => {
+      mesesBuscados.current.delete(chave);
+    });
+  };
+
+  // Editar um laudo só vale enquanto a tela de registro está aberta: ao sair, o laudo em edição é solto
+  // (senão o próximo laudo "novo" reaproveitaria o id dele e o sobrescreveria).
+  useEffect(() => {
+    if (activeTab !== 'new') setEditingAnalysis(null);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!aviso) return;
+    const t = setTimeout(() => setAviso(null), 6000);
+    return () => clearTimeout(t);
+  }, [aviso]);
 
   // Seleção no histórico para impressão
   const [selectedReportIds, setSelectedReportIds] = useState<Set<string>>(new Set());
@@ -117,7 +194,9 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
         apiFetch('/products?limit=5000'),
         api.getFiscoQuimicaPatterns().catch(() => []),
         api.getFiscoQuimicaAgents().catch(() => []),
-        api.getFiscoQuimicaAnalyses().catch(() => []),
+        api.getFiscoQuimicaAnalyses({ desde: desdeInicial, limite: 5000 })
+          .then((v) => { setErroAnalises(null); return v; })
+          .catch((err) => { setErroAnalises(err instanceof Error ? err.message : String(err)); return null; }),
         api.getItems().catch(() => []),
         api.getFiscoConfig().catch(() => null)
       ]);
@@ -149,7 +228,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
       setProducts(catalogProducts);
       setPatterns(pats || []);
       setAgents(ags || []);
-      setAnalyses(anals || []);
+      if (anals) mesclarAnalises(anals);
       setItems(allItems || []);
 
       if (conf) {
@@ -222,10 +301,10 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
         next.delete(id);
         return next;
       });
-      fetchData();
+      setAnalyses((prev) => prev.filter((a) => a.id !== id));
     } catch (err) {
       console.error(err);
-      alert('Erro ao excluir laudo.');
+      alert(`Erro ao excluir laudo: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -321,8 +400,13 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
   const headerActions = (
     <div className="flex items-center gap-4 shrink-0">
       <div className="flex flex-col items-end">
-        <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">Laudos Registrados</span>
-        <span className="text-xs font-black text-zinc-900">{analyses.length}</span>
+        <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">Laudos · últimos {DIAS_CARREGADOS} dias</span>
+        <span className="text-xs font-black text-zinc-900">
+          {analyses.filter((a) => dataIsoDaAnalise(a.analysisDate) >= desdeInicial).length}
+        </span>
+        {erroAnalises && (
+          <span className="text-[9px] font-bold text-red-600" title={erroAnalises}>Falha ao carregar laudos</span>
+        )}
       </div>
     </div>
   );
@@ -336,6 +420,11 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
       onTabChange={(id: any) => setActiveTab(id)}
       headerActions={headerActions}
     >
+      {aviso && (
+        <div className="fixed bottom-4 right-4 z-50 rounded-xl bg-zinc-900 px-4 py-3 text-sm font-bold text-white shadow-lg">
+          {aviso}
+        </div>
+      )}
       <AnimatePresence mode="wait">
         {activeTab === 'new' && (
           <motion.div key="new" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
@@ -351,9 +440,12 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
               initialProductCode={selectedLoteForNew?.productCode}
               editingAnalysis={editingAnalysis}
               onCancelEdit={() => setEditingAnalysis(null)}
-              onSaved={() => {
+              onSaved={(salvos, completo) => {
+                mesclarAnalises(salvos);
+                if (!completo) return;
                 setEditingAnalysis(null);
-                fetchData();
+                const lote = salvos[0]?.batch;
+                setAviso(salvos.length > 1 ? `${salvos.length} laudos do lote ${lote} salvos` : `Laudo do lote ${lote} salvo`);
                 setActiveTab('history');
               }}
               onAgentsChanged={fetchData}
@@ -370,6 +462,8 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
               products={products}
               agents={agents}
               config={config?.template}
+              onBuscarServidor={(busca) => buscarNoServidor({ busca: busca })}
+              onMesVisivel={garantirMes}
             />
           </motion.div>
         )}
@@ -388,6 +482,9 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
               onClearSelection={handleClearSelection}
               onDeleteAnalysis={handleDeleteAnalysis}
               onRefresh={fetchData}
+              desdeCarregado={desdeCarregado}
+              onCarregarMaisAntigos={carregarMaisAntigos}
+              onBuscarServidor={(busca) => buscarNoServidor({ busca: busca })}
               onEditAnalysis={(a) => {
                 setEditingAnalysis(a);
                 setActiveTab('new');

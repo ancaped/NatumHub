@@ -44,6 +44,10 @@ interface CalendarTabProps {
   products: Product[];
   agents: FiscoQuimicaAgent[];
   config?: FiscoTemplateConfig;
+  /** Busca no servidor (lote, código ou nome) e junta o resultado à lista de análises. */
+  onBuscarServidor?: (busca: string) => Promise<number>;
+  /** Avisa qual mês está na tela, para o pai carregar do servidor um mês fora do período já carregado. */
+  onMesVisivel?: (ano: number, mes0: number) => void;
 }
 
 const MONTH_NAMES = [
@@ -73,7 +77,9 @@ export function CalendarTab({
   patterns = [],
   products = [],
   agents = [],
-  config
+  config,
+  onBuscarServidor,
+  onMesVisivel,
 }: CalendarTabProps) {
   const today = new Date();
   const [currentYear, setCurrentYear] = useState<number>(today.getFullYear());
@@ -98,6 +104,17 @@ export function CalendarTab({
       if (res?.byDescription) setProcMapByDesc(res.byDescription);
     }).catch((err) => console.error('Erro ao carregar PROCs no calendário:', err));
   }, []);
+
+  useEffect(() => {
+    onMesVisivel?.(currentYear, currentMonth);
+  }, [currentYear, currentMonth]);
+
+  useEffect(() => {
+    const q = loteSearch.trim();
+    if (q.length < 3 || !onBuscarServidor) return;
+    const t = setTimeout(() => { onBuscarServidor(q).catch(() => {}); }, 500);
+    return () => clearTimeout(t);
+  }, [loteSearch]);
 
   const normalizeCode = (code?: string | null) => (code ? String(code).replace(/\./g, '').trim().toLowerCase() : '');
 
@@ -140,6 +157,8 @@ export function CalendarTab({
   const availableYears = useMemo(() => {
     const set = new Set<number>();
     set.add(today.getFullYear());
+    // a lista só tem os laudos recentes: os anos anteriores ficam sempre disponíveis (o mês é buscado no servidor)
+    for (let y = today.getFullYear() - 1; y >= today.getFullYear() - 5; y--) set.add(y);
     for (const a of analyses || []) {
       if (!a) continue;
       const iso = parseReportDateToIso(a.analysisDate);
