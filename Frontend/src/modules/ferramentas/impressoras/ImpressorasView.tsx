@@ -1070,7 +1070,7 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
                     />
                   </div>
                   <p className="text-[11px] text-zinc-500">
-                    Rode no PC o script <span className="font-mono">compartilhar_impressora_nexus.bat</span>; ele mostra os dois valores.
+                    Rode no PC o script <span className="font-mono">configurar_pc_nexus.bat</span>; ele mostra os dois valores.
                   </p>
                 </div>
               )}
