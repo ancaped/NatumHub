@@ -1,6 +1,6 @@
 export type PrinterType = 'thermal_label' | 'laser_a4' | 'inkjet' | 'network_raw' | 'other';
-export type ConnectionType = 'local_spooler' | 'network_tcp' | 'usb_direct' | 'server_shared';
-export type RawProtocol = 'spooler_native' | 'zpl' | 'tspl' | 'esc_pos' | 'none';
+export type ConnectionType = 'local_spooler' | 'windows_lpd' | 'network_tcp' | 'usb_direct' | 'server_shared';
+export type RawProtocol = 'spooler_native' | 'zpl' | 'epl' | 'tspl' | 'esc_pos' | 'none';
 export type PrinterStatus = 'online' | 'offline' | 'busy' | 'error';
 export type PrintJobStatus = 'pending' | 'printing' | 'completed' | 'failed' | 'cancelled';
 

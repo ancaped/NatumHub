@@ -1,6 +1,8 @@
 pub mod direct_print;
 pub mod handlers;
+pub mod lpr;
 pub mod models;
+pub mod raw_label;
 pub mod store;
 
 use std::sync::Arc;
@@ -44,6 +46,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/api/ferramentas/impressoras/direct",
             post(handlers::direct_print_handler),
+        )
+        .route(
+            "/api/ferramentas/impressoras/:id/teste",
+            post(handlers::test_print_handler),
         )
         .route(
             "/api/ferramentas/impressoras/:id",

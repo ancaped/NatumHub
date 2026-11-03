@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, ExternalLink, Loader2, Printer, X } from 'lucide-react';
 import type { LabelTemplate, PrintConfig } from '../lib/types';
 import { openPrintWindow } from '../lib/printService';
-import { printLabelDirect, readLabelFeed, type LabelFeed } from '../lib/directPrint';
+import { printLabelDirect, readLabelFeed, validarImpressoraDireta, type LabelFeed } from '../lib/directPrint';
 import { readLabelFillScale } from '../lib/printService';
 import { renderLabelPngDataUrl } from '../lib/printCanvasRenderer';
 import { labelsApi } from '../lib/labelsApi';
@@ -148,12 +148,7 @@ export default function PrintModal({
     const config = buildConfig();
     try {
       if (batch) {
-        const printerName = (selectedPrinter.system_printer_name || '').trim();
-        if (!printerName) {
-          throw new Error(
-            'Essa impressora não está ligada ao nome do Windows. Em Impressoras, importe o dispositivo.'
-          );
-        }
+        const printerName = validarImpressoraDireta(selectedPrinter);
         const dpi = printDpi && printDpi >= 150
           ? printDpi
           : selectedPrinter.dpi && selectedPrinter.dpi >= 150
@@ -164,6 +159,7 @@ export default function PrintModal({
           pages.push(await renderLabelPngDataUrl(page, 0, batch.length, 1, 2, dpi));
         }
         await printersApi.printDirect({
+          printer_id: selectedPrinter.id,
           printer_name: printerName,
           width_mm: previewTemplate.width_mm || 100,
           height_mm: previewTemplate.height_mm || 50,

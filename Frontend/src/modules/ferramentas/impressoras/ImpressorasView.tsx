@@ -75,10 +75,10 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
     default_width_mm: 100,
     default_height_mm: 50,
     default_orientation: 'landscape',
-    dpi: 300,
+    dpi: 203,
     location: '',
     is_default: false,
-    raw_protocol: 'spooler_native',
+    raw_protocol: 'zpl',
     notes: '',
   });
   const [saving, setSaving] = useState(false);
@@ -236,10 +236,10 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
       default_width_mm: preset?.default_width_mm || 100,
       default_height_mm: preset?.default_height_mm || 50,
       default_orientation: preset?.default_orientation || 'landscape',
-      dpi: preset?.dpi || 300,
+      dpi: preset?.dpi || 203,
       location: preset?.location || '',
       is_default: preset?.is_default || false,
-      raw_protocol: preset?.raw_protocol || 'spooler_native',
+      raw_protocol: preset?.raw_protocol || 'zpl',
       notes: preset?.notes || '',
     });
     setIsEditModalOpen(true);
@@ -298,6 +298,13 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
 
   // Run test calibration print
   const handleTestPrint = (printer: HubPrinter) => {
+    if (printer.connection_type === 'windows_lpd' || printer.connection_type === 'network_tcp') {
+      void printersApi
+        .printTest(printer.id)
+        .then(() => alert('Etiqueta de teste enviada.'))
+        .catch((err: any) => alert(err?.message || 'Não foi possível imprimir o teste.'));
+      return;
+    }
     const testTemplate: LabelTemplate = {
       id: `test_${printer.id}`,
       name: `Teste de Calibração - ${printer.name}`,
@@ -521,7 +528,11 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
                               </span>
                             )}
                             <span className="text-[10px] font-mono text-zinc-500">
-                              {p.connection_type === 'local_spooler' ? 'USB / Spooler' : 'Rede TCP'}
+                              {p.connection_type === 'windows_lpd'
+                                ? `Compartilhada · ${p.ip_address || '—'}`
+                                : p.connection_type === 'network_tcp'
+                                  ? `Rede · ${p.ip_address || '—'}`
+                                  : 'Neste servidor'}
                             </span>
                           </div>
                         </td>
@@ -537,6 +548,13 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
                         {/* Status */}
                         <td className="p-3.5 text-center">
                           {(() => {
+                            if (p.connection_type === 'windows_lpd' || p.connection_type === 'network_tcp') {
+                              return (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border bg-zinc-100 text-zinc-700 border-zinc-200">
+                                  Pelo servidor
+                                </span>
+                              );
+                            }
                             const known = systemPrinters.some(
                               (item) => item.name.toLowerCase() === (p.system_printer_name || '').toLowerCase()
                             );
@@ -1029,18 +1047,61 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
                 />
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-zinc-900 block mb-1">
-                  Nome do Dispositivo no Windows (Spooler):
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ex: ZDesigner ZD220-203dpi ZPL"
-                  value={formData.system_printer_name || ''}
-                  onChange={(e) => setFormData({ ...formData, system_printer_name: e.target.value })}
-                  className="w-full p-2.5 border border-zinc-300 rounded-xl font-mono text-zinc-800 bg-zinc-50"
-                />
-              </div>
+              {formData.connection_type === 'windows_lpd' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs font-bold text-zinc-900 block mb-1">PC (IP ou nome):</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: 192.168.101.20"
+                      value={formData.ip_address || ''}
+                      onChange={(e) => setFormData({ ...formData, ip_address: e.target.value })}
+                      className="w-full p-2.5 border border-zinc-300 rounded-xl font-mono text-zinc-800 bg-zinc-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-zinc-900 block mb-1">Nome do compartilhamento:</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: ZEBRA_GC420T"
+                      value={formData.system_printer_name || ''}
+                      onChange={(e) => setFormData({ ...formData, system_printer_name: e.target.value })}
+                      className="w-full p-2.5 border border-zinc-300 rounded-xl font-mono text-zinc-800 bg-zinc-50"
+                    />
+                  </div>
+                  <p className="text-[11px] text-zinc-500">
+                    Rode no PC o script <span className="font-mono">compartilhar_impressora_nexus.bat</span>; ele mostra os dois valores.
+                  </p>
+                </div>
+              )}
+
+              {formData.connection_type === 'network_tcp' && (
+                <div>
+                  <label className="text-xs font-bold text-zinc-900 block mb-1">IP da impressora:</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: 192.168.101.30 (porta 9100 se não informar)"
+                    value={formData.ip_address || ''}
+                    onChange={(e) => setFormData({ ...formData, ip_address: e.target.value })}
+                    className="w-full p-2.5 border border-zinc-300 rounded-xl font-mono text-zinc-800 bg-zinc-50"
+                  />
+                </div>
+              )}
+
+              {formData.connection_type !== 'windows_lpd' && formData.connection_type !== 'network_tcp' && (
+                <div>
+                  <label className="text-xs font-bold text-zinc-900 block mb-1">
+                    Nome do Dispositivo no Windows (Spooler):
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: ZDesigner ZD220-203dpi ZPL"
+                    value={formData.system_printer_name || ''}
+                    onChange={(e) => setFormData({ ...formData, system_printer_name: e.target.value })}
+                    className="w-full p-2.5 border border-zinc-300 rounded-xl font-mono text-zinc-800 bg-zinc-50"
+                  />
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1050,9 +1111,9 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
                     onChange={(e) => setFormData({ ...formData, printer_type: e.target.value as PrinterType })}
                     className="w-full p-2.5 border border-zinc-300 rounded-xl bg-zinc-50 font-medium"
                   >
-                    <option value="thermal_label">🏷️ Térmica de Etiquetas</option>
-                    <option value="laser_a4">📄 Laser / Jato A4</option>
-                    <option value="network_raw">🌐 Rede Direta RAW</option>
+                    <option value="thermal_label">Térmica de Etiquetas</option>
+                    <option value="laser_a4">Laser / Jato A4</option>
+                    <option value="network_raw">Rede Direta RAW</option>
                   </select>
                 </div>
 
@@ -1063,12 +1124,26 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
                     onChange={(e) => setFormData({ ...formData, connection_type: e.target.value as ConnectionType })}
                     className="w-full p-2.5 border border-zinc-300 rounded-xl bg-zinc-50 font-medium"
                   >
-                    <option value="local_spooler">🔌 USB / Spooler Windows</option>
-                    <option value="network_tcp">🌐 IP / TCP Direto</option>
-                    <option value="server_shared">🖥️ Compartilhada Servidor</option>
+                    <option value="windows_lpd">Compartilhada num PC Windows</option>
+                    <option value="network_tcp">Rede (IP da impressora)</option>
+                    <option value="local_spooler">Neste servidor (Windows)</option>
                   </select>
                 </div>
               </div>
+
+              {(formData.connection_type === 'windows_lpd' || formData.connection_type === 'network_tcp') && (
+                <div>
+                  <label className="text-xs font-bold text-zinc-900 block mb-1">Linguagem da impressora:</label>
+                  <select
+                    value={formData.raw_protocol === 'epl' ? 'epl' : 'zpl'}
+                    onChange={(e) => setFormData({ ...formData, raw_protocol: e.target.value as RawProtocol })}
+                    className="w-full p-2.5 border border-zinc-300 rounded-xl bg-zinc-50 font-medium"
+                  >
+                    <option value="zpl">ZPL (padrão)</option>
+                    <option value="epl">EPL</option>
+                  </select>
+                </div>
+              )}
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
@@ -1090,7 +1165,7 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] font-bold text-zinc-700 block mb-1">DPI:</label>
+                  <label className="text-[11px] font-bold text-zinc-700 block mb-1" title="GC420t = 203">DPI (GC420t = 203):</label>
                   <input
                     type="number"
                     value={formData.dpi}

@@ -10,6 +10,10 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct DirectPrintRequest {
+    /// Impressora cadastrada em Impressoras; sem ela, procura pelo `printer_name`.
+    #[serde(default)]
+    pub printer_id: Option<String>,
+    #[serde(default)]
     pub printer_name: String,
     pub width_mm: f64,
     pub height_mm: f64,
@@ -196,7 +200,6 @@ fn print_labels_windows(req: DirectPrintRequest) -> Result<(), String> {
     result
 }
 
-#[cfg(target_os = "windows")]
 fn decode_png(raw: &str) -> Result<Vec<u8>, String> {
     let data = raw
         .trim()
@@ -275,5 +278,221 @@ fn run_print_script(
         Err("A impressora recusou o trabalho.".into())
     } else {
         Err(line.to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Impressão pelo servidor: LPD (PC Windows com a impressora compartilhada) ou TCP 9100, em ZPL/EPL.
+// ---------------------------------------------------------------------------------------------
+
+use sqlx::PgPool;
+
+use super::lpr::{enviar_lpr, enviar_tcp_9100};
+use super::models::HubPrinter;
+use super::raw_label::{self, Bitmap};
+use super::store;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Linguagem {
+    Zpl,
+    Epl,
+}
+
+fn montar_dados(paginas: &[(Bitmap, u32)], linguagem: Linguagem) -> Vec<u8> {
+    let mut out = Vec::new();
+    for (bm, copias) in paginas {
+        out.extend(match linguagem {
+            Linguagem::Zpl => raw_label::zpl(bm, *copias),
+            Linguagem::Epl => raw_label::epl(bm, *copias),
+        });
+    }
+    out
+}
+
+/// Envia as páginas (bitmap + cópias) pela conexão cadastrada. Bloqueante: chame em `spawn_blocking`.
+fn enviar_para_impressora(printer: &HubPrinter, paginas: &[(Bitmap, u32)]) -> Result<(), String> {
+    let linguagem = if printer.raw_protocol.eq_ignore_ascii_case("epl") {
+        Linguagem::Epl
+    } else {
+        Linguagem::Zpl
+    };
+    let ip = printer.ip_address.as_deref().unwrap_or("").trim().to_string();
+    match printer.connection_type.as_str() {
+        "windows_lpd" => {
+            let fila = printer.system_printer_name.as_deref().unwrap_or("").trim().to_string();
+            if ip.is_empty() || fila.is_empty() {
+                return Err(
+                    "Informe, em Impressoras, o PC (IP ou nome) e o nome do compartilhamento.".into(),
+                );
+            }
+            enviar_lpr(&ip, &fila, &montar_dados(paginas, linguagem), "etiquetas-nexus")
+        }
+        "network_tcp" => {
+            if ip.is_empty() {
+                return Err("Informe, em Impressoras, o IP da impressora.".into());
+            }
+            enviar_tcp_9100(&ip, &montar_dados(paginas, linguagem))
+        }
+        _ => Err(MSG_NESTE_SERVIDOR.into()),
+    }
+}
+
+const MSG_NESTE_SERVIDOR: &str = "Esta impressora está como «neste servidor». Em Impressoras, mude a conexão para «Compartilhada num PC Windows» e informe o PC e o nome do compartilhamento.";
+
+async fn carregar_impressora(pool: &PgPool, req: &DirectPrintRequest) -> Result<Option<HubPrinter>, String> {
+    let _ = store::ensure_tables(pool).await;
+    if let Some(id) = req.printer_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        return match store::get_printer(pool, id).await {
+            Ok(Some(p)) => Ok(Some(p)),
+            Ok(None) => Err("Impressora não encontrada.".into()),
+            Err(e) => Err(format!("Erro ao buscar impressora: {e}")),
+        };
+    }
+    let nome = req.printer_name.trim();
+    if nome.is_empty() {
+        return Err("Impressora não informada.".into());
+    }
+    let lista = store::list_printers(pool)
+        .await
+        .map_err(|e| format!("Erro ao listar impressoras: {e}"))?;
+    Ok(lista
+        .into_iter()
+        .find(|p| p.system_printer_name.as_deref().map(str::trim) == Some(nome)))
+}
+
+/// Serviço de impressão direta de etiquetas (usado pela rota `/direct`).
+pub async fn imprimir_etiquetas(pool: &PgPool, mut req: DirectPrintRequest) -> Result<(), String> {
+    if !(10.0..=300.0).contains(&req.width_mm) || !(10.0..=300.0).contains(&req.height_mm) {
+        return Err("Tamanho da etiqueta fora do intervalo suportado.".into());
+    }
+    if req.pages_png_base64.is_empty() || req.pages_png_base64.len() > 80 {
+        return Err("Informe de 1 a 80 etiquetas por envio.".into());
+    }
+    let copias = req.copies.clamp(1, 200);
+    let printer = carregar_impressora(pool, &req).await?;
+
+    let remota = matches!(
+        printer.as_ref().map(|p| p.connection_type.as_str()),
+        Some("windows_lpd") | Some("network_tcp")
+    );
+    if !remota {
+        // Spooler local do Windows (caminho antigo).
+        if let Some(p) = &printer {
+            if req.printer_name.trim().is_empty() {
+                req.printer_name = p.system_printer_name.clone().unwrap_or_default();
+            }
+        }
+        if !cfg!(target_os = "windows") {
+            return Err(MSG_NESTE_SERVIDOR.into());
+        }
+        return tokio::task::spawn_blocking(move || print_labels(req))
+            .await
+            .map_err(|e| format!("Falha ao imprimir: {e}"))?;
+    }
+    let printer = printer.expect("impressora remota carregada");
+
+    let landscape = req.landscape;
+    let fill = req.fill_scale;
+    let paginas_png = std::mem::take(&mut req.pages_png_base64);
+    tokio::task::spawn_blocking(move || {
+        let mut paginas = Vec::with_capacity(paginas_png.len());
+        for raw in &paginas_png {
+            let bm = raw_label::png_para_bitmap(&decode_png(raw)?)?;
+            paginas.push((raw_label::preparar(bm, landscape, fill), copias));
+        }
+        enviar_para_impressora(&printer, &paginas)
+    })
+    .await
+    .map_err(|e| format!("Falha ao imprimir: {e}"))?
+}
+
+/// Etiqueta de teste desenhada no servidor: borda, diagonal curta e uma faixa preta.
+fn bitmap_de_teste(largura_mm: f64, altura_mm: f64, dpi: i32) -> Bitmap {
+    let dpi = dpi.clamp(100, 600) as f64;
+    let w = ((largura_mm.clamp(10.0, 300.0) / 25.4) * dpi).round() as u32;
+    let h = ((altura_mm.clamp(10.0, 300.0) / 25.4) * dpi).round() as u32;
+    let mut bm = Bitmap::branco(w, h);
+    let borda = (dpi / 100.0).ceil().max(2.0) as u32;
+    for y in 0..h {
+        for x in 0..w {
+            let na_borda = x < borda || y < borda || x >= w - borda || y >= h - borda;
+            let faixa = y >= h * 2 / 5 && y < h * 3 / 5 && x >= w / 8 && x < w * 7 / 8;
+            let diag = (x as i64 - (y as i64 * w as i64 / h as i64)).unsigned_abs() < borda as u64 && y < h / 4;
+            if na_borda || faixa || diag {
+                bm.definir(x, y, true);
+            }
+        }
+    }
+    bm
+}
+
+/// Imprime uma etiqueta de teste na impressora cadastrada (rota `/:id/teste`).
+pub async fn imprimir_teste(pool: &PgPool, id: &str) -> Result<(), String> {
+    let printer = match store::get_printer(pool, id).await {
+        Ok(Some(p)) => p,
+        Ok(None) => return Err("Impressora não encontrada.".into()),
+        Err(e) => return Err(format!("Erro ao buscar impressora: {e}")),
+    };
+    if !matches!(printer.connection_type.as_str(), "windows_lpd" | "network_tcp") {
+        return Err(MSG_NESTE_SERVIDOR.into());
+    }
+    tokio::task::spawn_blocking(move || {
+        let bm = bitmap_de_teste(printer.default_width_mm, printer.default_height_mm, printer.dpi);
+        enviar_para_impressora(&printer, &[(bm, 1)])
+    })
+    .await
+    .map_err(|e| format!("Falha ao imprimir: {e}"))?
+}
+
+#[cfg(test)]
+mod testes_servico {
+    use super::*;
+
+    fn impressora(conexao: &str, ip: &str, fila: &str, proto: &str) -> HubPrinter {
+        HubPrinter {
+            id: "1".into(),
+            name: "t".into(),
+            system_printer_name: Some(fila.into()),
+            printer_type: "thermal_label".into(),
+            connection_type: conexao.into(),
+            ip_address: Some(ip.into()),
+            default_width_mm: 100.0,
+            default_height_mm: 50.0,
+            default_orientation: "landscape".into(),
+            dpi: 203,
+            location: None,
+            status: "online".into(),
+            is_default: false,
+            raw_protocol: proto.into(),
+            notes: None,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn teste_tem_tamanho_e_pontos() {
+        let bm = bitmap_de_teste(100.0, 50.0, 203);
+        assert_eq!((bm.largura, bm.altura), (799, 400));
+        assert!(bm.ponto(0, 0) && bm.ponto(400, 200) && !bm.ponto(400, 120));
+    }
+
+    #[test]
+    fn local_spooler_no_servidor_da_erro() {
+        let p = impressora("local_spooler", "", "X", "zpl");
+        assert!(enviar_para_impressora(&p, &[]).unwrap_err().contains("neste servidor"));
+    }
+
+    #[test]
+    fn lpd_sem_dados_da_erro() {
+        let p = impressora("windows_lpd", "", "", "zpl");
+        assert!(enviar_para_impressora(&p, &[]).unwrap_err().contains("compartilhamento"));
+    }
+
+    #[test]
+    fn epl_e_zpl_escolhidos_pelo_protocolo() {
+        let b = Bitmap::branco(8, 1);
+        assert!(montar_dados(&[(b.clone(), 1)], Linguagem::Zpl).starts_with(b"^XA"));
+        assert!(montar_dados(&[(b, 1)], Linguagem::Epl).starts_with(b"\nN"));
     }
 }

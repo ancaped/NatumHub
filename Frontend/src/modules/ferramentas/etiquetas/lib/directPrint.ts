@@ -25,19 +25,32 @@ export function writeLabelFeed(feed: LabelFeed) {
   }
 }
 
-/** Envia a etiqueta ao spooler do Windows, sem o diálogo do navegador. */
+/** Confere se a impressora tem o que precisa para imprimir direto; devolve o nome para o envio. */
+export function validarImpressoraDireta(printer: HubPrinter): string {
+  const nome = (printer.system_printer_name || '').trim();
+  const ip = (printer.ip_address || '').trim();
+  if (printer.connection_type === 'windows_lpd') {
+    if (!ip || !nome) {
+      throw new Error('Em Impressoras, informe o PC e o nome do compartilhamento desta impressora.');
+    }
+  } else if (printer.connection_type === 'network_tcp') {
+    if (!ip) throw new Error('Em Impressoras, informe o IP desta impressora.');
+  } else if (!nome) {
+    throw new Error(
+      'Essa impressora não está ligada ao nome do Windows. Em Impressoras, importe o dispositivo.'
+    );
+  }
+  return nome;
+}
+
+/** Envia a etiqueta pelo servidor (spooler do Windows, PC compartilhado ou rede), sem o diálogo do navegador. */
 export async function printLabelDirect(
   template: LabelTemplate,
   config: PrintConfig,
   printer: HubPrinter,
   dpiOverride?: number
 ): Promise<void> {
-  const printerName = (printer.system_printer_name || '').trim();
-  if (!printerName) {
-    throw new Error(
-      'Essa impressora não está ligada ao nome do Windows. Em Impressoras, importe o dispositivo.'
-    );
-  }
+  const printerName = validarImpressoraDireta(printer);
 
   const copies = Math.max(1, config.copies || 1);
   if (config.enableSequence && copies > 80) {
@@ -67,6 +80,7 @@ export async function printLabelDirect(
   }
 
   await printersApi.printDirect({
+    printer_id: printer.id,
     printer_name: printerName,
     width_mm: template.width_mm || 100,
     height_mm: template.height_mm || 50,

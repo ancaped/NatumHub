@@ -111,6 +111,7 @@ export const printersApi = {
   },
 
   async printDirect(payload: {
+    printer_id?: string;
     printer_name: string;
     width_mm: number;
     height_mm: number;
@@ -123,6 +124,14 @@ export const printersApi = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+    });
+    if (!res.success && res.error) throw new Error(res.error);
+  },
+
+  /** Imprime uma etiqueta de teste gerada no servidor (impressora compartilhada ou de rede). */
+  async printTest(id: string): Promise<void> {
+    const res = await apiJson<ApiResponse<{ printed: boolean }>>(`/api/ferramentas/impressoras/${id}/teste`, {
+      method: 'POST',
     });
     if (!res.success && res.error) throw new Error(res.error);
   },

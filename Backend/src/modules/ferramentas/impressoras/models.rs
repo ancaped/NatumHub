@@ -6,7 +6,7 @@ pub struct HubPrinter {
     pub name: String,
     pub system_printer_name: Option<String>,
     pub printer_type: String, // "thermal_label", "laser_a4", "inkjet", "network_raw", "other"
-    pub connection_type: String, // "local_spooler", "network_tcp", "usb_direct", "server_shared"
+    pub connection_type: String, // "local_spooler" (neste servidor Windows), "windows_lpd" (impressora compartilhada num PC Windows: ip_address = PC, system_printer_name = nome do compartilhamento), "network_tcp" (ip[:9100]), "usb_direct", "server_shared"
     pub ip_address: Option<String>, // e.g. "192.168.1.150:9100"
     pub default_width_mm: f64,
     pub default_height_mm: f64,
@@ -15,7 +15,7 @@ pub struct HubPrinter {
     pub location: Option<String>, // "Almoxarifado", "Produção", "Expedição", "Laboratório"
     pub status: String, // "online", "offline", "busy", "error"
     pub is_default: bool,
-    pub raw_protocol: String, // "zpl", "tspl", "esc_pos", "spooler_native", "none"
+    pub raw_protocol: String, // "zpl", "epl", "tspl", "esc_pos", "spooler_native", "none" (windows_lpd/network_tcp: "epl" envia EPL, o resto envia ZPL)
     pub notes: Option<String>,
     pub created_at: String,
     pub updated_at: String,
