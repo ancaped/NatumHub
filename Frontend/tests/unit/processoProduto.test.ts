@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getProductProcessType, previsaoEnvase, getProductColorInfo } from '../../src/modules/producao/lib/processoProduto';
+import { getProductProcessType, previsaoEnvase, getProductColorInfo, LIMITE_BOMBONA_QUENTE_KG } from '../../src/modules/producao/lib/processoProduto';
 
 test('shampoo é processo a frio', () => {
   const r = getProductProcessType({ descricao: 'SHAMPOO LISO 500ML', producao_recomendada: 100 });
@@ -10,12 +10,12 @@ test('shampoo é processo a frio', () => {
   assert.equal(r.reqQtyKg, 50);
 });
 
-test('máscara é quente; bombona só abaixo de 200 kg', () => {
+test('máscara é quente; bombona só até 150 kg', () => {
   const pequena = getProductProcessType({ descricao: 'MASCARA HIDRATANTE 1KG', producao_recomendada: 150 });
   assert.equal(pequena.isQuente, true);
   assert.equal(pequena.canBombona, true);
   assert.equal(pequena.recipienteSugerido, 'BOMBONAS');
-  const grande = getProductProcessType({ descricao: 'MASCARA HIDRATANTE 1KG', producao_recomendada: 200 });
+  const grande = getProductProcessType({ descricao: 'MASCARA HIDRATANTE 1KG', producao_recomendada: 160 });
   assert.equal(grande.isQuente, true);
   assert.equal(grande.canBombona, false);
   assert.equal(grande.label, 'Caldeira');
@@ -69,4 +69,14 @@ test('getProductColorInfo: neutro por padrão e vermelho por último', () => {
   const red = getProductColorInfo({ descricao: 'MASCARA MARSALA' });
   assert.equal(red.tag, 'red');
   assert.equal(red.orderPriority, 4);
+});
+
+test('limite da bombona quente é 150 kg (a frio segue 200)', () => {
+  assert.equal(LIMITE_BOMBONA_QUENTE_KG, 150);
+  const limite = getProductProcessType({ descricao: 'MASCARA HIDRATANTE 1KG', producao_recomendada: 150 });
+  assert.equal(limite.canBombona, true);
+  const acima = getProductProcessType({ descricao: 'MASCARA HIDRATANTE 1KG', producao_recomendada: 151 });
+  assert.equal(acima.canBombona, false);
+  const frio = getProductProcessType({ descricao: 'SHAMPOO LISO 1KG', producao_recomendada: 200 });
+  assert.equal(frio.canBombona, true);
 });

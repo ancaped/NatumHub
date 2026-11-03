@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Calendar, CalendarClock, Search, RefreshCw, Printer, Trash2, CheckCircle2, 
   X, AlertTriangle, HelpCircle, Edit3, Database, Check, ArrowRight,
@@ -17,6 +17,7 @@ import { getHoliday, getBrazilHolidaysForYear, HolidayInfo } from '../../../gera
 import { ProductDetailsDrawer } from './ProductDetailsDrawer';
 import CoberturaInsumosDrawer from './CoberturaInsumosDrawer';
 import RetirarDaFilaDrawer from './RetirarDaFilaDrawer';
+import LimparFilaDrawer from './LimparFilaDrawer';
 import PreviaAcaoDrawer, { PreviaAcao } from './PreviaAcaoDrawer';
 import { canEdit, getAuthUser } from '../../../geral/lib/auth';
 import { useAviso } from '../../../geral/components/ui/Aviso';
@@ -28,6 +29,7 @@ import { ParametrosBateladaDrawer } from './planejamento/ParametrosBateladaDrawe
 import { EditarQuantidadeDrawer } from './planejamento/EditarQuantidadeDrawer';
 import { VincularLoteDrawer } from './planejamento/VincularLoteDrawer';
 import { AgendarDrawer } from './planejamento/AgendarDrawer';
+import { AdicionarFilaDrawer } from './planejamento/AdicionarFilaDrawer';
 import { ReatoresDrawer } from './planejamento/ReatoresDrawer';
 import type { DiaSemana, ScheduleModalItem, LinkLoteModalItem, EditQtyModalItem, TechnicalModalItem, HeuristicStats } from './planejamento/tiposDrawers';
 import { planejarSemana } from '../../lib/heuristicaPlanejamento';
@@ -100,6 +102,25 @@ const DEFAULT_REATORES: ReatorConfig[] = [
   { id: 'R_40', nome: 'Reator 40kg (Produção Quente)', capacidade_kg: 40, tipo: 'quente', ordem: 6, ativo: true },
   { id: 'BOMBONAS', nome: 'Bombonas', capacidade_kg: 200, tipo: 'bombona', ordem: 7, ativo: true },
 ];
+
+const BADGE_ZINC = 'bg-zinc-100 text-zinc-800 border-zinc-200';
+/** Ícone e selo do reator pelo tipo configurado (uma fonte só para a tela). */
+const INFO_POR_TIPO: Record<string, { Icone: typeof Package; titulo: string; rotulo: string; badge: string }> = {
+  caldeira_shampoo: { Icone: Snowflake, titulo: 'Exclusivo Shampoos', rotulo: 'Shampoo (Frio)', badge: BADGE_ZINC },
+  caldeira: { Icone: Boxes, titulo: 'Caldeira / Misto', rotulo: 'Caldeira', badge: BADGE_ZINC },
+  resistencia: { Icone: Zap, titulo: 'Aquecimento por Resistência', rotulo: 'Resistência', badge: 'bg-amber-50 text-amber-800 border-amber-200' },
+  quente: { Icone: Flame, titulo: 'Produção Quente', rotulo: 'Quente', badge: BADGE_ZINC },
+  bombona: { Icone: Package, titulo: 'Bombonas Móveis de Mistura', rotulo: 'Bombona', badge: BADGE_ZINC },
+  frio: { Icone: Snowflake, titulo: 'A Frio Simples', rotulo: 'A Frio', badge: BADGE_ZINC },
+  misto: { Icone: Boxes, titulo: 'Misto Geral', rotulo: 'Misto', badge: BADGE_ZINC },
+};
+const TIPO_POR_ID_ANTIGO: Record<string, string> = {
+  BOMBONAS: 'bombona', R_100: 'resistencia', R_40: 'quente', R_1000_SHAMPOO: 'caldeira_shampoo', R_1000: 'caldeira_shampoo', R_1000_MISTO: 'misto',
+};
+export function infoDoReator(r: Pick<ReatorConfig, 'id' | 'tipo'>) {
+  const tipo = INFO_POR_TIPO[r.tipo] ? r.tipo : (TIPO_POR_ID_ANTIGO[r.id] ?? 'caldeira');
+  return { tipo, ...INFO_POR_TIPO[tipo] };
+}
 
 export function isPastEndOfDay(scheduleDateIso?: string | null): boolean {
   if (!scheduleDateIso) return false;
@@ -324,9 +345,16 @@ export function PlanejamentoSemanalTab({
   // Painel lateral e busca do Banco de Demandas
   const [demandBankOpen, setDemandBankOpen] = useState(true);
   const [demandSearch, setDemandSearch] = useState('');
-  const [filaAba, setFilaAba] = useState<'todas' | 'falta'>('todas');
+  const [filaAba, setFilaAba] = useState<'todas' | 'falta' | 'bases'>('todas');
   const [filaDemandas, setFilaDemandas] = useState<any[]>([]);
   const [retirarFilaId, setRetirarFilaId] = useState<string | null>(null);
+  const [limparFilaAberto, setLimparFilaAberto] = useState(false);
+  const [adicionarFila, setAdicionarFila] = useState<{ codigo?: string; qtdKg?: number } | null>(null);
+  const [basesResumo, setBasesResumo] = useState<any[]>([]);
+  const [basesBusca, setBasesBusca] = useState('');
+  // Card da fila: vai da posição dele até o fim da tela, em qualquer altura de janela.
+  const filaCardRef = useRef<HTMLDivElement>(null);
+  const [filaAltura, setFilaAltura] = useState<number | null>(null);
   const [previaAcao, setPreviaAcao] = useState<PreviaAcao | null>(null);
   const [demandFilter, setDemandFilter] = useState<'FILA' | 'ALL' | 'CRITICOS' | 'PROGRAMADAS' | 'KITS' | 'BASES'>('FILA');
   const [selectedLineFilter, setSelectedLineFilter] = useState<string>('ALL');
@@ -503,6 +531,34 @@ export function PlanejamentoSemanalTab({
       fetchPlanejamento();
     }
   }, [active, fetchPlanejamento]);
+
+  // Aba Bases do card da fila: todas as bases, com ou sem demanda (recarrega quando a fila ou o quadro mudam).
+  useEffect(() => {
+    if (!active || !demandBankOpen || filaAba !== 'bases') return;
+    let vivo = true;
+    apiFetch('/producao/bases-resumo')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (vivo && d) setBasesResumo(Array.isArray(d.items) ? d.items : []); })
+      .catch(e => console.warn('Erro ao buscar bases:', e));
+    return () => { vivo = false; };
+  }, [active, demandBankOpen, filaAba, filaDemandas, plannedItems]);
+
+  useEffect(() => {
+    if (!demandBankOpen) return;
+    const ajustar = () => {
+      const el = filaCardRef.current;
+      if (!el) return;
+      const topo = Math.max(el.getBoundingClientRect().top, 12);
+      setFilaAltura(Math.max(360, Math.floor(window.innerHeight - topo - 12)));
+    };
+    ajustar();
+    window.addEventListener('resize', ajustar);
+    window.addEventListener('scroll', ajustar, true);
+    return () => {
+      window.removeEventListener('resize', ajustar);
+      window.removeEventListener('scroll', ajustar, true);
+    };
+  }, [demandBankOpen]);
 
   useEffect(() => {
     const handleRefresh = () => {
@@ -1209,6 +1265,12 @@ export function PlanejamentoSemanalTab({
   };
   const qtdAguardandoInsumo = demandCandidates.filter(aguardaInsumo).length;
   const demandVisiveis = filaAba === 'falta' ? demandCandidates.filter(aguardaInsumo) : demandCandidates;
+  const produtoPorCodigo = useMemo(() => new Map<string, any>(products.map(p => [p.codigo, p])), [products]);
+  const codigosNaFila = useMemo(() => new Set<string>(filaDemandas.map(f => f.codigoProduto || f.codigo_produto)), [filaDemandas]);
+  const basesVisiveis = useMemo(() => {
+    const q = basesBusca.trim().toLowerCase();
+    return basesResumo.filter(b => !q || String(b.codigo || '').toLowerCase().includes(q) || String(b.descricao || '').toLowerCase().includes(q));
+  }, [basesResumo, basesBusca]);
 
   // Abre o modal "Vincular lote ERP" já com o número que a cobertura de insumos sugeriu.
   const handleVincularSugerido = async (ordemId: string, lote: string) => {
@@ -2158,61 +2220,28 @@ export function PlanejamentoSemanalTab({
                   <tr key={reator.id} className="hover:bg-zinc-50/40 transition-colors">
                     {/* Linha do Reator / Bombonas */}
                     <td className="p-3 font-semibold text-zinc-800 border-r border-zinc-200 bg-zinc-50/50 align-top w-56">
-                      <div className="flex items-start gap-1.5">
-                        {reator.id === 'BOMBONAS' ? (
-                          <Package size={16} className="text-zinc-500 mt-0.5"><title>Bombonas Móveis de Mistura</title></Package>
-                        ) : reator.id === 'R_100' ? (
-                          <Zap size={16} className="text-zinc-500 mt-0.5"><title>Aquecimento por Resistência</title></Zap>
-                        ) : reator.id === 'R_40' ? (
-                          <Flame size={16} className="text-zinc-500 mt-0.5"><title>Reator 40kg (Produção Quente)</title></Flame>
-                        ) : (reator.id === 'R_1000_SHAMPOO' || reator.id === 'R_1000') ? (
-                          <Snowflake size={16} className="text-zinc-500 mt-0.5"><title>Exclusivo Shampoos</title></Snowflake>
-                        ) : reator.id === 'R_1000_MISTO' ? (
-                          <Boxes size={16} className="text-zinc-500 mt-0.5"><title>Caldeira - Produção Mista</title></Boxes>
-                        ) : reator.tipo === 'quente' ? (
-                          <Flame size={16} className="text-zinc-500 mt-0.5"><title>Requer Caldeira</title></Flame>
-                        ) : (
-                          <Boxes size={16} className="text-zinc-500 mt-0.5"><title>Caldeira / Misto</title></Boxes>
-                        )}
-                        <div className="flex flex-col">
-                          <span className="font-bold text-zinc-900 text-xs leading-tight">{reator.nome}</span>
-                          {reator.id !== 'BOMBONAS' && (
-                            <span className="text-[10px] text-zinc-500 mt-0.5">Capacidade: {reator.capacidade_kg} kg</span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="text-[10px] mt-1.5 flex flex-wrap gap-1">
-                        {(reator.id === 'R_1000_SHAMPOO' || reator.id === 'R_1000') && (
-                          <span className="px-1.5 py-0.2 rounded font-semibold bg-zinc-100 text-zinc-800 border border-zinc-200">
-                            Shampoo (Frio)
-                          </span>
-                        )}
-                        {reator.id === 'R_1000_MISTO' && (
-                          <span className="px-1.5 py-0.2 rounded font-semibold bg-zinc-100 text-zinc-800 border border-zinc-200">
-                            Produção Mista
-                          </span>
-                        )}
-                        {reator.id === 'R_100' && (
-                          <span className="px-1.5 py-0.2 rounded font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-                            Resistência
-                          </span>
-                        )}
-                        {reator.id === 'R_40' && (
-                          <span className="px-1.5 py-0.2 rounded font-semibold bg-zinc-100 text-zinc-800 border border-zinc-200">
-                            Quente (40kg)
-                          </span>
-                        )}
-                        {reator.id === 'BOMBONAS' && (
-                          <span className="px-1.5 py-0.2 rounded font-semibold bg-zinc-100 text-zinc-800 border border-zinc-200">
-                            Bombonas Móveis
-                          </span>
-                        )}
-                        {reator.id !== 'R_1000_SHAMPOO' && reator.id !== 'R_1000' && reator.id !== 'R_1000_MISTO' && reator.id !== 'R_100' && reator.id !== 'R_40' && reator.id !== 'BOMBONAS' && (
-                          <span className="px-1.5 py-0.2 rounded font-semibold bg-zinc-100 text-zinc-800 border border-zinc-200">
-                            Caldeira
-                          </span>
-                        )}
-                      </div>
+                      {(() => {
+                        const info = infoDoReator(reator);
+                        const Icone = info.Icone;
+                        return (
+                          <>
+                            <div className="flex items-start gap-1.5">
+                              <Icone size={16} className="text-zinc-500 mt-0.5"><title>{info.titulo}</title></Icone>
+                              <div className="flex flex-col">
+                                <span className="font-bold text-zinc-900 text-xs leading-tight">{reator.nome}</span>
+                                {info.tipo !== 'bombona' && (
+                                  <span className="text-[10px] text-zinc-500 mt-0.5">Capacidade: {reator.capacidade_kg} kg</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-[10px] mt-1.5 flex flex-wrap gap-1">
+                              <span className={`px-1.5 py-0.2 rounded font-semibold border ${info.badge}`}>
+                                {info.rotulo}
+                              </span>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </td>
 
                     {/* Colunas Segunda a Sexta */}
@@ -2659,7 +2688,11 @@ export function PlanejamentoSemanalTab({
 
         {/* GAVETA LATERAL: BANCO DE DEMANDAS (FILA EXCLUSIVA) */}
         {demandBankOpen && (
-          <div className="w-[420px] bg-white rounded-xl border border-zinc-200 shadow-xs flex flex-col h-[750px] shrink-0">
+          <div
+            ref={filaCardRef}
+            style={filaAltura ? { height: filaAltura } : undefined}
+            className="w-[420px] bg-white rounded-xl border border-zinc-200 shadow-xs flex flex-col min-h-0 h-[750px] shrink-0 sticky top-3 self-start"
+          >
             {/* Cabeçalho da Gaveta */}
             <div className="p-3 border-b border-zinc-200 flex flex-col gap-2 bg-zinc-50/70 rounded-t-xl">
               <div className="flex items-center justify-between">
@@ -2672,16 +2705,39 @@ export function PlanejamentoSemanalTab({
                 </span>
               </div>
 
+              {podeEditar && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setAdicionarFila({})}
+                    className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                  >
+                    <Plus size={12} />
+                    Adicionar item
+                  </button>
+                  <button
+                    type="button"
+                    disabled={filaDemandas.length === 0}
+                    onClick={() => setLimparFilaAberto(true)}
+                    className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    title="Apaga todos os itens da fila (pede o motivo)"
+                  >
+                    <Trash2 size={12} />
+                    Limpar fila
+                  </button>
+                </div>
+              )}
+
               {/* Abas */}
               <div className="flex items-center gap-1">
-                {([['todas', 'Todas', demandCandidates.length], ['falta', 'Aguardando insumos', qtdAguardandoInsumo]] as const).map(([id, rotulo, n]) => (
+                {([['todas', 'Todas', String(demandCandidates.length)], ['falta', 'Aguardando insumos', String(qtdAguardandoInsumo)], ['bases', 'Bases', basesResumo.length > 0 ? String(basesResumo.length) : '']] as const).map(([id, rotulo, n]) => (
                   <button
                     key={id}
                     type="button"
                     onClick={() => setFilaAba(id)}
                     className={`px-2.5 py-1 text-[11px] font-bold rounded-md cursor-pointer transition-colors ${filaAba === id ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100'}`}
                   >
-                    {rotulo} ({n})
+                    {rotulo}{n !== '' ? ` (${n})` : ''}
                   </button>
                 ))}
               </div>
@@ -2691,17 +2747,73 @@ export function PlanejamentoSemanalTab({
                 <Search size={13} className="absolute left-2.5 top-2.5 text-zinc-400" />
                 <input
                   type="text"
-                  placeholder="Buscar REF, descrição ou lote na fila..."
-                  value={demandSearch}
-                  onChange={(e) => setDemandSearch(e.target.value)}
+                  placeholder={filaAba === 'bases' ? 'Buscar base por REF ou descrição...' : 'Buscar REF, descrição ou lote na fila...'}
+                  value={filaAba === 'bases' ? basesBusca : demandSearch}
+                  onChange={(e) => (filaAba === 'bases' ? setBasesBusca(e.target.value) : setDemandSearch(e.target.value))}
                   className="w-full pl-8 pr-3 py-1.5 bg-white border border-zinc-200 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-zinc-400"
                 />
               </div>
             </div>
 
             {/* Lista com Scroll e Dados Ricos de PCP */}
-            <div className="flex-1 overflow-y-auto p-2 divide-y divide-zinc-100">
-              {demandVisiveis.length === 0 ? (
+            <div className="flex-1 min-h-0 overflow-y-auto p-2 divide-y divide-zinc-100">
+              {filaAba === 'bases' ? (
+                basesVisiveis.length === 0 ? (
+                  <div className="py-8 text-center text-zinc-400 text-xs">Nenhuma base encontrada.</div>
+                ) : (
+                  basesVisiveis.map((b: any) => {
+                    const estoqueBase = Number(produtoPorCodigo.get(b.codigo)?.estoque ?? 0);
+                    const necessidade = Number(b.demanda_total_kg) || 0;
+                    return (
+                      <div key={b.codigo} className="py-2.5 px-2 flex flex-col gap-1.5 hover:bg-zinc-50 transition-colors">
+                        <div className="flex items-start justify-between gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleShowProductDetails(b.codigo)}
+                            className="font-bold text-zinc-900 text-xs leading-snug line-clamp-2 text-left hover:underline cursor-pointer bg-transparent border-none p-0"
+                          >
+                            {b.descricao}
+                          </button>
+                          <span className="font-mono text-[10px] text-zinc-600 font-semibold bg-zinc-100 px-1 py-0.5 rounded shrink-0">{b.codigo}</span>
+                        </div>
+                        <div className="grid grid-cols-4 gap-1.5 text-[10px]">
+                          <div className="flex flex-col">
+                            <span className="text-zinc-500 text-[9px]">Estoque</span>
+                            <strong className="text-zinc-900">{Math.round(estoqueBase).toLocaleString('pt-BR')} kg</strong>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-zinc-500 text-[9px]">Na fila</span>
+                            <strong className="text-zinc-900">{b.na_fila ? `${Number(b.fila_qtd_kg || 0).toLocaleString('pt-BR')} kg` : '—'}</strong>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-zinc-500 text-[9px]">Em ordens</span>
+                            <strong className="text-zinc-900">{b.planejado_semana ? `${Number(b.planejado_kg || 0).toLocaleString('pt-BR')} kg` : '—'}</strong>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-zinc-500 text-[9px]">Necessidade</span>
+                            <strong className={necessidade > 0 ? 'text-amber-800' : 'text-zinc-900'}>{necessidade > 0 ? `${Math.round(necessidade).toLocaleString('pt-BR')} kg` : '—'}</strong>
+                          </div>
+                        </div>
+                        {podeEditar && (
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => setAdicionarFila({
+                                codigo: b.codigo,
+                                qtdKg: Number(b.sugestao_base_kg) > 0 ? Math.ceil(Number(b.sugestao_base_kg)) : (Number(b.lote_padrao_kg) || 200),
+                              })}
+                              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                            >
+                              <Plus size={12} />
+                              {b.na_fila ? 'Ajustar na fila' : 'Enviar à fila'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )
+              ) : demandVisiveis.length === 0 ? (
                 <div className="py-8 text-center text-zinc-400 text-xs">
                   {filaAba === 'falta' ? 'Nenhum item da fila está aguardando insumos.' : 'Nenhum item pendente na fila de demandas.'}
                 </div>
@@ -2967,6 +3079,29 @@ export function PlanejamentoSemanalTab({
 
       {/* MODAL: RELATÓRIO DE CONSUMO DE MATÉRIAS-PRIMAS E EMBALAGENS */}
       {previaAcao && <PreviaAcaoDrawer previa={previaAcao} onClose={() => setPreviaAcao(null)} />}
+      {limparFilaAberto && (
+        <LimparFilaDrawer
+          onClose={() => setLimparFilaAberto(false)}
+          onLimpa={() => {
+            setLimparFilaAberto(false);
+            avisar('Fila limpa.', 'sucesso');
+            fetchFila();
+          }}
+        />
+      )}
+      {adicionarFila && (
+        <AdicionarFilaDrawer
+          products={products}
+          codigosNaFila={codigosNaFila}
+          inicial={adicionarFila.codigo ? { codigo: adicionarFila.codigo, qtdKg: adicionarFila.qtdKg } : null}
+          onClose={() => setAdicionarFila(null)}
+          onAdicionado={async () => {
+            setAdicionarFila(null);
+            avisar('Item adicionado à fila.', 'sucesso');
+            await fetchFila();
+          }}
+        />
+      )}
       {retirarFilaId && (
         <RetirarDaFilaDrawer
           filaId={retirarFilaId}

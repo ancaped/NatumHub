@@ -2,6 +2,9 @@ import { parseProductUnitWeightKg } from './unitConversion';
 import type { ReatorConfig } from '../gerenciamento/components/PlanejamentoSemanalTab';
 import { eBase } from '../../geral/lib/regrasProduto';
 
+/** Produção quente na bombona com água quente da caldeira: até 150 kg (regra do Edson, 2026-11-03). A frio segue 200 kg. */
+export const LIMITE_BOMBONA_QUENTE_KG = 150;
+
 /**
  * Classificação técnica de processo: Quente (Caldeira / Água Caldeira) vs Frio (Bases / Shampoos)
  * Realiza a conversão correta de Unidades de Produto para Massa a Granel em Kg
@@ -83,7 +86,7 @@ function inferirProcesso(p: any): {
     return { 
       isQuente: true, 
       isShampoo: false,
-      canBombona: reqQtyKg < 200,
+      canBombona: reqQtyKg <= LIMITE_BOMBONA_QUENTE_KG,
       motivo: isR40 ? 'Reator 40kg Quente (Fusão de ceras/óleos)' : 'Fusão de ceras/óleos (Quente)', 
       label: isR40 ? 'Reator 40kg' : 'Caldeira',
       recipienteSugerido: isR40 ? 'R_40' : (reqQtyKg <= 100 ? 'R_100' : (reqQtyKg >= 600 ? 'R_1000_MISTO' : (reqQtyKg <= 250 ? 'R_200' : 'R_500'))),
@@ -93,10 +96,10 @@ function inferirProcesso(p: any): {
     };
   }
 
-  // Máscaras, Cremes, Botox -> Quente (se <= 45kg vai no Reator 40kg, se < 200kg pode ir na bombona com água quente da caldeira!)
+  // Máscaras, Cremes, Botox -> Quente (se <= 45kg vai no Reator 40kg, se <= 150kg pode ir na bombona com água quente da caldeira!)
   if (desc.includes('MASC') || desc.includes('CREME') || desc.includes('DEFRIZANTE') || desc.includes('BOTOX')) {
     const isR40 = reqQtyKg <= 45;
-    const podeBombona = reqQtyKg < 200;
+    const podeBombona = reqQtyKg <= LIMITE_BOMBONA_QUENTE_KG;
     return { 
       isQuente: true, 
       isShampoo: false,
@@ -131,10 +134,10 @@ function inferirProcesso(p: any): {
     return { 
       isQuente: true, 
       isShampoo: false,
-      canBombona: reqQtyKg < 200,
+      canBombona: reqQtyKg <= LIMITE_BOMBONA_QUENTE_KG,
       motivo: isR40 ? 'Reator 40kg (Condicionador Quente)' : 'Condicionador sem base pronta (Requer Caldeira)', 
       label: isR40 ? 'Reator 40kg' : 'Caldeira',
-      recipienteSugerido: isR40 ? 'R_40' : (reqQtyKg <= 150 ? 'BOMBONAS' : (reqQtyKg >= 600 ? 'R_1000_MISTO' : (reqQtyKg <= 250 ? 'R_200' : 'R_500'))),
+      recipienteSugerido: isR40 ? 'R_40' : (reqQtyKg <= LIMITE_BOMBONA_QUENTE_KG ? 'BOMBONAS' : (reqQtyKg >= 600 ? 'R_1000_MISTO' : (reqQtyKg <= 250 ? 'R_200' : 'R_500'))),
       unitWeightKg,
       reqUnits,
       reqQtyKg

@@ -1,4 +1,5 @@
 /** Funções puras da sugestão automática de sequência (Planejamento Semanal). */
+import { LIMITE_BOMBONA_QUENTE_KG } from './processoProduto';
 
 /**
  * Ordena reatores pelo menor em que a massa caiba (capacidade >= kg, do menor para o maior);
@@ -80,7 +81,7 @@ export function reatoresDoPerfil<R extends ReatorPlano>(
     const c = ativos.filter(ehR40);
     if (c.length) return { cenario: 'r40', candidatos: c };
   }
-  if (p.canBombona && (p.isQuente ? p.kg < 200 : p.kg <= 200)) {
+  if (p.canBombona && (p.isQuente ? p.kg <= LIMITE_BOMBONA_QUENTE_KG : p.kg <= 200)) {
     const c = ativos.filter(ehBombona);
     if (c.length) return { cenario: p.isQuente ? 'bombona_quente' : 'bombona_frio', candidatos: c };
   }

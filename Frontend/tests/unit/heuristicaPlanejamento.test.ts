@@ -135,3 +135,10 @@ test('reatoresDoPerfil: tipos (shampoo grande, quente pequeno, bombona, fixos)',
   assert.deepEqual(ids2({ kg: 150, isQuente: false, isShampoo: false, canBombona: true }), ['BOMBONAS']);
   assert.deepEqual(ids2({ kg: 150, isQuente: false, isShampoo: false, canBombona: false }), ['R_1000_MISTO', 'R_500', 'R_200', 'R_100']);
 });
+
+test('reatoresDoPerfil: quente na bombona só até 150 kg; a frio até 200 kg', () => {
+  const ids2 = (p: Parameters<typeof reatoresDoPerfil>[1]) => reatoresDoPerfil(fabrica, p).candidatos.map(c => c.id);
+  assert.deepEqual(ids2({ kg: 150, isQuente: true, isShampoo: false, canBombona: true }), ['BOMBONAS']);
+  assert.notDeepEqual(ids2({ kg: 160, isQuente: true, isShampoo: false, canBombona: true }), ['BOMBONAS']);
+  assert.deepEqual(ids2({ kg: 200, isQuente: false, isShampoo: false, canBombona: true }), ['BOMBONAS']);
+});

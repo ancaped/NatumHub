@@ -29,6 +29,7 @@ pub fn router() -> Router<Arc<AppState>> {
             delete(delete_fila_demanda).patch(update_fila_demanda).put(update_fila_demanda),
         )
         .route("/api/producao/fila-demandas/:id/retirar", post(retirar_rota))
+        .route("/api/producao/fila-demandas/limpar", post(limpar_rota))
 }
 
 /// Ações da Fila de Demandas descritas para agentes (ver `core::catalogo`).
@@ -92,6 +93,18 @@ pub fn acoes() -> Vec<Acao> {
                 param("motivo", "corpo", "texto", true, "Por que o item sai da fila."),
                 param("grupo", "corpo", "booleano", false, "true para tirar também os outros SKUs da mesma batelada."),
                 param("confirmar", "corpo", "booleano", false, "true para retirar de fato."),
+            ],
+        ),
+        Acao::gravacao(
+            "limpar_fila_demandas",
+            M,
+            "Esvazia a Fila de Demandas (apaga todos os itens; não lembra motivo por produto). Sem `confirmar=true` mostra só a lista do que sairia.",
+            "POST",
+            "/api/producao/fila-demandas/limpar",
+            true,
+            vec![
+                param("motivo", "corpo", "texto", true, "Por que a fila está sendo limpa (obrigatório ao confirmar; vai para a auditoria)."),
+                param("confirmar", "corpo", "booleano", false, "true para limpar de fato."),
             ],
         ),
     ]
@@ -249,6 +262,70 @@ async fn retirar_rota(
             (StatusCode::OK, Json(json!({ "ok": true, "retirados": itens.len() }))).into_response()
         }
         Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct LimparBody {
+    #[serde(default)]
+    motivo: String,
+    #[serde(default)]
+    confirmar: bool,
+}
+
+/// Apaga todos os itens da fila (linhas travadas) e devolve o instantâneo do que havia.
+async fn limpar_itens(conn: &mut sqlx::PgConnection) -> Result<Value, ErroApi> {
+    let itens: Vec<Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) - 'created_at' - 'updated_at' FROM producao_fila_demandas t \
+         ORDER BY COALESCE(prioridade, 1), created_at FOR UPDATE",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    sqlx::query("DELETE FROM producao_fila_demandas").execute(&mut *conn).await?;
+    Ok(json!({ "total": itens.len(), "itens": itens }))
+}
+
+/// Serviço de "Limpar fila", em 2 passos: sem `confirmar` só lista o que sairia; com ele (e o motivo, obrigatório)
+/// apaga tudo numa transação e audita com o instantâneo. Não grava `fila_descartada` (limpar não é "não quero este produto").
+pub async fn limpar_fila(
+    pool: &PgPool,
+    motivo: &str,
+    confirmar: bool,
+    usuario: &str,
+) -> Result<crate::core::acao::RespostaAcao<Value>, ErroApi> {
+    let motivo = motivo.trim();
+    if confirmar && motivo.is_empty() {
+        return Err(ErroApi::invalido("Informe o motivo de limpar a fila."));
+    }
+    let r = executar_em_2_passos(pool, "limpar_fila_demandas", confirmar, |tx| {
+        Box::pin(async move { limpar_itens(&mut **tx).await })
+    })
+    .await?;
+    if !r.previa {
+        auditoria::registrar(
+            pool,
+            usuario,
+            "limpar_fila_demandas",
+            "fila",
+            json!({ "motivo": motivo, "total": r.resultado["total"], "itens": r.resultado["itens"] }),
+        )
+        .await;
+    }
+    Ok(r)
+}
+
+async fn limpar_rota(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(q): Query<Confirmar>,
+    Json(b): Json<LimparBody>,
+) -> impl IntoResponse {
+    if let Err(r) = permissao::exigir_edicao(&ctx) {
+        return r;
+    }
+    match limpar_fila(state.db.pool(), &b.motivo, b.confirmar || q.confirmar, &ctx.display_name).await {
+        Ok(r) => (StatusCode::OK, Json(crate::core::acao::corpo_acao(&r))).into_response(),
+        Err(e) => e.into_response(),
     }
 }
 
@@ -826,5 +903,47 @@ mod tests {
         for c in ["TF.001", "TF.002"] {
             decisoes::remover(&pool, decisoes::TIPO_FILA_DESCARTADA, c).await.unwrap();
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn limpar_fila_so_apaga_com_confirmar_e_audita() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        sqlx::query("DELETE FROM producao_fila_demandas").execute(&pool).await.unwrap();
+        for (id, cod) in [("lf-1", "LF.001"), ("lf-2", "LF.002")] {
+            sqlx::query(
+                "INSERT INTO producao_fila_demandas (id, codigo_produto, descricao, quantidade, origem_demanda) \
+                 VALUES ($1, $2, 'teste', 1, 'manual')",
+            )
+            .bind(id)
+            .bind(cod)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let contar = || async { sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM producao_fila_demandas").fetch_one(&pool).await.unwrap() };
+
+        let e = limpar_fila(&pool, "  ", true, "teste").await.unwrap_err();
+        assert_eq!(e.codigo, "invalido");
+        assert_eq!(contar().await, 2, "sem motivo nada muda");
+
+        let previa = limpar_fila(&pool, "", false, "teste").await.unwrap();
+        assert!(previa.previa);
+        assert_eq!(previa.resultado["total"], 2);
+        assert_eq!(contar().await, 2, "a prévia não apaga");
+
+        let antes: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM producao_auditoria WHERE acao = 'limpar_fila_demandas'")
+            .fetch_one(&pool).await.unwrap();
+        let r = limpar_fila(&pool, "teste de limpeza", true, "teste").await.unwrap();
+        assert!(!r.previa);
+        assert_eq!(r.resultado["total"], 2);
+        assert_eq!(contar().await, 0, "confirmar apaga tudo");
+        let depois: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM producao_auditoria WHERE acao = 'limpar_fila_demandas'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(depois, antes + 1, "audita uma vez");
+        let sem_decisao: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM producao_decisoes WHERE tipo = 'fila_descartada' AND chave IN ('LF.001','LF.002')")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(sem_decisao, 0, "limpar não grava decisão fila_descartada");
     }
 }

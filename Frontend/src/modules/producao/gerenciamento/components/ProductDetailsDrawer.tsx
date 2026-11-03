@@ -6,6 +6,24 @@ import {
   Sparkles, Calculator, AlertCircle, CheckCircle2 
 } from 'lucide-react';
 
+/** Raiz da categoria do insumo (`categoryId`, já resolvida no servidor): embalagens, matéria-prima (inclui sem categoria) ou outras. */
+export function secoesFormulacao(linhas: any[]): { id: string; titulo: string; itens: any[] }[] {
+  const mp: any[] = [];
+  const emb: any[] = [];
+  const outros: any[] = [];
+  for (const l of linhas) {
+    const raiz = l?.categoryId ?? l?.categoria ?? null;
+    if (raiz === 'cat_emb' || raiz === 'cat_mat') emb.push(l);
+    else if (!raiz || raiz === 'cat_mp') mp.push(l);
+    else outros.push(l);
+  }
+  return [
+    { id: 'mp', titulo: 'Matéria-prima', itens: mp },
+    { id: 'emb', titulo: 'Embalagens', itens: emb },
+    { id: 'outros', titulo: 'Outros', itens: outros },
+  ].filter(s => s.itens.length > 0);
+}
+
 interface ProductDetailsDrawerProps {
   productCode: string | null;
   isOpen: boolean;
@@ -169,44 +187,52 @@ export const ProductDetailsDrawer: React.FC<ProductDetailsDrawerProps> = ({
                 <p className="text-xs text-zinc-400 py-3">Nenhuma fórmula cadastrada no ERP para este produto.</p>
               ) : (
                 <div className="space-y-4">
-                  <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-2xs">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-zinc-50 font-bold text-zinc-600 border-b border-zinc-200 text-[11px]">
-                        <tr>
-                          <th className="px-3 py-2">Insumo</th>
-                          <th className="px-3 py-2 text-right">Qtd / un</th>
-                          <th className="px-3 py-2 text-right">Estoque Atual</th>
-                          <th className="px-3 py-2 text-center">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-100 font-medium">
-                        {details.formulation.map((ing: any, idx: number) => {
-                          const isOk = Number(ing.currentStock) > 0;
-                          return (
-                            <tr key={idx} className="hover:bg-zinc-50/50">
-                              <td className="px-3 py-2">
-                                <div className="font-bold text-zinc-900">{ing.description || ing.code}</div>
-                                <div className="font-mono text-[10px] text-zinc-400">{ing.code}</div>
-                              </td>
-                              <td className="px-3 py-2 text-right font-mono text-zinc-700">
-                                {Number(ing.quantity).toLocaleString('pt-BR', { maximumFractionDigits: 5 })} {ing.unit}
-                              </td>
-                              <td className="px-3 py-2 text-right font-mono font-bold text-zinc-900">
-                                {Number(ing.currentStock || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {ing.unit}
-                              </td>
-                              <td className="px-3 py-2 text-center">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                  isOk ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
-                                }`}>
-                                  {isOk ? 'OK' : 'Falta'}
-                                </span>
-                              </td>
+                  {secoesFormulacao(details.formulation).map(sec => (
+                    <div key={sec.id} className="space-y-1.5">
+                      <h5 className="text-[11px] font-bold text-zinc-600 uppercase tracking-wide">
+                        {sec.titulo} ({sec.itens.length})
+                      </h5>
+                      <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-2xs">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-zinc-50 font-bold text-zinc-600 border-b border-zinc-200 text-[11px]">
+                            <tr>
+                              <th className="px-3 py-2">Insumo</th>
+                              <th className="px-3 py-2 text-right">Qtd / un</th>
+                              <th className="px-3 py-2 text-right">Estoque Atual</th>
+                              <th className="px-3 py-2 text-center">Status</th>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-100 font-medium">
+                            {sec.itens.map((ing: any, idx: number) => {
+                              const isOk = Number(ing.currentStock) > 0;
+                              const codigo = ing.ingredientCode ?? ing.code;
+                              return (
+                                <tr key={idx} className="hover:bg-zinc-50/50">
+                                  <td className="px-3 py-2">
+                                    <div className="font-bold text-zinc-900">{ing.description || codigo}</div>
+                                    <div className="font-mono text-[10px] text-zinc-400">{codigo}</div>
+                                  </td>
+                                  <td className="px-3 py-2 text-right font-mono text-zinc-700">
+                                    {Number(ing.quantity).toLocaleString('pt-BR', { maximumFractionDigits: 5 })} {ing.unit}
+                                  </td>
+                                  <td className="px-3 py-2 text-right font-mono font-bold text-zinc-900">
+                                    {Number(ing.currentStock || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {ing.unit}
+                                  </td>
+                                  <td className="px-3 py-2 text-center">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                      isOk ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                    }`}>
+                                      {isOk ? 'OK' : 'Falta'}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
