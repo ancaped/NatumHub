@@ -88,7 +88,7 @@ echo [ok] Impressora compartilhada como !NX_SHARE!
 rem --- 5. o que digitar no Nexus ---
 set "IP_LAN="
 set "IP_TS="
-for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notlike '*Tailscale*' } | Select-Object -First 1).IPAddress"`) do set "IP_LAN=%%I"
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -match '^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)' -and $_.InterfaceAlias -notlike '*Tailscale*' } | Select-Object -First 1).IPAddress"`) do set "IP_LAN=%%I"
 for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -like '*Tailscale*' } | Select-Object -First 1).IPAddress"`) do set "IP_TS=%%I"
 
 echo.
