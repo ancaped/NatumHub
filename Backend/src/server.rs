@@ -252,6 +252,7 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             state.clone(),
             modules::geral::auth::auth_middleware,
         ))
+        .layer(middleware::map_response(json_utf8))
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state);
@@ -266,6 +267,16 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         );
         api
     }
+}
+
+/// JSON sem `charset` é lido como Latin-1 pelo PowerShell 5 (Invoke-RestMethod) e os acentos chegam quebrados.
+async fn json_utf8(mut res: axum::response::Response) -> axum::response::Response {
+    let tipo = axum::http::header::CONTENT_TYPE;
+    if res.headers().get(&tipo).is_some_and(|v| v.as_bytes() == b"application/json") {
+        res.headers_mut()
+            .insert(tipo, axum::http::HeaderValue::from_static("application/json; charset=utf-8"));
+    }
+    res
 }
 
 /// Sobe Axum + schedulers e bloqueia até o servidor encerrar.
