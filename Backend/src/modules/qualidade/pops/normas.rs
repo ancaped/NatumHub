@@ -35,7 +35,7 @@ const BLOCOS: &[Bloco] = &[
             "Só o rascunho se edita. Documento vigente muda por «Nova revisão», que abre um rascunho; a vigente segue valendo até a nova ser aprovada.",
             "Nada é apagado. O obsoleto sai da lista Em uso e continua em Todos os status.",
             "Toda mudança grava um evento na trilha (quem, quando, de qual status para qual e o motivo). A trilha não se altera nem se apaga.",
-            "Elaborado, revisado e aprovado se assinam à caneta na folha impressa.",
+            "A aprovação (quem elaborou, revisou e aprovou, e a data) fica registrada no Nexus e sai já impressa na folha; não se preenche à caneta.",
             "Só a revisão vigente pode ser usada no chão de fábrica. Folha antiga se marca OBSOLETO e se recolhe.",
         ],
     },
