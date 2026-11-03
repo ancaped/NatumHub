@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
 import TirarEsperaDrawer from './TirarEsperaDrawer';
+import { pedirMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import PreviaAcaoDrawer, { type PreviaAcao } from '../../producao/gerenciamento/components/PreviaAcaoDrawer';
 import {
   Table,
@@ -2036,7 +2037,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   };
 
   // Salvar alteração de status com motivo opcional
-  const executeStatusUpdate = async (loteNumber: string, newStatus: string, motivoEspera: string | null, resetConfirmado = false) => {
+  const executeStatusUpdate = async (loteNumber: string, newStatus: string, motivoEspera: string | null, resetConfirmado = false, motivoReset = '') => {
     // Redefinir o status apaga a linha do lote: mostra a prévia do servidor e só apaga ao confirmar
     if (!newStatus && !resetConfirmado) {
       try {
@@ -2053,7 +2054,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           linhas: r.resultado.map(statusApagadoParaLinha),
           avisos: ['O status, a categoria e o motivo de espera gravados serão apagados (fica registrado no histórico do lote).'],
           confirmarRotulo: 'Redefinir',
-          executar: async () => { await executeStatusUpdate(loteNumber, newStatus, motivoEspera, true); },
+          pedirMotivo: true,
+          executar: async (motivo) => { await executeStatusUpdate(loteNumber, newStatus, motivoEspera, true, motivo ?? ''); },
         });
       } catch (err: any) {
         showToast(`Não foi possível consultar o lote: ${err?.message || err}`, 'error');
@@ -2128,7 +2130,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
     try {
       if (!newStatus) {
-        await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(loteNumber)}?confirmar=true`, {
+        await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(loteNumber)}?confirmar=true&motivo=${encodeURIComponent(motivoReset)}`, {
           method: 'DELETE',
         });
         showToast(`Lote ${loteNumber} redefinido para status padrão.`);
@@ -2378,7 +2380,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   }, [fetchLotes, fetchProgramacaoEnvase, fetchProgramacaoRotulagem]);
 
   // Remover agendamento do Quadro de Envase (remove da linha/data específica mantendo outros agendamentos e o lote ativo)
-  const handleRemoveEnvase = useCallback(async (id: number, loteNumber: string) => {
+  const executarRemoverEnvase = useCallback(async (id: number, loteNumber: string, motivo: string) => {
     // 1. Atualização otimista local: se tem ID > 0, remove APENAS aquele item agendado!
     // Preserva se o mesmo lote tiver outro agendamento em outra linha ou data!
     setProgramacaoEnvase(prev => {
@@ -2390,11 +2392,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
     try {
       if (id && id > 0) {
-        await apiJson(`/api/administrativo/envase/programacao/${id}`, {
+        await apiJson(`/api/administrativo/envase/programacao/${id}?motivo=${encodeURIComponent(motivo)}`, {
           method: 'DELETE',
         }).catch(() => {});
       } else if (loteNumber) {
-        await apiJson(`/api/administrativo/envase/programacao/lote/${encodeURIComponent(loteNumber)}`, {
+        await apiJson(`/api/administrativo/envase/programacao/lote/${encodeURIComponent(loteNumber)}?motivo=${encodeURIComponent(motivo)}`, {
           method: 'DELETE',
         }).catch(() => {});
       }
@@ -2405,6 +2407,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       showToast(`Erro ao remover item do envase: ${e?.message || e}`, 'error');
     }
   }, [fetchProgramacaoEnvase]);
+
+  // Tirar da linha de envase apaga o agendamento: pede o motivo e a cópia fica na auditoria.
+  const handleRemoveEnvase = useCallback((id: number, loteNumber: string) => {
+    pedirMotivoExclusao({
+      titulo: 'Tirar agendamento do envase',
+      alvo: `Lote #${loteNumber}`,
+      confirmarRotulo: 'OK, tirar do envase',
+      executar: (motivo) => executarRemoverEnvase(id, loteNumber, motivo),
+    });
+  }, [executarRemoverEnvase]);
 
   const handleRestaurarLoteNoQuadro = useCallback(async (loteNumber: string, quadro: string) => {
     try {
@@ -3000,7 +3012,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     }
   };
 
-  const handleApplyBatchStatus = async (statusValue: string, motivoOverride?: string | null, resetConfirmado = false) => {
+  const handleApplyBatchStatus = async (statusValue: string, motivoOverride?: string | null, resetConfirmado = false, motivoReset = '') => {
     if (!statusValue) return;
     if (statusValue === 'Em Espera' && motivoOverride === undefined) {
       setShowBatchEsperaModal(true);
@@ -3021,7 +3033,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
     try {
       // Reset em lote apaga a linha de cada lote: prévia do servidor primeiro, depois confirma
-      const url = finalStatus ? '/api/administrativo/lote-status/batch' : `/api/administrativo/lote-status/batch?confirmar=${resetConfirmado}`;
+      const url = finalStatus ? '/api/administrativo/lote-status/batch' : `/api/administrativo/lote-status/batch?confirmar=${resetConfirmado}${resetConfirmado ? `&motivo=${encodeURIComponent(motivoReset)}` : ''}`;
       const resp = await apiJson<{ resultado?: StatusApagadoPrevia[] }>(url, {
         method: 'POST',
         body: JSON.stringify({
@@ -3041,7 +3053,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             linhas: apagados.map(statusApagadoParaLinha),
             avisos: ['O status, a categoria e o motivo de espera gravados serão apagados (fica registrado no histórico de cada lote).'],
             confirmarRotulo: `Redefinir ${apagados.length} lote(s)`,
-            executar: async () => { await handleApplyBatchStatus(statusValue, motivoOverride, true); },
+            pedirMotivo: true,
+            executar: async (motivo) => { await handleApplyBatchStatus(statusValue, motivoOverride, true, motivo ?? ''); },
           });
         }
         return;
@@ -5889,16 +5902,27 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     }
   };
 
-  const handleRemoveRotulagem = async (id: number | string) => {
+  // Tirar da rotulagem apaga o agendamento: pede o motivo e a cópia fica na auditoria.
+  const handleRemoveRotulagem = (id: number | string) => {
+    const item = programacaoRotulagem.find(it => it.id === id);
+    pedirMotivoExclusao({
+      titulo: 'Tirar agendamento da rotulagem',
+      alvo: `Lote #${item?.loteNumber ?? id}`,
+      confirmarRotulo: 'OK, tirar da rotulagem',
+      executar: (motivo) => executarRemoverRotulagem(id, motivo),
+    });
+  };
+
+  const executarRemoverRotulagem = async (id: number | string, motivo: string) => {
     const item = programacaoRotulagem.find(it => it.id === id);
     setProgramacaoRotulagem(prev => prev.filter(it => it.id !== id));
     try {
       if (typeof id === 'number' && id > 0) {
-        await apiJson(`/api/administrativo/rotulagem/programacao/${id}`, {
+        await apiJson(`/api/administrativo/rotulagem/programacao/${id}?motivo=${encodeURIComponent(motivo)}`, {
           method: 'DELETE',
         });
       } else if (item?.loteNumber) {
-        await apiJson(`/api/administrativo/rotulagem/programacao/lote/${encodeURIComponent(item.loteNumber)}`, {
+        await apiJson(`/api/administrativo/rotulagem/programacao/lote/${encodeURIComponent(item.loteNumber)}?motivo=${encodeURIComponent(motivo)}`, {
           method: 'DELETE',
         });
       }

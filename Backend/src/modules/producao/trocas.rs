@@ -364,6 +364,8 @@ async fn produtos_da_troca_rota(State(state): State<Arc<AppState>>, Path(id): Pa
 #[derive(Debug, Deserialize)]
 pub struct ConfirmarQuery {
     pub confirmar: Option<bool>,
+    /// Remoção: por que a troca está sendo apagada (obrigatório ao confirmar).
+    pub motivo: Option<String>,
 }
 
 async fn remover_rota(
@@ -389,9 +391,21 @@ async fn remover_rota(
             Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
         };
     }
+    let copia = match crate::core::exclusao::preparar(
+        pool,
+        q.motivo.as_deref(),
+        "a troca de insumo",
+        "SELECT to_jsonb(t) FROM producao_trocas_insumo t WHERE t.id = $1::bigint",
+        &[&id.to_string()],
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match remover(pool, id).await {
         Ok(true) => {
-            auditoria::registrar(pool, &ctx.display_name, "remover_troca", &id.to_string(), json!({})).await;
+            auditoria::registrar(pool, &ctx.display_name, "remover_troca", &id.to_string(), copia.detalhe()).await;
             (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
         }
         Ok(false) => erro(StatusCode::NOT_FOUND, "Troca não encontrada."),

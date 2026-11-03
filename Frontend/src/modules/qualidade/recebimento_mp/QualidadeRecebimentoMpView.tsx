@@ -18,6 +18,7 @@ import {
 import AppLayout from '../../geral/components/layout/AppLayout';
 import StatCard from '../../geral/components/ui/StatCard';
 import { apiFetch, apiJson } from '../../geral/lib/http';
+import { pedirMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import type { RecebimentoErpItem, LaudoItem, AmostraItem } from './types';
 import GerarLaudoModal from './components/GerarLaudoModal';
 import ImprimirEtiquetasBombonaModal from './components/ImprimirEtiquetasBombonaModal';
@@ -259,15 +260,16 @@ export default function QualidadeRecebimentoMpView({ onBackToHub, currentUserNam
   };
 
   // Callback ao excluir amostra
-  const handleDeleteAmostra = async (id: number | string) => {
-    if (!window.confirm('Tem certeza que deseja excluir esta amostra de retenção?')) return;
-    try {
-      await apiJson(`/api/qualidade/recebimento-mp/amostras/${id}`, { method: 'DELETE' });
-      setAmostras((prev) => prev.filter((a) => a.id !== id));
-      setAviso('Amostra de retenção removida.');
-    } catch (e: any) {
-      alert('Erro ao excluir amostra: ' + (e.message || 'Falha'));
-    }
+  const handleDeleteAmostra = (id: number | string) => {
+    pedirMotivoExclusao({
+      titulo: 'Excluir amostra de retenção',
+      alvo: `Amostra ${amostras.find((a) => a.id === id)?.codigo_amostra ?? id}`,
+      executar: async (motivo) => {
+        await apiJson(`/api/qualidade/recebimento-mp/amostras/${id}?motivo=${encodeURIComponent(motivo)}`, { method: 'DELETE' });
+        setAmostras((prev) => prev.filter((a) => a.id !== id));
+        setAviso('Amostra de retenção removida.');
+      },
+    });
   };
 
   // Filtros locais para Laudos e Amostras

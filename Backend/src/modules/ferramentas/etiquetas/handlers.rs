@@ -147,26 +147,31 @@ pub async fn delete_template_handler(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<Uuid>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
 ) -> impl IntoResponse {
     if !can_access(&ctx) {
         return err(StatusCode::FORBIDDEN, "Acesso não autorizado a excluir modelos de etiquetas");
     }
 
     let pool = state.db.pool();
+    // Exclusão direta: motivo sempre obrigatório; a cópia do modelo vai para a auditoria.
+    let copia = match crate::core::exclusao::preparar(
+        pool,
+        m.motivo.as_deref(),
+        "o modelo de etiqueta",
+        "SELECT to_jsonb(t) FROM hub_label_templates t WHERE t.id = $1::uuid",
+        &[&id.to_string()],
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match store::delete_template(pool, id).await {
         Ok(true) => {
-            crate::modules::geral::audit::record_domain(
-                pool,
-                Some(&ctx),
-                "ferramentas_etiquetas",
-                "delete_label_template",
-                "label_template",
-                &id.to_string(),
-                &format!("Modelo de etiqueta {} excluído por {}", id, ctx.display_name),
-                None,
-                None,
-            )
-            .await;
+            copia
+                .registrar(pool, &ctx, "ferramentas_etiquetas", "delete_label_template", "label_template", &id.to_string(), &format!("Modelo de etiqueta {} excluído por {}", id, ctx.display_name))
+                .await;
 
             (StatusCode::OK, Json(json!({ "success": true }))).into_response()
         }

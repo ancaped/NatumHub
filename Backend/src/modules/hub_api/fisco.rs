@@ -25,9 +25,21 @@ async fn save_pattern_handler(State(state): State<Arc<AppState>>, Json(pattern):
     }
 }
 
-async fn delete_pattern_handler(State(state): State<Arc<AppState>>, Path(code): Path<String>) -> impl IntoResponse {
+async fn delete_pattern_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Path(code): Path<String>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
+) -> impl IntoResponse {
+    let copia = match crate::core::exclusao::preparar(state.db.pool(), m.motivo.as_deref(), "o padrão do produto", "SELECT to_jsonb(p) || jsonb_build_object('agentesDoProduto', COALESCE((SELECT jsonb_agg(to_jsonb(a)) FROM fisco_quimica_product_agents a WHERE a.product_code = p.product_code), '[]'::jsonb)) FROM fisco_quimica_patterns p WHERE p.product_code = $1", &[&code]).await {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match with_pool(&state, |pool| delete_fisco_quimica_pattern_query(pool, &code)).await {
-        Ok(()) => ok_status().into_response(),
+        Ok(()) => {
+            copia.registrar(state.db.pool(), &ctx, "fisco_quimica", "excluir_padrao_fisco", "fisco_pattern", &code, "Padrão fisco-químico excluído").await;
+            ok_status().into_response()
+        }
         Err(e) => e.into_response(),
     }
 }
@@ -46,9 +58,21 @@ async fn save_agent_handler(State(state): State<Arc<AppState>>, Json(agent): Jso
     }
 }
 
-async fn delete_agent_handler(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
+async fn delete_agent_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Path(id): Path<String>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
+) -> impl IntoResponse {
+    let copia = match crate::core::exclusao::preparar(state.db.pool(), m.motivo.as_deref(), "o agente corretivo", "SELECT to_jsonb(a) FROM fisco_quimica_corrective_agents a WHERE a.id = $1", &[&id]).await {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match with_pool(&state, |pool| delete_fisco_quimica_agent_query(pool, &id)).await {
-        Ok(()) => ok_status().into_response(),
+        Ok(()) => {
+            copia.registrar(state.db.pool(), &ctx, "fisco_quimica", "excluir_agente_fisco", "fisco_agent", &id, "Agente corretivo excluído").await;
+            ok_status().into_response()
+        }
         Err(e) => e.into_response(),
     }
 }

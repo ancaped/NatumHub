@@ -126,11 +126,29 @@ pub async fn delete_producao(
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
     Query(q): Query<Confirmar>,
+    Query(m): Query<crate::core::acao::Motivo>,
 ) -> impl IntoResponse {
     if let Err(r) = permissao::exigir_edicao_em(&ctx, crate::modules::geral::auth::store::modulos_da_rota("/api/historico").unwrap_or(&[])) {
         return r;
     }
     let pool = state.db.pool();
+    // Estorno apaga o lançamento: motivo obrigatório ao confirmar e cópia da linha na auditoria.
+    let copia = if q.confirmar {
+        match crate::core::exclusao::preparar(
+            pool,
+            m.motivo.as_deref(),
+            "o lançamento de produção",
+            "SELECT to_jsonb(h) FROM historico_producao h WHERE h.id = $1::bigint",
+            &[&id.to_string()],
+        )
+        .await
+        {
+            Ok(p) => Some(p),
+            Err(e) => return e.into_response(),
+        }
+    } else {
+        None
+    };
     let r = executar_em_2_passos(pool, "estornar_producao", q.confirmar, |tx| {
         Box::pin(async move {
             crate::core::db::estornar_producao(&mut **tx, id)
@@ -147,7 +165,11 @@ pub async fn delete_producao(
             .into_response(),
         Ok(r) => {
             let codigo = r.resultado["codigo"].as_str().unwrap_or_default().to_string();
-            auditoria::registrar(pool, &ctx.display_name, "estornar_producao", &codigo, r.resultado.clone()).await;
+            let detalhe = match &copia {
+                Some(c) => serde_json::json!({ "motivo": c.motivo, "copia": c.copia, "resultado": r.resultado }),
+                None => r.resultado.clone(),
+            };
+            auditoria::registrar(pool, &ctx.display_name, "estornar_producao", &codigo, detalhe).await;
             (
                 StatusCode::OK,
                 Json(json!({ "status": "success", "message": "Produção estornada/excluída com sucesso!", "item": r.resultado })),

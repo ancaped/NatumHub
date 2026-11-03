@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { pedirMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import {
   Printer,
   Save,
@@ -880,13 +881,15 @@ export default function EditorEtiquetasView({
           setTemplate(tpl);
           setIsTemplatesModalOpen(false);
         }}
-        onDeleteTemplate={async (id) => {
-          try {
-            await labelsApi.deleteTemplate(id);
-            await loadSavedTemplates();
-          } catch (err: any) {
-            alert(err.message || 'Erro ao excluir modelo.');
-          }
+        onDeleteTemplate={(id) => {
+          pedirMotivoExclusao({
+            titulo: 'Excluir modelo de etiqueta',
+            alvo: `Modelo "${savedTemplates.find((t) => t.id === id)?.name ?? id}"`,
+            executar: async (motivo) => {
+              await labelsApi.deleteTemplate(id, motivo);
+              await loadSavedTemplates();
+            },
+          });
         }}
         onDuplicateTemplate={async (tpl) => {
           try {

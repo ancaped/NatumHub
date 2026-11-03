@@ -282,12 +282,27 @@ pub async fn update_ecommerce_order(
 // DELETE /api/expedicao/ecommerce/:id
 pub async fn delete_ecommerce_order(
     State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
     Path(id): Path<uuid::Uuid>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
     if let Err(e) = ensure_ecommerce_orders_table(pool).await {
         return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
     }
+    // Exclusão direta: motivo sempre obrigatório; a cópia do pedido vai para a auditoria.
+    let copia = match crate::core::exclusao::preparar(
+        pool,
+        m.motivo.as_deref(),
+        "o pedido",
+        "SELECT to_jsonb(o) FROM ecommerce_orders o WHERE o.id = $1::uuid",
+        &[&id.to_string()],
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
 
     let res = sqlx::query("DELETE FROM ecommerce_orders WHERE id = $1")
         .bind(id)
@@ -295,7 +310,10 @@ pub async fn delete_ecommerce_order(
         .await;
 
     match res {
-        Ok(r) if r.rows_affected() > 0 => (StatusCode::OK, "Pedido removido").into_response(),
+        Ok(r) if r.rows_affected() > 0 => {
+            copia.registrar(pool, &ctx, "expedicao_ecommerce", "excluir_pedido_ecommerce", "ecommerce_order", &id.to_string(), "Pedido de e-commerce excluído").await;
+            (StatusCode::OK, "Pedido removido").into_response()
+        }
         Ok(_) => (StatusCode::NOT_FOUND, "Pedido não encontrado").into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }

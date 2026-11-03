@@ -159,14 +159,32 @@ macro_rules! lookup_handlers {
 
         pub async fn $delete(
             State(state): State<Arc<AppState>>,
+            axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
             Path(id): Path<uuid::Uuid>,
+            axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
         ) -> impl IntoResponse {
             let pool = state.db.pool();
             if let Err(e) = ensure_lookup_tables(pool).await {
                 return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
             }
+            // Exclusão direta: motivo sempre obrigatório; a cópia do cadastro vai para a auditoria.
+            let copia = match crate::core::exclusao::preparar(
+                pool,
+                m.motivo.as_deref(),
+                "o cadastro",
+                &format!("SELECT to_jsonb(t) FROM {} t WHERE t.id = $1::uuid", $table),
+                &[&id.to_string()],
+            )
+            .await
+            {
+                Ok(p) => p,
+                Err(e) => return e.into_response(),
+            };
             match delete_lookup(pool, $table, id).await {
-                Ok(true) => (StatusCode::OK, "Removido").into_response(),
+                Ok(true) => {
+                    copia.registrar(pool, &ctx, "expedicao", "excluir_cadastro_expedicao", $table, &id.to_string(), "Cadastro de apoio da expedição excluído").await;
+                    (StatusCode::OK, "Removido").into_response()
+                }
                 Ok(false) => (StatusCode::NOT_FOUND, "Registro não encontrado").into_response(),
                 Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
             }

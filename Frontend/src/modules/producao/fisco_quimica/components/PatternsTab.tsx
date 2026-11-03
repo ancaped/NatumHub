@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
+import { pedirMotivoExclusao } from '../../../producao/lib/useMotivoExclusao';
 import { api } from '../../../geral/lib/api';
 import { FiscoQuimicaPattern, FiscoQuimicaAgent, Product } from '../../../geral/lib/types';
 import { Search, Plus, Edit3, Trash2, CheckCircle2, AlertCircle, Settings, Layers, Image as ImageIcon, Upload, X, Eye, Sparkles } from 'lucide-react';
@@ -276,15 +277,16 @@ export function PatternsTab({
     }
   };
 
-  const handleDeletePattern = async (code: string) => {
-    if (!confirm(`Remover as especificações do produto ${code}?`)) return;
-    try {
-      await api.deleteFiscoQuimicaPattern(code);
-      onRefresh();
-    } catch (err) {
-      console.error(err);
-      alert('Erro ao excluir padrão.');
-    }
+  const handleDeletePattern = (code: string) => {
+    pedirMotivoExclusao({
+      titulo: 'Remover especificações do produto',
+      alvo: `Produto ${code}`,
+      confirmarRotulo: 'OK, remover',
+      executar: async (motivo) => {
+        await api.deleteFiscoQuimicaPattern(code, motivo);
+        onRefresh();
+      },
+    });
   };
 
   return (

@@ -63,11 +63,11 @@ export const api = {
   linkSimilarGroup(codes: string[], groupId?: string): Promise<void> {
     return hubJson('compras/items/similar/link', { method: 'POST', body: JSON.stringify({ codes, groupId }) });
   },
-  unlinkSimilarItem(code: string): Promise<void> {
-    return hubJson(`compras/items/similar/item/${encodeURIComponent(code)}`, { method: 'DELETE' });
+  unlinkSimilarItem(code: string, motivo: string): Promise<void> {
+    return hubJson(`compras/items/similar/item/${encodeURIComponent(code)}${qs({ motivo })}`, { method: 'DELETE' });
   },
-  unlinkSimilarGroup(groupId: string): Promise<void> {
-    return hubJson(`compras/items/similar/groups/${encodeURIComponent(groupId)}`, { method: 'DELETE' });
+  unlinkSimilarGroup(groupId: string, motivo: string): Promise<void> {
+    return hubJson(`compras/items/similar/groups/${encodeURIComponent(groupId)}${qs({ motivo })}`, { method: 'DELETE' });
   },
   getStockCalibrations(): Promise<string[]> {
     return hubJson('compras/items/stock-calibrations');
@@ -78,8 +78,8 @@ export const api = {
   addSimilarItem(codeA: string, codeB: string): Promise<void> {
     return hubJson('compras/items/similar', { method: 'POST', body: JSON.stringify({ codeA, codeB }) });
   },
-  removeSimilarItem(codeA: string, codeB: string): Promise<void> {
-    return hubJson(`compras/items/similar${qs({ codeA, codeB })}`, { method: 'DELETE' });
+  removeSimilarItem(codeA: string, codeB: string, motivo: string): Promise<void> {
+    return hubJson(`compras/items/similar${qs({ codeA, codeB, motivo })}`, { method: 'DELETE' });
   },
   updateItemsCategory(codes: string[], categoryId: string | null): Promise<void> {
     return hubJson('compras/items/category', { method: 'POST', body: JSON.stringify({ codes, categoryId }) });
@@ -98,8 +98,8 @@ export const api = {
   saveCustomPurchaseConfig(row: CustomPurchaseConfigRow): Promise<void> {
     return hubJson('compras/custom-configs', { method: 'POST', body: JSON.stringify({ row }) });
   },
-  deleteCustomPurchaseConfig(level: string, targetId: string): Promise<void> {
-    return hubJson(`compras/custom-configs${qs({ level, targetId })}`, { method: 'DELETE' });
+  deleteCustomPurchaseConfig(level: string, targetId: string, motivo: string): Promise<void> {
+    return hubJson(`compras/custom-configs${qs({ level, targetId, motivo })}`, { method: 'DELETE' });
   },
 
   // === COMPRAS: LOTES DE SOLICITAÇÃO & LISTAS ===
@@ -115,8 +115,8 @@ export const api = {
   updatePurchaseList(id: string, payload: { status?: string; observacoes?: string }): Promise<void> {
     return hubJson(`compras/listas/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) });
   },
-  deletePurchaseList(id: string): Promise<void> {
-    return hubJson(`compras/listas/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  deletePurchaseList(id: string, motivo: string): Promise<void> {
+    return hubJson(`compras/listas/${encodeURIComponent(id)}${qs({ motivo })}`, { method: 'DELETE' });
   },
   getActiveRequestedItems(): Promise<ActiveRequestedItemSummary[]> {
     return hubJson('compras/itens-solicitados');
@@ -148,8 +148,8 @@ export const api = {
       body: JSON.stringify({ quotationItemId, priceId }),
     });
   },
-  deleteQuotation(id: string): Promise<void> {
-    return hubJson(`compras/quotations/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  deleteQuotation(id: string, motivo: string): Promise<void> {
+    return hubJson(`compras/quotations/${encodeURIComponent(id)}${qs({ motivo })}`, { method: 'DELETE' });
   },
   updateQuotationItemQty(id: string, field: 'approved' | 'final', qty: number): Promise<void> {
     return hubJson(`compras/quotations/${encodeURIComponent(id)}/qty`, {
@@ -193,8 +193,8 @@ export const api = {
   saveCategory(category: Category): Promise<void> {
     return hubJson('compras/categories', { method: 'POST', body: JSON.stringify(category) });
   },
-  deleteCategory(id: string): Promise<void> {
-    return hubJson(`compras/categories/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  deleteCategory(id: string, motivo: string): Promise<void> {
+    return hubJson(`compras/categories/${encodeURIComponent(id)}${qs({ motivo })}`, { method: 'DELETE' });
   },
   getPinnedSubcategories(): Promise<string[]> {
     return hubJson('compras/pinned-subcategories');
@@ -221,11 +221,11 @@ export const api = {
   saveProduct(product: Product): Promise<void> {
     return hubJson('microbio/products', { method: 'POST', body: JSON.stringify(product) });
   },
-  deleteProduct(code: string): Promise<void> {
-    return hubJson(`microbio/products/${encodeURIComponent(code)}`, { method: 'DELETE' });
+  deleteProduct(code: string, motivo: string): Promise<void> {
+    return hubJson(`microbio/products/${encodeURIComponent(code)}${qs({ motivo })}`, { method: 'DELETE' });
   },
-  deleteAllProducts(): Promise<void> {
-    return hubJson('microbio/products', { method: 'DELETE' });
+  deleteAllProducts(motivo: string): Promise<void> {
+    return hubJson(`microbio/products${qs({ motivo })}`, { method: 'DELETE' });
   },
   getReports(): Promise<Report[]> {
     return hubJson('microbio/reports');
@@ -240,8 +240,8 @@ export const api = {
       body: JSON.stringify({ ids, printed }),
     });
   },
-  deleteReport(id: string): Promise<void> {
-    return hubJson(`microbio/reports/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  deleteReport(id: string, motivo: string): Promise<void> {
+    return hubJson(`microbio/reports/${encodeURIComponent(id)}${qs({ motivo })}`, { method: 'DELETE' });
   },
   getMicrobioConfig(): Promise<MicrobioAppConfig | null> {
     return hubJson('microbio/config');
@@ -291,8 +291,8 @@ export const api = {
   saveFiscoQuimicaPattern(pattern: FiscoQuimicaPattern): Promise<void> {
     return hubJson('fisco/patterns', { method: 'POST', body: JSON.stringify(pattern) });
   },
-  deleteFiscoQuimicaPattern(code: string): Promise<void> {
-    return hubJson(`fisco/patterns/${encodeURIComponent(code)}`, { method: 'DELETE' });
+  deleteFiscoQuimicaPattern(code: string, motivo: string): Promise<void> {
+    return hubJson(`fisco/patterns/${encodeURIComponent(code)}${qs({ motivo })}`, { method: 'DELETE' });
   },
   getFiscoQuimicaAgents(): Promise<FiscoQuimicaAgent[]> {
     return hubJson('fisco/agents');
@@ -300,8 +300,8 @@ export const api = {
   saveFiscoQuimicaAgent(agent: FiscoQuimicaAgent): Promise<void> {
     return hubJson('fisco/agents', { method: 'POST', body: JSON.stringify(agent) });
   },
-  deleteFiscoQuimicaAgent(id: string): Promise<void> {
-    return hubJson(`fisco/agents/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  deleteFiscoQuimicaAgent(id: string, motivo: string): Promise<void> {
+    return hubJson(`fisco/agents/${encodeURIComponent(id)}${qs({ motivo })}`, { method: 'DELETE' });
   },
   /** Sem filtros devolve todas; a tela sempre filtra (`desde`/`ate` AAAA-MM-DD, `busca`, `lote`, `id`, `limite`). */
   getFiscoQuimicaAnalyses(params?: {
@@ -426,8 +426,8 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
-  deleteProc(id: string): Promise<{ success: boolean; message: string }> {
-    return apiJson(`/api/producao/proc/${encodeURIComponent(id)}`, {
+  deleteProc(id: string, motivo: string): Promise<{ success: boolean; message: string }> {
+    return apiJson(`/api/producao/proc/${encodeURIComponent(id)}${qs({ motivo })}`, {
       method: 'DELETE',
     });
   },

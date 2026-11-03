@@ -2136,7 +2136,9 @@ pub async fn get_item_foto(
 
 pub async fn delete_devolucao(
     State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
     Path(id): Path<i64>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
     if let Err(e) = ensure_tables(pool).await {
@@ -2146,6 +2148,20 @@ pub async fn delete_devolucao(
         )
             .into_response();
     }
+    // Exclusão direta: motivo sempre obrigatório; a cópia (com os itens) vai para a auditoria.
+    let copia = match crate::core::exclusao::preparar(
+        pool,
+        m.motivo.as_deref(),
+        "a devolução",
+        "SELECT to_jsonb(d) || jsonb_build_object('itens', COALESCE((SELECT jsonb_agg(to_jsonb(i) ORDER BY i.id) FROM qualidade_devolucao_itens i WHERE i.devolucao_id = d.id), '[]'::jsonb)) \
+         FROM qualidade_devolucoes d WHERE d.id = $1::bigint",
+        &[&id.to_string()],
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
 
     let res =
         sqlx::query("DELETE FROM qualidade_devolucoes WHERE id = $1")
@@ -2164,6 +2180,7 @@ pub async fn delete_devolucao(
                 .join("devolucoes")
                 .join(id.to_string());
             let _ = std::fs::remove_dir_all(dir);
+            copia.registrar(pool, &ctx, "qualidade_devolucoes", "excluir_devolucao", "devolucao", &id.to_string(), "Devolução excluída").await;
             (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
         }
         Err(e) => (

@@ -677,11 +677,23 @@ pub async fn update_laudo(
 
 pub async fn delete_laudo(
     State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
     Path(id): Path<i32>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     ensure_tables(state.db.pool())
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    // Exclusão direta: motivo sempre obrigatório; a cópia do laudo vai para a auditoria.
+    let copia = crate::core::exclusao::preparar(
+        state.db.pool(),
+        m.motivo.as_deref(),
+        "o laudo",
+        "SELECT to_jsonb(l) FROM recebimento_mp_laudos l WHERE l.id = $1::int",
+        &[&id.to_string()],
+    )
+    .await
+    .map_err(|e| (e.status, e.mensagem))?;
 
     let res = sqlx::query("DELETE FROM recebimento_mp_laudos WHERE id = $1")
         .bind(id)
@@ -692,6 +704,7 @@ pub async fn delete_laudo(
     if res.rows_affected() == 0 {
         return Err((StatusCode::NOT_FOUND, "Laudo não encontrado".to_string()));
     }
+    copia.registrar(state.db.pool(), &ctx, "qualidade_recebimento_mp", "excluir_laudo_mp", "laudo_mp", &id.to_string(), "Laudo de recebimento excluído").await;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -949,11 +962,23 @@ pub async fn update_amostra(
 
 pub async fn delete_amostra(
     State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
     Path(id): Path<i32>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     ensure_tables(state.db.pool())
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    // Exclusão direta: motivo sempre obrigatório; a cópia da contraprova vai para a auditoria.
+    let copia = crate::core::exclusao::preparar(
+        state.db.pool(),
+        m.motivo.as_deref(),
+        "a contraprova",
+        "SELECT to_jsonb(a) FROM recebimento_mp_amostras a WHERE a.id = $1::int",
+        &[&id.to_string()],
+    )
+    .await
+    .map_err(|e| (e.status, e.mensagem))?;
 
     let res = sqlx::query("DELETE FROM recebimento_mp_amostras WHERE id = $1")
         .bind(id)
@@ -964,6 +989,7 @@ pub async fn delete_amostra(
     if res.rows_affected() == 0 {
         return Err((StatusCode::NOT_FOUND, "Contraprova não encontrada".to_string()));
     }
+    copia.registrar(state.db.pool(), &ctx, "qualidade_recebimento_mp", "excluir_amostra_mp", "amostra_mp", &id.to_string(), "Contraprova excluída").await;
 
     Ok(StatusCode::NO_CONTENT)
 }

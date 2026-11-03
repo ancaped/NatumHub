@@ -88,8 +88,8 @@ export const labelsApi = {
     });
   },
 
-  async deleteTemplate(id: string): Promise<void> {
-    await apiJson(`/api/ferramentas/etiquetas/templates/${id}`, {
+  async deleteTemplate(id: string, motivo: string): Promise<void> {
+    await apiJson(`/api/ferramentas/etiquetas/templates/${id}?motivo=${encodeURIComponent(motivo)}`, {
       method: 'DELETE',
     });
   },

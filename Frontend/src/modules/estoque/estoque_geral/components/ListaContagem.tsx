@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { pedirMotivoExclusao } from '../../../producao/lib/useMotivoExclusao';
 import { ClipboardList, Plus, Search } from 'lucide-react';
 import { apiJson } from '../../../geral/lib/http';
 import { cn } from '../../../geral/lib/utils';
@@ -252,15 +253,19 @@ export function ListaContagem({
     }
   }
 
-  async function tirar(itemId: string) {
+  function tirar(itemId: string) {
     if (!lista) return;
     setErro(null);
-    try {
-      const nova = await apiJson<Lista>(`/estoque/contagens/${lista.id}/itens/${itemId}`, { method: 'DELETE' });
-      substituir(nova);
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Não foi possível tirar o item.');
-    }
+    const item = lista.itens.find((i) => i.id === itemId);
+    pedirMotivoExclusao({
+      titulo: 'Tirar item da lista de contagem',
+      alvo: item ? `${item.itemCode} · ${item.description}` : 'Item da lista',
+      confirmarRotulo: 'OK, tirar',
+      executar: async (motivo) => {
+        const nova = await apiJson<Lista>(`/estoque/contagens/${lista.id}/itens/${itemId}?motivo=${encodeURIComponent(motivo)}`, { method: 'DELETE' });
+        substituir(nova);
+      },
+    });
   }
 
   async function atualizarSaldos() {

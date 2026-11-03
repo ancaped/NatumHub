@@ -54,10 +54,27 @@ pub async fn update_family(
 
 pub async fn delete_family(
     State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
     Path(id): Path<String>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
 ) -> impl IntoResponse {
+    let copia = match crate::core::exclusao::preparar(
+        state.db.pool(),
+        m.motivo.as_deref(),
+        "a família de documentos",
+        "SELECT to_jsonb(f) FROM doc_families f WHERE f.id = $1",
+        &[&id],
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match store::delete_family(state.db.pool(), &id).await {
-        Ok(()) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+        Ok(()) => {
+            copia.registrar(state.db.pool(), &ctx, "qualidade_documentacao", "excluir_familia", "doc_family", &id, "Família de documentos excluída").await;
+            (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
+        }
         Err(e) => err(StatusCode::BAD_REQUEST, e),
     }
 }
@@ -103,10 +120,27 @@ pub async fn update_type(
 
 pub async fn delete_type(
     State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
     Path(id): Path<String>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
 ) -> impl IntoResponse {
+    let copia = match crate::core::exclusao::preparar(
+        state.db.pool(),
+        m.motivo.as_deref(),
+        "o tipo de documento",
+        "SELECT to_jsonb(t) FROM doc_types t WHERE t.id = $1",
+        &[&id],
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match store::delete_type(state.db.pool(), &id).await {
-        Ok(()) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+        Ok(()) => {
+            copia.registrar(state.db.pool(), &ctx, "qualidade_documentacao", "excluir_tipo", "doc_type", &id, "Tipo de documento excluído").await;
+            (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
+        }
         Err(e) => err(StatusCode::BAD_REQUEST, e),
     }
 }
@@ -199,21 +233,25 @@ pub async fn delete_document(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Extension(ctx): Extension<AuthContext>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
 ) -> impl IntoResponse {
+    // A cópia leva o documento e os dados dos arquivos anexos (os arquivos em disco são apagados e não vão na cópia).
+    let copia = match crate::core::exclusao::preparar(
+        state.db.pool(),
+        m.motivo.as_deref(),
+        "o documento",
+        "SELECT to_jsonb(d) || jsonb_build_object('arquivos', COALESCE((SELECT jsonb_agg(to_jsonb(f)) FROM document_files f WHERE f.document_id = d.id), '[]'::jsonb)) \
+         FROM documents d WHERE d.id = $1",
+        &[&id],
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match store::delete_document(state.db.pool(), &id).await {
         Ok(()) => {
-            crate::modules::geral::audit::record_domain(
-                state.db.pool(),
-                Some(&ctx),
-                "qualidade_documentacao",
-                "delete",
-                "document",
-                &id,
-                &format!("Documento excluído: {id}"),
-                None,
-                None,
-            )
-            .await;
+            copia.registrar(state.db.pool(), &ctx, "qualidade_documentacao", "delete", "document", &id, "Documento excluído").await;
             (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
         }
         Err(e) => err(StatusCode::BAD_REQUEST, e),
@@ -282,10 +320,28 @@ pub async fn download_file(
 
 pub async fn delete_file(
     State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
     Path(file_id): Path<String>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
 ) -> impl IntoResponse {
+    // Só os metadados do anexo vão na cópia; o arquivo em disco é apagado.
+    let copia = match crate::core::exclusao::preparar(
+        state.db.pool(),
+        m.motivo.as_deref(),
+        "o arquivo",
+        "SELECT to_jsonb(f) FROM document_files f WHERE f.id = $1",
+        &[&file_id],
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match store::delete_file(state.db.pool(), &file_id).await {
-        Ok(()) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+        Ok(()) => {
+            copia.registrar(state.db.pool(), &ctx, "qualidade_documentacao", "excluir_arquivo", "document_file", &file_id, "Arquivo de documento excluído").await;
+            (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
+        }
         Err(e) => err(StatusCode::BAD_REQUEST, e),
     }
 }

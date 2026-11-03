@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { pedirMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import {
   FilePlus,
   Calendar as CalendarIcon,
@@ -137,14 +138,15 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
   };
 
   // Handle delete template
-  const handleDeleteTemplate = async (id: string, name: string) => {
-    if (!confirm(`Tem certeza que deseja excluir o modelo "${name}"?`)) return;
-    try {
-      await labelsApi.deleteTemplate(id);
-      await loadSavedTemplates();
-    } catch (err: any) {
-      alert(err.message || 'Erro ao excluir modelo.');
-    }
+  const handleDeleteTemplate = (id: string, name: string) => {
+    pedirMotivoExclusao({
+      titulo: 'Excluir modelo de etiqueta',
+      alvo: `Modelo "${name}"`,
+      executar: async (motivo) => {
+        await labelsApi.deleteTemplate(id, motivo);
+        await loadSavedTemplates();
+      },
+    });
   };
 
   // Handle reprint from calendar

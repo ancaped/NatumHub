@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { pedirMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import {
   Printer,
   Plus,
@@ -309,14 +310,16 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
   };
 
   // Handle delete
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Tem certeza que deseja remover a impressora "${name}"?`)) return;
-    try {
-      await printersApi.deletePrinter(id);
-      await fetchPrinters();
-    } catch (err: any) {
-      alert(err.message || 'Erro ao remover impressora.');
-    }
+  const handleDelete = (id: string, name: string) => {
+    pedirMotivoExclusao({
+      titulo: 'Remover impressora',
+      alvo: `Impressora "${name}"`,
+      confirmarRotulo: 'OK, remover',
+      executar: async (motivo) => {
+        await printersApi.deletePrinter(id, motivo);
+        await fetchPrinters();
+      },
+    });
   };
 
   // Run test calibration print

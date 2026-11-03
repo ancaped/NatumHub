@@ -987,6 +987,7 @@ export default function ProducaoView({
       init: { method: 'DELETE' },
       titulo: 'Estornar lote de produção',
       confirmarRotulo: 'OK, estornar',
+      pedirMotivo: true,
       linhas: (d) => [{
         titulo: `${d.item?.codigo ?? 'Lote'} • ${d.item?.quantidade ?? ''} un`,
         detalhe: d.item?.baseDevolvidaKg != null ? `devolve ${d.item.baseDevolvidaKg} kg à base ${d.item.baseCode}` : undefined,

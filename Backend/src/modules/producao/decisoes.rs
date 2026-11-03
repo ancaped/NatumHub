@@ -132,6 +132,8 @@ pub struct TipoQuery {
     pub tipo: String,
     pub chave: Option<String>,
     pub confirmar: Option<bool>,
+    /// Remoção: por que a decisão está sendo apagada (obrigatório ao confirmar).
+    pub motivo: Option<String>,
 }
 
 async fn listar_rota(State(state): State<Arc<AppState>>, Query(q): Query<TipoQuery>) -> impl IntoResponse {
@@ -221,9 +223,21 @@ async fn remover_rota(
             Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
         };
     }
+    let copia = match crate::core::exclusao::preparar(
+        pool,
+        q.motivo.as_deref(),
+        "a decisão",
+        "SELECT to_jsonb(d) FROM producao_decisoes d WHERE d.tipo = $1 AND d.chave = $2",
+        &[&q.tipo, chave],
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match remover(pool, &q.tipo, chave).await {
         Ok(()) => {
-            auditoria::registrar(pool, &ctx.display_name, "remover_decisao", &format!("{}:{chave}", q.tipo), json!({})).await;
+            auditoria::registrar(pool, &ctx.display_name, "remover_decisao", &format!("{}:{chave}", q.tipo), copia.detalhe()).await;
             (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
         }
         Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),

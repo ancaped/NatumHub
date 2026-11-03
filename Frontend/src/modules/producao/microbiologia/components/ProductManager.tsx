@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { pedirMotivoExclusao } from '../../../producao/lib/useMotivoExclusao';
 import { api } from '../../../geral/lib/api';
 import { Product } from '../../../geral/lib/types';
 import { Plus, Trash2, Loader2, Database } from 'lucide-react';
@@ -57,28 +58,28 @@ export function ProductManager({ products, onRefresh }: ProductManagerProps) {
     }
   };
 
-  const handleDeleteProduct = async (code: string) => {
-    try {
-      await api.deleteProduct(code);
-      if (onRefresh) onRefresh();
-    } catch (e) {
-      console.error(e);
-      alert('Erro ao excluir produto.');
-    }
+  const handleDeleteProduct = (code: string) => {
+    pedirMotivoExclusao({
+      titulo: 'Excluir produto da microbiologia',
+      alvo: `Produto ${code}`,
+      executar: async (motivo) => {
+        await api.deleteProduct(code, motivo);
+        if (onRefresh) onRefresh();
+      },
+    });
   };
 
-  const handleDeleteAll = async () => {
-    setSaving(true);
-    try {
-      await api.deleteAllProducts();
-      setShowConfirmDeleteAll(false);
-      if (onRefresh) onRefresh();
-    } catch (e) {
-      console.error(e);
-      alert('Erro ao excluir todos os produtos.');
-    } finally {
-      setSaving(false);
-    }
+  const handleDeleteAll = () => {
+    setShowConfirmDeleteAll(false);
+    pedirMotivoExclusao({
+      titulo: 'Excluir todos os produtos',
+      alvo: 'Todos os produtos da microbiologia',
+      avisos: ['A cópia de todos os produtos fica na auditoria.'],
+      executar: async (motivo) => {
+        await api.deleteAllProducts(motivo);
+        if (onRefresh) onRefresh();
+      },
+    });
   };
 
   const seedData = async () => {

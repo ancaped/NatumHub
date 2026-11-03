@@ -126,24 +126,36 @@ pub async fn update_printer_handler(
 
 pub async fn delete_printer_handler(
     State(state): State<Arc<AppState>>,
-    Extension(_ctx): Extension<AuthContext>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
-) -> impl IntoResponse {
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
+) -> axum::response::Response {
     let pool = state.db.pool();
+    // Exclusão direta: motivo sempre obrigatório; a cópia do cadastro da impressora vai para a auditoria.
+    let copia = match crate::core::exclusao::preparar(
+        pool,
+        m.motivo.as_deref(),
+        "a impressora",
+        "SELECT to_jsonb(p) FROM hub_printers p WHERE p.id = $1",
+        &[&id],
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
 
     match store::delete_printer(pool, &id).await {
-        Ok(true) => (
-            StatusCode::OK,
-            Json(ApiResponse::ok(serde_json::json!({ "deleted": true }))),
-        ),
-        Ok(false) => (
-            StatusCode::NOT_FOUND,
-            Json(ApiResponse::err("Impressora não encontrada.")),
-        ),
+        Ok(true) => {
+            copia.registrar(pool, &ctx, "ferramentas_impressoras", "excluir_impressora", "printer", &id, "Impressora excluída").await;
+            (StatusCode::OK, Json(ApiResponse::ok(serde_json::json!({ "deleted": true })))).into_response()
+        }
+        Ok(false) => (StatusCode::NOT_FOUND, Json(ApiResponse::<serde_json::Value>::err("Impressora não encontrada."))).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiResponse::err(format!("Erro ao remover impressora: {}", e))),
-        ),
+            Json(ApiResponse::<serde_json::Value>::err(format!("Erro ao remover impressora: {}", e))),
+        )
+            .into_response(),
     }
 }
 

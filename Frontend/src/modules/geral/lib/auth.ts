@@ -292,8 +292,8 @@ export async function updateOperator(
   return mapOperator(raw);
 }
 
-export async function deleteOperator(id: string): Promise<void> {
-  await apiJson(`/auth/operators/manage/${encodeURIComponent(id)}`, {
+export async function deleteOperator(id: string, motivo: string): Promise<void> {
+  await apiJson(`/auth/operators/manage/${encodeURIComponent(id)}?motivo=${encodeURIComponent(motivo)}`, {
     method: 'DELETE',
   });
 }

@@ -10,6 +10,7 @@ import {
 import type { LaudoItem, LaudoEnsaio, UpdateLaudoRequest } from '../types';
 import Modal from '../../../../modules/geral/components/ui/Modal';
 import { apiJson } from '../../../../modules/geral/lib/http';
+import { pedirMotivoExclusao } from '../../../producao/lib/useMotivoExclusao';
 
 interface Props {
   isOpen: boolean;
@@ -89,19 +90,18 @@ export default function VisualizarLaudoModal({
     }
   };
 
-  const handleDelete = async () => {
-    if (!window.confirm(`Tem certeza que deseja excluir o laudo ${laudo.codigo_laudo}?`)) {
-      return;
-    }
-    try {
-      await apiJson(`/api/qualidade/recebimento-mp/laudos/${laudo.id}`, {
-        method: 'DELETE',
-      });
-      if (onDelete) onDelete(laudo.id);
-      onClose();
-    } catch (e: any) {
-      alert('Erro ao excluir: ' + (e.message || 'Falha na requisição'));
-    }
+  const handleDelete = () => {
+    pedirMotivoExclusao({
+      titulo: 'Excluir laudo de recebimento',
+      alvo: `Laudo ${laudo.codigo_laudo}`,
+      executar: async (motivo) => {
+        await apiJson(`/api/qualidade/recebimento-mp/laudos/${laudo.id}?motivo=${encodeURIComponent(motivo)}`, {
+          method: 'DELETE',
+        });
+        if (onDelete) onDelete(laudo.id);
+        onClose();
+      },
+    });
   };
 
   const parecerBadgeClass = (p: string) => {

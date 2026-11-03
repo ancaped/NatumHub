@@ -1,4 +1,5 @@
 import { apiFetch } from '../../../geral/lib/http';
+import { pedirMotivoExclusao } from '../../../producao/lib/useMotivoExclusao';
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../geral/lib/api';
 import { DemandResult, Category, Item, ActiveRequestedItemSummary } from '../../../geral/lib/types';
@@ -2489,16 +2490,16 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                   </div>
                                 </div>
                                 <button
-                                  onClick={async () => {
-                                    if (confirm(`Remover a associação de semelhança com "${item.description}"?`)) {
-                                      try {
-                                        await api.removeSimilarItem(details.code, item.code);
+                                  onClick={() => {
+                                    pedirMotivoExclusao({
+                                      titulo: 'Remover item semelhante',
+                                      alvo: `Semelhança com "${item.description}"`,
+                                      confirmarRotulo: 'OK, remover',
+                                      executar: async (motivo) => {
+                                        await api.removeSimilarItem(details.code, item.code, motivo);
                                         loadSimilarItems();
-                                      } catch (e) {
-                                        console.error(e);
-                                        alert("Erro ao remover associação");
-                                      }
-                                    }
+                                      },
+                                    });
                                   }}
                                   className="text-zinc-400 hover:text-red-650 p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
                                   title="Remover associação"

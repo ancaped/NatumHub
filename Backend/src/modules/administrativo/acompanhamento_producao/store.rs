@@ -725,19 +725,22 @@ pub struct StatusApagado {
     pub status_anterior: String,
     pub category: Option<String>,
     pub motivo_espera: Option<String>,
+    /// Cópia completa da linha apagada (vai para a auditoria).
+    pub copia: Option<serde_json::Value>,
 }
 
 /// Apaga a linha inteira do lote em `lote_custom_status` (volta ao status padrão), registrando antes no histórico
 /// o status que existia. `None` = o lote não tinha linha.
 async fn apagar_status_tx(tx: &mut Tx<'_>, lote: &str, autor: &str) -> Result<Option<StatusApagado>, ErroApi> {
     let row = sqlx::query(
-        "SELECT custom_status, category, motivo_espera FROM lote_custom_status WHERE lote_number = $1 FOR UPDATE",
+        "SELECT custom_status, category, motivo_espera, to_jsonb(lote_custom_status) AS copia FROM lote_custom_status WHERE lote_number = $1 FOR UPDATE",
     )
     .bind(lote)
     .fetch_optional(&mut **tx)
     .await?;
     let Some(row) = row else { return Ok(None) };
     let apagado = StatusApagado {
+        copia: row.try_get::<Option<serde_json::Value>, _>("copia").ok().flatten(),
         lote_number: lote.to_string(),
         status_anterior: row.try_get::<Option<String>, _>("custom_status").ok().flatten().unwrap_or_default(),
         category: row.try_get::<Option<String>, _>("category").ok().flatten(),
@@ -764,9 +767,11 @@ async fn apagar_status_tx(tx: &mut Tx<'_>, lote: &str, autor: &str) -> Result<Op
 pub async fn apagar_status_lotes(
     pool: &PgPool,
     lotes: &[String],
+    motivo: Option<&str>,
     autor: &str,
     confirmar: bool,
 ) -> Result<RespostaAcao<Vec<StatusApagado>>, ErroApi> {
+    let motivo = crate::core::acao::exigir_motivo(confirmar, motivo, "o status do lote")?;
     let mut unicos: Vec<String> = Vec::new();
     for l in lotes {
         if !l.trim().is_empty() && !unicos.contains(l) {
@@ -796,7 +801,7 @@ pub async fn apagar_status_lotes(
             autor,
             "redefinir_status_lote",
             &unicos.join(","),
-            serde_json::json!({ "apagados": resposta.resultado }),
+            serde_json::json!({ "motivo": motivo, "apagados": resposta.resultado }),
         )
         .await;
     }
@@ -3374,21 +3379,23 @@ mod tests {
             .execute(&pool).await.unwrap();
         let lotes = vec!["TST-ACP-DEL".to_string(), "TST-ACP-NAO-EXISTE".to_string()];
 
-        let previa = apagar_status_lotes(&pool, &lotes, "t", false).await.unwrap();
+        let previa = apagar_status_lotes(&pool, &lotes, None, "t", false).await.unwrap();
         assert!(previa.previa);
         assert_eq!(previa.resultado.len(), 1);
         assert_eq!(previa.resultado[0].status_anterior, "Envase");
         let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lote_custom_status WHERE lote_number = 'TST-ACP-DEL'").fetch_one(&pool).await.unwrap();
         assert_eq!(n, 1, "a prévia não apaga");
 
-        let feito = apagar_status_lotes(&pool, &lotes, "t", true).await.unwrap();
+        let sem_motivo = apagar_status_lotes(&pool, &lotes, Some(" "), "t", true).await.unwrap_err();
+        assert_eq!(sem_motivo.codigo, "invalido");
+        let feito = apagar_status_lotes(&pool, &lotes, Some("lote criado por engano"), "t", true).await.unwrap();
         assert!(!feito.previa);
         let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lote_custom_status WHERE lote_number = 'TST-ACP-DEL'").fetch_one(&pool).await.unwrap();
         assert_eq!(n, 0);
         let nota: String = sqlx::query_scalar("SELECT notes FROM lote_status_history WHERE lote_number = 'TST-ACP-DEL' AND status = 'Status Removido'")
             .fetch_one(&pool).await.unwrap();
         assert!(nota.contains("Anterior: Envase"));
-        assert!(apagar_status_lotes(&pool, &[], "t", true).await.is_err());
+        assert!(apagar_status_lotes(&pool, &[], Some("x"), "t", true).await.is_err());
         limpar_lotes(&pool, &["TST-ACP-DEL"]).await;
     }
 

@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react';
+import { createRoot } from 'react-dom/client';
 import PreviaAcaoDrawer, { PreviaAcao } from '../gerenciamento/components/PreviaAcaoDrawer';
 
 export interface PedidoExclusao {
@@ -32,4 +33,33 @@ export function useMotivoExclusao() {
 
   const elemento = previa ? <PreviaAcaoDrawer previa={previa} onClose={() => setPrevia(null)} /> : null;
   return { pedirMotivo, elemento };
+}
+
+/**
+ * Versão sem estado para telas que só precisam perguntar o motivo e seguir: abre o drawer num ponto próprio da
+ * página (não exige colocar `elemento` no JSX). O drawer se fecha sozinho ao concluir ou cancelar.
+ */
+export function pedirMotivoExclusao(p: PedidoExclusao) {
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const fechar = () => {
+    setTimeout(() => {
+      root.unmount();
+      host.remove();
+    }, 0);
+  };
+  root.render(
+    <PreviaAcaoDrawer
+      onClose={fechar}
+      previa={{
+        titulo: p.titulo,
+        linhas: [{ titulo: p.alvo, detalhe: p.detalhe }],
+        avisos: p.avisos,
+        confirmarRotulo: p.confirmarRotulo ?? 'OK, excluir',
+        pedirMotivo: true,
+        executar: (motivo) => p.executar(motivo ?? ''),
+      }}
+    />,
+  );
 }

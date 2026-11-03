@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { pedirMotivoExclusao } from '../../../producao/lib/useMotivoExclusao';
 import { api } from '../../../geral/lib/api';
 import { Quotation } from '../../../geral/lib/types';
 import { QuotationDetail } from './QuotationDetail';
@@ -58,15 +59,14 @@ export function QuotationManager({ active = false }: { active?: boolean }) {
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm('Tem certeza que deseja excluir este rascunho de cotação?')) {
-      try {
-        await api.deleteQuotation(id);
+    pedirMotivoExclusao({
+      titulo: 'Excluir cotação',
+      alvo: 'Rascunho de cotação',
+      executar: async (motivo) => {
+        await api.deleteQuotation(id, motivo);
         loadQuotations();
-      } catch (err) {
-        console.error(err);
-        alert('Erro ao excluir cotação');
-      }
-    }
+      },
+    });
   };
 
   if (selectedId) {

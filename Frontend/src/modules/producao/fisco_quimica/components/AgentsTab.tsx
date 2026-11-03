@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { pedirMotivoExclusao } from '../../../producao/lib/useMotivoExclusao';
 import { api } from '../../../geral/lib/api';
 import { FiscoQuimicaAgent, Item, FiscoQuimicaAnalysis } from '../../../geral/lib/types';
 import {
@@ -155,15 +156,16 @@ export function AgentsTab({ agents, items, analyses, onRefresh }: AgentsTabProps
     }
   };
 
-  const handleDeleteAgent = async (id: string, name: string) => {
-    if (!confirm(`Remover agente corretivo "${name}"?`)) return;
-    try {
-      await api.deleteFiscoQuimicaAgent(id);
-      onRefresh();
-    } catch (err) {
-      console.error(err);
-      alert('Erro ao excluir agente corretivo.');
-    }
+  const handleDeleteAgent = (id: string, name: string) => {
+    pedirMotivoExclusao({
+      titulo: 'Remover agente corretivo',
+      alvo: `Agente "${name}"`,
+      confirmarRotulo: 'OK, remover',
+      executar: async (motivo) => {
+        await api.deleteFiscoQuimicaAgent(id, motivo);
+        onRefresh();
+      },
+    });
   };
 
   return (

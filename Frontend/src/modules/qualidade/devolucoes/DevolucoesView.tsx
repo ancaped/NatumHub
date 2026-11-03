@@ -7,6 +7,7 @@ import AppLayout from '../../geral/components/layout/AppLayout';
 import Modal from '../../geral/components/ui/Modal';
 import { getAuthUser } from '../../geral/lib/auth';
 import { apiFetch, apiJson } from '../../geral/lib/http';
+import { pedirMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import { canEditView } from '../../geral/lib/modules/permissions';
 import { cn } from '../../geral/lib/utils';
 import {
@@ -711,23 +712,25 @@ export default function DevolucoesView({ onBackToHub }: { onBackToHub: () => voi
     }
   };
 
-  const remove = async (d: Devolucao) => {
-    if (!window.confirm(`Excluir a devolução ${d.registerNumber}?`)) return;
-    try {
-      await apiJson(`/qualidade/devolucoes/${d.id}`, { method: 'DELETE' });
-      if (editingId === d.id) {
-        setEditingId(null);
-        setCurrent(null);
-        setLines([emptyLine()]);
-      }
-      if (confCurrent?.id === d.id) {
-        setConfCurrent(null);
-        setConfLines([]);
-      }
-      await loadList();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Falha ao excluir');
-    }
+  const remove = (d: Devolucao) => {
+    pedirMotivoExclusao({
+      titulo: 'Excluir devolução',
+      alvo: `Devolução ${d.registerNumber}`,
+      detalhe: d.clientName,
+      executar: async (motivo) => {
+        await apiJson(`/qualidade/devolucoes/${d.id}?motivo=${encodeURIComponent(motivo)}`, { method: 'DELETE' });
+        if (editingId === d.id) {
+          setEditingId(null);
+          setCurrent(null);
+          setLines([emptyLine()]);
+        }
+        if (confCurrent?.id === d.id) {
+          setConfCurrent(null);
+          setConfLines([]);
+        }
+        await loadList();
+      },
+    });
   };
 
   const selectItem = (h: ItemHit) => {

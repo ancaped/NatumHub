@@ -236,10 +236,19 @@ pub async fn update_operator(
     }
 }
 
+/// Cópia do operador para a auditoria. Lista as colunas uma a uma: nunca `to_jsonb(o)`, para `password_hash`
+/// (e qualquer segredo que a tabela ganhe) não ir parar na auditoria.
+pub const COPIA_OPERADOR: &str = "SELECT jsonb_build_object('id', o.id, 'displayName', o.display_name, 'role', o.role, 'active', o.active, \
+    'updateChannel', o.update_channel, \
+    'modulos', COALESCE((SELECT jsonb_agg(jsonb_build_object('modulo', m.module_key, 'nivel', m.access_level)) \
+                         FROM hub_operator_modules m WHERE m.operator_id = o.id), '[]'::jsonb)) \
+    FROM hub_operators o WHERE o.id = $1";
+
 pub async fn delete_operator(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Extension(ctx): Extension<AuthContext>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
 ) -> impl IntoResponse {
     if !ctx.role.is_admin() && !ctx.role.is_supervisor() {
         return (
@@ -258,20 +267,14 @@ pub async fn delete_operator(
             .into_response();
     }
 
+    // Exclusão direta: motivo sempre obrigatório; a cópia (sem senha) vai para a auditoria.
+    let copia = match crate::core::exclusao::preparar(pool, m.motivo.as_deref(), "o operador", COPIA_OPERADOR, &[&id]).await {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match store::delete_operator(pool, &id, &ctx.operator_id).await {
         Ok(()) => {
-            crate::modules::geral::audit::record_domain(
-                pool,
-                Some(&ctx),
-                "hub_operadores",
-                "delete",
-                "operator",
-                &id,
-                &format!("Operador excluído: {id}"),
-                None,
-                None,
-            )
-            .await;
+            copia.registrar(pool, &ctx, "hub_operadores", "delete", "operator", &id, "Operador excluído").await;
             (StatusCode::OK, Json(json!({ "status": "success" }))).into_response()
         }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),

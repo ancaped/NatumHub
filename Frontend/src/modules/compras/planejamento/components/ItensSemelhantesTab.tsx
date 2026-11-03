@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { pedirMotivoExclusao } from '../../../producao/lib/useMotivoExclusao';
 import { Layers, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { api } from '../../../geral/lib/api';
 import type { Category, DemandResult, Item } from '../../../geral/lib/types';
@@ -179,30 +180,39 @@ export function ItensSemelhantesTab({ active = false }: Props) {
     }
   };
 
-  const removeItem = async (code: string) => {
-    if (!window.confirm(`Tirar ${code} deste grupo?`)) return;
-    setBusy(code);
-    try {
-      await api.unlinkSimilarItem(code);
-      await load();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Não foi possível tirar o item.');
-    } finally {
-      setBusy(null);
-    }
+  const removeItem = (code: string) => {
+    pedirMotivoExclusao({
+      titulo: 'Tirar item do grupo',
+      alvo: `Item ${code}`,
+      confirmarRotulo: 'OK, tirar',
+      executar: async (motivo) => {
+        setBusy(code);
+        try {
+          await api.unlinkSimilarItem(code, motivo);
+          await load();
+        } finally {
+          setBusy(null);
+        }
+      },
+    });
   };
 
-  const removeGroup = async (group: Group) => {
-    if (!window.confirm('Desvincular este grupo? Os itens deixam de ser tratados como equivalentes.')) return;
-    setBusy(group.id);
-    try {
-      await api.unlinkSimilarGroup(group.id);
-      await load();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Não foi possível desvincular o grupo.');
-    } finally {
-      setBusy(null);
-    }
+  const removeGroup = (group: Group) => {
+    pedirMotivoExclusao({
+      titulo: 'Desvincular grupo de semelhantes',
+      alvo: `Grupo com ${group.members.length} itens`,
+      avisos: ['Os itens deixam de ser tratados como equivalentes.'],
+      confirmarRotulo: 'OK, desvincular',
+      executar: async (motivo) => {
+        setBusy(group.id);
+        try {
+          await api.unlinkSimilarGroup(group.id, motivo);
+          await load();
+        } finally {
+          setBusy(null);
+        }
+      },
+    });
   };
 
   return (

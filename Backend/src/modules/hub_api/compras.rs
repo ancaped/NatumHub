@@ -194,9 +194,21 @@ async fn save_category_handler(State(state): State<Arc<AppState>>, Json(category
     }
 }
 
-async fn delete_category_handler(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
+async fn delete_category_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Path(id): Path<String>,
+    Query(m): Query<crate::core::acao::Motivo>,
+) -> impl IntoResponse {
+    let copia = match crate::core::exclusao::preparar(state.db.pool(), m.motivo.as_deref(), "a categoria", "SELECT to_jsonb(c) || jsonb_build_object('itensRemapeados', COALESCE((SELECT jsonb_agg(i.code) FROM items i WHERE i.category_id = c.id), '[]'::jsonb), 'produtosComCategoria', COALESCE((SELECT jsonb_agg(o.codigo) FROM overrides_produtos o WHERE o.categoria_produto = c.id), '[]'::jsonb)) FROM categories c WHERE c.id = $1", &[&id]).await {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match with_pool(&state, |pool| delete_category_query(pool, &id)).await {
-        Ok(()) => ok_status().into_response(),
+        Ok(()) => {
+            copia.registrar(state.db.pool(), &ctx, "compras_apoio", "excluir_categoria", "category", &id, "Categoria de compras excluída").await;
+            ok_status().into_response()
+        }
         Err(e) => e.into_response(),
     }
 }
@@ -238,16 +250,40 @@ async fn link_similar_group_handler(State(state): State<Arc<AppState>>, Json(bod
     }
 }
 
-async fn unlink_similar_group_handler(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
+async fn unlink_similar_group_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Path(id): Path<String>,
+    Query(m): Query<crate::core::acao::Motivo>,
+) -> impl IntoResponse {
+    let copia = match crate::core::exclusao::preparar(state.db.pool(), m.motivo.as_deref(), "o grupo de itens semelhantes", "SELECT jsonb_agg(to_jsonb(l)) FROM item_similar_links l WHERE l.group_id = $1", &[&id]).await {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match with_pool(&state, |pool| unlink_similar_group_query(pool, &id)).await {
-        Ok(()) => ok_status().into_response(),
+        Ok(()) => {
+            copia.registrar(state.db.pool(), &ctx, "compras_apoio", "desfazer_grupo_semelhantes", "item_similar_group", &id, "Grupo de itens semelhantes desfeito").await;
+            ok_status().into_response()
+        }
         Err(e) => e.into_response(),
     }
 }
 
-async fn unlink_similar_item_handler(State(state): State<Arc<AppState>>, Path(code): Path<String>) -> impl IntoResponse {
+async fn unlink_similar_item_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Path(code): Path<String>,
+    Query(m): Query<crate::core::acao::Motivo>,
+) -> impl IntoResponse {
+    let copia = match crate::core::exclusao::preparar(state.db.pool(), m.motivo.as_deref(), "o item do grupo de semelhantes", "SELECT jsonb_agg(to_jsonb(l)) FROM item_similar_links l WHERE l.group_id IN (SELECT group_id FROM item_similar_links WHERE item_code = $1)", &[&code]).await {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match with_pool(&state, |pool| unlink_similar_item_from_group_query(pool, &code)).await {
-        Ok(()) => ok_status().into_response(),
+        Ok(()) => {
+            copia.registrar(state.db.pool(), &ctx, "compras_apoio", "tirar_item_do_grupo_semelhantes", "item_similar_link", &code, "Item tirado do grupo de semelhantes").await;
+            ok_status().into_response()
+        }
         Err(e) => e.into_response(),
     }
 }
@@ -294,9 +330,21 @@ async fn add_similar_item_handler(State(state): State<Arc<AppState>>, Json(body)
     }
 }
 
-async fn remove_similar_item_handler(State(state): State<Arc<AppState>>, Query(q): Query<SimilarItemsBody>) -> impl IntoResponse {
+async fn remove_similar_item_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Query(q): Query<SimilarItemsBody>,
+    Query(m): Query<crate::core::acao::Motivo>,
+) -> impl IntoResponse {
+    let copia = match crate::core::exclusao::preparar(state.db.pool(), m.motivo.as_deref(), "o vínculo de itens semelhantes", "SELECT jsonb_build_object('par', (SELECT jsonb_agg(to_jsonb(s)) FROM similar_items s WHERE s.item_code_a = LEAST($1, $2) AND s.item_code_b = GREATEST($1, $2)))", &[&q.code_a, &q.code_b]).await {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match with_pool(&state, |pool| remove_similar_item_query(pool, &q.code_a, &q.code_b)).await {
-        Ok(()) => ok_status().into_response(),
+        Ok(()) => {
+            copia.registrar(state.db.pool(), &ctx, "compras_apoio", "remover_item_semelhante", "similar_items", &format!("{}/{}", q.code_a, q.code_b), "Vínculo de itens semelhantes removido").await;
+            ok_status().into_response()
+        }
         Err(e) => e.into_response(),
     }
 }
@@ -338,9 +386,21 @@ async fn save_custom_config_handler(State(state): State<Arc<AppState>>, Json(bod
     }
 }
 
-async fn delete_custom_config_handler(State(state): State<Arc<AppState>>, Query(q): Query<DeleteCustomConfigQuery>) -> impl IntoResponse {
+async fn delete_custom_config_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Query(q): Query<DeleteCustomConfigQuery>,
+    Query(m): Query<crate::core::acao::Motivo>,
+) -> impl IntoResponse {
+    let copia = match crate::core::exclusao::preparar(state.db.pool(), m.motivo.as_deref(), "a configuração personalizada", "SELECT to_jsonb(c) FROM compras_config_personalizado c WHERE c.level = $1 AND c.target_id = $2", &[&q.level, &q.target_id]).await {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match with_pool(&state, |pool| delete_custom_purchase_config_query(pool, &q.level, &q.target_id)).await {
-        Ok(()) => ok_status().into_response(),
+        Ok(()) => {
+            copia.registrar(state.db.pool(), &ctx, "compras_apoio", "excluir_config_personalizada", "compras_config_personalizado", &format!("{}/{}", q.level, q.target_id), "Configuração personalizada de compras excluída").await;
+            ok_status().into_response()
+        }
         Err(e) => e.into_response(),
     }
 }
@@ -389,9 +449,21 @@ async fn select_supplier_handler(State(state): State<Arc<AppState>>, Json(body):
     }
 }
 
-async fn delete_quotation_handler(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
+async fn delete_quotation_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Path(id): Path<String>,
+    Query(m): Query<crate::core::acao::Motivo>,
+) -> impl IntoResponse {
+    let copia = match crate::core::exclusao::preparar(state.db.pool(), m.motivo.as_deref(), "a cotação", "SELECT to_jsonb(q) || jsonb_build_object('itens', COALESCE((SELECT jsonb_agg(to_jsonb(i) || jsonb_build_object('precos', COALESCE((SELECT jsonb_agg(to_jsonb(p)) FROM quotation_prices p WHERE p.quotation_item_id = i.id), '[]'::jsonb))) FROM quotation_items i WHERE i.quotation_id = q.id), '[]'::jsonb)) FROM quotations q WHERE q.id = $1", &[&id]).await {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match with_pool(&state, |pool| delete_quotation_query(pool, &id)).await {
-        Ok(()) => ok_status().into_response(),
+        Ok(()) => {
+            copia.registrar(state.db.pool(), &ctx, "compras_quotations", "excluir_cotacao", "quotation", &id, "Cotação excluída").await;
+            ok_status().into_response()
+        }
         Err(e) => e.into_response(),
     }
 }
@@ -614,10 +686,27 @@ async fn update_purchase_list_handler(
 
 async fn delete_purchase_list_handler(
     State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
     Path(id): Path<String>,
+    Query(m): Query<crate::core::acao::Motivo>,
 ) -> impl IntoResponse {
+    let copia = match crate::core::exclusao::preparar(
+        state.db.pool(),
+        m.motivo.as_deref(),
+        "a lista de compra",
+        "SELECT to_jsonb(b) || jsonb_build_object('itens', COALESCE((SELECT jsonb_agg(to_jsonb(i)) FROM purchase_request_items i WHERE i.batch_id = b.id), '[]'::jsonb)) FROM purchase_request_batches b WHERE b.id = $1",
+        &[&id],
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match with_pool(&state, |pool| delete_purchase_request_batch_query(pool, &id)).await {
-        Ok(()) => ok_status().into_response(),
+        Ok(()) => {
+            copia.registrar(state.db.pool(), &ctx, "compras_pedidos", "excluir_lista_compra", "purchase_list", &id, "Lista de compra excluída").await;
+            ok_status().into_response()
+        }
         Err(e) => e.into_response(),
     }
 }

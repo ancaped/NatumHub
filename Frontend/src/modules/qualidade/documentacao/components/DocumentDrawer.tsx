@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2, Plus, Trash2, Upload, X } from 'lucide-react';
 import { apiFetch, apiJson } from '../../../geral/lib/http';
+import { pedirMotivoExclusao } from '../../../producao/lib/useMotivoExclusao';
 import type { DocFamily, DocRecord, DocType, DocumentInput, PaymentStatus } from '../types';
 
 interface Props {
@@ -164,17 +165,17 @@ export default function DocumentDrawer({
     }
   };
 
-  const removeExistingFile = async (fileId: string) => {
-    if (!confirm('Remover este arquivo?')) return;
-    setBusy(true);
-    try {
-      await apiJson(`/qualidade/documentacao/files/${fileId}`, { method: 'DELETE' });
-      onSaved();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Falha ao remover arquivo');
-    } finally {
-      setBusy(false);
-    }
+  const removeExistingFile = (fileId: string) => {
+    const nome = document?.files?.find((f) => f.id === fileId)?.originalName ?? 'Arquivo anexado';
+    pedirMotivoExclusao({
+      titulo: 'Remover arquivo do documento',
+      alvo: nome,
+      confirmarRotulo: 'OK, remover',
+      executar: async (motivo) => {
+        await apiJson(`/qualidade/documentacao/files/${fileId}?motivo=${encodeURIComponent(motivo)}`, { method: 'DELETE' });
+        onSaved();
+      },
+    });
   };
 
   const downloadFile = async (fileId: string, name: string) => {

@@ -411,12 +411,27 @@ pub async fn atualizar_item(
 
 pub async fn remover_item(
     State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
     Path((lista_id, item_id)): Path<(String, String)>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
     if let Err(e) = ensure_tables(pool).await {
         return err(StatusCode::INTERNAL_SERVER_ERROR, &e);
     }
+    // Exclusão direta: motivo sempre obrigatório; a cópia do item (com as contagens digitadas) vai para a auditoria.
+    let copia = match crate::core::exclusao::preparar(
+        pool,
+        m.motivo.as_deref(),
+        "o item da lista de contagem",
+        "SELECT to_jsonb(i) FROM estoque_contagem_lista_itens i WHERE i.id = $1 AND i.lista_id = $2",
+        &[&item_id, &lista_id],
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     match lista_aberta(pool, &lista_id).await {
         Ok(estado) => {
             if let Err(res) = exigir_aberta(estado) {
@@ -435,6 +450,7 @@ pub async fn remover_item(
     {
         return err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
     }
+    copia.registrar(pool, &ctx, "estoque_geral", "remover_item_contagem", "contagem_item", &item_id, "Item de lista de contagem removido").await;
     match load_lista(pool, &lista_id).await {
         Ok(Some(lista)) => (StatusCode::OK, Json(lista)).into_response(),
         Ok(None) => err(StatusCode::NOT_FOUND, "Lista não encontrada."),

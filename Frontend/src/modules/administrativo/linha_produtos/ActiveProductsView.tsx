@@ -884,9 +884,10 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       titulo: 'Excluir categoria',
       linhas: [{ titulo: categories.find(c => c.id === id)?.name || id, detalhe: 'será excluída' }],
       confirmarRotulo: 'Excluir',
-      executar: async () => {
+      pedirMotivo: true,
+      executar: async (motivo) => {
         try {
-          await api.deleteCategory(id);
+          await api.deleteCategory(id, motivo ?? '');
         } catch (e) {
           console.error(e);
           throw new Error('Erro ao excluir categoria');

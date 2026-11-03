@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Loader2, Plus, Trash2 } from 'lucide-react';
 import { apiJson } from '../../../geral/lib/http';
+import { pedirMotivoExclusao } from '../../../producao/lib/useMotivoExclusao';
 import type { DocFamily, DocType } from '../types';
 
 interface Props {
@@ -85,19 +86,17 @@ export default function FamiliesTab({ families, types, onChanged }: Props) {
     }
   };
 
-  const deleteFamily = async (id: string) => {
-    if (!confirm('Excluir esta família?')) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await apiJson(`/qualidade/documentacao/families/${id}`, { method: 'DELETE' });
-      if (editingId === id) resetForm();
-      onChanged();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Falha ao excluir');
-    } finally {
-      setBusy(false);
-    }
+  const deleteFamily = (id: string) => {
+    pedirMotivoExclusao({
+      titulo: 'Excluir família de documentos',
+      alvo: `Família "${families.find((f) => f.id === id)?.name ?? id}"`,
+      executar: async (motivo) => {
+        setError(null);
+        await apiJson(`/qualidade/documentacao/families/${id}?motivo=${encodeURIComponent(motivo)}`, { method: 'DELETE' });
+        if (editingId === id) resetForm();
+        onChanged();
+      },
+    });
   };
 
   const addType = async (familyId: string) => {
@@ -119,17 +118,15 @@ export default function FamiliesTab({ families, types, onChanged }: Props) {
     }
   };
 
-  const deleteType = async (id: string) => {
-    if (!confirm('Excluir este tipo?')) return;
-    setBusy(true);
-    try {
-      await apiJson(`/qualidade/documentacao/types/${id}`, { method: 'DELETE' });
-      onChanged();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Falha ao excluir tipo');
-    } finally {
-      setBusy(false);
-    }
+  const deleteType = (id: string) => {
+    pedirMotivoExclusao({
+      titulo: 'Excluir tipo de documento',
+      alvo: `Tipo "${types.find((t) => t.id === id)?.name ?? id}"`,
+      executar: async (motivo) => {
+        await apiJson(`/qualidade/documentacao/types/${id}?motivo=${encodeURIComponent(motivo)}`, { method: 'DELETE' });
+        onChanged();
+      },
+    });
   };
 
   const inputClass =

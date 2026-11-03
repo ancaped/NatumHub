@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { pedirMotivoExclusao } from '../../../producao/lib/useMotivoExclusao';
 import { api } from '../../../geral/lib/api';
 import { Report } from '../../../geral/lib/types';
 import {
@@ -246,31 +247,31 @@ export function ReportHistory({
     }
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      await api.deleteReport(id);
-      setConfirmDeleteId(null);
-      if (onRefresh) onRefresh();
-    } catch (e) {
-      console.error(e);
-      alert('Erro ao excluir laudo.');
-    }
+  const handleDelete = (id: string) => {
+    setConfirmDeleteId(null);
+    pedirMotivoExclusao({
+      titulo: 'Excluir laudo microbiológico',
+      alvo: `Laudo ${id}`,
+      executar: async (motivo) => {
+        await api.deleteReport(id, motivo);
+        if (onRefresh) onRefresh();
+      },
+    });
   };
 
-  const handleBulkDelete = async () => {
-    setSaving(true);
-    try {
-      for (const id of selectedIds) {
-        await api.deleteReport(id);
-      }
-      setConfirmBulkDelete(false);
-      if (onRefresh) onRefresh();
-    } catch (err) {
-      console.error(err);
-      alert('Erro ao excluir laudos selecionados.');
-    } finally {
-      setSaving(false);
-    }
+  const handleBulkDelete = () => {
+    setConfirmBulkDelete(false);
+    const ids = Array.from(selectedIds);
+    pedirMotivoExclusao({
+      titulo: 'Excluir laudos selecionados',
+      alvo: `${ids.length} laudo(s) microbiológico(s)`,
+      executar: async (motivo) => {
+        for (const id of ids) {
+          await api.deleteReport(id, motivo);
+        }
+        if (onRefresh) onRefresh();
+      },
+    });
   };
 
   return (

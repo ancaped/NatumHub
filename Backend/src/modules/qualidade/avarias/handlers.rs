@@ -829,6 +829,7 @@ pub async fn delete_avaria(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
 ) -> impl IntoResponse {
     if let Err(resp) = require_edit(&ctx) {
         return resp;
@@ -841,6 +842,20 @@ pub async fn delete_avaria(
         )
             .into_response();
     }
+    // Exclusão direta: motivo sempre obrigatório; a cópia (com os vínculos de folha) vai para a auditoria.
+    let copia = match crate::core::exclusao::preparar(
+        pool,
+        m.motivo.as_deref(),
+        "a avaria",
+        "SELECT to_jsonb(a) || jsonb_build_object('folhaItens', COALESCE((SELECT jsonb_agg(to_jsonb(i)) FROM qualidade_avaria_folha_itens i WHERE i.avaria_id = a.id), '[]'::jsonb)) \
+         FROM qualidade_avarias a WHERE a.id = $1::bigint",
+        &[&id.to_string()],
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     let on_sheet: Option<String> = match sqlx::query(
         r#"
         SELECT fl.sheet_number
@@ -908,6 +923,7 @@ pub async fn delete_avaria(
         let abs = crate::core::app_config::saves_dir().join(&rel);
         let _ = std::fs::remove_file(abs);
     }
+    copia.registrar(pool, &ctx, "qualidade_avarias", "excluir_avaria", "avaria", &id.to_string(), "Avaria excluída").await;
     Json(json!({ "ok": true })).into_response()
 }
 

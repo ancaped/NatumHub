@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { pedirMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import {
   Users, Plus, Loader2, Check, X, Shield, ChevronDown, ChevronUp, Save, UserX, Trash2,
   Eye, Edit3, Lock, Search, CheckCircle2,
@@ -249,22 +250,23 @@ export default function OperadoresPanel({
       setMessage({ text: 'Você não pode excluir sua própria conta.', type: 'error' });
       return;
     }
-    const ok = window.confirm(
-      `Excluir permanentemente o usuário "${op.displayName}"?\nSessões ativas serão encerradas. Esta ação não pode ser desfeita.`
-    );
-    if (!ok) return;
-    setSaving(true);
-    try {
-      await deleteOperator(op.id);
-      setMessage({ text: 'Usuário excluído.', type: 'success' });
-      if (expandedId === op.id) setExpandedId(null);
-      await load();
-    } catch (e: any) {
-      setMessage({ text: e?.message || 'Erro ao excluir usuário', type: 'error' });
-    } finally {
-      setSaving(false);
-      setTimeout(() => setMessage(null), 4000);
-    }
+    pedirMotivoExclusao({
+      titulo: 'Excluir usuário',
+      alvo: `Usuário "${op.displayName}"`,
+      avisos: ['Sessões ativas serão encerradas. Para só bloquear o acesso, desative o usuário.'],
+      executar: async (motivo) => {
+        setSaving(true);
+        try {
+          await deleteOperator(op.id, motivo);
+          setMessage({ text: 'Usuário excluído.', type: 'success' });
+          if (expandedId === op.id) setExpandedId(null);
+          await load();
+        } finally {
+          setSaving(false);
+          setTimeout(() => setMessage(null), 4000);
+        }
+      },
+    });
   };
 
   const renderModuleTree = (

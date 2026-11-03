@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub mod core {
     pub mod acao;
     pub mod catalogo;
+    pub mod exclusao;
     pub mod db;
     pub mod legacy_db;
     pub mod app_config;

@@ -121,6 +121,7 @@ pub async fn save_batch_lote_custom_status(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Query(c): Query<Confirmar>,
+    Query(m): Query<crate::core::acao::Motivo>,
     Json(mut payload): Json<BatchLoteCustomStatusPayload>,
 ) -> Result<Response, ErroApi> {
     exigir_edicao(&ctx)?;
@@ -134,7 +135,7 @@ pub async fn save_batch_lote_custom_status(
         let n = store::save_batch_lote_custom_status(state.db.pool(), &payload).await?;
         return Ok(ok(json!({ "success": true, "updatedCount": n })));
     }
-    let r = store::apagar_status_lotes(state.db.pool(), &payload.lote_numbers, &quem, c.confirmar).await?;
+    let r = store::apagar_status_lotes(state.db.pool(), &payload.lote_numbers, m.motivo.as_deref(), &quem, c.confirmar).await?;
     let n = r.resultado.len();
     let mut corpo = serde_json::to_value(&r).unwrap_or_else(|_| json!({}));
     corpo["success"] = json!(true);
@@ -180,9 +181,10 @@ pub async fn delete_lote_custom_status(
     Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
     Query(c): Query<Confirmar>,
+    Query(m): Query<crate::core::acao::Motivo>,
 ) -> Result<Response, ErroApi> {
     exigir_edicao(&ctx)?;
-    let r = store::apagar_status_lotes(state.db.pool(), &[lote_number], &autor(&ctx), c.confirmar).await?;
+    let r = store::apagar_status_lotes(state.db.pool(), &[lote_number], m.motivo.as_deref(), &autor(&ctx), c.confirmar).await?;
     let mut corpo = serde_json::to_value(&r).unwrap_or_else(|_| json!({}));
     corpo["success"] = json!(true);
     if c.confirmar {
@@ -437,11 +439,15 @@ pub async fn delete_programacao_envase(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
+    Query(m): Query<crate::core::acao::Motivo>,
 ) -> Result<Response, ErroApi> {
     exigir_edicao(&ctx)?;
+    // Exclusão direta: motivo sempre obrigatório; a cópia da programação vai para a auditoria.
+    let copia = crate::core::exclusao::preparar(state.db.pool(), m.motivo.as_deref(), "a programação de envase", "SELECT to_jsonb(p) FROM programacao_envase p WHERE p.id = $1::bigint", &[&id.to_string()]).await?;
     store::delete_programacao_envase(state.db.pool(), id)
         .await
         .map_err(|e| interno("Erro ao excluir programacao envase", e))?;
+    copia.registrar(state.db.pool(), &ctx, "admin_acompanhamento_producao", "excluir_programacao_envase", "programacao_envase", &id.to_string(), "A programação de envase excluída").await;
     Ok(ok(json!({ "success": true })))
 }
 
@@ -449,11 +455,15 @@ pub async fn delete_programacao_envase_by_lote(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
+    Query(m): Query<crate::core::acao::Motivo>,
 ) -> Result<Response, ErroApi> {
     exigir_edicao(&ctx)?;
+    // Exclusão direta: motivo sempre obrigatório; a cópia da programação vai para a auditoria.
+    let copia = crate::core::exclusao::preparar(state.db.pool(), m.motivo.as_deref(), "a programação de envase do lote", "SELECT jsonb_agg(to_jsonb(p)) FROM programacao_envase p WHERE p.lote_number = $1", &[&lote_number]).await?;
     store::delete_programacao_envase_by_lote(state.db.pool(), &lote_number)
         .await
         .map_err(|e| interno("Erro ao excluir programacao envase por lote", e))?;
+    copia.registrar(state.db.pool(), &ctx, "admin_acompanhamento_producao", "excluir_programacao_envase_by_lote", "programacao_envase", &lote_number.to_string(), "A programação de envase do lote excluída").await;
     Ok(ok(json!({ "success": true })))
 }
 
@@ -504,11 +514,15 @@ pub async fn delete_programacao_rotulagem(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
+    Query(m): Query<crate::core::acao::Motivo>,
 ) -> Result<Response, ErroApi> {
     exigir_edicao(&ctx)?;
+    // Exclusão direta: motivo sempre obrigatório; a cópia da programação vai para a auditoria.
+    let copia = crate::core::exclusao::preparar(state.db.pool(), m.motivo.as_deref(), "a programação de rotulagem", "SELECT to_jsonb(p) FROM programacao_rotulagem p WHERE p.id = $1::bigint", &[&id.to_string()]).await?;
     store::delete_programacao_rotulagem(state.db.pool(), id)
         .await
         .map_err(|e| interno("Erro ao excluir programacao rotulagem", e))?;
+    copia.registrar(state.db.pool(), &ctx, "admin_acompanhamento_producao", "excluir_programacao_rotulagem", "programacao_rotulagem", &id.to_string(), "A programação de rotulagem excluída").await;
     Ok(ok(json!({ "success": true })))
 }
 
@@ -516,11 +530,15 @@ pub async fn delete_programacao_rotulagem_by_lote(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
+    Query(m): Query<crate::core::acao::Motivo>,
 ) -> Result<Response, ErroApi> {
     exigir_edicao(&ctx)?;
+    // Exclusão direta: motivo sempre obrigatório; a cópia da programação vai para a auditoria.
+    let copia = crate::core::exclusao::preparar(state.db.pool(), m.motivo.as_deref(), "a programação de rotulagem do lote", "SELECT jsonb_agg(to_jsonb(p)) FROM programacao_rotulagem p WHERE p.lote_number = $1", &[&lote_number]).await?;
     store::delete_programacao_rotulagem_by_lote(state.db.pool(), &lote_number)
         .await
         .map_err(|e| interno("Erro ao excluir programacao rotulagem por lote", e))?;
+    copia.registrar(state.db.pool(), &ctx, "admin_acompanhamento_producao", "excluir_programacao_rotulagem_by_lote", "programacao_rotulagem", &lote_number.to_string(), "A programação de rotulagem do lote excluída").await;
     Ok(ok(json!({ "success": true })))
 }
 

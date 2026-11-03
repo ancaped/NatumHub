@@ -6,6 +6,7 @@
  * - `expedicao_separacao`: somente aba Expedição (marcar enviado / quem separou).
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { pedirMotivoExclusao } from '../producao/lib/useMotivoExclusao';
 import {
   ArrowLeft, Search, Loader2, Plus, Upload,
   CheckCircle2, AlertCircle, Clock, Trash2, Edit, Check, X,
@@ -336,15 +337,16 @@ export default function ExpedicaoView({ onBackToHub }: { onBackToHub: () => void
     }
   };
 
-  const removeOrder = async (id: string) => {
-    if (!confirm('Remover este pedido?')) return;
-    try {
-      await apiJson(`/expedicao/ecommerce/${id}`, { method: 'DELETE' });
-      await load();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Falha ao remover.';
-      alert(msg);
-    }
+  const removeOrder = (id: string) => {
+    pedirMotivoExclusao({
+      titulo: 'Remover pedido do e-commerce',
+      alvo: 'Pedido de e-commerce',
+      confirmarRotulo: 'OK, remover',
+      executar: async (motivo) => {
+        await apiJson(`/expedicao/ecommerce/${id}?motivo=${encodeURIComponent(motivo)}`, { method: 'DELETE' });
+        await load();
+      },
+    });
   };
 
   const markEnviado = async (o: EcommerceOrder, quemSeparou?: string) => {
@@ -417,15 +419,16 @@ export default function ExpedicaoView({ onBackToHub }: { onBackToHub: () => void
     }
   };
 
-  const removeLookup = async (kind: LookupKind, id: string) => {
-    if (!confirm('Remover este cadastro?')) return;
-    try {
-      await apiJson(`${lookupPath(kind)}/${id}`, { method: 'DELETE' });
-      await loadLookups();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Falha ao remover.';
-      alert(msg);
-    }
+  const removeLookup = (kind: LookupKind, id: string) => {
+    pedirMotivoExclusao({
+      titulo: 'Remover cadastro',
+      alvo: 'Cadastro de apoio da expedição',
+      confirmarRotulo: 'OK, remover',
+      executar: async (motivo) => {
+        await apiJson(`${lookupPath(kind)}/${id}?motivo=${encodeURIComponent(motivo)}`, { method: 'DELETE' });
+        await loadLookups();
+      },
+    });
   };
 
   const lookupList = lookupKind === 'platforms' ? platforms : lookupKind === 'shipping' ? shipping : clients;

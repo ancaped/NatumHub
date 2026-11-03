@@ -172,10 +172,11 @@ export function LoteDetailsDrawer({
       titulo: 'Reabrir desvios do lote',
       linhas: [{ titulo: `Lote #${loteNumber}`, detalhe: 'Reabre os desvios e remove a justificativa' }],
       confirmarRotulo: 'OK, reabrir',
-      executar: async () => {
+      pedirMotivo: true,
+      executar: async (motivo) => {
         setResolveLoading(true);
         try {
-          const res = await apiFetch(`/producao/lotes/${loteNumber}/resolver`, { method: 'DELETE' });
+          const res = await apiFetch(`/producao/lotes/${loteNumber}/resolver?motivo=${encodeURIComponent(motivo ?? '')}`, { method: 'DELETE' });
           if (res.ok) {
             toast('Resolução estornada com sucesso!', 'success');
             await loadDetails(loteNumber);

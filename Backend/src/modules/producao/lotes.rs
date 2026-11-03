@@ -2394,11 +2394,25 @@ pub async fn delete_lote_resolution(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
 ) -> impl IntoResponse {
     if let Err(r) = permissao::exigir_edicao_em(&ctx, crate::modules::geral::auth::store::modulos_da_rota("/api/producao/lotes").unwrap_or(&[])) {
         return r;
     }
     let pool = state.db.pool();
+    // Reabrir apaga a resolução digitada: motivo sempre obrigatório e cópia da linha na auditoria.
+    let copia = match crate::core::exclusao::preparar(
+        pool,
+        m.motivo.as_deref(),
+        "a resolução do lote",
+        "SELECT to_jsonb(r) FROM lote_error_resolutions r WHERE r.lote_number = $1",
+        &[&lote_number],
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     let antes = resolucao_atual(pool, &lote_number).await;
     match sqlx::query("DELETE FROM lote_error_resolutions WHERE lote_number = $1")
         .bind(&lote_number)
@@ -2406,7 +2420,7 @@ pub async fn delete_lote_resolution(
         .await
     {
         Ok(_) => {
-            auditoria::registrar(pool, &ctx.display_name, "reabrir_lote", &lote_number, json!({ "antes": antes })).await;
+            auditoria::registrar(pool, &ctx.display_name, "reabrir_lote", &lote_number, json!({ "motivo": copia.motivo, "copia": copia.copia, "antes": antes })).await;
             (StatusCode::OK, Json(json!({ "success": true }))).into_response()
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),

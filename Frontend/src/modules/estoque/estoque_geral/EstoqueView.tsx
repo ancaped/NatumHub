@@ -1,4 +1,5 @@
 import { apiFetch } from '../../geral/lib/http';
+import { pedirMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import { salesOrderStatusLabel } from '../../geral/lib/salesOrderStatus';
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../geral/lib/api';
@@ -1064,16 +1065,16 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
                               <div className="text-[10px] text-zinc-450 font-mono mt-0.5 font-bold">REF: {item.code}</div>
                             </div>
                             <button
-                              onClick={async () => {
-                                if (window.confirm(`Remover similaridade com o insumo "${item.description}"?`)) {
-                                  try {
-                                    await api.removeSimilarItem(selectedItem.code, item.code);
+                              onClick={() => {
+                                pedirMotivoExclusao({
+                                  titulo: 'Remover item semelhante',
+                                  alvo: `Similaridade com o insumo "${item.description}"`,
+                                  confirmarRotulo: 'OK, remover',
+                                  executar: async (motivo) => {
+                                    await api.removeSimilarItem(selectedItem.code, item.code, motivo);
                                     reloadSimilarItems(selectedItem.code);
-                                  } catch (e) {
-                                    console.error(e);
-                                    alert("Erro ao remover associação");
-                                  }
-                                }
+                                  },
+                                });
                               }}
                               className="text-xs text-rose-650 hover:text-rose-700 font-bold hover:underline cursor-pointer"
                             >

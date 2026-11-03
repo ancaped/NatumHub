@@ -149,7 +149,9 @@ export function InventoryTab({
       return n;
     });
     try {
-      await apiJson(`/api/producao/decisoes?tipo=fila_descartada&chave=${encodeURIComponent(chave)}&confirmar=true`, { method: 'DELETE' });
+      // Limpeza automática: o produto voltou para a fila, então o descarte lembrado deixa de valer (a cópia fica na auditoria).
+      const motivo = encodeURIComponent('Produto voltou para a fila de demandas');
+      await apiJson(`/api/producao/decisoes?tipo=fila_descartada&chave=${encodeURIComponent(chave)}&confirmar=true&motivo=${motivo}`, { method: 'DELETE' });
     } catch (err) {
       console.warn('Não foi possível desfazer o descarte:', err);
     }

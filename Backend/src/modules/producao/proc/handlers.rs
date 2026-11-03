@@ -593,9 +593,24 @@ pub async fn update_proc(
 
 pub async fn delete_proc(
     State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
     Path(id): Path<String>,
+    axum::extract::Query(m): axum::extract::Query<crate::core::acao::Motivo>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
+    // Exclusão direta: motivo sempre obrigatório; a cópia do PROC vai para a auditoria.
+    let copia = match crate::core::exclusao::preparar(
+        pool,
+        m.motivo.as_deref(),
+        "o PROC",
+        "SELECT to_jsonb(p) FROM procs_produtos p WHERE p.id = $1",
+        &[&id],
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
     let res = sqlx::query("DELETE FROM procs_produtos WHERE id = $1")
         .bind(&id)
         .execute(pool)
@@ -604,6 +619,7 @@ pub async fn delete_proc(
     match res {
         Ok(r) => {
             if r.rows_affected() > 0 {
+                copia.registrar(pool, &ctx, "producao_proc", "excluir_proc", "proc", &id, "PROC excluído").await;
                 Json(json!({"success": true, "message": "PROC excluído com sucesso"}))
                     .into_response()
             } else {

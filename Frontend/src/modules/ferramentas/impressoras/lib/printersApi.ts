@@ -53,8 +53,8 @@ export const printersApi = {
     return res.data;
   },
 
-  async deletePrinter(id: string): Promise<void> {
-    const res = await apiJson<ApiResponse<{ deleted: boolean }>>(`/api/ferramentas/impressoras/${id}`, {
+  async deletePrinter(id: string, motivo: string): Promise<void> {
+    const res = await apiJson<ApiResponse<{ deleted: boolean }>>(`/api/ferramentas/impressoras/${id}?motivo=${encodeURIComponent(motivo)}`, {
       method: 'DELETE',
     });
     if (!res.success && res.error) throw new Error(res.error);

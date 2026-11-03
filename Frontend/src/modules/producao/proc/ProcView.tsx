@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { pedirMotivoExclusao } from '../lib/useMotivoExclusao';
 import {
   FileText,
   Search,
@@ -208,9 +209,10 @@ export const ProcView: React.FC<ProcViewProps> = ({ onBackToHub, onNavigate }) =
       titulo: 'Excluir PROC',
       linhas: [{ titulo: item.descricao, detalhe: item.proc ? `PROC ${item.proc}` : undefined }],
       confirmarRotulo: 'OK, excluir',
-      executar: async () => {
+      pedirMotivo: true,
+      executar: async (motivo) => {
         try {
-          await api.deleteProc(item.id);
+          await api.deleteProc(item.id, motivo ?? '');
           fetchProcs();
         } catch (err: any) {
           avisar('Erro ao excluir PROC: ' + (err?.message || 'Falha na requisição.'), 'erro');

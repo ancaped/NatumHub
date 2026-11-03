@@ -1,4 +1,5 @@
 import { apiFetch } from '../../../geral/lib/http';
+import { pedirMotivoExclusao } from '../../../producao/lib/useMotivoExclusao';
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../geral/lib/api';
 import { Category, ComprasAppConfig, Item, Supplier, CustomPurchaseConfigRow } from '../../../geral/lib/types';
@@ -278,25 +279,27 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
 
   const handleResetCategoryConfig = async (catId: string, catName?: string) => {
     if (!canConfig) return;
-    if (!confirm(`Deseja remover as configurações personalizadas de "${catName || catId}" e restaurar os parâmetros herdados da categoria pai?`)) {
-      return;
-    }
-    setSavingTargetId(catId);
-    try {
-      await api.deleteCustomPurchaseConfig('subcategoria', catId);
-      await loadCustomConfigs();
-      window.dispatchEvent(new CustomEvent('compras_config_updated'));
-      setDraftConfigs(prev => {
-        const next = { ...prev };
-        delete next[catId];
-        return next;
-      });
-    } catch (e) {
-      console.error(e);
-      alert('Erro ao restaurar herança da categoria');
-    } finally {
-      setSavingTargetId(null);
-    }
+    pedirMotivoExclusao({
+      titulo: 'Remover configuração personalizada',
+      alvo: `Configuração de "${catName || catId}"`,
+      avisos: ['Os parâmetros voltam a ser herdados da categoria pai.'],
+      confirmarRotulo: 'OK, remover',
+      executar: async (motivo) => {
+        setSavingTargetId(catId);
+        try {
+          await api.deleteCustomPurchaseConfig('subcategoria', catId, motivo);
+          await loadCustomConfigs();
+          window.dispatchEvent(new CustomEvent('compras_config_updated'));
+          setDraftConfigs(prev => {
+            const next = { ...prev };
+            delete next[catId];
+            return next;
+          });
+        } finally {
+          setSavingTargetId(null);
+        }
+      },
+    });
   };
 
   const saveConfig = async () => {
@@ -381,19 +384,20 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
 
   const handleDeleteCategory = async (id: string) => {
     if (!canConfig) return;
-    if (!confirm('Excluir esta categoria? Os itens serão movidos para "Sem Categoria".')) return;
-    try {
-      await api.deleteCategory(id);
-      if (selectedSubcategory?.id === id) {
-        setSelectedSubcategory(null);
-      }
-      await loadCategories();
-      await loadItems();
-      window.dispatchEvent(new CustomEvent('compras_config_updated'));
-    } catch (e) {
-      console.error(e);
-      alert('Erro ao excluir categoria');
-    }
+    pedirMotivoExclusao({
+      titulo: 'Excluir categoria',
+      alvo: `Categoria "${selectedSubcategory?.id === id ? selectedSubcategory.name : id}"`,
+      avisos: ['Os itens serão movidos para "Sem Categoria".'],
+      executar: async (motivo) => {
+        await api.deleteCategory(id, motivo);
+        if (selectedSubcategory?.id === id) {
+          setSelectedSubcategory(null);
+        }
+        await loadCategories();
+        await loadItems();
+        window.dispatchEvent(new CustomEvent('compras_config_updated'));
+      },
+    });
   };
 
   const handleBatchRemoveFromCategory = async () => {
