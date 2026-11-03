@@ -6,18 +6,17 @@
 
 # --- ESTÁGIO 1: BUILD DO FRONTEND ---
 FROM node:20-alpine AS frontend-builder
-ARG APP_VERSION=0.2.0
-ENV APP_VERSION=$APP_VERSION
 WORKDIR /app/Frontend
 COPY Frontend/package*.json ./
 RUN npm ci --silent || npm install
 COPY Frontend ./
+# A versão muda a cada commit: declarar só aqui, senão invalida o cache das camadas de cima (npm ci).
+ARG APP_VERSION=0.2.0
+ENV APP_VERSION=$APP_VERSION
 RUN npm run build
 
 # --- ESTÁGIO 2: BUILD DO BACKEND RUST ---
 FROM rust:slim-bookworm AS backend-builder
-ARG APP_VERSION=0.2.0
-ENV APP_VERSION=$APP_VERSION
 # Paralelismo do rustc. Esta imagem é compilada pelo GitHub Actions (runner de 4 vCPU / 16 GB).
 # NUNCA compile no servidor ZimaOS (3,7 GB de RAM): o build derrubou a produção em 20/10/2026.
 ARG CARGO_JOBS=4
@@ -48,8 +47,13 @@ COPY erp-import ./erp-import
 COPY Frontend/src ./Frontend/src
 
 WORKDIR /app/Backend
+# A versão (option_env! em core/app_config.rs) só entra aqui: antes, invalidava a camada das dependências a cada commit.
+ARG APP_VERSION=0.2.0
+ENV APP_VERSION=$APP_VERSION
+# Apaga o target na mesma camada: só o binário interessa, e assim o cache exportado para o GitHub fica pequeno.
 RUN cargo build --release --bin nexus-server --no-default-features && \
-    cp target/release/nexus-server /app/nexus-server
+    cp target/release/nexus-server /app/nexus-server && \
+    rm -rf target
 
 # --- ESTÁGIO 3: RUNTIME FINAL (LEVE) ---
 FROM debian:bookworm-slim AS runtime
