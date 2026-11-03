@@ -147,6 +147,15 @@ export function fmtData(iso?: string | null): string {
   return y && m && d ? `${d}/${m}/${y}` : iso;
 }
 
+/** Data (DD/MM/AAAA) de um instante, no horário de Brasília (aprovação às 22h não vira o dia seguinte). */
+export function fmtDiaBrasilia(iso?: string | null): string {
+  if (!iso) return '';
+  if (!iso.includes('T')) return fmtData(iso);
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return fmtData(iso);
+  return d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+}
+
 export function fmtDataHora(iso?: string | null): string {
   if (!iso) return '';
   const d = new Date(iso);

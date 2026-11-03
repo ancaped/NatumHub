@@ -5,6 +5,7 @@ import {
   deitado,
   alturaEspecificacoes,
   fmtData,
+  fmtDiaBrasilia,
   itensEspecificacoes,
   largurasColunas,
   linhasPorFolha,
@@ -18,7 +19,8 @@ import {
 /**
  * Folha do formulário: A4 fixo (em pé, ou deitado quando o formulário é horizontal), uma folha por área.
  * Cabeçalho e rodapé iguais em todas as folhas; o corpo é a tabela de registro com linhas em branco.
- * Assinaturas à caneta (campos em branco). Rascunho/obsoleto/revisão substituída saem com faixa diagonal.
+ * A aprovação sai já impressa (quem elaborou, quem aprovou e quando, registrados no Nexus); a folha não pede para preencher.
+ * Rascunho/obsoleto/revisão substituída saem com faixa diagonal.
  */
 
 const BORDA = '1.5px solid #000';
@@ -144,9 +146,9 @@ export function Folha({ f, area, pagina, total, logoSrc, marca }: FolhaProps) {
             <b>Instruções:</b> caneta azul ou preta. Sem corretivo. Erro = um traço + valor correto + rubrica + data + motivo. Campo não aplicável = N/A. Fora do limite → abrir Não Conformidade (POP-CQL-081). Usar só a revisão vigente.
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 40mm' }}>
-            <div style={{ padding: '4px 8px', borderRight: BORDA }}><b>Elaborado:</b><br />________________</div>
-            <div style={{ padding: '4px 8px', borderRight: BORDA }}><b>Aprovado (CQ):</b><br />________________</div>
-            <div style={{ padding: '4px 8px', borderRight: BORDA }}><b>Data aprovação:</b><br />__/__/____</div>
+            <div style={{ padding: '4px 8px', borderRight: BORDA }}><b>Elaborado:</b><br />{f.elaboratedBy?.trim() || '—'}</div>
+            <div style={{ padding: '4px 8px', borderRight: BORDA }}><b>Aprovado (CQ):</b><br />{f.approvedBy?.trim() || '—'}</div>
+            <div style={{ padding: '4px 8px', borderRight: BORDA }}><b>Data aprovação:</b><br />{fmtDiaBrasilia(f.approvedAt) || '—'}</div>
             <div style={{ padding: '3px 6px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
               <span style={{ border: '1px solid #000', padding: '1px 3px', fontWeight: 700, fontSize: 7.5 }}>{f.code} · Rev. {rev2(f.revision)}</span>
               <span style={{ marginTop: 2 }}>Página {pagina} de {total}</span>

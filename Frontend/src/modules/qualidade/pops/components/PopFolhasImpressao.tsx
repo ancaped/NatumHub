@@ -181,15 +181,16 @@ export default function PopFolhasImpressao({ dados }: { dados: PopFolhasDados })
               {/* Rodapé (altura fixa): assinaturas + página */}
               <div style={{ height: `${RODAPE_MM}mm`, flex: 'none', display: 'flex', flexDirection: 'column', borderTop: borda, boxSizing: 'border-box', fontSize: 10 }}>
                 <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+                  {/* Aprovação já impressa (registrada no Nexus): nada a preencher à caneta. */}
                   {[
-                    ['Elaborado:', '33%'],
-                    ['Revisado:', '33%'],
-                    ['Aprovado:', '34%'],
-                  ].map(([rotulo, larg], i) => (
+                    ['Elaborado:', '33%', dados.elaboradoPor, dados.elaboradoEm],
+                    ['Revisado:', '33%', dados.revisadoPor, dados.revisadoEm],
+                    ['Aprovado:', '34%', dados.aprovadoPor, dados.aprovadoEm],
+                  ].map(([rotulo, larg, nome, data], i) => (
                     <div key={rotulo} style={{ width: larg, padding: '6px 8px', boxSizing: 'border-box', borderRight: i < 2 ? borda : undefined, overflow: 'hidden' }}>
-                      <div style={{ fontWeight: 700, marginBottom: 10 }}>{rotulo}</div>
-                      <div style={{ borderBottom: '1px solid #000', height: 14 }} />
-                      <div style={{ marginTop: 6, fontSize: 9 }}>Data: ____/____/________</div>
+                      <div style={{ fontWeight: 700, marginBottom: 6 }}>{rotulo}</div>
+                      <div style={{ minHeight: 14 }}>{nome?.trim() || '—'}</div>
+                      <div style={{ marginTop: 6, fontSize: 9 }}>Data: {data?.trim() || '—'}</div>
                     </div>
                   ))}
                 </div>
