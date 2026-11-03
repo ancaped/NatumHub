@@ -24,6 +24,12 @@ interface Agente {
   tokens: TokenResumo[];
 }
 
+/** O token mais antigo guarda quem criou o agente; só interessa quando foi outro agente (os de supervisor não mostram nada). */
+function criadoPorAgente(ag: Agente, todos: Agente[]): string | null {
+  const primeiro = ag.tokens[ag.tokens.length - 1]?.criadoPor;
+  return primeiro && todos.some((o) => o.nome === primeiro) ? primeiro : null;
+}
+
 interface RespostaAcao<T> {
   previa: boolean;
   resultado: T;
@@ -407,6 +413,9 @@ export default function AgentesPanel({ setMessage }: Props) {
                           <span className="text-amber-700 font-bold">SEM TOKEN ATIVO</span>
                         )}
                         {!ag.ativo && <span className="text-amber-700 font-bold">· INATIVO</span>}
+                        {criadoPorAgente(ag, agentes) && (
+                          <span className="font-medium">· criado por {criadoPorAgente(ag, agentes)}</span>
+                        )}
                       </div>
                     </div>
                   </div>

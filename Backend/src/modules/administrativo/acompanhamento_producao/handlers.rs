@@ -115,6 +115,15 @@ pub async fn save_ficha_ordem(
     Ok(ok(json!({ "success": true, "message": "Ficha da ordem salva com sucesso!" })))
 }
 
+/// Reset de status em lote é exclusão disfarçada de `POST`: o middleware só vê rota+método, então a recusa ao agente
+/// fica aqui (mesma mensagem e 403 da regra geral de exclusão).
+pub(super) fn recusar_reset_para_agente(ctx: &AuthContext) -> Result<(), ErroApi> {
+    if ctx.is_agente() {
+        return Err(ErroApi::sem_permissao(crate::core::catalogo::AGENTE_NAO_EXCLUI));
+    }
+    Ok(())
+}
+
 /// Status em lote. Com status preenchido grava (tudo ou nada). Com status vazio/ausente é o reset (apaga a linha de
 /// cada lote): 2 passos, `?confirmar=true`; sem ele só devolve a prévia do que seria apagado.
 pub async fn save_batch_lote_custom_status(
@@ -135,6 +144,8 @@ pub async fn save_batch_lote_custom_status(
         let n = store::save_batch_lote_custom_status(state.db.pool(), &payload).await?;
         return Ok(ok(json!({ "success": true, "updatedCount": n })));
     }
+    // Sem status é o reset (apaga a linha de cada lote): é exclusão, e agentes não excluem.
+    recusar_reset_para_agente(&ctx)?;
     let r = store::apagar_status_lotes(state.db.pool(), &payload.lote_numbers, m.motivo.as_deref(), &quem, c.confirmar).await?;
     let n = r.resultado.len();
     let mut corpo = serde_json::to_value(&r).unwrap_or_else(|_| json!({}));
@@ -604,5 +615,22 @@ mod testes_terceirizado {
         let b: ToggleTerceirizadoPayload = serde_json::from_str(r#"{"is_terceirizado":false}"#).unwrap();
         assert!(a.is_terceirizado);
         assert!(!b.is_terceirizado);
+    }
+
+    #[test]
+    fn agente_nao_faz_reset_de_status_em_lote() {
+        use crate::modules::geral::auth::models::{AuthContext, OperatorRole, Origem};
+        let ctx = |origem| AuthContext {
+            operator_id: "a".into(),
+            display_name: "x".into(),
+            role: OperatorRole::Operador,
+            modules: vec!["admin_acompanhamento_producao".into()],
+            permissions: [("admin_acompanhamento_producao".to_string(), "edit".to_string())].into(),
+            origem,
+        };
+        let e = super::recusar_reset_para_agente(&ctx(Origem::Agente)).unwrap_err();
+        assert_eq!(e.status, axum::http::StatusCode::FORBIDDEN);
+        assert_eq!(e.mensagem, crate::core::catalogo::AGENTE_NAO_EXCLUI);
+        assert!(super::recusar_reset_para_agente(&ctx(Origem::Tela)).is_ok());
     }
 }

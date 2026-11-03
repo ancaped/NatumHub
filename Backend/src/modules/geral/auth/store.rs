@@ -1516,6 +1516,8 @@ pub fn modulos_da_rota(path: &str) -> Option<&'static [&'static str]> {
         ("/api/ferramentas/etiquetas", &[MODULE_FERRAMENTAS_ETIQUETAS, MODULE_FERRAMENTAS_EDITOR]),
         ("/api/ferramentas/impressoras", &[MODULE_FERRAMENTAS_IMPRESSORAS]),
         ("/api/ferramentas/balanca", &[MODULE_FERRAMENTAS_BALANCA]),
+        ("/api/agentes/criar", &[MODULE_OPERADORES]),
+        ("/api/agentes/criados", &[MODULE_OPERADORES]),
         ("/api/settings", &[MODULE_CONFIGURACOES]),
         ("/api/import", &[MODULE_CONFIGURACOES]),
     ];

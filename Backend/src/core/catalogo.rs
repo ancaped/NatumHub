@@ -160,6 +160,7 @@ pub fn todas() -> Vec<Acao> {
     v.extend(crate::modules::administrativo::acompanhamento_producao::acoes());
     v.extend(crate::modules::expedicao::acoes());
     v.extend(crate::modules::financeiro::acoes());
+    v.extend(crate::modules::geral::agentes::acoes());
     v.extend(crate::modules::hub_api::microbio::acoes());
     v.extend(crate::modules::hub_api::fisco::acoes());
     v
@@ -286,6 +287,7 @@ mod tests {
             include_str!("../modules/producao/sem_peso.rs"),
             include_str!("../modules/expedicao/mod.rs"),
             include_str!("../modules/financeiro/mod.rs"),
+            include_str!("../modules/geral/agentes/mod.rs"),
             include_str!("../modules/hub_api/microbio.rs"),
             include_str!("../modules/hub_api/fisco.rs"),
             include_str!("../handlers/vendas.rs"),

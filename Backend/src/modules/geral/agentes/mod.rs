@@ -21,11 +21,11 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::core::acao::{executar_em_2_passos, Confirmar, ErroApi, RespostaAcao};
-use crate::core::catalogo::{self, Acao};
+use crate::core::catalogo::{self, param, Acao};
 use crate::handlers::AppState;
 use crate::modules::geral::audit;
 use crate::modules::geral::auth::models::{AuthContext, OperatorRole, Origem};
-use crate::modules::geral::auth::modules_registry::all_module_keys_vec;
+use crate::modules::geral::auth::modules_registry::{all_module_keys_vec, MODULE_CONFIGURACOES, MODULE_OPERADORES};
 use crate::modules::geral::auth::store::{get_operator_modules_and_permissions, has_read_access, has_write_access, modulos_da_rota};
 
 pub const PREFIXO_TOKEN: &str = "nxa_";
@@ -35,9 +35,37 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/agentes/eu", get(eu_rota))
         .route("/api/agentes/acoes", get(acoes_rota))
+        .route("/api/agentes/criar", post(criar_por_agente_rota))
+        .route("/api/agentes/criados", get(criados_rota))
         .route("/api/admin/agentes", get(listar_rota).post(criar_rota))
         .route("/api/admin/agentes/:id/token", post(novo_token_rota))
         .route("/api/admin/agentes/:id/revogar", post(revogar_rota))
+}
+
+/// Ações de criação de agentes por agentes de IA (ver `core::catalogo`).
+pub fn acoes() -> Vec<Acao> {
+    vec![
+        Acao::gravacao(
+            "criar_agente_ia",
+            MODULE_OPERADORES,
+            "Cria um agente de IA limitado. Só para agentes com Gestão de Operadores (hub_operadores) em nível editar; operadores criam pela tela de Agentes. Você só pode dar módulos que você tem, em nível igual ou menor (ver ou editar), e nunca hub_operadores nem hub_settings; o agente novo também não exclui registros. Limite de 10 agentes ativos criados por você. Sem `confirmar=true` devolve a prévia (nome e módulos) ou as recusas com o motivo; com ele grava e devolve `id`, `nome`, `modulos` e o `token` UMA ÚNICA VEZ: guarde o token, ele não aparece de novo. Revogar fica com o supervisor.",
+            "POST",
+            "/api/agentes/criar",
+            true,
+            vec![
+                param("nome", "corpo", "texto", true, "Nome do agente novo (único entre operadores e agentes)."),
+                param("modulos", "corpo", "objeto módulo → nível", true, "Ex.: {\"vendas\": \"ver\", \"planejamento_producao\": \"editar\"}. Só módulos que você tem, em nível igual ou menor."),
+                param("confirmar", "query", "booleano", false, "true para criar de fato; sem ele só a prévia (também aceito no corpo)."),
+            ],
+        ),
+        Acao::leitura(
+            "listar_agentes_criados",
+            MODULE_OPERADORES,
+            "Lista os agentes de IA criados por você (quem chama), com id, nome, se está ativo, módulos e níveis, e os tokens só pelo prefixo (o token inteiro nunca volta; use o que recebeu na criação). Inclui os já revogados; o limite de 10 conta só os ativos com token não revogado. Só para agentes com Gestão de Operadores (ver ou editar).",
+            "/api/agentes/criados",
+            vec![],
+        ),
+    ]
 }
 
 pub fn gerar_token() -> String {
@@ -126,7 +154,7 @@ pub fn eu(ctx: &AuthContext) -> Eu {
     }
 }
 
-const COMO_LER: &str = "A permissão de cada ação vem dos módulos da rota (campo liberadaPor em /api/agentes/acoes); o campo modulo da ação é só onde ela fica.";
+const COMO_LER: &str = "A permissão de cada ação vem dos módulos da rota (campo liberadaPor em /api/agentes/acoes); o campo modulo da ação é só onde ela fica. Agentes com Gestão de Operadores (hub_operadores) podem criar até 10 agentes limitados com criar_agente_ia.";
 
 /// Ação do catálogo com a informação de o chamador poder executá-la.
 #[derive(Debug, Serialize)]
@@ -170,7 +198,9 @@ pub fn acoes_para(ctx: &AuthContext, modulo: Option<&str>) -> Vec<AcaoVisivel> {
                 let liberada_por = liberada_por(ctx, a.caminho);
                 return Some(AcaoVisivel { acao: a, permitida: true, negada_por: None, liberada_por });
             }
-            if !has_read_access(ctx, a.caminho, "GET") {
+            // Agente só vê as ações de módulos que tem. (`has_read_access` libera /api/agentes/* para todos, por
+            // causa de /eu e /acoes; aqui, nas ações de criação, vale o módulo da rota.)
+            if !has_read_access(ctx, a.caminho, "GET") || !modulos_da_rota(a.caminho).is_some_and(|ms| ms.iter().any(|m| ctx.has_module(m))) {
                 return None;
             }
             let exclusao = a.exclui;
@@ -282,7 +312,12 @@ fn validar_modulos(modulos: &BTreeMap<String, String>) -> Result<Vec<(String, &'
 }
 
 /// Cria o agente com seus módulos e o primeiro token. O token só aparece na resposta com `confirmar`.
+/// Quem chama é o supervisor (tela de Configurações); agente de IA usa `criar_por_agente`.
 pub async fn criar(pool: &PgPool, autor: &AuthContext, entrada: NovoAgente) -> Result<RespostaAcao<Value>, ErroApi> {
+    criar_interno(pool, autor, entrada, false).await
+}
+
+async fn criar_interno(pool: &PgPool, autor: &AuthContext, entrada: NovoAgente, por_agente: bool) -> Result<RespostaAcao<Value>, ErroApi> {
     let nome = entrada.nome.trim().to_string();
     if nome.is_empty() {
         return Err(ErroApi::invalido("Informe o nome do agente."));
@@ -332,10 +367,100 @@ pub async fn criar(pool: &PgPool, autor: &AuthContext, entrada: NovoAgente) -> R
     if confirmar {
         let r = &resposta.resultado;
         let id = r["id"].as_str().unwrap_or_default();
-        let depois = json!({ "nome": r["nome"], "modulos": r["modulos"] });
-        audit::record_domain(pool, Some(autor), MODULO_AUDITORIA, "criar_agente", "agente", id, "Agente de IA criado", None, Some(depois)).await;
+        let depois = json!({ "nome": r["nome"], "modulos": r["modulos"], "criadoPor": autor.display_name, "origem": autor.origem.as_str() });
+        let (acao, resumo) = if por_agente {
+            (ACAO_CRIAR_POR_AGENTE, "Agente de IA criado por outro agente")
+        } else {
+            ("criar_agente", "Agente de IA criado")
+        };
+        audit::record_domain(pool, Some(autor), MODULO_AUDITORIA, acao, "agente", id, resumo, None, Some(depois)).await;
     }
     Ok(resposta)
+}
+
+// ---------------------------------------------------------------- Agente cria agente
+
+/// Ação gravada na auditoria quando um agente cria outro; a contagem do limite e a lista de criados partem dela.
+const ACAO_CRIAR_POR_AGENTE: &str = "criar_agente_por_agente";
+/// Máximo de agentes ativos criados por um mesmo agente.
+pub const LIMITE_AGENTES_CRIADOS: usize = 10;
+/// Módulos que um agente criado por agente nunca recebe: ele não cria outros agentes nem mexe em configuração.
+const MODULOS_VEDADOS_AO_CRIADO: [&str; 2] = [MODULE_OPERADORES, MODULE_CONFIGURACOES];
+
+/// Só agente de IA com Gestão de Operadores (`editar` para criar, `ver` para listar). Operador usa a rota de admin.
+fn exigir_agente_com_gestao(ctx: &AuthContext, editar: bool) -> Result<(), ErroApi> {
+    if !ctx.is_agente() {
+        return Err(ErroApi::invalido(
+            "Esta rota é só para agentes de IA. Operadores criam agentes pela tela de Agentes (Configurações) ou por /api/admin/agentes.",
+        ));
+    }
+    let tem = if editar { ctx.can_edit_module(MODULE_OPERADORES) } else { ctx.has_module(MODULE_OPERADORES) };
+    if tem {
+        Ok(())
+    } else {
+        Err(ErroApi::sem_permissao(format!(
+            "Seu token precisa do módulo {MODULE_OPERADORES} (Gestão de Operadores) em nível {}.",
+            if editar { "editar" } else { "ver" }
+        )))
+    }
+}
+
+/// Motivos para recusar os módulos pedidos: só os que o criador tem, em nível igual ou menor, e nunca os vedados.
+pub fn recusas_de_modulos(criador: &AuthContext, pedidos: &BTreeMap<String, String>) -> Vec<String> {
+    let mut recusas = Vec::new();
+    for (modulo, nivel) in pedidos {
+        if MODULOS_VEDADOS_AO_CRIADO.contains(&modulo.as_str()) {
+            recusas.push(format!("{modulo}: agente criado por agente nunca recebe Gestão de Operadores nem Configurações."));
+        } else if !criador.has_module(modulo) {
+            recusas.push(format!("{modulo}: você não tem este módulo, então não pode dá-lo."));
+        } else if nivel.trim() == "editar" && !criador.can_edit_module(modulo) {
+            recusas.push(format!("{modulo}: você só tem 'ver' neste módulo, então não pode dar 'editar'."));
+        }
+    }
+    recusas
+}
+
+/// Agentes criados por este agente e se ainda estão vivos (ativo e com algum token não revogado).
+/// A autoria vem de dois registros que já existem, sem migração: o evento `criar_agente_por_agente` na auditoria
+/// (por `actor_id`, estável mesmo se o agente for renomeado) ou o `criado_por` do token mais antigo do agente
+/// (nome do criador; os nomes de operadores e agentes são únicos). Um basta; o `OR` cobre falha ao gravar a auditoria.
+async fn criados_por(pool: &PgPool, criador: &AuthContext) -> Result<Vec<(String, bool)>, ErroApi> {
+    audit::store::ensure_tables(pool).await.map_err(ErroApi::interno)?;
+    Ok(sqlx::query_as(
+        "SELECT o.id, (o.active = 1 AND EXISTS (SELECT 1 FROM hub_agent_tokens t WHERE t.operator_id = o.id AND t.revogado_em IS NULL)) \
+         FROM hub_operators o WHERE o.kind = 'agente' AND ( \
+             EXISTS (SELECT 1 FROM hub_audit_events e WHERE e.action = $3 AND e.actor_id = $1 AND e.entity_id = o.id) \
+             OR (SELECT t0.criado_por FROM hub_agent_tokens t0 WHERE t0.operator_id = o.id ORDER BY t0.criado_em ASC LIMIT 1) = $2) \
+         ORDER BY LOWER(o.display_name)",
+    )
+    .bind(&criador.operator_id)
+    .bind(&criador.display_name)
+    .bind(ACAO_CRIAR_POR_AGENTE)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Agente de IA cria agente de IA, com limites: só módulos que ele tem (nível igual ou menor), nunca Gestão de
+/// Operadores nem Configurações, no máximo `LIMITE_AGENTES_CRIADOS` vivos. Mesmo 2 passos de `criar`: sem
+/// `confirmar` devolve a prévia (ou as recusas, com motivo); com ele grava e devolve o token uma única vez.
+pub async fn criar_por_agente(pool: &PgPool, autor: &AuthContext, entrada: NovoAgente) -> Result<RespostaAcao<Value>, ErroApi> {
+    exigir_agente_com_gestao(autor, true)?;
+    let mut recusas = recusas_de_modulos(autor, &entrada.modulos);
+    let vivos = criados_por(pool, autor).await?.into_iter().filter(|(_, vivo)| *vivo).count();
+    if vivos >= LIMITE_AGENTES_CRIADOS {
+        recusas.push(format!("limite: você já criou {vivos} agentes ativos (máximo {LIMITE_AGENTES_CRIADOS}); peça ao supervisor para revogar algum."));
+    }
+    if !recusas.is_empty() {
+        return Err(ErroApi::regra(format!("Criação recusada: {}", recusas.join(" | "))).com_detalhes(json!({ "recusas": recusas })));
+    }
+    criar_interno(pool, autor, entrada, true).await
+}
+
+/// Agentes criados por este agente (sem tokens: só o prefixo).
+pub async fn listar_criados(pool: &PgPool, criador: &AuthContext) -> Result<Vec<Agente>, ErroApi> {
+    exigir_agente_com_gestao(criador, false)?;
+    let ids: Vec<String> = criados_por(pool, criador).await?.into_iter().map(|(id, _)| id).collect();
+    Ok(listar(pool).await?.into_iter().filter(|a| ids.contains(&a.id)).collect())
 }
 
 async fn gravar_token(
@@ -456,6 +581,20 @@ async fn criar_rota(
         return e.into_response();
     }
     responder(criar(state.db.pool(), &ctx, entrada).await)
+}
+
+async fn criar_por_agente_rota(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(q): Query<Confirmar>,
+    Json(mut entrada): Json<NovoAgente>,
+) -> Response {
+    entrada.confirmar = entrada.confirmar || q.confirmar;
+    responder(criar_por_agente(state.db.pool(), &ctx, entrada).await)
+}
+
+async fn criados_rota(State(state): State<Arc<AppState>>, Extension(ctx): Extension<AuthContext>) -> Response {
+    responder(listar_criados(state.db.pool(), &ctx).await.map(|agentes| json!({ "agentes": agentes })))
 }
 
 async fn novo_token_rota(
@@ -761,5 +900,167 @@ mod tests {
             sqlx::query(sql).bind(&id).execute(&pool).await.unwrap();
         }
         resultado
+    }
+
+    fn criador(modulos: &[(&str, &str)]) -> AuthContext {
+        let mut c = agente_com(modulos);
+        c.operator_id = "criador-1".into();
+        c.display_name = "Agente Criador".into();
+        c
+    }
+
+    fn pedido(itens: &[(&str, &str)]) -> BTreeMap<String, String> {
+        itens.iter().map(|(m, n)| (m.to_string(), n.to_string())).collect()
+    }
+
+    #[test]
+    fn so_agente_com_gestao_de_operadores_cria() {
+        use crate::modules::geral::auth::store::{has_read_access, has_write_access};
+        // sem o módulo: o middleware já recusa (403) e o serviço também
+        let sem = criador(&[("vendas", "edit")]);
+        assert!(!has_write_access(&sem, "/api/agentes/criar", "POST"));
+        assert_eq!(exigir_agente_com_gestao(&sem, true).unwrap_err().status, axum::http::StatusCode::FORBIDDEN);
+        // só ver: lista, mas não cria
+        let ver = criador(&[("hub_operadores", "view")]);
+        assert!(!has_write_access(&ver, "/api/agentes/criar", "POST"));
+        assert!(has_read_access(&ver, "/api/agentes/criados", "GET"));
+        assert!(exigir_agente_com_gestao(&ver, true).is_err());
+        assert!(exigir_agente_com_gestao(&ver, false).is_ok());
+        // com editar: passa
+        let ok = criador(&[("hub_operadores", "edit")]);
+        assert!(has_write_access(&ok, "/api/agentes/criar", "POST"));
+        assert!(exigir_agente_com_gestao(&ok, true).is_ok());
+        // operador (tela) recebe 400 claro: usa a rota de admin
+        let mut op = ok.clone();
+        op.origem = Origem::Tela;
+        let e = exigir_agente_com_gestao(&op, true).unwrap_err();
+        assert_eq!(e.status, axum::http::StatusCode::BAD_REQUEST);
+        assert!(e.mensagem.contains("/api/admin/agentes"));
+    }
+
+    #[test]
+    fn recusa_modulo_que_nao_tem_nivel_maior_e_vedados() {
+        let c = criador(&[("hub_operadores", "edit"), ("vendas", "edit"), ("producao", "view")]);
+        assert!(recusas_de_modulos(&c, &pedido(&[("vendas", "ver"), ("vendas", "editar"), ("producao", "ver")])).is_empty());
+        let r = recusas_de_modulos(&c, &pedido(&[("compras_mp", "ver")]));
+        assert!(r.len() == 1 && r[0].contains("não tem"), "{r:?}");
+        let r = recusas_de_modulos(&c, &pedido(&[("producao", "editar")]));
+        assert!(r.len() == 1 && r[0].contains("só tem 'ver'"), "{r:?}");
+        // os vedados saem mesmo que o criador os tenha
+        let r = recusas_de_modulos(&c, &pedido(&[("hub_operadores", "ver"), ("hub_settings", "ver")]));
+        assert_eq!(r.len(), 2);
+        assert!(r.iter().all(|x| x.contains("nunca recebe")));
+    }
+
+    #[test]
+    fn catalogo_traz_as_acoes_de_criacao() {
+        let a = acoes();
+        let criar = a.iter().find(|x| x.nome == "criar_agente_ia").unwrap();
+        assert!(criar.escrita && criar.dois_passos && !criar.exclui);
+        assert!(criar.descricao.contains("UMA ÚNICA VEZ") && criar.descricao.contains("10"));
+        assert!(a.iter().any(|x| x.nome == "listar_agentes_criados" && !x.escrita));
+        assert!(eu(&criador(&[])).como_ler.contains("criar_agente_ia"));
+    }
+
+    /// Fluxo completo com banco: prévia, recusas, token só com confirmar, auditoria, limite de 10 e lista.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn agente_cria_agente_com_limites() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        let marca = Uuid::new_v4().to_string()[..8].to_string();
+        let mut sup = agente_com(&[]);
+        sup.role = OperatorRole::Supervisor;
+        sup.origem = Origem::Tela;
+        sup.display_name = format!("sup-{marca}");
+
+        // o agente criador é criado pelo supervisor, com Gestão de Operadores e dois módulos
+        let nome_criador = format!("criador-{marca}");
+        let c = criar(
+            &pool,
+            &sup,
+            NovoAgente {
+                nome: nome_criador.clone(),
+                modulos: pedido(&[("hub_operadores", "editar"), ("vendas", "editar"), ("producao", "ver")]),
+                confirmar: true,
+            },
+        )
+        .await
+        .unwrap();
+        let id_criador = c.resultado["id"].as_str().unwrap().to_string();
+        let token_criador = c.resultado["token"].as_str().unwrap().to_string();
+        let ctx = resolver_token(&pool, &token_criador).await.unwrap().unwrap();
+        assert_eq!(ctx.origem, Origem::Agente);
+
+        let novo = |nome: &str, mods: &[(&str, &str)], confirmar| NovoAgente { nome: nome.into(), modulos: pedido(mods), confirmar };
+        let nome1 = format!("filho-{marca}-1");
+
+        // prévia: sem token e sem gravar
+        let p = criar_por_agente(&pool, &ctx, novo(&nome1, &[("vendas", "ver")], false)).await.unwrap();
+        assert!(p.previa && p.resultado["token"].is_null());
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM hub_operators WHERE display_name = $1").bind(&nome1).fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 0);
+
+        // recusas: módulo que não tem, nível maior, vedados
+        for ruim in [&[("compras_mp", "ver")][..], &[("producao", "editar")], &[("hub_operadores", "ver")], &[("hub_settings", "ver")]] {
+            let e = criar_por_agente(&pool, &ctx, novo(&format!("ruim-{marca}"), ruim, true)).await.unwrap_err();
+            assert_eq!(e.status, axum::http::StatusCode::UNPROCESSABLE_ENTITY, "{ruim:?}");
+        }
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM hub_operators WHERE display_name = $1").bind(format!("ruim-{marca}")).fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 0);
+
+        // confirmar: grava, devolve o token e audita o criador
+        let f = criar_por_agente(&pool, &ctx, novo(&nome1, &[("vendas", "ver"), ("producao", "ver")], true)).await.unwrap();
+        let token_filho = f.resultado["token"].as_str().unwrap().to_string();
+        let id_filho = f.resultado["id"].as_str().unwrap().to_string();
+        let filho = resolver_token(&pool, &token_filho).await.unwrap().unwrap();
+        assert_eq!(filho.origem, Origem::Agente);
+        assert!(!filho.has_module("hub_operadores") && !filho.has_module("hub_settings"));
+        let (actor, depois): (String, Value) = sqlx::query_as(
+            "SELECT actor_id, after_json FROM hub_audit_events WHERE action = 'criar_agente_por_agente' AND entity_id = $1",
+        )
+        .bind(&id_filho)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(actor, id_criador);
+        assert_eq!(depois["criadoPor"], nome_criador.as_str());
+        assert_eq!(depois["origem"], "agente");
+        assert_eq!(depois["modulos"]["vendas"], "ver");
+
+        // lista: só o prefixo do token
+        let lista = listar_criados(&pool, &ctx).await.unwrap();
+        assert_eq!(lista.len(), 1);
+        assert_eq!(lista[0].nome, nome1);
+        assert!(lista[0].tokens[0].prefixo.len() < token_filho.len());
+
+        // limite: 10 ativos
+        for i in 2..=10 {
+            criar_por_agente(&pool, &ctx, novo(&format!("filho-{marca}-{i}"), &[("vendas", "ver")], true)).await.unwrap();
+        }
+        let e = criar_por_agente(&pool, &ctx, novo(&format!("filho-{marca}-11"), &[("vendas", "ver")], true)).await.unwrap_err();
+        assert!(e.mensagem.contains("limite"), "{}", e.mensagem);
+        // revogar um libera uma vaga (o limite conta só os ativos)
+        revogar(&pool, &sup, &id_filho, true).await.unwrap();
+        criar_por_agente(&pool, &ctx, novo(&format!("filho-{marca}-11"), &[("vendas", "ver")], true)).await.unwrap();
+        assert_eq!(listar_criados(&pool, &ctx).await.unwrap().len(), 11, "a lista mostra também os revogados");
+
+        // limpeza
+        let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM hub_operators WHERE display_name LIKE $1 OR id = $2")
+            .bind(format!("filho-{marca}-%"))
+            .bind(&id_criador)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        for id in &ids {
+            for sql in [
+                "DELETE FROM hub_agent_tokens WHERE operator_id = $1",
+                "DELETE FROM hub_operator_modules WHERE operator_id = $1",
+                "DELETE FROM hub_audit_events WHERE entity_id = $1",
+                "DELETE FROM hub_operators WHERE id = $1",
+            ] {
+                sqlx::query(sql).bind(id).execute(&pool).await.unwrap();
+            }
+        }
     }
 }
