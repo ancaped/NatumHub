@@ -599,6 +599,36 @@ mod tests {
         }
     }
 
+    #[test]
+    fn rotas_do_planejamento_caem_em_planejamento_e_nao_em_producao_geral() {
+        use crate::modules::geral::auth::store::modulos_da_rota;
+        let esperado = ["planejamento_producao", "producao"];
+        for rota in [
+            "/api/producao/planejamento/roteiro",
+            "/api/producao/planejamento/sugerir-sequencia",
+            "/api/producao/regras",
+            "/api/producao/regras/1",
+            "/api/producao/produtos/123/contexto",
+        ] {
+            assert_eq!(modulos_da_rota(rota).unwrap(), esperado, "{rota}");
+        }
+        // Não confunde com prefixo parecido: segue a regra geral de produção.
+        assert!(modulos_da_rota("/api/producao/planejamentos").unwrap().len() > esperado.len());
+        // Agente só de planejamento lê e grava nelas; sem o módulo, não.
+        let pcp = AuthContext {
+            operator_id: "a1".into(),
+            display_name: "Agente PCP".into(),
+            role: OperatorRole::Operador,
+            modules: vec!["planejamento_producao".into()],
+            permissions: HashMap::from([("planejamento_producao".into(), "edit".into())]),
+            origem: Origem::Agente,
+        };
+        assert!(has_write_access(&pcp, "/api/producao/regras", "POST"));
+        assert!(has_read_access(&pcp, "/api/producao/planejamento/roteiro", "GET"));
+        let sem = AuthContext { modules: vec![], permissions: HashMap::new(), ..pcp };
+        assert!(!has_read_access(&sem, "/api/producao/regras", "GET"));
+    }
+
     /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.
     #[tokio::test]
     #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
