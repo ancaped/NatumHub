@@ -121,6 +121,31 @@ Decisão do Edson. O agente principal (Opus) investiga, consulta o ai-memory, pl
 - **`auxiliar`** (`.claude/agents/auxiliar.md`, `model: haiku`): tarefas simples e bem definidas — buscas e levantamentos no código, rodar validações e relatar, edições mecânicas já especificadas.
 Ajustes de uma ou duas linhas podem ser feitos direto pelo Opus.
 
+## Regra fixa: uma conversa por módulo
+
+Decisão do Edson (2026-11-03). Cada conversa cuida de um módulo só; o título dela diz qual. Quem não sabe o próprio módulo pergunta ao Edson antes de mexer em código.
+
+| Conversa | Backend (`Backend/src/`) | Frontend (`Frontend/src/modules/`) |
+|----------|--------------------------|------------------------------------|
+| Produção | `modules/producao`, `modules/hub_api/fisco.rs`, `modules/hub_api/microbio.rs` | `producao` |
+| Compras | `modules/compras`, `modules/hub_api/compras.rs` | `compras` |
+| Controle de Qualidade | `modules/qualidade` | `qualidade` |
+| Administrativo | `modules/administrativo` | `administrativo` |
+| Almoxarifado | `modules/estoque` (parte do almoxarifado) | `estoque` (parte do almoxarifado) |
+| Estoque | `modules/estoque` | `estoque` |
+| Vendas | `handlers/vendas.rs`, `modules/expedicao` | `vendas`, `expedicao` |
+| Ferramentas | `modules/ferramentas` | `ferramentas` |
+| Desenvolvimento | `modules/geral/mapa` | `geral/desenvolvimento`, `geral/mapa` |
+| Configurações Gerais | `modules/geral/configuracoes`, `modules/geral/auth`, `modules/geral/agentes` | `geral/configuracoes`, `geral/acesso` |
+| Feedback | `modules/geral/feedbacks` | `geral/feedbacks` |
+| Notificações | `modules/geral/notifications`, `modules/geral/alertas.rs` | onde o sino morar em `geral/components` |
+
+- **Pedido de outro módulo**: não faz. Diz qual conversa cuida daquilo e entrega um texto pronto para o Edson colar lá. Ler o código de outro módulo para entender uma conexão é permitido; alterar, não.
+- **Arquivo compartilhado** (`core/`, `modules/geral/auth/store.rs`, `core/catalogo.rs`, `postgres_bootstrap`, `geral/lib/modules/registry.ts`, `geral/components/ui`, CI, `AGENTS.md`): só a mudança mínima que o próprio módulo precisa, sem refatorar nem mudar o comportamento dos outros. Mudança que afete outros módulos vai primeiro ao Edson.
+- **Ramo próprio**: cada conversa trabalha na própria worktree, em um ramo curto `modulo/<nome>-<assunto>`, nunca direto na pasta principal. Rust nas worktrees usa o mesmo cache: `CARGO_TARGET_DIR=/home/edson/Documentos/api/Backend/target` (o `target` tem 22 GB; um por worktree não cabe no disco).
+- **Um deploy só**: só a `main` vai para produção; ramo nenhum publica imagem. Ao terminar uma entrega: atualizar o ramo com a `main`, validar (`cargo check --bin nexus-server --no-default-features` e `npm run build`), juntar na `main`, fazer push e apagar o ramo. Push recusado significa que outra conversa entrou antes: atualizar e repetir. Ramos duram horas, não semanas.
+- **Migração**: o número `NNN_` é decidido na hora de juntar. Se outra conversa já usou o número, renumere a sua antes de juntar.
+
 ## Regra fixa: modo automático (decidir sem perguntar)
 
 Decisão do Edson (2026-10-23). A refatoração e a revisão dos módulos seguem sozinhas pela fila `notes/fila-de-trabalho-automatica.md` do ai-memory (tarefa agendada `retomar-refatoracao-nexus`). O agente **não para para perguntar**:
