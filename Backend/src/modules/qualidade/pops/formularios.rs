@@ -27,6 +27,8 @@ pub struct Formulario {
     pub areas: Vec<String>,
     pub fields: Vec<Campo>,
     pub limits: Option<String>,
+    /// Texto fixo abaixo da tabela de registro (soluções de limpeza, frequência...), uma especificação por linha.
+    pub specifications: Option<String>,
     pub note: Option<String>,
     pub status: String,
     /// Revisão vigente (ou a última publicada). Formulário nunca publicado fica em 0.
@@ -132,6 +134,20 @@ const SEED: &[Seed] = &[
 /// FOR-CQL-048 é diário: o mês inteiro (31 linhas) numa folha em pé (decisão do Edson, 2026-10-30; deitada daria linhas de ~4 mm).
 fn linhas_do_seed(code: &str) -> Option<i32> {
     if code == "FOR-CQL-048-01" { Some(31) } else { None }
+}
+
+const ESPECIFICACOES_LIMPEZA: &str = "Limpeza Comum: Solução de Glutaraldeído 2%\nLimpeza para produtos Coloridos: Lauril 5%, Microstat 0,1%, Água Qsp.\nLimpeza para produtos com fortes Odores: Quaternario de Amônio 0,5%, Ácido Cítrico 0,1% Água Qsp";
+
+/// Especificações que o Word original traz abaixo da tabela (extraídas por `scripts/extrair_especificacoes_formularios.py`).
+/// Bancos que já tinham o formulário recebem o mesmo texto pela migração 077.
+fn especificacoes_do_seed(code: &str) -> Option<&'static str> {
+    match code {
+        "FOR-PRD-047-01" | "FOR-PRD-047-02" | "FOR-PRD-058-01" => Some(ESPECIFICACOES_LIMPEZA),
+        "FOR-CQL-035-07" => Some("Limpeza quinzenal: Material utilizado: Descongelamento / Limpeza interna e Externa: água e sabão neutro (quando necessario) e solução de álcool 70ºc"),
+        "FOR-CQL-074-01" => Some("Troca Semanal: Pré-Filtro (F6 Cinza)\nTroca Quinzenal: Filtro (G3 Branco)"),
+        "FOR-CQL-029-01" => Some("Observações/Anormalidades: No caso de haver incrustações resistentes ao procedimento de limpeza padrão, Deixar em imersão em água com detergente a 3% e água sanitária a 5%, por 30 minutos ou mais, se necessário."),
+        _ => None,
+    }
 }
 
 fn campos_json(seed: &Seed) -> Value {
@@ -240,13 +256,18 @@ pub(super) async fn ensure(pool: &PgPool) -> Result<(), String> {
     }
     super::store::ensure_tables(pool).await?;
     eventos::garantir(pool).await?;
+    // Coluna da migração 077; aqui cobre bancos de teste e a corrida de boot.
+    sqlx::query("ALTER TABLE pop_formularios ADD COLUMN IF NOT EXISTS specifications TEXT")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
 
     for s in SEED {
         sqlx::query(
             r#"
             INSERT INTO pop_formularios
-                (code, pop_code, title, previous_code, periodicity, areas, fields, limits, note, orientation, rows_per_sheet)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'portrait', $10)
+                (code, pop_code, title, previous_code, periodicity, areas, fields, limits, note, orientation, rows_per_sheet, specifications)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'portrait', $10, $11)
             ON CONFLICT (code) DO NOTHING
             "#,
         )
@@ -260,6 +281,7 @@ pub(super) async fn ensure(pool: &PgPool) -> Result<(), String> {
         .bind(s.limits)
         .bind(s.note)
         .bind(linhas_do_seed(s.code))
+        .bind(especificacoes_do_seed(s.code))
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
@@ -303,6 +325,7 @@ fn map_row(row: &sqlx::postgres::PgRow) -> Formulario {
             }).collect()
         }).unwrap_or_default(),
         limits: row.try_get("limits").unwrap_or(None),
+        specifications: row.try_get("specifications").unwrap_or(None),
         note: row.try_get("note").unwrap_or(None),
         em_revisao: ja_publicado && matches!(status.as_str(), "draft" | "in_review"),
         next_revision: revisao_ao_publicar(ja_publicado, revision),
@@ -472,6 +495,8 @@ pub struct EditarFormulario {
     pub areas: Option<Vec<String>>,
     /// Texto dos limites de aceitação; vazio apaga.
     pub limits: Option<String>,
+    /// Especificações abaixo da tabela (uma por linha); vazio apaga.
+    pub specifications: Option<String>,
     pub columns: Option<Vec<Campo>>,
     /// 0 volta ao padrão da orientação.
     pub rows_per_sheet: Option<i32>,
@@ -506,6 +531,7 @@ pub async fn editar(pool: &PgPool, code: &str, input: EditarFormulario, autor: &
     }
     let periodicidade = input.periodicity.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
     let limites = input.limits.map(|l| l.trim().to_string());
+    let especificacoes = input.specifications.map(|e| e.trim().to_string());
     let reescrever_linhas = input.rows_per_sheet.is_some();
     let entrada = json!({ "code": code, "title": titulo, "popCode": pop, "orientation": orientacao, "linhasPorFolha": linhas });
     let quem = autor.to_string();
@@ -540,6 +566,7 @@ pub async fn editar(pool: &PgPool, code: &str, input: EditarFormulario, autor: &
                     fields = COALESCE($7, fields),
                     limits = CASE WHEN $8::text IS NULL THEN limits ELSE NULLIF($8, '') END,
                     rows_per_sheet = CASE WHEN $9 THEN $10 ELSE rows_per_sheet END,
+                    specifications = CASE WHEN $11::text IS NULL THEN specifications ELSE NULLIF($11, '') END,
                     updated_at = NOW()
                 WHERE code = $1
                 "#,
@@ -554,6 +581,7 @@ pub async fn editar(pool: &PgPool, code: &str, input: EditarFormulario, autor: &
             .bind(&limites)
             .bind(reescrever_linhas)
             .bind(linhas)
+            .bind(&especificacoes)
             .execute(&mut *c)
             .await?;
             eventos::registrar(&mut *c, "formulario", &code, "editado", Some("draft"), Some("draft"), None, &quem).await?;

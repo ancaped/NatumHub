@@ -25,6 +25,8 @@ export interface Formulario {
   areas: string[];
   fields: FormCampo[];
   limits?: string | null;
+  /** Texto fixo abaixo da tabela de registro, uma especificação por linha. */
+  specifications?: string | null;
   note?: string | null;
   status: string;
   /** Revisão vigente (ou a última publicada); nunca publicado = 0. */

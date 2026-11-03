@@ -108,13 +108,14 @@ async fn formulario_do_rascunho_ao_obsoleto_com_historico_e_trilha() {
     // editar: POP inexistente é recusado; colunas e linhas por folha entram
     let edicao = |pop_code: Option<String>, colunas: Vec<Campo>| EditarFormulario {
         title: None, pop_code, periodicity: None, orientation: None, areas: Some(vec!["A".into(), " ".into(), "B".into()]),
-        limits: Some("pH 5 a 7".into()), columns: Some(colunas), rows_per_sheet: Some(27),
+        limits: Some("pH 5 a 7".into()), specifications: Some(" Limpeza comum: álcool 70%\nTroca semanal ".into()), columns: Some(colunas), rows_per_sheet: Some(27),
     };
     let tres = vec![col("Data", "data"), col("Valor", "numero"), col("Rubrica", "rubrica")];
     assert!(formularios::editar(&pool, &code, edicao(Some("POP-NAO-EXISTE-999".into()), tres.clone()), quem, true).await.is_err());
     let r = formularios::editar(&pool, &code, edicao(Some(pop.clone()), tres.clone()), quem, true).await.unwrap();
     assert_eq!(r.resultado["areas"].as_array().unwrap().len(), 2);
     assert_eq!(r.resultado["rowsPerSheet"], 27);
+    assert_eq!(r.resultado["specifications"], "Limpeza comum: álcool 70%\nTroca semanal");
 
     // aprovação: motivo obrigatório; em aprovação não edita; publicar só de em aprovação
     assert!(formularios::mover_status(&pool, &code, "in_review", " ", quem, true).await.is_err());
@@ -396,4 +397,66 @@ async fn emitir_lote_de_formularios_publica_rev_00_com_snapshot() {
         sqlx::query("DELETE FROM pop_formularios WHERE code = $1").bind(c).execute(&pool).await.unwrap();
     }
     sqlx::query("DELETE FROM pop_documents WHERE code = $1").bind(&pop).execute(&pool).await.unwrap();
+}
+
+async fn eventos_de_correcao(tx: &mut sqlx::PgConnection, code: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM pop_eventos WHERE tipo = 'formulario' AND ref = $1 AND acao = 'correcao_importacao'")
+        .bind(code)
+        .fetch_one(tx)
+        .await
+        .unwrap()
+}
+
+const MIGRACAO_077: &str = include_str!("../../../../supabase/077_pops_formularios_especificacoes.sql");
+
+#[tokio::test]
+#[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+async fn migracao_077_preenche_especificacoes_uma_vez_so_e_grava_o_evento() {
+    use sqlx::Executor;
+    let pool = pool_de_teste().await;
+    formularios::listar(&pool).await.unwrap(); // semeia os formulários e a coluna
+    let code = "FOR-PRD-058-01";
+    // tudo dentro de uma transação desfeita no fim: o trigger da trilha é desligado só aqui para limpar o estado
+    let mut tx = pool.begin().await.unwrap();
+    tx.execute("ALTER TABLE pop_eventos DISABLE TRIGGER trg_pop_eventos_imutavel").await.unwrap();
+    sqlx::query("DELETE FROM pop_eventos WHERE tipo = 'formulario' AND ref = $1 AND acao = 'correcao_importacao'")
+        .bind(code)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.execute("ALTER TABLE pop_eventos ENABLE TRIGGER trg_pop_eventos_imutavel").await.unwrap();
+    sqlx::query("UPDATE pop_formularios SET specifications = NULL WHERE code = $1").bind(code).execute(&mut *tx).await.unwrap();
+    let rev_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO pop_formulario_revisoes (id, code, revision, pop_code, title, orientation, motivo, snapshot) \
+         VALUES ($1, $2, 9999, 'POP-PRD-058', 't', 'portrait', 'teste', '{\"title\":\"t\"}'::jsonb)",
+    )
+    .bind(&rev_id)
+    .bind(code)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+
+    tx.execute(MIGRACAO_077).await.unwrap();
+    let texto: Option<String> = sqlx::query_scalar("SELECT specifications FROM pop_formularios WHERE code = $1").bind(code).fetch_one(&mut *tx).await.unwrap();
+    let texto = texto.expect("preencheu");
+    assert!(texto.starts_with("Limpeza Comum: Solução de Glutaraldeído 2%\n"), "uma especificação por linha: {texto}");
+    assert_eq!(texto.lines().count(), 3);
+    assert_eq!(eventos_de_correcao(&mut tx, code).await, 1);
+    let copia: Option<String> = sqlx::query_scalar("SELECT snapshot->>'specifications' FROM pop_formulario_revisoes WHERE id = $1")
+        .bind(&rev_id)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(copia.as_deref(), Some(texto.as_str()), "a cópia da revisão vigente também recebe o texto");
+
+    // segunda rodada não duplica o evento; texto apagado depois não volta
+    tx.execute(MIGRACAO_077).await.unwrap();
+    assert_eq!(eventos_de_correcao(&mut tx, code).await, 1);
+    sqlx::query("UPDATE pop_formularios SET specifications = NULL WHERE code = $1").bind(code).execute(&mut *tx).await.unwrap();
+    tx.execute(MIGRACAO_077).await.unwrap();
+    let depois: Option<String> = sqlx::query_scalar("SELECT specifications FROM pop_formularios WHERE code = $1").bind(code).fetch_one(&mut *tx).await.unwrap();
+    assert!(depois.is_none());
+    assert_eq!(eventos_de_correcao(&mut tx, code).await, 1);
+    tx.rollback().await.unwrap();
 }

@@ -8,6 +8,7 @@ export interface EstadoEditor {
   orientation: string;
   areasTexto: string;
   limits: string;
+  specifications: string;
   columns: FormCampo[];
   rowsPerSheet: string;
 }
@@ -20,6 +21,7 @@ export function estadoDoFormulario(f: Formulario): EstadoEditor {
     orientation: f.orientation === 'landscape' ? 'landscape' : 'portrait',
     areasTexto: f.areas.join('\n'),
     limits: f.limits ?? '',
+    specifications: f.specifications ?? '',
     columns: f.fields.map((c) => ({ label: c.label, kind: c.kind, limit: c.limit ?? '' })),
     rowsPerSheet: f.rowsPerSheet ? String(f.rowsPerSheet) : '',
   };
@@ -39,6 +41,7 @@ export function payloadDoEditor(e: EstadoEditor) {
     orientation: e.orientation,
     areas: areasDoTexto(e.areasTexto),
     limits: e.limits.trim(),
+    specifications: e.specifications.trim(),
     columns: e.columns.map((c) => ({ label: c.label.trim(), kind: c.kind, limit: (c.limit ?? '').trim() || null })),
     rowsPerSheet: Number.isFinite(linhas) && linhas > 0 ? linhas : 0,
   };
@@ -55,6 +58,7 @@ export function aplicarEditor(f: Formulario, e: EstadoEditor): Formulario {
     orientation: p.orientation,
     areas: p.areas,
     limits: p.limits || null,
+    specifications: p.specifications || null,
     fields: p.columns.filter((c) => c.label !== ''),
     rowsPerSheet: p.rowsPerSheet || null,
   };

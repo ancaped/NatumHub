@@ -49,6 +49,10 @@ pub async fn create_sector(
     }
 }
 
+pub async fn normas() -> impl IntoResponse {
+    (StatusCode::OK, Json(super::normas::normas())).into_response()
+}
+
 pub async fn list_formularios(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match super::formularios::listar(state.db.pool()).await {
         Ok(rows) => (StatusCode::OK, Json(rows)).into_response(),

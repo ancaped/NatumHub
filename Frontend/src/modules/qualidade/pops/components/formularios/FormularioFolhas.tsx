@@ -3,7 +3,9 @@ import { createPortal } from 'react-dom';
 import type { Formulario } from './tipos';
 import {
   deitado,
+  alturaEspecificacoes,
   fmtData,
+  itensEspecificacoes,
   largurasColunas,
   linhasPorFolha,
   linhasQueCabem,
@@ -34,7 +36,8 @@ export function Folha({ f, area, pagina, total, logoSrc, marca }: FolhaProps) {
   const paisagem = deitado(f);
   const linhas = linhasPorFolha(f);
   // Mais linhas que cabem: as linhas encolhem; senão a tabela estica e a última linha encosta no rodapé.
-  const cabem = linhasQueCabem(paisagem, !!f.limits?.trim());
+  const cabem = linhasQueCabem(paisagem, !!f.limits?.trim(), alturaEspecificacoes(f.specifications, paisagem));
+  const especificacoes = itensEspecificacoes(f.specifications);
   const alturaLinha = Math.min(7.2, (cabem * 7.2) / Math.max(linhas, 1));
   const larguras = largurasColunas(f.fields.map((c) => c.kind));
   const vigencia = fmtData(f.effectiveDate) || '__/__/____';
@@ -131,6 +134,12 @@ export function Folha({ f, area, pagina, total, logoSrc, marca }: FolhaProps) {
           </table>
         </div>
         <div style={{ borderTop: BORDA, fontSize: 8 }}>
+          {especificacoes.length > 0 && (
+            <div style={{ padding: '3px 8px', borderBottom: BORDA, lineHeight: 1.35 }}>
+              <b>Especificações:</b>
+              {especificacoes.map((item, i) => <div key={i}>{item}</div>)}
+            </div>
+          )}
           <div style={{ padding: '3px 8px', borderBottom: BORDA, lineHeight: 1.35 }}>
             <b>Instruções:</b> caneta azul ou preta. Sem corretivo. Erro = um traço + valor correto + rubrica + data + motivo. Campo não aplicável = N/A. Fora do limite → abrir Não Conformidade (POP-CQL-081). Usar só a revisão vigente.
           </div>

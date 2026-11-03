@@ -3,6 +3,7 @@ pub mod formularios;
 pub mod handlers;
 pub mod lote;
 pub mod models;
+pub mod normas;
 pub mod servicos;
 pub mod store;
 #[cfg(test)]
@@ -95,6 +96,10 @@ pub fn router() -> Router<Arc<AppState>> {
             post(handlers::revisar_formulario),
         )
         .route(
+            "/api/qualidade/pops/normas",
+            get(handlers::normas),
+        )
+        .route(
             "/api/qualidade/pops/check-alerts",
             post(handlers::check_alerts),
         )
@@ -110,6 +115,13 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
             "qualidade_pops",
             "Lista os setores dos POPs.",
             "/api/qualidade/pops/sectors",
+            vec![],
+        ),
+        Acao::leitura(
+            "normas_pops",
+            "qualidade_pops",
+            "Regras de controle de documentos dos POPs e formulários: norma, códigos e setores, status e fluxo, revisão e vigência, emissão em lote, formulários, preenchimento em papel e como os agentes leem e escrevem. É o mesmo texto da aba Normas e regras.",
+            "/api/qualidade/pops/normas",
             vec![],
         ),
         Acao::leitura(
@@ -321,7 +333,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "editar_formulario_pop",
             "qualidade_pops",
-            "Edita o rascunho do formulário: título, POP, periodicidade, orientação, áreas, limites, colunas e linhas por folha. Vigente muda só por nova revisão.",
+            "Edita o rascunho do formulário: título, POP, periodicidade, orientação, áreas, limites, especificações, colunas e linhas por folha. Vigente muda só por nova revisão.",
             "PUT",
             "/api/qualidade/pops/formularios/:code",
             true,
@@ -333,6 +345,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
                 param("orientation", "corpo", "texto", false, "portrait ou landscape."),
                 param("areas", "corpo", "lista", false, "Áreas (uma folha por área)."),
                 param("limits", "corpo", "texto", false, "Limites de aceitação (vazio apaga)."),
+                param("specifications", "corpo", "texto", false, "Especificações impressas abaixo da tabela, uma por linha (vazio apaga)."),
                 param("columns", "corpo", "lista", false, "Colunas: label, kind (data|hora|numero|texto|sim_nao|rubrica), limit."),
                 param("rowsPerSheet", "corpo", "inteiro", false, "Linhas por folha (1 a 60; 0 = padrão)."),
                 confirmar(),

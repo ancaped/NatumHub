@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  alturaEspecificacoes,
   fmtData,
+  itensEspecificacoes,
   largurasColunas,
   linhasPorFolha,
   linhasQueCabem,
@@ -85,6 +87,25 @@ test('linhasQueCabem: conta da altura útil, retrato e paisagem, com e sem faixa
   assert.equal(linhasQueCabem(true, true), esperado(m.alturaPaisagem, true));
   assert.ok(linhasQueCabem(false, false) > linhasQueCabem(true, false));
   assert.ok(linhasQueCabem(false, false) >= linhasQueCabem(false, true));
+});
+
+test('especificações: itens por linha, altura descontada das linhas que cabem e ida/volta no editor', () => {
+  assert.deepEqual(itensEspecificacoes(' A \n\n B\n'), ['A', 'B']);
+  assert.deepEqual(itensEspecificacoes(null), []);
+  assert.equal(alturaEspecificacoes('', false), 0);
+  const tres = 'a\nb\nc';
+  const m = MEDIDAS_FOLHA;
+  assert.equal(alturaEspecificacoes(tres, false), m.especificacoesFixo + 4 * m.especificacoesLinha);
+  // item longo quebra em mais de uma linha
+  assert.ok(alturaEspecificacoes('x'.repeat(200), false) > alturaEspecificacoes('x', false));
+  assert.ok(linhasQueCabem(false, false, alturaEspecificacoes(tres, false)) < linhasQueCabem(false, false));
+  assert.equal(
+    linhasPorFolha({ orientation: 'portrait', specifications: tres }),
+    linhasQueCabem(false, false, alturaEspecificacoes(tres, false)),
+  );
+  const e = estadoDoFormulario(form({ specifications: 'Limpeza comum: x' }));
+  assert.equal(e.specifications, 'Limpeza comum: x');
+  assert.equal(payloadDoEditor({ ...e, specifications: '  novo  ' }).specifications, 'novo');
 });
 
 test('largurasColunas somam 100 e texto é mais largo que sim_nao', () => {

@@ -15,6 +15,9 @@ export const MEDIDAS_FOLHA = {
   cabecalho: 20,
   mesArea: 6.5,
   limites: 6.5,
+  /** Bloco «Especificações»: bordas e margens, mais a altura de cada linha de texto (8 pt). */
+  especificacoesFixo: 2,
+  especificacoesLinha: 3.8,
   cabecalhoTabela: 8,
   rodape: 22,
   linha: 7.2,
@@ -24,19 +27,39 @@ export function deitado(f: Pick<Formulario, 'orientation'>): boolean {
   return f.orientation === 'landscape';
 }
 
-/** Quantas linhas de 7,2 mm cabem no corpo: folha − margens − cabeçalho − Mês/Área − (limites) − cabeçalho da tabela − rodapé. */
-export function linhasQueCabem(paisagem: boolean, comLimites: boolean): number {
+/** Itens das especificações: uma por linha, sem linhas vazias. */
+export function itensEspecificacoes(texto: string | null | undefined): string[] {
+  return (texto ?? '').split('\n').map((l) => l.trim()).filter((l) => l !== '');
+}
+
+/** Altura (mm) do bloco «Especificações» na folha: título + os itens (item longo quebra em mais de uma linha). 0 se não houver. */
+export function alturaEspecificacoes(texto: string | null | undefined, paisagem: boolean): number {
+  const itens = itensEspecificacoes(texto);
+  if (itens.length === 0) return 0;
+  const m = MEDIDAS_FOLHA;
+  const caracteresPorLinha = paisagem ? 160 : 115;
+  const linhas = 1 + itens.reduce((n, i) => n + Math.max(1, Math.ceil(i.length / caracteresPorLinha)), 0);
+  return m.especificacoesFixo + linhas * m.especificacoesLinha;
+}
+
+/**
+ * Quantas linhas de 7,2 mm cabem no corpo: folha − margens − cabeçalho − Mês/Área − (limites) − cabeçalho da tabela −
+ * rodapé − (especificações, em mm: ver `alturaEspecificacoes`).
+ */
+export function linhasQueCabem(paisagem: boolean, comLimites: boolean, alturaEspecificacao = 0): number {
   const m = MEDIDAS_FOLHA;
   const util =
     (paisagem ? m.alturaPaisagem : m.alturaRetrato) - 2 * m.margem - m.borda - m.cabecalho - m.mesArea -
-    (comLimites ? m.limites : 0) - m.cabecalhoTabela - m.rodape;
+    (comLimites ? m.limites : 0) - m.cabecalhoTabela - m.rodape - alturaEspecificacao;
   return Math.max(1, Math.floor(util / m.linha));
 }
 
 /** Linhas em branco por folha: o valor do formulário (manda) ou as que preenchem a folha. */
-export function linhasPorFolha(f: Pick<Formulario, 'orientation' | 'rowsPerSheet'> & { limits?: string | null }): number {
+export function linhasPorFolha(
+  f: Pick<Formulario, 'orientation' | 'rowsPerSheet'> & { limits?: string | null; specifications?: string | null },
+): number {
   if (f.rowsPerSheet && f.rowsPerSheet > 0) return f.rowsPerSheet;
-  return linhasQueCabem(deitado(f), !!f.limits?.trim());
+  return linhasQueCabem(deitado(f), !!f.limits?.trim(), alturaEspecificacoes(f.specifications, deitado(f)));
 }
 
 export type MarcaFolha = 'rascunho' | 'obsoleto' | 'substituida' | null;

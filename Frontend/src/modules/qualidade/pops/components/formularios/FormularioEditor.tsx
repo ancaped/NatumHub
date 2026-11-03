@@ -1,7 +1,4 @@
 import React from 'react';
-import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
-import { TIPOS_COLUNA } from './tipos';
-import { moverItem } from './montagem';
 import type { EstadoEditor } from './editor';
 
 export interface OpcaoPop {
@@ -11,7 +8,7 @@ export interface OpcaoPop {
 
 const campo = 'mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-zinc-900 bg-white';
 
-/** Editor do rascunho: título, POP (com busca), periodicidade, orientação, áreas, limites, colunas e linhas por folha. */
+/** Editor do rascunho, só texto: título, POP (com busca), periodicidade, áreas, limites, especificações e rótulo/limite das colunas. */
 export default function FormularioEditor({
   valor,
   onChange,
@@ -42,47 +39,24 @@ export default function FormularioEditor({
         <label className="text-xs text-zinc-500">Periodicidade
           <input className={campo} value={valor.periodicity} onChange={(e) => set('periodicity', e.target.value)} placeholder="Diária, Por uso…" />
         </label>
-        <label className="text-xs text-zinc-500">Folha
-          <select className={campo} value={valor.orientation} onChange={(e) => set('orientation', e.target.value)}>
-            <option value="portrait">Vertical</option>
-            <option value="landscape">Horizontal</option>
-          </select>
-        </label>
-        <label className="text-xs text-zinc-500">Linhas por folha
-          <input className={campo} type="number" min={0} max={60} value={valor.rowsPerSheet} onChange={(e) => set('rowsPerSheet', e.target.value)} placeholder="Padrão (14 vertical, 8 horizontal)" />
-        </label>
         <label className="text-xs text-zinc-500">Áreas (uma por linha; cada área é uma folha)
           <textarea className={campo} rows={4} value={valor.areasTexto} onChange={(e) => set('areasTexto', e.target.value)} />
         </label>
         <label className="text-xs text-zinc-500">Limites de aceitação
           <textarea className={campo} rows={4} value={valor.limits} onChange={(e) => set('limits', e.target.value)} placeholder="Ex.: Temperatura: 20 a 35 °C" />
         </label>
+        <label className="text-xs text-zinc-500 sm:col-span-2">Especificações (uma por linha; saem abaixo da tabela, na impressão)
+          <textarea className={campo} rows={4} value={valor.specifications} onChange={(e) => set('specifications', e.target.value)} placeholder="Ex.: Limpeza comum: solução de glutaraldeído 2%" />
+        </label>
       </div>
 
       <div>
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-semibold text-zinc-600">Colunas ({valor.columns.length})</span>
-          <button
-            type="button"
-            onClick={() => set('columns', [...valor.columns, { label: '', kind: 'texto', limit: '' }])}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-          >
-            <Plus className="w-3.5 h-3.5" /> Coluna
-          </button>
-        </div>
+        <span className="block mb-1 text-xs font-semibold text-zinc-600">Colunas ({valor.columns.length})</span>
         <ul className="space-y-1.5">
           {valor.columns.map((c, i) => (
-            <li key={i} className="grid grid-cols-[1fr_7rem_8rem_auto] gap-1.5 items-center">
+            <li key={i} className="grid grid-cols-[1fr_10rem] gap-1.5 items-center">
               <input className="rounded-lg border border-zinc-200 px-2 py-1.5 text-xs" value={c.label} onChange={(e) => setColuna(i, { label: e.target.value })} placeholder="Rótulo" />
-              <select className="rounded-lg border border-zinc-200 px-2 py-1.5 text-xs" value={c.kind} onChange={(e) => setColuna(i, { kind: e.target.value })}>
-                {TIPOS_COLUNA.map((t) => <option key={t.valor} value={t.valor}>{t.rotulo}</option>)}
-              </select>
               <input className="rounded-lg border border-zinc-200 px-2 py-1.5 text-xs" value={c.limit ?? ''} onChange={(e) => setColuna(i, { limit: e.target.value })} placeholder="Limite" />
-              <span className="flex gap-0.5">
-                <button type="button" title="Subir" disabled={i === 0} onClick={() => set('columns', moverItem(valor.columns, i, i - 1))} className="p-1 rounded hover:bg-zinc-100 disabled:opacity-30"><ArrowUp className="w-3.5 h-3.5" /></button>
-                <button type="button" title="Descer" disabled={i === valor.columns.length - 1} onClick={() => set('columns', moverItem(valor.columns, i, i + 1))} className="p-1 rounded hover:bg-zinc-100 disabled:opacity-30"><ArrowDown className="w-3.5 h-3.5" /></button>
-                <button type="button" title="Remover" disabled={valor.columns.length <= 1} onClick={() => set('columns', valor.columns.filter((_, j) => j !== i))} className="p-1 rounded hover:bg-red-50 text-red-600 disabled:opacity-30"><Trash2 className="w-3.5 h-3.5" /></button>
-              </span>
             </li>
           ))}
         </ul>
