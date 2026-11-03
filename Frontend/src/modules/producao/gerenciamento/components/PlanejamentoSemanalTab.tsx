@@ -25,7 +25,7 @@ import { useAviso } from '../../../geral/components/ui/Aviso';
 import Drawer from '../../../geral/components/ui/Drawer';
 import { SeloCobertura, piorResultado, useCoberturaSemana } from './cobertura';
 import { usePreviaServidor } from '../../lib/usePreviaServidor';
-import { getProductColorInfo, getProductProcessType, previsaoEnvase, getShortReatorName } from '../../lib/processoProduto';
+import { getProductColorInfo, getProductProcessType, previsaoEnvase, getShortReatorName, ehBombona, bombonaParaMassa, recipienteDoReator, resolverRecipienteSugerido } from '../../lib/processoProduto';
 import { ParametrosBateladaDrawer } from './planejamento/ParametrosBateladaDrawer';
 import { EditarQuantidadeDrawer } from './planejamento/EditarQuantidadeDrawer';
 import { VincularLoteDrawer } from './planejamento/VincularLoteDrawer';
@@ -100,7 +100,7 @@ const DEFAULT_REATORES: ReatorConfig[] = [
   { id: 'R_200', nome: 'Reator 200kg (Caldeira - Quente/Frio)', capacidade_kg: 200, tipo: 'caldeira', ordem: 4, ativo: true },
   { id: 'R_100', nome: 'Reator 100kg (Resistência)', capacidade_kg: 100, tipo: 'resistencia', ordem: 5, ativo: true },
   { id: 'R_40', nome: 'Reator 40kg (Produção Quente)', capacidade_kg: 40, tipo: 'quente', ordem: 6, ativo: true },
-  { id: 'BOMBONAS', nome: 'Bombonas', capacidade_kg: 200, tipo: 'bombona', ordem: 7, ativo: true },
+  { id: 'BOMBONAS', nome: 'Bombona 50kg', capacidade_kg: 50, tipo: 'bombona', ordem: 7, ativo: true },
 ];
 
 const BADGE_ZINC = 'bg-zinc-100 text-zinc-800 border-zinc-200';
@@ -301,12 +301,10 @@ export function validarAlocacao(opts: {
 }): string | null {
   const date = (opts.dateStr || '').split('T')[0];
   const reator = opts.reatores.find(r => r.id === opts.reatorId);
-  if (opts.reatorId === 'BOMBONAS') {
-    if (opts.kg > 200.05) {
-      return `Bombona comporta até 200 kg. Esta ordem tem ${opts.kg} kg.`;
-    }
-  } else if (reator && opts.kg > Number(reator.capacidade_kg) + 0.05) {
-    return `A massa de ${opts.kg} kg passa da capacidade de ${reator.capacidade_kg} kg deste reator.`;
+  if (reator && opts.kg > Number(reator.capacidade_kg) + 0.05) {
+    return ehBombona(reator)
+      ? `${reator.nome} comporta até ${reator.capacidade_kg} kg. Esta ordem tem ${opts.kg} kg.`
+      : `A massa de ${opts.kg} kg passa da capacidade de ${reator.capacidade_kg} kg deste reator.`;
   }
   return null;
 }
@@ -390,7 +388,6 @@ export function PlanejamentoSemanalTab({
   const [scheduleReator, setScheduleReator] = useState<string>('R_100');
   const [scheduleDate, setScheduleDate] = useState<string>('');
   const [scheduleEnvaseLine, setScheduleEnvaseLine] = useState<string>('L1');
-  const [scheduleRecipienteDetalhe, setScheduleRecipienteDetalhe] = useState<string>('Reator');
   const [sameFormulaProducts, setSameFormulaProducts] = useState<any[]>([]);
   const [loadingSameFormula, setLoadingSameFormula] = useState<boolean>(false);
 
@@ -1052,7 +1049,7 @@ export function PlanejamentoSemanalTab({
     const ignoreIds = new Set(qtyTargets.map(t => t.id));
     const massOf = (it: PlanejamentoItem) =>
       qtyTargets.length === 1 ? newQty : (batchMasses?.[it.id] ?? it.quantidade_planejada);
-    if (item.reator_id === 'BOMBONAS' || qtyTargets.length === 1) {
+    if (ehBombona(reatores.find(x => x.id === item.reator_id)) || qtyTargets.length === 1) {
       for (const it of qtyTargets) {
         const msg = validarAlocacao({
           reatorId: it.reator_id,
@@ -1339,7 +1336,7 @@ export function PlanejamentoSemanalTab({
         base_codigo: origemFormulacao === 'base' ? (baseCodigo.trim() || undefined) : undefined,
         base_nome: origemFormulacao === 'base' ? (baseNome.trim() || undefined) : undefined,
         reator_id: reatorId,
-        recipiente_detalhe: reatorId === 'BOMBONAS' ? recipienteDetalhe : (reatorId === 'R_40' ? 'Reator 40kg' : 'Reator'),
+        recipiente_detalhe: recipienteDoReator(reatores.find(x => x.id === reatorId)),
         data_planejada: dataPlanejada,
         quantidade_planejada: itQty,
         linha_envase: linhaEnvase,
@@ -1451,7 +1448,8 @@ export function PlanejamentoSemanalTab({
       let matchingReator = reatores.find(r => r.id === targetReator);
       if (!matchingReator) {
         if (procInfo.recipienteSugerido) {
-          matchingReator = reatores.find(r => r.id === procInfo.recipienteSugerido && r.ativo);
+          const sugeridoId = resolverRecipienteSugerido(procInfo.recipienteSugerido, reatores, suggestedMassKg);
+          matchingReator = reatores.find(r => r.id === sugeridoId && r.ativo);
         }
         if (!matchingReator) {
           matchingReator = reatores.find(r => {
@@ -1462,17 +1460,10 @@ export function PlanejamentoSemanalTab({
         }
       }
       
-      const reatorId = matchingReator ? matchingReator.id : (suggestedMassKg <= 200 ? 'BOMBONAS' : 'R_500');
+      const reatorId = matchingReator ? matchingReator.id : (bombonaParaMassa(reatores, suggestedMassKg)?.id ?? 'R_500');
       setScheduleReator(reatorId);
       setScheduleDate(targetDate || weekDays[0]?.dateStr || '');
 
-      if (reatorId === 'BOMBONAS') {
-        if (suggestedMassKg <= 60) setScheduleRecipienteDetalhe('Bombona 50kg');
-        else if (suggestedMassKg <= 120) setScheduleRecipienteDetalhe('Bombona 100kg');
-        else setScheduleRecipienteDetalhe('Bombona 200kg');
-      } else {
-        setScheduleRecipienteDetalhe('Reator');
-      }
       
       // Linha de envase sugerida
       const desc = (product.descricao || '').toUpperCase();
@@ -1489,7 +1480,6 @@ export function PlanejamentoSemanalTab({
       setScheduleQty(100);
       setScheduleReator(targetReator || 'R_100');
       setScheduleDate(targetDate || weekDays[0]?.dateStr || '');
-      setScheduleRecipienteDetalhe(targetReator === 'BOMBONAS' ? 'Bombona 100kg' : 'Reator');
       setScheduleEnvaseLine('L1');
     }
   };
@@ -1563,7 +1553,7 @@ export function PlanejamentoSemanalTab({
       const batchObs = numItems > 1 
         ? `Batelada conjunta (${i + 1}/${numItems}) [batch:${batchId}] | ${massPerItem} kg${sufixoUn}`
         : (procInfo.isQuente 
-            ? (scheduleReator === 'BOMBONAS' ? 'Água Quente Caldeira (Bombona)' : (scheduleReator === 'R_100' ? 'Resistência (100kg)' : (scheduleReator === 'R_40' ? 'Reator 40kg (Quente)' : 'Requer Caldeira'))) 
+            ? (ehBombona(reatores.find(x => x.id === scheduleReator)) ? 'Água Quente Caldeira (Bombona)' : (scheduleReator === 'R_100' ? 'Resistência (100kg)' : (scheduleReator === 'R_40' ? 'Reator 40kg (Quente)' : 'Requer Caldeira'))) 
             : 'Processo a Frio') + sufixoUn;
 
       const newItem: PlanejamentoItem = {
@@ -1583,10 +1573,10 @@ export function PlanejamentoSemanalTab({
         fisico_confirmado_massa: false,
         fisico_confirmado_embalagem: false,
         fisico_confirmado_rotulo: false,
-        recipiente_detalhe: scheduleReator === 'BOMBONAS' ? scheduleRecipienteDetalhe : (scheduleReator === 'R_40' ? 'Reator 40kg' : 'Reator'),
+        recipiente_detalhe: recipienteDoReator(reatores.find(x => x.id === scheduleReator)),
         cor_tag: colorInfo.tag,
         ordem_sequencia: nextSeq,
-        processo_termico: procInfo.isQuente ? (scheduleReator === 'BOMBONAS' ? 'agua_caldeira' : (scheduleReator === 'R_100' ? 'resistencia' : (scheduleReator === 'R_40' ? 'quente' : 'caldeira'))) : 'frio',
+        processo_termico: procInfo.isQuente ? (ehBombona(reatores.find(x => x.id === scheduleReator)) ? 'agua_caldeira' : (scheduleReator === 'R_100' ? 'resistencia' : (scheduleReator === 'R_40' ? 'quente' : 'caldeira'))) : 'frio',
         batch_id: numItems > 1 ? batchId : undefined,
       };
 
@@ -2180,13 +2170,7 @@ export function PlanejamentoSemanalTab({
                                 let newQty = it.quantidade_planejada;
                                 let newRecipiente = it.recipiente_detalhe;
 
-                                if (reator.id === 'BOMBONAS') {
-                                  if (!newRecipiente || newRecipiente === 'Reator') {
-                                    newRecipiente = newQty <= 50 ? 'Bombona 50kg' : (newQty <= 100 ? 'Bombona 100kg' : 'Bombona 200kg');
-                                  }
-                                } else {
-                                  newRecipiente = 'Reator';
-                                }
+                                newRecipiente = ehBombona(reator) ? reator.nome : 'Reator';
 
                                 const updated: PlanejamentoItem = {
                                   ...it,
@@ -2230,13 +2214,7 @@ export function PlanejamentoSemanalTab({
                               let newQty = draggedItem.quantidade_planejada;
                               let newRecipiente = draggedItem.recipiente_detalhe;
 
-                              if (reator.id === 'BOMBONAS') {
-                                if (!newRecipiente || newRecipiente === 'Reator') {
-                                  newRecipiente = newQty <= 50 ? 'Bombona 50kg' : (newQty <= 100 ? 'Bombona 100kg' : 'Bombona 200kg');
-                                }
-                              } else {
-                                newRecipiente = 'Reator';
-                              }
+                              newRecipiente = ehBombona(reator) ? reator.nome : 'Reator';
 
                               const updated: PlanejamentoItem = {
                                 ...draggedItem,
@@ -2390,7 +2368,7 @@ export function PlanejamentoSemanalTab({
                                       </div>
                                     )}
 
-                                    {/* Bombona: o tamanho da ordem aparece como selo (Bombona 50 kg, 100 kg, 200 kg) */}
+                                    {/* Ordens antigas no reator BOMBONAS (histórico): o tamanho aparece como selo; os reatores de bombona de hoje já são o tamanho */}
                                     {batch.primaryItem.reator_id === 'BOMBONAS' && batch.primaryItem.recipiente_detalhe && (
                                       <span className="self-start px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 text-[10px] font-semibold border border-zinc-200">
                                         {batch.primaryItem.recipiente_detalhe.replace(/(\d)kg/i, '$1 kg')}
@@ -2528,7 +2506,7 @@ export function PlanejamentoSemanalTab({
                               })}
 
                               {/* Capacidade livre do reator no dia */}
-                              {cellItems.length > 0 && reator.id !== 'BOMBONAS' && (() => {
+                              {cellItems.length > 0 && !ehBombona(reator) && (() => {
                                 const usado = cellItems.reduce((acc, it) => acc + (Number(it.quantidade_planejada) || 0), 0);
                                 const livre = Math.round(reator.capacidade_kg - usado);
                                 return livre < 0 ? (
@@ -2935,8 +2913,6 @@ export function PlanejamentoSemanalTab({
           setScheduleReator={setScheduleReator}
           scheduleDate={scheduleDate}
           setScheduleDate={setScheduleDate}
-          scheduleRecipienteDetalhe={scheduleRecipienteDetalhe}
-          setScheduleRecipienteDetalhe={setScheduleRecipienteDetalhe}
           setScheduleModalItem={setScheduleModalItem}
           handleAddProductToSchedule={handleAddProductToSchedule}
           handleRemoveProductFromSchedule={handleRemoveProductFromSchedule}

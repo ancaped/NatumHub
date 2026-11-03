@@ -316,14 +316,14 @@ async fn validar_alocacoes_planejamento(
     }
 
     for (reator_id, dia) in celulas {
-        let reator: Option<(String, f64, bool)> = sqlx::query_as(
-            "SELECT nome, capacidade_kg::float8, COALESCE(ativo, TRUE) FROM producao_reatores_config WHERE id = $1",
+        let reator: Option<(String, f64, bool, bool)> = sqlx::query_as(
+            "SELECT nome, capacidade_kg::float8, COALESCE(ativo, TRUE), COALESCE(tipo, '') = 'bombona' FROM producao_reatores_config WHERE id = $1",
         )
         .bind(&reator_id)
         .fetch_optional(&mut *conn)
         .await
         .map_err(db)?;
-        let Some((nome, capacidade, ativo)) = reator else {
+        let Some((nome, capacidade, ativo, ehbombona)) = reator else {
             return Err(ErroApi::regra(format!(
                 "O reator {reator_id} não existe na configuração de reatores."
             )));
@@ -361,8 +361,8 @@ async fn validar_alocacoes_planejamento(
 
         for (kg, tocado) in grupos.values() {
             if *tocado && *kg > capacidade + 0.05 {
-                let msg = if reator_id == "BOMBONAS" {
-                    format!("Bombona comporta até {capacidade} kg. Esta ordem tem {kg:.1} kg.")
+                let msg = if ehbombona {
+                    format!("{nome} comporta até {capacidade} kg. Esta ordem tem {kg:.1} kg.")
                 } else {
                     format!("A massa de {kg:.1} kg passa da capacidade de {capacidade} kg deste reator.")
                 };
@@ -390,7 +390,8 @@ async fn upsert_planejamento_item(
         ) VALUES (
             $1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
             COALESCE($15::boolean, FALSE), COALESCE($16::boolean, FALSE), COALESCE($17::boolean, FALSE),
-            $18, $19, $20, $21, $22, CURRENT_TIMESTAMP
+            COALESCE((SELECT nome FROM producao_reatores_config WHERE id = $4 AND tipo = 'bombona'), $18::text),
+            $19, $20, $21, $22, CURRENT_TIMESTAMP
         )
         ON CONFLICT (id) DO UPDATE SET
             week_key = EXCLUDED.week_key,
@@ -1478,5 +1479,50 @@ mod tests {
         assert_eq!(feito.resultado.0.len(), 2);
         assert_eq!(existem(&pool, &week).await, 0, "confirmar apaga as duas");
         limpar_teste(&pool, &week).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn reator_de_bombona_grava_o_nome_do_reator_e_recusa_acima_da_capacidade() {
+        let pool = pool_teste().await;
+        let rid = format!("TESTE_BOMB_{}", uuid::Uuid::new_v4().simple());
+        let nome = "Bombona Teste 60kg";
+        // tudo numa transação que nunca é confirmada
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("INSERT INTO producao_reatores_config (id, nome, capacidade_kg, tipo, ordem, ativo) VALUES ($1, $2, 60, 'bombona', 99, TRUE)")
+            .bind(&rid)
+            .bind(nome)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+
+        let mut ok = item(&format!("{rid}-a"), "2026-10-23");
+        ok.reator_id = rid.clone();
+        ok.quantidade_planejada = 40.0;
+        ok.recipiente_detalhe = Some("Bombona 200kg".into());
+        gravar_planejamento_em(&mut tx, std::slice::from_mut(&mut ok), &[], "teste").await.unwrap();
+        let gravado: String = sqlx::query_scalar("SELECT recipiente_detalhe FROM producao_planejamento_semanal WHERE id = $1")
+            .bind(&ok.id)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        assert_eq!(gravado, nome, "o valor do cliente é ignorado em reator de bombona");
+
+        let mut grande = item(&format!("{rid}-b"), "2026-10-24");
+        grande.reator_id = rid.clone();
+        grande.quantidade_planejada = 70.0;
+        let e = gravar_planejamento_em(&mut tx, std::slice::from_mut(&mut grande), &[], "teste").await.unwrap_err();
+        assert_eq!(e.codigo, "regra_violada");
+        assert!(e.mensagem.starts_with("Bombona Teste 60kg comporta até 60 kg"), "{}", e.mensagem);
+        tx.rollback().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn migracao_079_roda_duas_vezes_sem_erro() {
+        let pool = pool_teste().await;
+        let sql = include_str!("../../../supabase/079_bombonas_ids_claros.sql");
+        sqlx::raw_sql(sql).execute(&pool).await.unwrap();
+        sqlx::raw_sql(sql).execute(&pool).await.unwrap();
     }
 }

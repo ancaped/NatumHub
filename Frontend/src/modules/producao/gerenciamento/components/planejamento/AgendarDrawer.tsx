@@ -22,8 +22,6 @@ interface AgendarDrawerProps {
   setScheduleReator: Setter<string>;
   scheduleDate: string;
   setScheduleDate: Setter<string>;
-  scheduleRecipienteDetalhe: string;
-  setScheduleRecipienteDetalhe: Setter<string>;
   setScheduleModalItem: Setter<ScheduleModalItem | null>;
   handleAddProductToSchedule: (prod: any) => void;
   handleRemoveProductFromSchedule: (codigo: string) => void;
@@ -48,8 +46,6 @@ export function AgendarDrawer({
   setScheduleReator,
   scheduleDate,
   setScheduleDate,
-  scheduleRecipienteDetalhe,
-  setScheduleRecipienteDetalhe,
   setScheduleModalItem,
   handleAddProductToSchedule,
   handleRemoveProductFromSchedule,
@@ -327,40 +323,17 @@ export function AgendarDrawer({
             <select
               value={scheduleReator}
               onChange={(e) => {
-                const rId = e.target.value;
-                setScheduleReator(rId);
-                if (rId === 'BOMBONAS') {
-                  setScheduleRecipienteDetalhe('Bombona 50kg');
-                } else {
-                  setScheduleRecipienteDetalhe('Reator');
-                }
+                setScheduleReator(e.target.value);
               }}
               className="w-full p-2 bg-white border border-zinc-200 rounded-lg text-xs"
             >
               {reatores.filter(r => r.ativo).map(r => (
                 <option key={r.id} value={r.id}>
-                  {r.nome} ({r.id === 'BOMBONAS' ? '50/100/200 kg' : `${r.capacidade_kg} kg`})
+                  {r.nome} ({r.capacidade_kg} kg)
                 </option>
               ))}
             </select>
           </div>
-
-          {scheduleReator === 'BOMBONAS' && (
-            <div>
-              <label className="font-semibold text-zinc-700 block mb-1">Recipiente da Bombona:</label>
-              <select
-                value={scheduleRecipienteDetalhe}
-                onChange={(e) => {
-                  setScheduleRecipienteDetalhe(e.target.value);
-                }}
-                className="w-full p-2 bg-white border border-zinc-200 rounded-lg text-xs font-semibold text-zinc-800"
-              >
-                <option value="Bombona 50kg">Bombona 50 kg (Mistura rápida a frio)</option>
-                <option value="Bombona 100kg">Bombona 100 kg (Mistura / Água Quente da Caldeira)</option>
-                <option value="Bombona 200kg">Bombona 200 kg (Bases / Água Quente da Caldeira)</option>
-              </select>
-            </div>
-          )}
 
           <div>
             <div className="flex items-center justify-between mb-1">

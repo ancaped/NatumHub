@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getProductProcessType, previsaoEnvase, getProductColorInfo, LIMITE_BOMBONA_QUENTE_KG } from '../../src/modules/producao/lib/processoProduto';
+import { getProductProcessType, previsaoEnvase, getProductColorInfo, LIMITE_BOMBONA_QUENTE_KG, ehBombona, menorBombonaQueCabe, resolverRecipienteSugerido, getShortReatorName } from '../../src/modules/producao/lib/processoProduto';
 
 test('shampoo é processo a frio', () => {
   const r = getProductProcessType({ descricao: 'SHAMPOO LISO 500ML', producao_recomendada: 100 });
@@ -79,4 +79,28 @@ test('limite da bombona quente é 150 kg (a frio segue 200)', () => {
   assert.equal(acima.canBombona, false);
   const frio = getProductProcessType({ descricao: 'SHAMPOO LISO 1KG', producao_recomendada: 200 });
   assert.equal(frio.canBombona, true);
+});
+
+const reat = (id: string, nome: string, cap: number, tipo: string, ativo = true) => ({ id, nome, capacidade_kg: cap, tipo, ordem: 1, ativo });
+const BOMBONAS = [
+  reat('BOMBONA_200', 'Bombona 200kg', 200, 'bombona'),
+  reat('BOMBONAS', 'Bombona 50kg', 50, 'bombona'),
+  reat('BOMBONA_100', 'Bombona 100kg', 100, 'bombona'),
+  reat('R_500', 'Reator 500kg', 500, 'caldeira'),
+];
+
+test('bombona: cada tamanho é um reator; a sugestão é a menor que comporta a massa', () => {
+  assert.equal(ehBombona(BOMBONAS[2]), true);
+  assert.equal(ehBombona(BOMBONAS[3]), false);
+  assert.equal(menorBombonaQueCabe(BOMBONAS, 40)?.id, 'BOMBONAS');
+  assert.equal(menorBombonaQueCabe(BOMBONAS, 80)?.id, 'BOMBONA_100');
+  assert.equal(menorBombonaQueCabe(BOMBONAS, 150)?.id, 'BOMBONA_200');
+  assert.equal(menorBombonaQueCabe(BOMBONAS, 250), null);
+  assert.equal(menorBombonaQueCabe([{ ...BOMBONAS[1], ativo: false }], 10), null);
+  assert.equal(resolverRecipienteSugerido('BOMBONAS', BOMBONAS, 80), 'BOMBONA_100');
+  assert.equal(resolverRecipienteSugerido('R_500', BOMBONAS, 80), 'R_500');
+});
+
+test('nome curto da bombona é o nome do reator', () => {
+  assert.equal(getShortReatorName('BOMBONA_100', 'Reator', BOMBONAS), 'Bombona 100kg');
 });

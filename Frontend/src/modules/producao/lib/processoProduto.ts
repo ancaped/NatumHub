@@ -246,7 +246,42 @@ export function previsaoEnvase(dataPlanejada: string, dias: number): string {
   return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}`;
 }
 
+/** Reator de bombona: cada tamanho é um reator próprio (tipo `bombona`); `BOMBONAS` é o id antigo, de antes da separação. */
+export function ehBombona(r?: Pick<ReatorConfig, 'id' | 'tipo'> | null): boolean {
+  return !!r && (r.tipo === 'bombona' || r.id === 'BOMBONAS');
+}
+
+/** Menor bombona ativa em que a massa cabe (null se nenhuma comporta). */
+export function menorBombonaQueCabe(reatores: ReatorConfig[], kg: number): ReatorConfig | null {
+  const cabem = reatores.filter(r => r.ativo && ehBombona(r) && Number(r.capacidade_kg) + 0.05 >= kg);
+  cabem.sort((a, b) => Number(a.capacidade_kg) - Number(b.capacidade_kg));
+  return cabem[0] ?? null;
+}
+
+/** Bombona para a massa: a menor que comporta; se nenhuma comporta, a menor ativa (a validação da tela avisa do excesso). */
+export function bombonaParaMassa(reatores: ReatorConfig[], kg: number): ReatorConfig | null {
+  const achada = menorBombonaQueCabe(reatores, kg);
+  if (achada) return achada;
+  const todas = reatores.filter(r => r.ativo && ehBombona(r));
+  todas.sort((a, b) => Number(a.capacidade_kg) - Number(b.capacidade_kg));
+  return todas[0] ?? null;
+}
+
+/** Texto de `recipiente_detalhe` do reator: bombona leva o nome do reator (o servidor grava o mesmo). */
+export function recipienteDoReator(r?: Pick<ReatorConfig, 'id' | 'nome' | 'tipo'> | null): string {
+  if (!r) return 'Reator';
+  if (ehBombona(r)) return r.nome;
+  return r.id === 'R_40' ? 'Reator 40kg' : 'Reator';
+}
+
+/** `recipienteSugerido` 'BOMBONAS' é só o sinal de "bombona": vira o menor reator bombona em que a massa cabe. */
+export function resolverRecipienteSugerido(sugerido: string, reatores: ReatorConfig[], kg: number): string {
+  return sugerido === 'BOMBONAS' ? (menorBombonaQueCabe(reatores, kg)?.id ?? sugerido) : sugerido;
+}
+
 export function getShortReatorName(id: string, recipDetail?: string, reatoresList?: ReatorConfig[]): string {
+  const cfg = reatoresList?.find(x => x.id === id);
+  if (cfg && ehBombona(cfg) && id !== 'BOMBONAS') return cfg.nome;
   if (id === 'BOMBONAS') {
     return recipDetail && recipDetail !== 'Reator' ? recipDetail : 'Bombona';
   }

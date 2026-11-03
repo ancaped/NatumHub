@@ -7,6 +7,27 @@ import type { ReatorConfig } from '../PlanejamentoSemanalTab';
 import type { Setter } from './tiposDrawers';
 import { usePreviaServidor } from '../../../lib/usePreviaServidor';
 
+const PREFIXO_ID_PROVISORIO = 'NOVO_';
+
+/** Id do reator a partir do nome: maiúsculas, sem acento, `_` ("Bombona 300kg" -> BOMBONA_300KG); repetido ganha sufixo _2, _3... */
+export function idDoNomeReator(nome: string, usados: Set<string>): string {
+  const base = nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'REATOR';
+  let id = base;
+  for (let n = 2; usados.has(id); n++) id = `${base}_${n}`;
+  return id;
+}
+
+/** Reatores novos (id provisório) ganham o id definitivo pelo nome; id de reator existente nunca muda. */
+function comIdsDefinitivos(lista: ReatorConfig[]): ReatorConfig[] {
+  const usados = new Set(lista.filter(x => !x.id.startsWith(PREFIXO_ID_PROVISORIO)).map(x => x.id));
+  return lista.map(x => {
+    if (!x.id.startsWith(PREFIXO_ID_PROVISORIO)) return x;
+    const id = idDoNomeReator(x.nome, usados);
+    usados.add(id);
+    return { ...x, id };
+  });
+}
+
 interface ReatoresDrawerProps {
   reatores: ReatorConfig[];
   setReatores: Setter<ReatorConfig[]>;
@@ -42,7 +63,7 @@ export function ReatoresDrawer({
                   await apiFetch('/producao/reatores', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(reatores)
+                    body: JSON.stringify(comIdsDefinitivos(reatores))
                   });
                   setReatoresModalOpen(false);
                   avisar("Reatores e regras atualizados com sucesso!", 'sucesso');
@@ -156,7 +177,7 @@ export function ReatoresDrawer({
           <button
             type="button"
             onClick={() => {
-              const newId = `R_NOVO_${Date.now()}`;
+              const newId = `${PREFIXO_ID_PROVISORIO}${Date.now()}`;
               setReatores([
                 ...reatores,
                 {

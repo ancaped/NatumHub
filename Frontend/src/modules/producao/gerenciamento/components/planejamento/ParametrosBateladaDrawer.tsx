@@ -2,6 +2,7 @@ import React from 'react';
 import { Check, Flame, RefreshCw, Snowflake } from 'lucide-react';
 import Drawer from '../../../../geral/components/ui/Drawer';
 import { parseProductUnitWeightKg, unidadesDeKg, ehBaseProduto } from '../../../lib/unitConversion';
+import { bombonaParaMassa, ehBombona, recipienteDoReator } from '../../../lib/processoProduto';
 import type { ReatorConfig } from '../PlanejamentoSemanalTab';
 import type { DiaSemana, Setter, TechnicalModalItem } from './tiposDrawers';
 
@@ -63,7 +64,7 @@ export function ParametrosBateladaDrawer({
               onClick={() => setTechnicalModalItem({ 
                 ...technicalModalItem, 
                 processoTermico: 'frio',
-                recipienteDetalhe: technicalModalItem.reatorId === 'BOMBONAS' ? 'Bombona 50kg' : 'Reator'
+                recipienteDetalhe: recipienteDoReator(reatores.find(x => x.id === technicalModalItem.reatorId))
               })}
               className={`p-2.5 rounded-lg border text-left flex items-center gap-2 transition-all cursor-pointer ${
                 technicalModalItem.processoTermico === 'frio'
@@ -109,14 +110,17 @@ export function ParametrosBateladaDrawer({
               <div className="grid grid-cols-2 gap-1.5 text-xs">
                 <button
                   type="button"
-                  onClick={() => setTechnicalModalItem({
-                    ...technicalModalItem,
-                    processoTermico: 'agua_caldeira',
-                    reatorId: 'BOMBONAS',
-                    recipienteDetalhe: 'Bombona 100kg',
-                  })}
+                  onClick={() => {
+                    const bombona = bombonaParaMassa(reatores, Number(technicalModalItem.quantidadeKg) || 0);
+                    setTechnicalModalItem({
+                      ...technicalModalItem,
+                      processoTermico: 'agua_caldeira',
+                      reatorId: bombona?.id ?? technicalModalItem.reatorId,
+                      recipienteDetalhe: recipienteDoReator(bombona),
+                    });
+                  }}
                   className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
-                    technicalModalItem.processoTermico === 'agua_caldeira' || technicalModalItem.reatorId === 'BOMBONAS'
+                    technicalModalItem.processoTermico === 'agua_caldeira' || ehBombona(reatores.find(x => x.id === technicalModalItem.reatorId))
                       ? 'bg-amber-100 border-amber-400 text-amber-950 font-bold ring-1 ring-amber-300'
                       : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
                   }`}
@@ -164,16 +168,16 @@ export function ParametrosBateladaDrawer({
                 <button
                   type="button"
                   onClick={() => {
-                    const defaultReator = reatores.find(r => r.ativo && r.id !== 'BOMBONAS' && r.id !== 'R_40' && r.id !== 'R_100')?.id || 'R_500';
+                    const defaultReator = reatores.find(r => r.ativo && !ehBombona(r) && r.id !== 'R_40' && r.id !== 'R_100')?.id || 'R_500';
                     setTechnicalModalItem({
                       ...technicalModalItem,
                       processoTermico: 'caldeira',
-                      reatorId: (technicalModalItem.reatorId === 'BOMBONAS' || technicalModalItem.reatorId === 'R_40' || technicalModalItem.reatorId === 'R_100') ? defaultReator : technicalModalItem.reatorId,
+                      reatorId: (ehBombona(reatores.find(x => x.id === technicalModalItem.reatorId)) || technicalModalItem.reatorId === 'R_40' || technicalModalItem.reatorId === 'R_100') ? defaultReator : technicalModalItem.reatorId,
                       recipienteDetalhe: 'Reator',
                     });
                   }}
                   className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
-                    technicalModalItem.processoTermico === 'caldeira' && technicalModalItem.reatorId !== 'BOMBONAS' && technicalModalItem.reatorId !== 'R_40' && technicalModalItem.reatorId !== 'R_100'
+                    technicalModalItem.processoTermico === 'caldeira' && !ehBombona(reatores.find(x => x.id === technicalModalItem.reatorId)) && technicalModalItem.reatorId !== 'R_40' && technicalModalItem.reatorId !== 'R_100'
                       ? 'bg-red-100 border-red-400 text-red-950 font-bold ring-1 ring-red-300'
                       : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
                   }`}
@@ -243,10 +247,7 @@ export function ParametrosBateladaDrawer({
               value={technicalModalItem.reatorId}
               onChange={(e) => {
                 const rId = e.target.value;
-                let recip = technicalModalItem.recipienteDetalhe;
-                if (rId === 'BOMBONAS') recip = 'Bombona 50kg';
-                else if (rId === 'R_40') recip = 'Reator 40kg';
-                else recip = 'Reator';
+                const recip = recipienteDoReator(reatores.find(x => x.id === rId));
                 setTechnicalModalItem({
                   ...technicalModalItem,
                   reatorId: rId,
@@ -257,7 +258,7 @@ export function ParametrosBateladaDrawer({
             >
               {reatores.filter(r => r.ativo).map(r => (
                 <option key={r.id} value={r.id}>
-                  {r.nome} ({r.id === 'BOMBONAS' ? '50/100/200 kg' : `${r.capacidade_kg} kg`})
+                  {r.nome} ({r.capacidade_kg} kg)
                 </option>
               ))}
             </select>
@@ -265,29 +266,12 @@ export function ParametrosBateladaDrawer({
 
           <div>
             <label className="font-bold text-zinc-800 block mb-1">Recipiente:</label>
-            {technicalModalItem.reatorId === 'BOMBONAS' ? (
-              <select
-                value={technicalModalItem.recipienteDetalhe}
-                onChange={(e) => {
-                  setTechnicalModalItem({
-                    ...technicalModalItem,
-                    recipienteDetalhe: e.target.value,
-                  });
-                }}
-                className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs font-semibold text-amber-900"
-              >
-                <option value="Bombona 50kg">Bombona 50 kg</option>
-                <option value="Bombona 100kg">Bombona 100 kg</option>
-                <option value="Bombona 200kg">Bombona 200 kg</option>
-              </select>
-            ) : (
-              <input
-                type="text"
-                disabled
-                value={technicalModalItem.reatorId === 'R_40' ? 'Reator 40kg' : 'Reator'}
-                className="w-full p-2 bg-zinc-100 border border-zinc-200 rounded-lg text-xs text-zinc-600 font-medium"
-              />
-            )}
+            <input
+              type="text"
+              disabled
+              value={recipienteDoReator(reatores.find(x => x.id === technicalModalItem.reatorId))}
+              className="w-full p-2 bg-zinc-100 border border-zinc-200 rounded-lg text-xs text-zinc-600 font-medium"
+            />
           </div>
         </div>
 
