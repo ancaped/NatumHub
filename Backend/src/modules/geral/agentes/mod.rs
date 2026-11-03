@@ -37,6 +37,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/agentes/acoes", get(acoes_rota))
         .route("/api/agentes/criar", post(criar_por_agente_rota))
         .route("/api/agentes/criados", get(criados_rota))
+        .route("/api/agentes/criados/:id/token", post(criado_token_rota))
+        .route("/api/agentes/criados/:id/modulos", post(criado_modulos_rota))
+        .route("/api/agentes/criados/:id/revogar", post(criado_revogar_rota))
         .route("/api/admin/agentes", get(listar_rota).post(criar_rota))
         .route("/api/admin/agentes/:id/token", post(novo_token_rota))
         .route("/api/admin/agentes/:id/revogar", post(revogar_rota))
@@ -48,7 +51,7 @@ pub fn acoes() -> Vec<Acao> {
         Acao::gravacao(
             "criar_agente_ia",
             MODULE_OPERADORES,
-            "Cria um agente de IA limitado. Só para agentes com Gestão de Operadores (hub_operadores) em nível editar; operadores criam pela tela de Agentes. Você só pode dar módulos que você tem, em nível igual ou menor (ver ou editar), e nunca hub_operadores nem hub_settings; o agente novo também não exclui registros. Limite de 10 agentes ativos criados por você. Sem `confirmar=true` devolve a prévia (nome e módulos) ou as recusas com o motivo; com ele grava e devolve `id`, `nome`, `modulos` e o `token` UMA ÚNICA VEZ: guarde o token, ele não aparece de novo. Revogar fica com o supervisor.",
+            "Cria um agente de IA limitado. Só para agentes com Gestão de Operadores (hub_operadores) em nível editar; operadores criam pela tela de Agentes. Você só pode dar módulos que você tem, em nível igual ou menor (ver ou editar), e nunca hub_operadores nem hub_settings; o agente novo também não exclui registros. Limite de 10 agentes ativos criados por você. Sem `confirmar=true` devolve a prévia (nome e módulos) ou as recusas com o motivo; com ele grava e devolve `id`, `nome`, `modulos` e o `token` UMA ÚNICA VEZ: guarde o token, ele não aparece de novo. Depois de criado, você troca o token, ajusta os módulos e revoga com trocar_token_agente_criado, ajustar_modulos_agente_criado e revogar_agente_criado (só os que você criou).",
             "POST",
             "/api/agentes/criar",
             true,
@@ -64,6 +67,43 @@ pub fn acoes() -> Vec<Acao> {
             "Lista os agentes de IA criados por você (quem chama), com id, nome, se está ativo, módulos e níveis, e os tokens só pelo prefixo (o token inteiro nunca volta; use o que recebeu na criação). Inclui os já revogados; o limite de 10 conta só os ativos com token não revogado. Só para agentes com Gestão de Operadores (ver ou editar).",
             "/api/agentes/criados",
             vec![],
+        ),
+        Acao::gravacao(
+            "trocar_token_agente_criado",
+            MODULE_OPERADORES,
+            "Troca o token de um agente que VOCÊ criou: revoga os tokens ativos dele e gera um novo. Só para agentes com Gestão de Operadores (hub_operadores) em nível editar; agente criado por outro (ou pelo supervisor) e o seu próprio dão 403. Se o agente estava sem token (revogado), conta como reativar e respeita o limite de 10 agentes ativos. Sem `confirmar=true` devolve a prévia (agente e quantos tokens seriam revogados); com ele grava e devolve o `token` novo UMA ÚNICA VEZ: guarde o token, ele não aparece de novo. Audita quem trocou.",
+            "POST",
+            "/api/agentes/criados/:id/token",
+            true,
+            vec![
+                param("id", "caminho", "texto", true, "Id do agente criado por você (veja listar_agentes_criados)."),
+                param("confirmar", "query", "booleano", false, "true para trocar de fato; sem ele só a prévia."),
+            ],
+        ),
+        Acao::gravacao(
+            "ajustar_modulos_agente_criado",
+            MODULE_OPERADORES,
+            "Troca o conjunto inteiro de módulos de um agente que VOCÊ criou (os módulos que não vierem no corpo saem). Mesmas regras da criação: só módulos que você tem, em nível igual ou menor (ver ou editar), nunca hub_operadores nem hub_settings, e o conjunto não pode ficar vazio (para tirar tudo, use revogar_agente_criado). Só para agentes com Gestão de Operadores em nível editar. Sem `confirmar=true` devolve a prévia com `antes` e `depois` por módulo ou as recusas com o motivo; com ele grava. O token não muda e nada é devolvido dele. Audita antes e depois.",
+            "POST",
+            "/api/agentes/criados/:id/modulos",
+            true,
+            vec![
+                param("id", "caminho", "texto", true, "Id do agente criado por você."),
+                param("modulos", "corpo", "objeto módulo → nível", true, "Conjunto novo e completo. Ex.: {\"vendas\": \"ver\"}. Só módulos que você tem, em nível igual ou menor."),
+                param("confirmar", "query", "booleano", false, "true para gravar; sem ele só a prévia (também aceito no corpo)."),
+            ],
+        ),
+        Acao::gravacao(
+            "revogar_agente_criado",
+            MODULE_OPERADORES,
+            "Revoga todos os tokens ativos de um agente que VOCÊ criou: ele para de entrar até você trocar o token (trocar_token_agente_criado). Não apaga o agente nem o histórico dele. Só para agentes com Gestão de Operadores (hub_operadores) em nível editar; agente criado por outro (ou pelo supervisor) dá 403. Sem `confirmar=true` devolve a prévia (agente e quantos tokens seriam revogados); com ele grava. Revogar libera uma vaga no limite de 10 agentes ativos. Audita quem revogou.",
+            "POST",
+            "/api/agentes/criados/:id/revogar",
+            true,
+            vec![
+                param("id", "caminho", "texto", true, "Id do agente criado por você."),
+                param("confirmar", "query", "booleano", false, "true para revogar de fato; sem ele só a prévia."),
+            ],
         ),
     ]
 }
@@ -154,7 +194,7 @@ pub fn eu(ctx: &AuthContext) -> Eu {
     }
 }
 
-const COMO_LER: &str = "A permissão de cada ação vem dos módulos da rota (campo liberadaPor em /api/agentes/acoes); o campo modulo da ação é só onde ela fica. Agentes com Gestão de Operadores (hub_operadores) podem criar até 10 agentes limitados com criar_agente_ia.";
+const COMO_LER: &str = "A permissão de cada ação vem dos módulos da rota (campo liberadaPor em /api/agentes/acoes); o campo modulo da ação é só onde ela fica. Agentes com Gestão de Operadores (hub_operadores) podem criar até 10 agentes limitados com criar_agente_ia e, só nos que criaram, trocar o token, ajustar os módulos e revogar.";
 
 /// Ação do catálogo com a informação de o chamador poder executá-la.
 #[derive(Debug, Serialize)]
@@ -463,6 +503,93 @@ pub async fn listar_criados(pool: &PgPool, criador: &AuthContext) -> Result<Vec<
     Ok(listar(pool).await?.into_iter().filter(|a| ids.contains(&a.id)).collect())
 }
 
+/// Garante que `id` é de um agente criado por quem chama (nunca ele mesmo, nem de outro criador ou do supervisor).
+/// Devolve se o agente está vivo (ativo e com token não revogado).
+async fn exigir_dono(pool: &PgPool, autor: &AuthContext, id: &str) -> Result<bool, ErroApi> {
+    exigir_agente_com_gestao(autor, true)?;
+    criados_por(pool, autor)
+        .await?
+        .into_iter()
+        .find(|(criado, _)| criado == id)
+        .map(|(_, vivo)| vivo)
+        .ok_or_else(|| ErroApi::sem_permissao("Este agente não foi criado por você."))
+}
+
+/// Troca o token de um agente criado por quem chama. Se ele estava sem token ativo, é reativação e respeita o limite.
+pub async fn trocar_token_criado(pool: &PgPool, autor: &AuthContext, id: &str, confirmar: bool) -> Result<RespostaAcao<Value>, ErroApi> {
+    let vivo = exigir_dono(pool, autor, id).await?;
+    if !vivo {
+        let vivos = criados_por(pool, autor).await?.into_iter().filter(|(_, v)| *v).count();
+        if vivos >= LIMITE_AGENTES_CRIADOS {
+            return Err(ErroApi::regra(format!(
+                "Reativação recusada: você já tem {vivos} agentes ativos (máximo {LIMITE_AGENTES_CRIADOS}); revogue algum antes."
+            ))
+            .com_detalhes(json!({ "recusas": ["limite"] })));
+        }
+    }
+    trocar_token_interno(pool, autor, id, confirmar, true).await
+}
+
+/// Revoga os tokens de um agente criado por quem chama.
+pub async fn revogar_criado(pool: &PgPool, autor: &AuthContext, id: &str, confirmar: bool) -> Result<RespostaAcao<Value>, ErroApi> {
+    exigir_dono(pool, autor, id).await?;
+    revogar_interno(pool, autor, id, confirmar, true).await
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AjusteModulos {
+    #[serde(default)]
+    pub modulos: BTreeMap<String, String>,
+    #[serde(default)]
+    pub confirmar: bool,
+}
+
+/// Troca o conjunto inteiro de módulos de um agente criado por quem chama, com as mesmas regras da criação.
+pub async fn ajustar_modulos_criado(pool: &PgPool, autor: &AuthContext, id: &str, entrada: AjusteModulos) -> Result<RespostaAcao<Value>, ErroApi> {
+    exigir_dono(pool, autor, id).await?;
+    if entrada.modulos.is_empty() {
+        return Err(ErroApi::invalido("Informe ao menos um módulo; para tirar o acesso de tudo, revogue o agente (revogar_agente_criado)."));
+    }
+    let novos = validar_modulos(&entrada.modulos)?;
+    let recusas = recusas_de_modulos(autor, &entrada.modulos);
+    if !recusas.is_empty() {
+        return Err(ErroApi::regra(format!("Ajuste recusado: {}", recusas.join(" | "))).com_detalhes(json!({ "recusas": recusas })));
+    }
+    let (id_tx, confirmar) = (id.to_string(), entrada.confirmar);
+    let resposta = executar_em_2_passos(pool, "ajustar_modulos_agente", confirmar, move |tx| {
+        Box::pin(async move {
+            let nome = nome_do_agente(tx, &id_tx).await?;
+            let antes: Vec<(String, String)> =
+                sqlx::query_as("SELECT module_key, access_level FROM hub_operator_modules WHERE operator_id = $1")
+                    .bind(&id_tx)
+                    .fetch_all(&mut **tx)
+                    .await?;
+            sqlx::query("DELETE FROM hub_operator_modules WHERE operator_id = $1").bind(&id_tx).execute(&mut **tx).await?;
+            for (modulo, nivel) in &novos {
+                sqlx::query("INSERT INTO hub_operator_modules (operator_id, module_key, access_level) VALUES ($1, $2, $3)")
+                    .bind(&id_tx)
+                    .bind(modulo)
+                    .bind(nivel)
+                    .execute(&mut **tx)
+                    .await?;
+            }
+            Ok(json!({
+                "agente": nome,
+                "antes": antes.iter().map(|(m, n)| (m.clone(), nivel_api(n))).collect::<BTreeMap<_, _>>(),
+                "depois": novos.iter().map(|(m, n)| (m.clone(), nivel_api(n))).collect::<BTreeMap<_, _>>(),
+            }))
+        })
+    })
+    .await?;
+    if confirmar {
+        let r = &resposta.resultado;
+        let antes = json!({ "modulos": r["antes"] });
+        let depois = json!({ "modulos": r["depois"], "origem": autor.origem.as_str(), "criadoPor": autor.display_name });
+        audit::record_domain(pool, Some(autor), MODULO_AUDITORIA, "ajustar_modulos_agente", "agente", id, "Módulos de agente ajustados por agente", Some(antes), Some(depois)).await;
+    }
+    Ok(resposta)
+}
+
 async fn gravar_token(
     tx: &mut sqlx::Transaction<'static, sqlx::Postgres>,
     operator_id: &str,
@@ -498,8 +625,22 @@ async fn revogar_tokens(tx: &mut sqlx::Transaction<'static, sqlx::Postgres>, id:
         .rows_affected())
 }
 
+/// Corpo da auditoria de troca/revogação de token; quando é agente, registra a origem e o criador (nunca o token).
+fn depois_de_token(autor: &AuthContext, resultado: &Value, por_agente: bool) -> Value {
+    let mut depois = json!({ "tokensRevogados": resultado["tokensRevogados"] });
+    if por_agente {
+        depois["origem"] = json!(autor.origem.as_str());
+        depois["criadoPor"] = json!(autor.display_name);
+    }
+    depois
+}
+
 /// Troca o token: revoga os ativos e gera um novo (que só aparece com `confirmar`).
 pub async fn novo_token(pool: &PgPool, autor: &AuthContext, id: &str, confirmar: bool) -> Result<RespostaAcao<Value>, ErroApi> {
+    trocar_token_interno(pool, autor, id, confirmar, false).await
+}
+
+async fn trocar_token_interno(pool: &PgPool, autor: &AuthContext, id: &str, confirmar: bool, por_agente: bool) -> Result<RespostaAcao<Value>, ErroApi> {
     let (id_tx, criado_por) = (id.to_string(), autor.display_name.clone());
     let resposta = executar_em_2_passos(pool, "trocar_token_agente", confirmar, move |tx| {
         Box::pin(async move {
@@ -517,7 +658,7 @@ pub async fn novo_token(pool: &PgPool, autor: &AuthContext, id: &str, confirmar:
     })
     .await?;
     if confirmar {
-        let depois = json!({ "tokensRevogados": resposta.resultado["tokensRevogados"] });
+        let depois = depois_de_token(autor, &resposta.resultado, por_agente);
         audit::record_domain(pool, Some(autor), MODULO_AUDITORIA, "trocar_token_agente", "agente", id, "Token de agente trocado", None, Some(depois)).await;
     }
     Ok(resposta)
@@ -525,6 +666,10 @@ pub async fn novo_token(pool: &PgPool, autor: &AuthContext, id: &str, confirmar:
 
 /// Revoga todos os tokens ativos: o agente para de entrar até ganhar um token novo.
 pub async fn revogar(pool: &PgPool, autor: &AuthContext, id: &str, confirmar: bool) -> Result<RespostaAcao<Value>, ErroApi> {
+    revogar_interno(pool, autor, id, confirmar, false).await
+}
+
+async fn revogar_interno(pool: &PgPool, autor: &AuthContext, id: &str, confirmar: bool, por_agente: bool) -> Result<RespostaAcao<Value>, ErroApi> {
     let id_tx = id.to_string();
     let resposta = executar_em_2_passos(pool, "revogar_agente", confirmar, move |tx| {
         Box::pin(async move {
@@ -535,7 +680,7 @@ pub async fn revogar(pool: &PgPool, autor: &AuthContext, id: &str, confirmar: bo
     })
     .await?;
     if confirmar {
-        let depois = json!({ "tokensRevogados": resposta.resultado["tokensRevogados"] });
+        let depois = depois_de_token(autor, &resposta.resultado, por_agente);
         audit::record_domain(pool, Some(autor), MODULO_AUDITORIA, "revogar_agente", "agente", id, "Tokens de agente revogados", None, Some(depois)).await;
     }
     Ok(resposta)
@@ -595,6 +740,35 @@ async fn criar_por_agente_rota(
 
 async fn criados_rota(State(state): State<Arc<AppState>>, Extension(ctx): Extension<AuthContext>) -> Response {
     responder(listar_criados(state.db.pool(), &ctx).await.map(|agentes| json!({ "agentes": agentes })))
+}
+
+async fn criado_token_rota(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+    Query(q): Query<Confirmar>,
+) -> Response {
+    responder(trocar_token_criado(state.db.pool(), &ctx, &id, q.confirmar).await)
+}
+
+async fn criado_modulos_rota(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+    Query(q): Query<Confirmar>,
+    Json(mut entrada): Json<AjusteModulos>,
+) -> Response {
+    entrada.confirmar = entrada.confirmar || q.confirmar;
+    responder(ajustar_modulos_criado(state.db.pool(), &ctx, &id, entrada).await)
+}
+
+async fn criado_revogar_rota(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+    Query(q): Query<Confirmar>,
+) -> Response {
+    responder(revogar_criado(state.db.pool(), &ctx, &id, q.confirmar).await)
 }
 
 async fn novo_token_rota(
@@ -1049,6 +1223,137 @@ mod tests {
         let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM hub_operators WHERE display_name LIKE $1 OR id = $2")
             .bind(format!("filho-{marca}-%"))
             .bind(&id_criador)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        for id in &ids {
+            for sql in [
+                "DELETE FROM hub_agent_tokens WHERE operator_id = $1",
+                "DELETE FROM hub_operator_modules WHERE operator_id = $1",
+                "DELETE FROM hub_audit_events WHERE entity_id = $1",
+                "DELETE FROM hub_operators WHERE id = $1",
+            ] {
+                sqlx::query(sql).bind(id).execute(&pool).await.unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn catalogo_traz_as_acoes_de_gestao_dos_criados() {
+        use crate::modules::geral::auth::store::{has_read_access, has_write_access};
+        let a = acoes();
+        for nome in ["trocar_token_agente_criado", "ajustar_modulos_agente_criado", "revogar_agente_criado"] {
+            let x = a.iter().find(|x| x.nome == nome).unwrap_or_else(|| panic!("{nome}"));
+            assert!(x.escrita && x.dois_passos && !x.exclui && x.descricao.len() >= 90, "{nome}");
+            assert!(!crate::core::catalogo::e_exclusao(x.metodo, &x.caminho.replace(":id", "abc")), "{nome} não é exclusão");
+        }
+        let ok = criador(&[("hub_operadores", "edit")]);
+        let ver = criador(&[("hub_operadores", "view")]);
+        for rota in ["token", "modulos", "revogar"] {
+            let caminho = format!("/api/agentes/criados/abc/{rota}");
+            assert!(has_write_access(&ok, &caminho, "POST"), "{rota}");
+            assert!(!has_write_access(&ver, &caminho, "POST"), "{rota}");
+        }
+        assert!(has_read_access(&ver, "/api/agentes/criados", "GET"));
+    }
+
+    /// Gestão dos criados com banco: dono, token, módulos, revogação, limite e auditoria.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn agente_gerencia_so_os_agentes_que_criou() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        let marca = Uuid::new_v4().to_string()[..8].to_string();
+        let mut sup = agente_com(&[]);
+        sup.role = OperatorRole::Supervisor;
+        sup.origem = Origem::Tela;
+        sup.display_name = format!("sup-{marca}");
+        let novo = |nome: String, mods: &[(&str, &str)]| NovoAgente { nome, modulos: pedido(mods), confirmar: true };
+
+        let ger = criar(&pool, &sup, novo(format!("ger-{marca}"), &[("hub_operadores", "editar"), ("vendas", "editar"), ("producao", "ver")])).await.unwrap();
+        let id_ger = ger.resultado["id"].as_str().unwrap().to_string();
+        let ctx = resolver_token(&pool, ger.resultado["token"].as_str().unwrap()).await.unwrap().unwrap();
+        // outro agente (criado pelo supervisor) e um agente só com ver em Gestão
+        let outro = criar(&pool, &sup, novo(format!("outro-{marca}"), &[("vendas", "ver")])).await.unwrap();
+        let id_outro = outro.resultado["id"].as_str().unwrap().to_string();
+        let leitor = criar(&pool, &sup, novo(format!("leitor-{marca}"), &[("hub_operadores", "ver")])).await.unwrap();
+        let id_leitor = leitor.resultado["id"].as_str().unwrap().to_string();
+        let ctx_leitor = resolver_token(&pool, leitor.resultado["token"].as_str().unwrap()).await.unwrap().unwrap();
+
+        let filho = criar_por_agente(&pool, &ctx, novo(format!("filho-{marca}"), &[("vendas", "ver"), ("producao", "ver")])).await.unwrap();
+        let id_filho = filho.resultado["id"].as_str().unwrap().to_string();
+        let token0 = filho.resultado["token"].as_str().unwrap().to_string();
+
+        // sem Gestão em editar: 403; operador: 400
+        assert_eq!(trocar_token_criado(&pool, &ctx_leitor, &id_filho, true).await.unwrap_err().status, axum::http::StatusCode::FORBIDDEN);
+        assert_eq!(revogar_criado(&pool, &ctx_leitor, &id_filho, true).await.unwrap_err().status, axum::http::StatusCode::FORBIDDEN);
+        assert_eq!(trocar_token_criado(&pool, &sup, &id_filho, true).await.unwrap_err().status, axum::http::StatusCode::BAD_REQUEST);
+        // não é dele: o do supervisor, ele mesmo
+        for alvo in [&id_outro, &id_ger] {
+            assert_eq!(trocar_token_criado(&pool, &ctx, alvo, true).await.unwrap_err().status, axum::http::StatusCode::FORBIDDEN);
+            assert_eq!(revogar_criado(&pool, &ctx, alvo, true).await.unwrap_err().status, axum::http::StatusCode::FORBIDDEN);
+            let e = ajustar_modulos_criado(&pool, &ctx, alvo, AjusteModulos { modulos: pedido(&[("vendas", "ver")]), confirmar: true }).await.unwrap_err();
+            assert_eq!(e.status, axum::http::StatusCode::FORBIDDEN);
+        }
+
+        // troca de token: prévia não mexe; confirmar revoga o velho e o novo funciona
+        let p = trocar_token_criado(&pool, &ctx, &id_filho, false).await.unwrap();
+        assert!(p.previa && p.resultado["token"].is_null());
+        assert!(resolver_token(&pool, &token0).await.unwrap().is_some());
+        let t = trocar_token_criado(&pool, &ctx, &id_filho, true).await.unwrap();
+        let token1 = t.resultado["token"].as_str().unwrap().to_string();
+        assert!(resolver_token(&pool, &token0).await.unwrap().is_none());
+        assert!(resolver_token(&pool, &token1).await.unwrap().is_some());
+        // a autoria continua certa depois da troca
+        assert_eq!(listar_criados(&pool, &ctx).await.unwrap().len(), 1);
+
+        // módulos: recusas não gravam
+        let mods_do_filho = || async {
+            sqlx::query_as::<_, (String, String)>("SELECT module_key, access_level FROM hub_operator_modules WHERE operator_id = $1 ORDER BY module_key")
+                .bind(&id_filho)
+                .fetch_all(&pool)
+                .await
+                .unwrap()
+        };
+        let antes = mods_do_filho().await;
+        for ruim in [&[("compras_mp", "ver")][..], &[("producao", "editar")], &[("hub_operadores", "ver")], &[("hub_settings", "ver")], &[]] {
+            let e = ajustar_modulos_criado(&pool, &ctx, &id_filho, AjusteModulos { modulos: pedido(ruim), confirmar: true }).await.unwrap_err();
+            assert!(e.status == axum::http::StatusCode::UNPROCESSABLE_ENTITY || e.status == axum::http::StatusCode::BAD_REQUEST, "{ruim:?}");
+        }
+        assert_eq!(mods_do_filho().await, antes);
+        // prévia mostra antes e depois sem gravar; confirmar grava o subconjunto
+        let p = ajustar_modulos_criado(&pool, &ctx, &id_filho, AjusteModulos { modulos: pedido(&[("vendas", "editar")]), confirmar: false }).await.unwrap();
+        assert!(p.previa && p.resultado["antes"]["producao"] == "ver" && p.resultado["depois"]["vendas"] == "editar");
+        assert_eq!(mods_do_filho().await, antes);
+        ajustar_modulos_criado(&pool, &ctx, &id_filho, AjusteModulos { modulos: pedido(&[("vendas", "editar")]), confirmar: true }).await.unwrap();
+        assert_eq!(mods_do_filho().await, vec![("vendas".to_string(), "edit".to_string())]);
+
+        // revogar: derruba o token; reativar respeita o limite
+        revogar_criado(&pool, &ctx, &id_filho, true).await.unwrap();
+        assert!(resolver_token(&pool, &token1).await.unwrap().is_none());
+        for i in 1..=10 {
+            criar_por_agente(&pool, &ctx, novo(format!("enche-{marca}-{i}"), &[("vendas", "ver")])).await.unwrap();
+        }
+        let e = trocar_token_criado(&pool, &ctx, &id_filho, true).await.unwrap_err();
+        assert!(e.mensagem.contains("máximo"), "{}", e.mensagem);
+
+        // auditoria com o criador e sem token
+        for acao in ["trocar_token_agente", "ajustar_modulos_agente", "revogar_agente"] {
+            let (actor, depois): (String, String) =
+                sqlx::query_as("SELECT actor_id, after_json::text FROM hub_audit_events WHERE action = $1 AND entity_id = $2 ORDER BY created_at DESC LIMIT 1")
+                    .bind(acao)
+                    .bind(&id_filho)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(actor, id_ger, "{acao}");
+            assert!(depois.contains(&format!("ger-{marca}")) && depois.contains("agente") && !depois.contains("nxa_"), "{acao}: {depois}");
+        }
+
+        let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM hub_operators WHERE display_name LIKE $1 OR display_name LIKE $2 OR id = ANY($3)")
+            .bind(format!("enche-{marca}-%"))
+            .bind(format!("filho-{marca}"))
+            .bind(vec![id_ger.clone(), id_outro, id_leitor])
             .fetch_all(&pool)
             .await
             .unwrap();
