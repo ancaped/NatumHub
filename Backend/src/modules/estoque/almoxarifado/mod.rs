@@ -246,13 +246,12 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
                 param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),
             ],
         ),
-        Acao::gravacao(
+        Acao::exclusao(
             "excluir_item_almox",
             "estoque_almoxarifado",
-            "Remove um item do almoxarifado: apaga a configuração, o saldo e as fotos dele (não mexe no catálogo do ERP). Vai para a auditoria. Sem `confirmar=true` mostra só a prévia do que seria apagado.",
+            "Remove um item do almoxarifado: apaga a configuração, o saldo, os movimentos, as contagens, as fotos e o cadastro do item. Vai para a auditoria. Exige `motivo` ao confirmar; a cópia do que foi apagado fica na auditoria; agentes não podem usar. Sem `confirmar=true` mostra só a prévia do que seria apagado.",
             "DELETE",
             "/api/almox/items/:code",
-            true,
             vec![
                 param("code", "caminho", "texto", true, "Código do item."),
                 param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),
@@ -271,13 +270,12 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
                 param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),
             ],
         ),
-        Acao::gravacao(
+        Acao::exclusao(
             "excluir_familia_almox",
             "estoque_almoxarifado",
-            "Remove uma família (seção); os itens dela passam para 'outros'. Vai para a auditoria. Sem `confirmar=true` mostra só a prévia.",
+            "Remove uma família (seção); os itens dela passam para 'outros'. Vai para a auditoria. Exige `motivo` ao confirmar; a cópia do que foi apagado fica na auditoria; agentes não podem usar. Sem `confirmar=true` mostra só a prévia.",
             "DELETE",
             "/api/almox/familias/:id",
-            true,
             vec![
                 param("id", "caminho", "texto", true, "Identificador da família."),
                 param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),
@@ -346,13 +344,12 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
                 param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),
             ],
         ),
-        Acao::gravacao(
+        Acao::exclusao(
             "excluir_foto_almox",
             "estoque_almoxarifado",
-            "Remove uma foto anexada a item ou equipamento pelo id. Vai para a auditoria. Sem `confirmar=true` mostra só a prévia.",
+            "Remove uma foto anexada a item ou equipamento pelo id. Vai para a auditoria. Exige `motivo` ao confirmar; a cópia do que foi apagado fica na auditoria; agentes não podem usar. Sem `confirmar=true` mostra só a prévia.",
             "DELETE",
             "/api/almox/fotos/:id",
-            true,
             vec![
                 param("id", "caminho", "texto", true, "Id da foto."),
                 param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),

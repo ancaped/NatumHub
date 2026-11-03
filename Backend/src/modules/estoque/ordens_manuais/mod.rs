@@ -118,13 +118,12 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
                 confirmar(),
             ],
         ),
-        Acao::gravacao(
+        Acao::exclusao(
             "excluir_ordem_manual",
             "estoque_ordens_manuais",
-            "Exclui uma ordem manual aberta (só OPEN; ordem lançada dá erro, reabra antes com `reabrir_ordem_manual`). Vai para a auditoria. Sem `confirmar=true` mostra só a prévia.",
+            "Exclui uma ordem manual aberta (só OPEN; ordem lançada dá erro, reabra antes com `reabrir_ordem_manual`). Vai para a auditoria. Exige `motivo` ao confirmar; a cópia do que foi apagado fica na auditoria; agentes não podem usar. Sem `confirmar=true` mostra só a prévia.",
             "DELETE",
             "/api/estoque/ordens-manuais/:id",
-            true,
             vec![param("id", "caminho", "inteiro", true, "Id da ordem."), confirmar()],
         ),
         Acao::gravacao(
@@ -154,13 +153,12 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
             true,
             vec![param("name", "corpo", "texto", true, "Nome do tipo."), confirmar()],
         ),
-        Acao::gravacao(
+        Acao::exclusao(
             "excluir_tipo_registro_ordem_manual",
             "estoque_ordens_manuais",
-            "Remove um tipo de registro de ordem manual. Não altera ordens já criadas com esse tipo; dá erro se o id não existe. Vai para a auditoria. Sem `confirmar=true` mostra só a prévia.",
+            "Remove um tipo de registro de ordem manual. Não altera ordens já criadas com esse tipo; dá erro se o id não existe. Vai para a auditoria. Exige `motivo` ao confirmar; a cópia do que foi apagado fica na auditoria; agentes não podem usar. Sem `confirmar=true` mostra só a prévia.",
             "DELETE",
             "/api/estoque/ordens-manuais/tipos/:id",
-            true,
             vec![param("id", "caminho", "inteiro", true, "Id do tipo."), confirmar()],
         ),
         Acao::gravacao(

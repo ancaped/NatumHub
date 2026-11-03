@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { apiJson } from '../../../geral/lib/http';
 import { usePreviaServidor } from '../../../producao/lib/usePreviaServidor';
+import { useMotivoExclusao } from '../../../producao/lib/useMotivoExclusao';
 import type { AlmoxFamilia, AlmoxMovement, AlmoxOpsItem } from '../types';
 import { SECTION_LABELS } from '../types';
 
@@ -54,7 +55,7 @@ interface Props {
   familias?: AlmoxFamilia[];
   onClose: () => void;
   onSaveConfig: (payload: ItemConfigPayload) => Promise<void>;
-  onDeleteItem?: (code: string) => Promise<void>;
+  onDeleteItem?: (code: string, motivo: string) => Promise<void>;
   onCountSaved?: () => Promise<void>;
   onRequestBuy?: (item: AlmoxOpsItem) => Promise<void>;
   onMoveCategory?: (code: string, newSection: string) => Promise<void>;
@@ -167,6 +168,7 @@ export default function ItemDrawer({
   const { pedir: pedirPrevia, elemento: previaElemento } = usePreviaServidor(
     (m, tipo) => (tipo === 'erro' ? setLocalError(m) : setLocalSuccess(m)),
   );
+  const { pedirMotivo, elemento: motivoElemento } = useMotivoExclusao();
 
   // Edit config states
   const [description, setDescription] = useState(item.description || '');
@@ -378,17 +380,18 @@ export default function ItemDrawer({
   };
 
   // Handle delete item
-  const handleDeleteItem = async () => {
+  const handleDeleteItem = () => {
     if (!onDeleteItem) return;
-    setSavingAction(true);
-    setLocalError(null);
-    try {
-      await onDeleteItem(item.code);
-      onClose();
-    } catch (e: unknown) {
-      setLocalError(e instanceof Error ? e.message : 'Não foi possível excluir o item.');
-      setSavingAction(false);
-    }
+    pedirMotivo({
+      titulo: 'Excluir item do almoxarifado',
+      alvo: `${item.code}${item.description ? ` · ${item.description}` : ''}`,
+      detalhe: 'Apaga saldo, movimentos e fotos',
+      executar: async (motivo) => {
+        setLocalError(null);
+        await onDeleteItem(item.code, motivo);
+        onClose();
+      },
+    });
   };
 
   // Handle uploading main photo
@@ -445,17 +448,16 @@ export default function ItemDrawer({
   };
 
   // Delete photo from secondary gallery
-  const handleDeleteGalleryPhoto = async (id: string) => {
-    setSavingAction(true);
-    setLocalError(null);
-    try {
-      await apiJson(`/almox/fotos/${encodeURIComponent(id)}?confirmar=true`, { method: 'DELETE' });
-      setFotos((prev) => prev.filter((f) => f.id !== id));
-    } catch (err: unknown) {
-      setLocalError(err instanceof Error ? err.message : 'Erro ao excluir foto.');
-    } finally {
-      setSavingAction(false);
-    }
+  const handleDeleteGalleryPhoto = (id: string) => {
+    pedirMotivo({
+      titulo: 'Excluir foto',
+      alvo: 'Foto do histórico do item',
+      executar: async (motivo) => {
+        setLocalError(null);
+        await apiJson(`/almox/fotos/${encodeURIComponent(id)}?confirmar=true&motivo=${encodeURIComponent(motivo)}`, { method: 'DELETE' });
+        setFotos((prev) => prev.filter((f) => f.id !== id));
+      },
+    });
   };
 
   // Item movements that represent past counts
@@ -1273,6 +1275,7 @@ export default function ItemDrawer({
       </div>
     </div>
     {previaElemento}
+    {motivoElemento}
     </>
   );
 }

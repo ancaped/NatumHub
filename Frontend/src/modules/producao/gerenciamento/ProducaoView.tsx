@@ -479,9 +479,10 @@ export default function ProducaoView({
       titulo: 'Remover componente do kit',
       linhas: [{ titulo: `Componente ${comp}`, detalhe: `Kit ${kit}` }],
       confirmarRotulo: 'OK, remover',
-      executar: async () => {
+      pedirMotivo: true,
+      executar: async (motivo) => {
         try {
-          const res = await apiFetch(`/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
+          const res = await apiFetch(`/kits/composicao/${kit}/${comp}?motivo=${encodeURIComponent(motivo ?? '')}`, { method: 'DELETE' });
           if (res.ok) { showToast('Relação removida!'); fetchKitComposicao(); }
         } catch (e) { showToast('Erro', 'error'); }
       },
@@ -1130,9 +1131,10 @@ export default function ProducaoView({
       titulo: 'Excluir linha',
       linhas: [{ titulo: `Linha "${prefix}"`, detalhe: 'Exclusão permanente' }],
       confirmarRotulo: 'OK, excluir',
-      executar: async () => {
+      pedirMotivo: true,
+      executar: async (motivo) => {
         try {
-          const res = await apiFetch(`/configs/${prefix}`, {
+          const res = await apiFetch(`/configs/${prefix}?confirmar=true&motivo=${encodeURIComponent(motivo ?? '')}`, {
             method: 'DELETE',
           });
           if (res.ok) {

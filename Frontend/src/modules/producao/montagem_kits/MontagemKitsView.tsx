@@ -308,8 +308,9 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
       titulo: 'Remover componente do kit',
       linhas: [{ titulo: `Componente ${comp}`, detalhe: `Kit ${kit}` }],
       confirmarRotulo: 'OK, remover',
-      executar: async () => {
-        const res = await apiFetch(`/kits/composicao/${encodeURIComponent(kit)}/${encodeURIComponent(comp)}`, { method: 'DELETE' });
+      pedirMotivo: true,
+      executar: async (motivo) => {
+        const res = await apiFetch(`/kits/composicao/${encodeURIComponent(kit)}/${encodeURIComponent(comp)}?motivo=${encodeURIComponent(motivo ?? '')}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(await mensagemErroServidor(res, 'Erro ao excluir relação.'));
         await fetchKitComposicao();
         await fetchKits(); // Atualiza os alertas
@@ -422,9 +423,10 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
       titulo: 'Remover relação de vira',
       linhas: [{ titulo: `Produto ${de}`, detalhe: `vira ${para}` }],
       confirmarRotulo: 'OK, remover',
-      executar: async () => {
+      pedirMotivo: true,
+      executar: async (motivo) => {
         try {
-          const res = await apiFetch(`/turnovers/composicao/${de}/${para}`, { method: 'DELETE' });
+          const res = await apiFetch(`/turnovers/composicao/${de}/${para}?motivo=${encodeURIComponent(motivo ?? '')}`, { method: 'DELETE' });
           if (res.ok) {
             await fetchViraComposicao();
           } else {
@@ -694,6 +696,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
       init: { method: 'DELETE' },
       titulo: 'Excluir ordem de vira',
       confirmarRotulo: 'OK, excluir',
+      pedirMotivo: true,
       linhas: (d) => [{
         titulo: `Ordem ${d.item?.order_number ?? id}`,
         detalhe: `${d.item?.de_produto_codigo ?? ''} → ${d.item?.para_produto_codigo ?? ''} • ${d.item?.quantity ?? ''} un`,
@@ -1138,6 +1141,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
       init: { method: 'DELETE' },
       titulo: 'Excluir ordem de montagem',
       confirmarRotulo: 'OK, excluir',
+      pedirMotivo: true,
       linhas: (d) => [{
         titulo: `Ordem ${d.item?.order_number ?? id}`,
         detalhe: `${d.item?.kit_product_code ?? ''} • ${d.item?.quantity ?? ''} un`,

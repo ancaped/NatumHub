@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 
-use crate::core::acao::{corpo_acao, Confirmar, ErroApi};
+use crate::core::acao::{corpo_acao, Confirmar, ErroApi, Motivo};
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 use crate::modules::geral::auth::modules_registry::{
@@ -632,11 +632,12 @@ pub async fn delete_foto(
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
     Query(c): Query<Confirmar>,
+    Query(m): Query<Motivo>,
 ) -> Result<Response, ErroApi> {
     if !has_any_ops(&ctx) {
         return Err(permissao(SEM_PERMISSAO));
     }
-    let r = servicos::excluir_foto(state.db.pool(), id, &autor(&ctx), c.confirmar).await?;
+    let r = servicos::excluir_foto(state.db.pool(), id, m.motivo.as_deref(), &autor(&ctx), c.confirmar).await?;
     Ok(resposta(&r))
 }
 
@@ -687,11 +688,12 @@ pub async fn delete_familia(
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
     Query(c): Query<Confirmar>,
+    Query(m): Query<Motivo>,
 ) -> Result<Response, ErroApi> {
     if !can_write_stock(&ctx) {
         return Err(permissao(SEM_PERMISSAO));
     }
-    let r = servicos::excluir_familia(state.db.pool(), id, &autor(&ctx), c.confirmar).await?;
+    let r = servicos::excluir_familia(state.db.pool(), id, m.motivo.as_deref(), &autor(&ctx), c.confirmar).await?;
     Ok(resposta(&r))
 }
 
@@ -700,11 +702,12 @@ pub async fn delete_item(
     Extension(ctx): Extension<AuthContext>,
     Path(code): Path<String>,
     Query(c): Query<Confirmar>,
+    Query(m): Query<Motivo>,
 ) -> Result<Response, ErroApi> {
     if !can_write_stock(&ctx) {
         return Err(permissao(SEM_PERMISSAO));
     }
-    let r = servicos::excluir_item(state.db.pool(), code, &autor(&ctx), c.confirmar).await?;
+    let r = servicos::excluir_item(state.db.pool(), code, m.motivo.as_deref(), &autor(&ctx), c.confirmar).await?;
     Ok(resposta(&r))
 }
 

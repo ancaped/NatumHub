@@ -15,7 +15,7 @@ use serde_json::json;
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
-use crate::core::acao::{executar_em_2_passos, ErroApi};
+use crate::core::acao::{executar_em_2_passos, exigir_motivo, ErroApi, Motivo};
 use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
@@ -65,25 +65,23 @@ pub fn acoes() -> Vec<Acao> {
                 param("consumirFila", "corpo", "lista {filaId, kg}", false, "Demandas da fila consumidas por estas ordens (kg agendados por item)."),
             ],
         ),
-        Acao::gravacao(
+        Acao::exclusao(
             "excluir_ordem_planejamento",
             M,
-            "Exclui uma ordem do quadro. Sem `confirmar=true` mostra só a prévia; ordens já em envase ou adiante ficam bloqueadas.",
+            "Exclui uma ordem do quadro (ordens já em envase ou adiante ficam bloqueadas). Exige `motivo` ao confirmar; a cópia da ordem apagada fica na auditoria; agentes não podem usar. Sem `confirmar=true` mostra só a prévia.",
             "DELETE",
             "/api/producao/planejamento-semanal/:id",
-            true,
             vec![
                 param("id", "caminho", "texto", true, "Id da ordem."),
                 param("confirmar", "query", "booleano", false, "true para excluir de fato."),
             ],
         ),
-        Acao::gravacao(
+        Acao::exclusao(
             "limpar_semana_planejamento",
             M,
-            "Apaga todas as ordens de uma semana do quadro (as bloqueadas ficam). Sem `confirmar=true` mostra só a prévia.",
+            "Apaga todas as ordens de uma semana do quadro (as bloqueadas ficam). Exige `motivo` ao confirmar; a cópia das ordens apagadas fica na auditoria; agentes não podem usar. Sem `confirmar=true` mostra só a prévia.",
             "DELETE",
             "/api/producao/planejamento-semanal/clear",
-            true,
             vec![
                 param("week", "query", "texto", true, "Semana no formato 2026-W43."),
                 param("confirmar", "query", "booleano", false, "true para limpar de fato."),
@@ -794,6 +792,12 @@ async fn excluir_planejamento_item(conn: &mut sqlx::PgConnection, id: &str) -> R
     let Some((lote, codigo, descricao, kg)) = row else {
         return Err(ErroApi::nao_encontrado("Item não encontrado"));
     };
+    let copia: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT to_jsonb(t) - 'created_at' - 'updated_at' FROM producao_planejamento_semanal t WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(db)?;
     if let Some(motivo) = motivo_bloqueio_exclusao_planejamento(&mut *conn, id, lote.as_deref())
         .await
         .map_err(db)?
@@ -807,8 +811,29 @@ async fn excluir_planejamento_item(conn: &mut sqlx::PgConnection, id: &str) -> R
         .map_err(db)?;
     limpar_status_planejamento(&mut *conn, id, lote.as_deref()).await.map_err(db)?;
     Ok(json!({
-        "id": id, "codigoProduto": codigo, "descricao": descricao, "quantidadePlanejada": kg, "loteErp": lote
+        "id": id, "codigoProduto": codigo, "descricao": descricao, "quantidadePlanejada": kg, "loteErp": lote, "copia": copia
     }))
+}
+
+/// Serviço de "Excluir ordem do quadro", em 2 passos: motivo obrigatório ao confirmar; a cópia da linha apagada
+/// (`copia`, no resultado) vai para a auditoria junto com o motivo.
+pub async fn excluir_ordem_planejamento(
+    pool: &PgPool,
+    id: &str,
+    motivo: Option<&str>,
+    confirmar: bool,
+    usuario: &str,
+) -> Result<crate::core::acao::RespostaAcao<serde_json::Value>, ErroApi> {
+    let motivo = exigir_motivo(confirmar, motivo, "a ordem do quadro")?;
+    let id_tx = id.to_string();
+    let r = executar_em_2_passos(pool, "excluir_planejamento", confirmar, |tx| {
+        Box::pin(async move { excluir_planejamento_item(&mut **tx, &id_tx).await })
+    })
+    .await?;
+    if !r.previa {
+        auditoria::registrar(pool, usuario, "excluir_planejamento", id, json!({ "motivo": motivo, "ordem": r.resultado })).await;
+    }
+    Ok(r)
 }
 
 pub async fn delete_planejamento_item(
@@ -816,24 +841,17 @@ pub async fn delete_planejamento_item(
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
     Query(q): Query<ConfirmarParams>,
+    Query(m): Query<Motivo>,
 ) -> impl IntoResponse {
     if let Err(r) = permissao::exigir_edicao(&ctx) {
         return r;
     }
     let confirmar = q.confirmar == Some(true);
-    let id_tx = id.clone();
-    let r = executar_em_2_passos(state.db.pool(), "excluir_planejamento", confirmar, |tx| {
-        Box::pin(async move { excluir_planejamento_item(&mut **tx, &id_tx).await })
-    })
-    .await;
-    match r {
+    match excluir_ordem_planejamento(state.db.pool(), &id, m.motivo.as_deref(), confirmar, &ctx.display_name).await {
         Ok(r) if r.previa => {
-            (StatusCode::OK, Json(json!({ "previa": true, "acao": "excluir_planejamento", "item": r.resultado, "confirmar": "repita com confirmar=true para excluir" }))).into_response()
+            (StatusCode::OK, Json(json!({ "previa": true, "acao": "excluir_planejamento", "item": r.resultado, "confirmar": "repita com confirmar=true e motivo=... para excluir" }))).into_response()
         }
-        Ok(r) => {
-            auditoria::registrar(state.db.pool(), &ctx.display_name, "excluir_planejamento", &id, r.resultado).await;
-            (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
-        }
+        Ok(_) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
         Err(e) => e.into_response(),
     }
 }
@@ -938,7 +956,8 @@ async fn limpar_semana_planejamento(
 ) -> Result<(Vec<serde_json::Value>, i64), ErroApi> {
     let rows = sqlx::query(
         r#"
-        SELECT id, lote_erp, codigo_produto, descricao, quantidade_planejada::float8, unidade, base_codigo, base_nome
+        SELECT id, lote_erp, codigo_produto, descricao, quantidade_planejada::float8, unidade, base_codigo, base_nome,
+               to_jsonb(producao_planejamento_semanal) - 'created_at' - 'updated_at' AS copia
         FROM producao_planejamento_semanal
         WHERE week_key = $1
         FOR UPDATE
@@ -977,37 +996,55 @@ async fn limpar_semana_planejamento(
             "unidade": row.get::<Option<String>, _>(5),
             "baseCodigo": row.get::<Option<String>, _>(6),
             "baseNome": row.get::<Option<String>, _>(7),
+            "copia": row.get::<serde_json::Value, _>(8),
         }));
     }
     Ok((deleted, blocked))
+}
+
+/// Serviço de "Limpar semana do quadro", em 2 passos: motivo obrigatório ao confirmar; a cópia de cada ordem
+/// apagada (`copia`) vai para a auditoria junto com o motivo.
+pub async fn limpar_semana_quadro(
+    pool: &PgPool,
+    semana: &str,
+    motivo: Option<&str>,
+    confirmar: bool,
+    usuario: &str,
+) -> Result<crate::core::acao::RespostaAcao<(Vec<serde_json::Value>, i64)>, ErroApi> {
+    let motivo = exigir_motivo(confirmar, motivo, "as ordens da semana")?;
+    let sem = semana.to_string();
+    let r = executar_em_2_passos(pool, "limpar_semana_planejamento", confirmar, |tx| {
+        Box::pin(async move { limpar_semana_planejamento(&mut **tx, &sem).await })
+    })
+    .await?;
+    if !r.previa {
+        let (deleted, blocked) = &r.resultado;
+        auditoria::registrar(pool, usuario, "limpar_semana_planejamento", semana, json!({ "motivo": motivo, "apagados": deleted, "bloqueados": blocked })).await;
+    }
+    Ok(r)
 }
 
 pub async fn clear_planejamento_semana(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Query(params): Query<ClearWeekParams>,
+    Query(m): Query<Motivo>,
 ) -> impl IntoResponse {
     if let Err(r) = permissao::exigir_edicao(&ctx) {
         return r;
     }
     let confirmar = params.confirmar == Some(true);
-    let semana = params.week.clone();
-    let r = executar_em_2_passos(state.db.pool(), "limpar_semana_planejamento", confirmar, |tx| {
-        Box::pin(async move { limpar_semana_planejamento(&mut **tx, &semana).await })
-    })
-    .await;
-    match r {
+    match limpar_semana_quadro(state.db.pool(), &params.week, m.motivo.as_deref(), confirmar, &ctx.display_name).await {
         Ok(r) if r.previa => {
             let (deleted, blocked) = r.resultado;
             (
                 StatusCode::OK,
-                Json(json!({ "previa": true, "acao": "limpar_semana_planejamento", "semana": params.week, "deleted": deleted, "blocked": blocked, "confirmar": "repita com confirmar=true para limpar" })),
+                Json(json!({ "previa": true, "acao": "limpar_semana_planejamento", "semana": params.week, "deleted": deleted, "blocked": blocked, "confirmar": "repita com confirmar=true e motivo=... para limpar" })),
             )
                 .into_response()
         }
         Ok(r) => {
             let (deleted, blocked) = r.resultado;
-            auditoria::registrar(state.db.pool(), &ctx.display_name, "limpar_semana_planejamento", &params.week, json!({ "apagados": deleted, "bloqueados": blocked })).await;
             (
                 StatusCode::OK,
                 Json(json!({ "ok": true, "deleted": deleted, "blocked": blocked, "rows_deleted": deleted.len() })),

@@ -8,7 +8,7 @@ use futures_util::future::BoxFuture;
 use serde_json::{json, Value};
 use sqlx::{PgConnection, PgPool};
 
-use crate::core::acao::ErroApi;
+use crate::core::acao::{exigir_motivo, ErroApi};
 use crate::modules::estoque::escrita::{gravar_auditado, Resp};
 
 use super::models::*;
@@ -68,15 +68,37 @@ pub async fn salvar_config_item(
 }
 
 /// Apaga o item do almoxarifado (mesmo comportamento de antes), agora com prévia e auditoria.
-pub async fn excluir_item(pool: &PgPool, code: String, autor: &str, confirmar: bool) -> Resp {
+/// Exige motivo ao confirmar; a cópia do que foi apagado (`copia`) vai inteira para a auditoria.
+pub async fn excluir_item(pool: &PgPool, code: String, motivo: Option<&str>, autor: &str, confirmar: bool) -> Resp {
+    let motivo = exigir_motivo(confirmar, motivo, "o item do almoxarifado")?;
     let alvo = code.clone();
-    gravar(pool, "excluir_item_almox", autor, &alvo, json!({ "code": code }), confirmar, move |c| {
+    gravar(pool, "excluir_item_almox", autor, &alvo, json!({ "code": code, "motivo": motivo }), confirmar, move |c| {
         Box::pin(async move {
+            let copia = copia_item(c, &code).await?;
             store::delete_item(c, &code).await?;
-            Ok(json!({ "excluido": code }))
+            Ok(json!({ "excluido": code, "copia": copia }))
         })
     })
     .await
+}
+
+/// Tudo que `delete_item` apaga, em JSON (as fotos vão sem os dados da imagem, para a auditoria não inchar).
+async fn copia_item(c: &mut PgConnection, code: &str) -> Result<Value, String> {
+    sqlx::query_scalar(
+        r#"SELECT jsonb_build_object(
+            'item', (SELECT to_jsonb(i) FROM items i WHERE i.code = $1),
+            'config', (SELECT to_jsonb(x) FROM almox_item_config x WHERE x.item_code = $1),
+            'saldo', (SELECT to_jsonb(b) FROM almox_balances b WHERE b.item_code = $1),
+            'movimentos', COALESCE((SELECT jsonb_agg(to_jsonb(m)) FROM almox_movements m WHERE m.item_code = $1), '[]'::jsonb),
+            'itensDeDemanda', COALESCE((SELECT jsonb_agg(to_jsonb(d)) FROM almox_purchase_demand_items d WHERE d.item_code = $1), '[]'::jsonb),
+            'contagens', COALESCE((SELECT jsonb_agg(to_jsonb(e)) FROM almox_count_entries e WHERE e.item_code = $1), '[]'::jsonb),
+            'fotos', COALESCE((SELECT jsonb_agg(to_jsonb(f) - 'photo_data') FROM estoque_fotos f WHERE f.entity_type = 'item' AND f.entity_id = $1), '[]'::jsonb)
+        )"#,
+    )
+    .bind(code)
+    .fetch_one(&mut *c)
+    .await
+    .map_err(|e| e.to_string())
 }
 
 pub async fn salvar_familia(pool: &PgPool, fam: AlmoxFamilia, autor: &str, confirmar: bool) -> Resp {
@@ -91,12 +113,24 @@ pub async fn salvar_familia(pool: &PgPool, fam: AlmoxFamilia, autor: &str, confi
     .await
 }
 
-pub async fn excluir_familia(pool: &PgPool, id: String, autor: &str, confirmar: bool) -> Resp {
+pub async fn excluir_familia(pool: &PgPool, id: String, motivo: Option<&str>, autor: &str, confirmar: bool) -> Resp {
+    let motivo = exigir_motivo(confirmar, motivo, "a família do almoxarifado")?;
     let alvo = id.clone();
-    gravar(pool, "excluir_familia_almox", autor, &alvo, json!({ "id": id }), confirmar, move |c| {
+    gravar(pool, "excluir_familia_almox", autor, &alvo, json!({ "id": id, "motivo": motivo }), confirmar, move |c| {
         Box::pin(async move {
+            let chave = id.trim().to_lowercase();
+            let copia: Value = sqlx::query_scalar(
+                r#"SELECT jsonb_build_object(
+                    'familia', (SELECT to_jsonb(f) FROM almox_familias f WHERE f.id = $1),
+                    'itensMovidosParaOutros', COALESCE((SELECT jsonb_agg(c.item_code) FROM almox_item_config c WHERE c.section = $1), '[]'::jsonb)
+                )"#,
+            )
+            .bind(&chave)
+            .fetch_one(&mut *c)
+            .await
+            .map_err(|e| e.to_string())?;
             store::delete_familia(c, &id).await?;
-            Ok(json!({ "excluida": id, "itensMovidosPara": "outros" }))
+            Ok(json!({ "excluida": id, "itensMovidosPara": "outros", "copia": copia }))
         })
     })
     .await
@@ -228,12 +262,18 @@ pub async fn adicionar_foto(
     .await
 }
 
-pub async fn excluir_foto(pool: &PgPool, id: String, autor: &str, confirmar: bool) -> Resp {
+pub async fn excluir_foto(pool: &PgPool, id: String, motivo: Option<&str>, autor: &str, confirmar: bool) -> Resp {
+    let motivo = exigir_motivo(confirmar, motivo, "a foto")?;
     let alvo = id.clone();
-    gravar(pool, "excluir_foto_almox", autor, &alvo, json!({ "id": id }), confirmar, move |c| {
+    gravar(pool, "excluir_foto_almox", autor, &alvo, json!({ "id": id, "motivo": motivo }), confirmar, move |c| {
         Box::pin(async move {
+            let copia: Option<Value> = sqlx::query_scalar("SELECT to_jsonb(f) FROM estoque_fotos f WHERE f.id = $1")
+                .bind(&id)
+                .fetch_optional(&mut *c)
+                .await
+                .map_err(|e| e.to_string())?;
             store::delete_foto(c, &id).await?;
-            Ok(json!({ "excluida": id }))
+            Ok(json!({ "excluida": id, "copia": copia }))
         })
     })
     .await

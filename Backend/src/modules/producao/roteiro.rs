@@ -74,7 +74,8 @@ pub fn montar(regras_gerais: &[String]) -> Value {
                 "titulo": "Como escrever",
                 "itens": [
                     "Toda escrita é em 2 passos: sem confirmar=true a rota só devolve a prévia do que mudaria; com confirmar=true grava.",
-                    "Toda gravação registra quem fez (operador ou agente) na auditoria. Nada se apaga: regra e anotação se arquivam.",
+                    "Toda gravação registra quem fez (operador ou agente) na auditoria. Regra e anotação não se apagam: arquivam-se.",
+                    "Agentes não excluem registros (excluir_*, limpar_*): essas ações respondem 403 para agentes. Para tirar um item da fila use retirar_da_fila (com motivo); para o resto, peça a um operador. Quando um operador exclui, o motivo é obrigatório e a cópia do que foi apagado fica na auditoria.",
                     "Anotação é contexto do produto (o que o histórico ensinou); regra é o que o planejamento deve seguir.",
                 ],
             },

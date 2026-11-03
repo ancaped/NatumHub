@@ -270,10 +270,11 @@ export default function KitCompositionDrawer({
       titulo: 'Desvincular componente do kit',
       linhas: [{ titulo: `${compCode}${desc ? ` · ${desc}` : ''}`, detalhe: `sai do kit ${kitCodigo}` }],
       confirmarRotulo: 'Desvincular',
-      executar: async () => {
+      pedirMotivo: true,
+      executar: async (motivo) => {
         let res: Response;
         try {
-          res = await apiFetch(`/kits/composicao/${encodeURIComponent(kitCodigo.trim())}/${encodeURIComponent(compCode.trim())}`, {
+          res = await apiFetch(`/kits/composicao/${encodeURIComponent(kitCodigo.trim())}/${encodeURIComponent(compCode.trim())}?motivo=${encodeURIComponent(motivo ?? '')}`, {
             method: 'DELETE'
           });
         } catch (e) {

@@ -32,6 +32,7 @@ import {
 import { apiJson } from '../../geral/lib/http';
 import type { TipoAviso } from '../../geral/components/ui/Aviso';
 import { usePreviaServidor } from '../../producao/lib/usePreviaServidor';
+import { useMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { ReportTabs } from '../../geral/components/ui/ReportKit';
 import ItemDrawer, { type ItemConfigPayload } from '../ops/components/ItemDrawer';
@@ -368,11 +369,11 @@ export default function AlmoxEstoqueView({ onBackToHub, initialFamily = 'todas' 
     }
   };
 
-  const handleDeleteItem = async (code: string) => {
+  const handleDeleteItem = async (code: string, motivo: string) => {
     setBusy(true);
     setError(null);
     try {
-      await apiJson(`/almox/items/${encodeURIComponent(code)}?confirmar=true`, { method: 'DELETE' });
+      await apiJson(`/almox/items/${encodeURIComponent(code)}?confirmar=true&motivo=${encodeURIComponent(motivo)}`, { method: 'DELETE' });
       setAviso(`Item "${code}" foi excluído com sucesso do almoxarifado.`);
       setSelected(null);
       await load();
@@ -2465,6 +2466,7 @@ function GerenciarFamiliasModal({
   const [color, setColor] = useState('blue');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { pedirMotivo, elemento: motivoElemento } = useMotivoExclusao();
 
   const colors = [
     { id: 'emerald', label: 'Verde', bg: 'bg-emerald-500' },
@@ -2498,21 +2500,23 @@ function GerenciarFamiliasModal({
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Deseja realmente remover esta família? Os itens cadastrados nela manterão seus dados.')) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await apiJson(`/almox/familias/${encodeURIComponent(id)}?confirmar=true`, { method: 'DELETE' });
-      await onUpdated();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Erro ao excluir família.');
-    } finally {
-      setBusy(false);
-    }
+  const handleDelete = (id: string) => {
+    const nome = familias.find((f) => f.id === id)?.label ?? id;
+    pedirMotivo({
+      titulo: 'Remover família',
+      alvo: `Família "${nome}"`,
+      avisos: ['Os itens cadastrados nela passam para "outros" e mantêm seus dados.'],
+      confirmarRotulo: 'OK, remover',
+      executar: async (motivo) => {
+        setError(null);
+        await apiJson(`/almox/familias/${encodeURIComponent(id)}?confirmar=true&motivo=${encodeURIComponent(motivo)}`, { method: 'DELETE' });
+        await onUpdated();
+      },
+    });
   };
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
       <div className="bg-white border border-zinc-200 rounded-2xl shadow-xl w-full max-w-md p-5 sm:p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200">
         <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
@@ -2609,6 +2613,8 @@ function GerenciarFamiliasModal({
         </div>
       </div>
     </div>
+    {motivoElemento}
+    </>
   );
 }
 

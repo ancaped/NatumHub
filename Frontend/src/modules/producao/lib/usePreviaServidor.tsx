@@ -22,6 +22,8 @@ export interface PedidoPrevia {
   linhas: (dados: any) => LinhaPrevia[];
   avisos?: (dados: any) => string[];
   erroPadrao: string;
+  /** Exclusão: pede o motivo no drawer e o envia como `motivo=` junto com `confirmar=true`. */
+  pedirMotivo?: boolean;
   /** Roda depois que o servidor gravou (recarregar a tela etc.). */
   aoConcluir?: (dados: any) => void | Promise<void>;
 }
@@ -46,9 +48,11 @@ export function usePreviaServidor(avisar: (mensagem: string, tipo?: TipoAviso) =
         linhas: p.linhas(dados),
         avisos: p.avisos?.(dados),
         confirmarRotulo: p.confirmarRotulo,
-        executar: async () => {
+        pedirMotivo: p.pedirMotivo,
+        executar: async (motivo?: string) => {
           const sep = p.url.includes('?') ? '&' : '?';
-          const r = await apiFetch(`${p.url}${sep}confirmar=true`, p.init);
+          const extra = motivo ? `&motivo=${encodeURIComponent(motivo)}` : '';
+          const r = await apiFetch(`${p.url}${sep}confirmar=true${extra}`, p.init);
           if (!r.ok) throw new Error(await mensagemErroServidor(r, p.erroPadrao));
           const feito = await r.json().catch(() => ({}));
           await p.aoConcluir?.(feito);

@@ -135,6 +135,9 @@ pub struct AcaoVisivel {
     #[serde(flatten)]
     pub acao: Acao,
     pub permitida: bool,
+    /// Por que a ação não é permitida ao agente, quando a regra é de exclusão (não depende de módulo).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub negada_por: Option<&'static str>,
     /// Módulos que dão acesso à rota (`modulos_da_rota`); a permissão vem daqui, não do campo `modulo`.
     pub liberada_por: Vec<LiberadaPor>,
 }
@@ -165,14 +168,16 @@ pub fn acoes_para(ctx: &AuthContext, modulo: Option<&str>) -> Vec<AcaoVisivel> {
         .filter_map(|a| {
             if !ctx.is_agente() {
                 let liberada_por = liberada_por(ctx, a.caminho);
-                return Some(AcaoVisivel { acao: a, permitida: true, liberada_por });
+                return Some(AcaoVisivel { acao: a, permitida: true, negada_por: None, liberada_por });
             }
             if !has_read_access(ctx, a.caminho, "GET") {
                 return None;
             }
-            let permitida = !a.escrita || has_write_access(ctx, a.caminho, a.metodo);
+            let exclusao = a.exclui;
+            let permitida = !exclusao && (!a.escrita || has_write_access(ctx, a.caminho, a.metodo));
+            let negada_por = exclusao.then_some(catalogo::AGENTE_NAO_EXCLUI);
             let liberada_por = liberada_por(ctx, a.caminho);
-            Some(AcaoVisivel { acao: a, permitida, liberada_por })
+            Some(AcaoVisivel { acao: a, permitida, negada_por, liberada_por })
         })
         .collect()
 }
@@ -527,7 +532,8 @@ mod tests {
         assert_eq!(permitida(&ver, "listar_kits"), None, "módulo que o agente não tem não aparece");
 
         let editar = acoes_para(&ctx_teste(Origem::Agente, "edit"), None);
-        assert_eq!(permitida(&editar, "excluir_ordem_planejamento"), Some(true));
+        assert_eq!(permitida(&editar, "excluir_ordem_planejamento"), Some(false), "agente não exclui, nem com editar");
+        assert_eq!(permitida(&editar, "aprovar_ordem_planejamento"), Some(true));
 
         let filtrado = acoes_para(&ctx_teste(Origem::Agente, "edit"), Some("planejamento_producao"));
         assert!(!filtrado.is_empty() && filtrado.iter().all(|a| a.acao.modulo == "planejamento_producao"));
@@ -546,6 +552,27 @@ mod tests {
             assert!(a.liberada_por.iter().all(|l| l.tem == (l.modulo == "producao")), "{}", a.acao.nome);
         }
         assert!(eu(&ctx).como_ler.contains("liberadaPor"));
+    }
+
+    #[test]
+    fn agente_com_editar_nao_exclui_e_operador_sim() {
+        use crate::core::catalogo::e_exclusao;
+        // agente com "editar" no módulo: pode gravar no planejamento, mas excluir não
+        let agente = ctx_teste(Origem::Agente, "edit");
+        let v = acoes_para(&agente, None);
+        assert_eq!(permitida(&v, "enviar_para_fila"), Some(true));
+        for nome in ["excluir_da_fila", "limpar_fila_demandas", "excluir_ordem_planejamento", "limpar_semana_planejamento"] {
+            assert_eq!(permitida(&v, nome), Some(false), "{nome}");
+            let a = v.iter().find(|a| a.acao.nome == nome).unwrap();
+            assert_eq!(a.negada_por, Some(catalogo::AGENTE_NAO_EXCLUI));
+        }
+        // o middleware recusa por esta regra (rota+método), antes de olhar módulo
+        assert!(agente.is_agente() && e_exclusao("DELETE", "/api/producao/fila-demandas/x"));
+        assert!(agente.is_agente() && e_exclusao("POST", "/api/producao/fila-demandas/limpar"));
+        // operador: tudo permitido, sem motivo de recusa
+        let op = acoes_para(&ctx_teste(Origem::Tela, "edit"), None);
+        assert_eq!(permitida(&op, "excluir_da_fila"), Some(true));
+        assert!(op.iter().all(|a| a.negada_por.is_none()));
     }
 
     #[test]

@@ -39,6 +39,7 @@ import { PatternsTab } from './components/PatternsTab';
 import { AgentsTab } from './components/AgentsTab';
 import { SettingsTab } from './components/SettingsTab';
 import { ErpLotesTab } from './components/ErpLotesTab';
+import { useMotivoExclusao } from '../lib/useMotivoExclusao';
 
 interface FiscoQuimicaViewProps {
   onBackToHub: () => void;
@@ -69,6 +70,7 @@ function ordenarAnalises(a: FiscoQuimicaAnalysis, b: FiscoQuimicaAnalysis): numb
 }
 
 export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps) {
+  const { pedirMotivo, elemento: motivoElemento } = useMotivoExclusao();
   const [activeTab, setActiveTab] = useState<'new' | 'calendar' | 'history' | 'erp_lotes' | 'correctives' | 'patterns' | 'settings'>('new');
   const [correctiveSection, setCorrectiveSection] = useState<'baixas' | 'catalogo'>('baixas');
   const [loading, setLoading] = useState(true);
@@ -292,20 +294,21 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
     setSelectedReportIds(new Set());
   };
 
-  const handleDeleteAnalysis = async (id: string, batch: string) => {
-    if (!confirm(`Excluir permanentemente o laudo físico-químico do lote ${batch}?`)) return;
-    try {
-      await api.deleteFiscoQuimicaAnalysis(id);
-      setSelectedReportIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-      setAnalyses((prev) => prev.filter((a) => a.id !== id));
-    } catch (err) {
-      console.error(err);
-      alert(`Erro ao excluir laudo: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  const handleDeleteAnalysis = (id: string, batch: string) => {
+    pedirMotivo({
+      titulo: 'Excluir laudo físico-químico',
+      alvo: `Laudo do lote ${batch}`,
+      detalhe: 'Exclusão definitiva',
+      executar: async (motivo) => {
+        await api.deleteFiscoQuimicaAnalysis(id, motivo);
+        setSelectedReportIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        setAnalyses((prev) => prev.filter((a) => a.id !== id));
+      },
+    });
   };
 
   const handleOpenAddPatternQuick = (productCode: string, productName: string) => {
@@ -420,6 +423,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
       onTabChange={(id: any) => setActiveTab(id)}
       headerActions={headerActions}
     >
+      {motivoElemento}
       {aviso && (
         <div className="fixed bottom-4 right-4 z-50 rounded-xl bg-zinc-900 px-4 py-3 text-sm font-bold text-white shadow-lg">
           {aviso}

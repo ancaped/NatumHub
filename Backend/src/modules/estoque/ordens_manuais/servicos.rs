@@ -7,7 +7,7 @@
 use serde_json::{json, Value};
 use sqlx::{PgConnection, PgPool, Row};
 
-use crate::core::acao::ErroApi;
+use crate::core::acao::{exigir_motivo, ErroApi};
 use crate::modules::estoque::escrita::{gravar_auditado, Resp};
 
 use super::handlers::{ensure_tables, load_full, load_sheet, next_order_number, normalize_kind, sheet_prefix};
@@ -248,9 +248,10 @@ pub async fn reabrir_ordem(pool: &PgPool, id: i64, autor: &str, confirmar: bool)
 }
 
 /// Exclui a ordem aberta (mesmo comportamento de antes: só OPEN), agora com prévia e auditoria.
-pub async fn excluir_ordem(pool: &PgPool, id: i64, autor: &str, confirmar: bool) -> Resp {
+pub async fn excluir_ordem(pool: &PgPool, id: i64, motivo: Option<&str>, autor: &str, confirmar: bool) -> Resp {
+    let motivo = exigir_motivo(confirmar, motivo, "a ordem manual")?;
     garantir(pool).await?;
-    gravar_auditado(pool, "excluir_ordem_manual", autor, &id.to_string(), json!({ "id": id }), confirmar, move |c| {
+    gravar_auditado(pool, "excluir_ordem_manual", autor, &id.to_string(), json!({ "id": id, "motivo": motivo }), confirmar, move |c| {
         Box::pin(async move {
             let ordem = load_full(&mut *c, id).await.ok();
             let r = sqlx::query("DELETE FROM manual_stock_orders WHERE id = $1 AND status = 'OPEN'")
@@ -260,7 +261,7 @@ pub async fn excluir_ordem(pool: &PgPool, id: i64, autor: &str, confirmar: bool)
             if r.rows_affected() == 0 {
                 return Err(ErroApi::invalido("Só é possível excluir ordens abertas"));
             }
-            Ok(json!({ "ok": true, "excluida": ordem }))
+            Ok(json!({ "ok": true, "excluida": ordem, "copia": ordem }))
         })
     })
     .await
@@ -293,11 +294,16 @@ pub async fn criar_tipo_registro(pool: &PgPool, payload: CreateRecordTypeRequest
     .await
 }
 
-pub async fn excluir_tipo_registro(pool: &PgPool, id: i64, autor: &str, confirmar: bool) -> Resp {
+pub async fn excluir_tipo_registro(pool: &PgPool, id: i64, motivo: Option<&str>, autor: &str, confirmar: bool) -> Resp {
+    let motivo = exigir_motivo(confirmar, motivo, "o tipo de registro")?;
     garantir(pool).await?;
-    gravar_auditado(pool, "excluir_tipo_registro_ordem_manual", autor, &id.to_string(), json!({ "id": id }), confirmar, move |c| {
+    gravar_auditado(pool, "excluir_tipo_registro_ordem_manual", autor, &id.to_string(), json!({ "id": id, "motivo": motivo }), confirmar, move |c| {
         Box::pin(async move {
             let nome: Option<String> = sqlx::query_scalar("SELECT name FROM manual_stock_record_types WHERE id = $1")
+                .bind(id)
+                .fetch_optional(&mut *c)
+                .await?;
+            let copia: Option<Value> = sqlx::query_scalar("SELECT to_jsonb(t) FROM manual_stock_record_types t WHERE t.id = $1")
                 .bind(id)
                 .fetch_optional(&mut *c)
                 .await?;
@@ -308,7 +314,7 @@ pub async fn excluir_tipo_registro(pool: &PgPool, id: i64, autor: &str, confirma
             if r.rows_affected() == 0 {
                 return Err(ErroApi::nao_encontrado("Tipo não encontrado"));
             }
-            Ok(json!({ "ok": true, "excluido": nome }))
+            Ok(json!({ "ok": true, "excluido": nome, "copia": copia }))
         })
     })
     .await
@@ -448,6 +454,36 @@ mod tests {
             notes: None,
             items: vec![ManualOrderItemIn { item_code: "ZZ-R4B".into(), description: Some("Teste".into()), unit: None, qty: 2.0, notes: None }],
         }
+    }
+
+    /// Excluir ordem manual: confirmar sem motivo é 400; com motivo apaga e a auditoria guarda motivo e cópia.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn excluir_ordem_manual_exige_motivo_e_audita_a_copia() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        let parceiro = "ZZ Parceiro Motivo";
+        ensure_tables(&pool).await.unwrap();
+        sqlx::query("DELETE FROM manual_stock_orders WHERE partner_name = $1").bind(parceiro).execute(&pool).await.unwrap();
+        let r = criar_ordem(&pool, pedido(parceiro), "Teste Motivo", true).await.unwrap();
+        let id = r.resultado["id"].as_i64().unwrap();
+
+        assert!(excluir_ordem(&pool, id, None, "Teste Motivo", false).await.unwrap().previa);
+        let e = excluir_ordem(&pool, id, Some(" "), "Teste Motivo", true).await.unwrap_err();
+        assert_eq!(e.codigo, "invalido");
+        excluir_ordem(&pool, id, Some("lançada em duplicidade"), "Teste Motivo", true).await.unwrap();
+
+        let restam: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM manual_stock_orders WHERE id = $1").bind(id).fetch_one(&pool).await.unwrap();
+        assert_eq!(restam, 0);
+        let det: Value = sqlx::query_scalar("SELECT detalhe FROM producao_auditoria WHERE usuario = 'Teste Motivo' AND acao = 'excluir_ordem_manual' AND alvo = $1")
+            .bind(id.to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(det["entrada"]["motivo"], "lançada em duplicidade");
+        assert_eq!(det["copia"]["partnerName"], parceiro);
+        assert_eq!(det["copia"]["items"][0]["itemCode"], "ZZ-R4B");
+        sqlx::query("DELETE FROM producao_auditoria WHERE usuario = 'Teste Motivo'").execute(&pool).await.unwrap();
     }
 
     /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.

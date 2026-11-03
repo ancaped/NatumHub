@@ -60,13 +60,12 @@ pub fn acoes_linha_produtos() -> Vec<Acao> {
                 param("value_str", "corpo", "texto", false, "Valor da ação (status, linha, categoria ou observação)."),
             ],
         ),
-        Acao::gravacao(
+        Acao::exclusao(
             "excluir_linha_produto",
             M,
-            "Exclui uma linha de produto: produtos e overrides dela voltam para DEFAULT. Sem `confirmar=true` devolve só a prévia (quantos seriam remapeados).",
+            "Exclui uma linha de produto: produtos e overrides dela voltam para DEFAULT. Exige `motivo` ao confirmar; a cópia da configuração apagada fica na auditoria; agentes não podem usar. Sem `confirmar=true` devolve só a prévia (quantos seriam remapeados).",
             "DELETE",
             "/api/configs/:prefix",
-            true,
             vec![
                 param("prefix", "caminho", "texto", true, "Prefixo da linha (DEFAULT não pode ser excluída)."),
                 param("confirmar", "query", "booleano", false, "true grava; ausente só mostra a prévia."),
@@ -160,9 +159,10 @@ pub async fn delete_config(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Query(c): Query<Confirmar>,
+    Query(m): Query<crate::core::acao::Motivo>,
     Path(prefix): Path<String>,
 ) -> Response {
-    match excluir_linha(state.db.pool(), &ctx, &prefix, c.confirmar).await {
+    match excluir_linha(state.db.pool(), &ctx, &prefix, m.motivo.as_deref(), c.confirmar).await {
         Ok(v) => Json(v).into_response(),
         Err(e) => e.into_response(),
     }
@@ -173,11 +173,13 @@ pub async fn excluir_linha(
     pool: &PgPool,
     ctx: &AuthContext,
     prefix: &str,
+    motivo: Option<&str>,
     confirmar: bool,
 ) -> Result<crate::core::acao::RespostaAcao<Value>, ErroApi> {
     if prefix == "DEFAULT" {
         return Err(ErroApi::invalido("A linha DEFAULT não pode ser excluída"));
     }
+    let motivo = crate::core::acao::exigir_motivo(confirmar, motivo, "a linha de produto")?;
     let antes: Option<LineConfig> = crate::core::db::Db::new(pool.clone())
         .get_line_configs()
         .await
@@ -207,7 +209,7 @@ pub async fn excluir_linha(
             "config_linha",
             prefix,
             &format!("Linha {prefix} excluída"),
-            Some(json!({ "config": antes, "resultado": resposta.resultado })),
+            Some(json!({ "motivo": motivo, "config": antes, "resultado": resposta.resultado })),
             None,
         )
         .await;
@@ -842,13 +844,15 @@ mod testes_dois_passos {
         assert!(alterar_overrides_em_lote(&pool, &ctx(), req("set_line", Some("AUTO")), false).await.is_ok());
 
         // excluir linha: prévia conta e não mexe; confirmar remapeia para DEFAULT
-        let r = excluir_linha(&pool, &ctx(), "ZZBLK", false).await.unwrap();
+        let r = excluir_linha(&pool, &ctx(), "ZZBLK", None, false).await.unwrap();
         assert!(r.previa);
         assert_eq!(r.resultado["produtosParaDefault"], 1);
         let ainda: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM config_linhas WHERE linha_prefix = 'ZZBLK'").fetch_one(&pool).await.unwrap();
         assert_eq!(ainda, 1);
-        assert!(excluir_linha(&pool, &ctx(), "DEFAULT", false).await.is_err());
-        excluir_linha(&pool, &ctx(), "ZZBLK", true).await.unwrap();
+        assert!(excluir_linha(&pool, &ctx(), "DEFAULT", None, false).await.is_err());
+        let sem_motivo = excluir_linha(&pool, &ctx(), "ZZBLK", Some("  "), true).await.unwrap_err();
+        assert_eq!(sem_motivo.status, StatusCode::BAD_REQUEST);
+        excluir_linha(&pool, &ctx(), "ZZBLK", Some("linha de teste"), true).await.unwrap();
         let ainda: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM config_linhas WHERE linha_prefix = 'ZZBLK'").fetch_one(&pool).await.unwrap();
         assert_eq!(ainda, 0);
 

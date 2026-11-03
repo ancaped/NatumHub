@@ -30,6 +30,8 @@ pub struct Acao {
     pub escrita: bool,
     /// Sem `confirmar=true` só devolve a prévia.
     pub dois_passos: bool,
+    /// Apaga registro: exige `motivo` ao confirmar, guarda cópia na auditoria e agentes não podem usar.
+    pub exclui: bool,
     pub parametros: Vec<Param>,
 }
 
@@ -40,12 +42,12 @@ pub fn param(nome: &'static str, onde: &'static str, tipo: &'static str, obrigat
 impl Acao {
     /// Consulta (não grava), por `GET`.
     pub fn leitura(nome: &'static str, modulo: &'static str, descricao: &'static str, caminho: &'static str, parametros: Vec<Param>) -> Self {
-        Self { nome, modulo, descricao, metodo: "GET", caminho, escrita: false, dois_passos: false, parametros }
+        Self { nome, modulo, descricao, metodo: "GET", caminho, escrita: false, dois_passos: false, exclui: false, parametros }
     }
 
     /// Consulta que usa `POST` por causa do corpo (não grava).
     pub fn calculo(nome: &'static str, modulo: &'static str, descricao: &'static str, caminho: &'static str, parametros: Vec<Param>) -> Self {
-        Self { nome, modulo, descricao, metodo: "POST", caminho, escrita: false, dois_passos: false, parametros }
+        Self { nome, modulo, descricao, metodo: "POST", caminho, escrita: false, dois_passos: false, exclui: false, parametros }
     }
 
     /// Grava no banco. `dois_passos`: sem `confirmar=true` devolve só a prévia.
@@ -58,7 +60,57 @@ impl Acao {
         dois_passos: bool,
         parametros: Vec<Param>,
     ) -> Self {
-        Self { nome, modulo, descricao, metodo, caminho, escrita: true, dois_passos, parametros }
+        Self { nome, modulo, descricao, metodo, caminho, escrita: true, dois_passos, exclui: false, parametros }
+    }
+}
+
+impl Acao {
+    /// Apaga registro (sempre em 2 passos). Exige `motivo` ao confirmar, a cópia do que foi apagado fica na auditoria
+    /// e agentes não podem usar. O parâmetro `motivo` é acrescentado aqui se a ação não o declarou.
+    pub fn exclusao(
+        nome: &'static str,
+        modulo: &'static str,
+        descricao: &'static str,
+        metodo: &'static str,
+        caminho: &'static str,
+        mut parametros: Vec<Param>,
+    ) -> Self {
+        if !parametros.iter().any(|p| p.nome == "motivo") {
+            let onde = if metodo == "DELETE" { "query" } else { "corpo" };
+            parametros.push(param(
+                "motivo",
+                onde,
+                "texto",
+                true,
+                "Por que o registro está sendo apagado (obrigatório ao confirmar; vai para a auditoria com a cópia do que foi apagado). Também aceito no corpo, quando houver.",
+            ));
+        }
+        Self { nome, modulo, descricao, metodo, caminho, escrita: true, dois_passos: true, exclui: true, parametros }
+    }
+}
+
+/// A rota `padrao` do catálogo (com `:param`) casa com o `caminho` pedido?
+pub fn caminho_casa(padrao: &str, caminho: &str) -> bool {
+    let a: Vec<&str> = padrao.trim_end_matches('/').split('/').collect();
+    let b: Vec<&str> = caminho.split('?').next().unwrap_or("").trim_end_matches('/').split('/').collect();
+    a.len() == b.len() && a.iter().zip(&b).all(|(x, y)| x.starts_with(':') || x == y)
+}
+
+/// Mensagem do 403 que agentes recebem ao tentar excluir.
+pub const AGENTE_NAO_EXCLUI: &str =
+    "Agentes não excluem registros: use retirar/arquivar quando existir, ou peça a um operador.";
+
+/// A chamada apaga registro? Todo `DELETE` (menos o logout da sessão) e as ações do catálogo marcadas com `exclui`
+/// (as que usam `POST`, como limpar a fila). É por aqui que o middleware recusa agentes.
+pub fn e_exclusao(metodo: &str, caminho: &str) -> bool {
+    if metodo == "DELETE" && caminho.starts_with("/api/auth/session") {
+        return false;
+    }
+    let da_rota = todas().into_iter().find(|a| a.metodo == metodo && caminho_casa(a.caminho, caminho));
+    match da_rota {
+        // ação descrita no catálogo: vale a marca dela (um DELETE que só cancela, como o das solicitações, não apaga)
+        Some(a) => a.exclui,
+        None => metodo == "DELETE",
     }
 }
 
@@ -151,6 +203,37 @@ mod tests {
         for a in todas() {
             assert!(a.descricao.chars().count() >= 90, "{}: descrição curta demais ({} caracteres)", a.nome, a.descricao.chars().count());
         }
+    }
+
+    #[test]
+    fn exclusoes_exigem_motivo_e_dizem_isso_na_descricao() {
+        let mut n = 0;
+        for a in todas().into_iter().filter(|a| a.exclui) {
+            n += 1;
+            assert!(a.escrita && a.dois_passos, "{}: exclusão é escrita em 2 passos", a.nome);
+            assert!(a.parametros.iter().any(|p| p.nome == "motivo" && p.obrigatorio), "{}: falta o parâmetro motivo", a.nome);
+            assert!(a.descricao.contains("motivo") && a.descricao.contains("auditoria") && a.descricao.contains("agentes não podem"), "{}: descrição sem a regra de exclusão", a.nome);
+        }
+        assert!(n >= 10, "esperava as exclusões marcadas, achei {n}");
+    }
+
+    /// Todo `DELETE` do catálogo ou é exclusão marcada ou está na lista dos que só cancelam.
+    #[test]
+    fn delete_do_catalogo_e_exclusao_ou_cancelamento_conhecido() {
+        const SO_CANCELAM: &[&str] = &["cancelar_solicitacao_terceirizado"];
+        for a in todas().into_iter().filter(|a| a.metodo == "DELETE") {
+            assert!(a.exclui || SO_CANCELAM.contains(&a.nome), "{}: DELETE sem marcar como exclusão", a.nome);
+        }
+    }
+
+    #[test]
+    fn agente_nao_exclui_mas_cancelar_e_logout_seguem() {
+        assert!(e_exclusao("DELETE", "/api/producao/fila-demandas/abc"));
+        assert!(e_exclusao("POST", "/api/producao/fila-demandas/limpar"));
+        assert!(e_exclusao("DELETE", "/api/rota/sem/catalogo/1"));
+        assert!(!e_exclusao("DELETE", "/api/administrativo/terceirizados/solicitacoes/7"));
+        assert!(!e_exclusao("DELETE", "/api/auth/session"));
+        assert!(!e_exclusao("POST", "/api/producao/fila-demandas"));
     }
 
     #[test]

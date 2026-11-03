@@ -99,6 +99,23 @@ pub struct Confirmar {
     pub confirmar: bool,
 }
 
+/// `?motivo=...` (ou `"motivo"` no corpo): por que um registro está sendo apagado.
+#[derive(Debug, Default, Deserialize)]
+pub struct Motivo {
+    #[serde(default)]
+    pub motivo: Option<String>,
+}
+
+/// Motivo de uma exclusão: sem `confirmar` a prévia não exige nada; ao confirmar, motivo vazio é 400
+/// ("Informe o motivo de excluir …"). Devolve o motivo já aparado.
+pub fn exigir_motivo(confirmar: bool, motivo: Option<&str>, o_que: &str) -> Result<String, ErroApi> {
+    let m = motivo.map(str::trim).unwrap_or("");
+    if confirmar && m.is_empty() {
+        return Err(ErroApi::invalido(format!("Informe o motivo de excluir {o_que}.")));
+    }
+    Ok(m.to_string())
+}
+
 /// Resposta de uma escrita em 2 passos: `previa=true` quando nada foi gravado.
 #[derive(Debug, Serialize)]
 pub struct RespostaAcao<T> {

@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
-use crate::core::acao::{executar_em_2_passos, Confirmar, ErroApi};
+use crate::core::acao::{executar_em_2_passos, exigir_motivo, Confirmar, ErroApi, Motivo};
 use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
@@ -72,13 +72,12 @@ pub fn acoes() -> Vec<Acao> {
                 param("prioridade", "corpo", "inteiro", false, "Prioridade (menor vem primeiro)."),
             ],
         ),
-        Acao::gravacao(
+        Acao::exclusao(
             "excluir_da_fila",
             M,
-            "Apaga um item da fila sem registrar motivo (para tirar com motivo use `retirar_da_fila`). Sem `confirmar=true` mostra só a prévia.",
+            "Apaga um item da fila de demandas de vez (para só tirar da fila e ensinar o sistema, use `retirar_da_fila`). Exige `motivo` ao confirmar; a cópia do item apagado fica na auditoria; agentes não podem usar. Sem `confirmar=true` mostra só a prévia.",
             "DELETE",
             "/api/producao/fila-demandas/:id",
-            true,
             vec![
                 param("id", "caminho", "texto", true, "Id do item da fila."),
                 param("confirmar", "query", "booleano", false, "true para excluir de fato."),
@@ -98,13 +97,12 @@ pub fn acoes() -> Vec<Acao> {
                 param("confirmar", "corpo", "booleano", false, "true para retirar de fato."),
             ],
         ),
-        Acao::gravacao(
+        Acao::exclusao(
             "limpar_fila_demandas",
             M,
-            "Esvazia a Fila de Demandas: apaga todos os itens colocados à mão (os automáticos não são apagados). Exige `motivo` ao confirmar; ele vai para a auditoria junto com a lista dos itens que saíram. Não marca os produtos como descartados: os automáticos voltam à fila enquanto forem necessários (para tirar um produto e lembrar o motivo, use `retirar_da_fila`). Sem `confirmar=true` mostra só a lista do que sairia.",
+            "Esvazia a Fila de Demandas: apaga todos os itens colocados à mão (os automáticos não são apagados). Exige `motivo` ao confirmar; ele vai para a auditoria junto com a cópia dos itens que saíram; agentes não podem usar. Não marca os produtos como descartados: os automáticos voltam à fila enquanto forem necessários (para tirar um produto e lembrar o motivo, use `retirar_da_fila`). Sem `confirmar=true` mostra só a lista do que sairia.",
             "POST",
             "/api/producao/fila-demandas/limpar",
-            true,
             vec![
                 param("motivo", "corpo", "texto", true, "Por que a fila está sendo limpa (obrigatório ao confirmar; vai para a auditoria)."),
                 param("confirmar", "corpo", "booleano", false, "true para limpar de fato."),
@@ -698,31 +696,44 @@ async fn excluir_fila_item(conn: &mut sqlx::PgConnection, id: &str) -> Result<Va
     Ok(item)
 }
 
+/// Serviço de "Excluir da fila", em 2 passos: o motivo é obrigatório ao confirmar e a cópia do item apagado
+/// vai para a auditoria junto com o motivo.
+pub async fn excluir_da_fila(
+    pool: &PgPool,
+    id: &str,
+    motivo: Option<&str>,
+    confirmar: bool,
+    usuario: &str,
+) -> Result<crate::core::acao::RespostaAcao<Value>, ErroApi> {
+    let motivo = exigir_motivo(confirmar, motivo, "o item da fila")?;
+    let id_tx = id.to_string();
+    let r = executar_em_2_passos(pool, "excluir_da_fila", confirmar, |tx| {
+        Box::pin(async move { excluir_fila_item(&mut **tx, &id_tx).await })
+    })
+    .await?;
+    if !r.previa {
+        auditoria::registrar(pool, usuario, "excluir_da_fila", id, json!({ "motivo": motivo, "item": r.resultado })).await;
+    }
+    Ok(r)
+}
+
 pub async fn delete_fila_demanda(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
     Query(q): Query<Confirmar>,
+    Query(m): Query<Motivo>,
 ) -> impl IntoResponse {
     if let Err(r) = permissao::exigir_edicao(&ctx) {
         return r;
     }
-    let pool = state.db.pool();
-    let id_tx = id.clone();
-    let r = executar_em_2_passos(pool, "excluir_da_fila", q.confirmar, |tx| {
-        Box::pin(async move { excluir_fila_item(&mut **tx, &id_tx).await })
-    })
-    .await;
-    match r {
+    match excluir_da_fila(state.db.pool(), &id, m.motivo.as_deref(), q.confirmar, &ctx.display_name).await {
         Ok(r) if r.previa => (
             StatusCode::OK,
-            Json(json!({ "previa": true, "acao": "excluir_da_fila", "item": r.resultado, "confirmar": "repita com confirmar=true para excluir" })),
+            Json(json!({ "previa": true, "acao": "excluir_da_fila", "item": r.resultado, "confirmar": "repita com confirmar=true e motivo=... para excluir" })),
         )
             .into_response(),
-        Ok(r) => {
-            auditoria::registrar(pool, &ctx.display_name, "excluir_da_fila", &id, json!({ "item": r.resultado })).await;
-            (StatusCode::OK, Json(json!({ "ok": true, "deleted": 1, "item": r.resultado }))).into_response()
-        }
+        Ok(r) => (StatusCode::OK, Json(json!({ "ok": true, "deleted": 1, "item": r.resultado }))).into_response(),
         Err(e) => e.into_response(),
     }
 }
@@ -884,6 +895,49 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(e.codigo, "nao_encontrado");
+    }
+
+    /// Excluir da fila: prévia não pede motivo, confirmar sem motivo é 400 e não apaga, com motivo apaga e a
+    /// auditoria guarda o motivo, quem fez e a cópia do item.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn excluir_da_fila_exige_motivo_e_audita_a_copia() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        let id = format!("tfm-{}", uuid::Uuid::new_v4());
+        sqlx::query(
+            "INSERT INTO producao_fila_demandas (id, codigo_produto, descricao, quantidade, unidade, origem_demanda) \
+             VALUES ($1, 'TFM.001', 'TESTE MOTIVO', 7, 'un', 'teste')",
+        )
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let existe = || async { sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM producao_fila_demandas WHERE id = $1").bind(&id).fetch_one(&pool).await.unwrap() };
+
+        let previa = excluir_da_fila(&pool, &id, None, false, "teste").await.unwrap();
+        assert!(previa.previa);
+        assert_eq!(existe().await, 1);
+        for ruim in [None, Some("   ")] {
+            let e = excluir_da_fila(&pool, &id, ruim, true, "teste").await.unwrap_err();
+            assert_eq!(e.status, StatusCode::BAD_REQUEST);
+            assert!(e.mensagem.starts_with("Informe o motivo de excluir"));
+        }
+        assert_eq!(existe().await, 1);
+
+        excluir_da_fila(&pool, &id, Some("duplicado"), true, "agente-teste-motivo").await.unwrap();
+        assert_eq!(existe().await, 0);
+        let det: Value = sqlx::query_scalar(
+            "SELECT detalhe FROM producao_auditoria WHERE acao = 'excluir_da_fila' AND alvo = $1 AND usuario = 'agente-teste-motivo'",
+        )
+        .bind(&id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(det["motivo"], "duplicado");
+        assert_eq!(det["item"]["codigo_produto"], "TFM.001");
+        assert_eq!(det["item"]["descricao"], "TESTE MOTIVO");
+        sqlx::query("DELETE FROM producao_auditoria WHERE alvo = $1").bind(&id).execute(&pool).await.unwrap();
     }
 
     /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.

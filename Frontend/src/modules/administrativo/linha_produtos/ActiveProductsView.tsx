@@ -782,8 +782,9 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         ],
         avisos: [`As regras da linha "${prefix}" são apagadas.`],
         confirmarRotulo: 'Excluir linha',
-        executar: async () => {
-          const r2 = await apiFetch(`/configs/${prefix}?confirmar=true`, { method: 'DELETE' });
+        pedirMotivo: true,
+        executar: async (motivo) => {
+          const r2 = await apiFetch(`/configs/${prefix}?confirmar=true&motivo=${encodeURIComponent(motivo ?? '')}`, { method: 'DELETE' });
           if (!r2.ok) {
             const e = await r2.json().catch(() => ({}));
             throw new Error(e.error || 'Erro ao excluir.');

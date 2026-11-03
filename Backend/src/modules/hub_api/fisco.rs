@@ -127,8 +127,46 @@ async fn save_analysis_handler(
     }
 }
 
-async fn delete_analysis_handler(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
-    match with_pool(&state, |pool| delete_fisco_quimica_analysis_query(pool, &id)).await {
+/// Serviço de "Excluir laudo fisco-químico": exclusão direta (sem prévia), então o motivo é sempre obrigatório.
+/// A cópia do laudo apagado vai para a auditoria (`hub_audit_events.before_json`) junto com o motivo.
+pub async fn excluir_analise_fisco(
+    pool: &sqlx::PgPool,
+    ctx: &crate::modules::geral::auth::models::AuthContext,
+    id: &str,
+    motivo: Option<&str>,
+) -> Result<(), crate::core::acao::ErroApi> {
+    use crate::core::acao::{exigir_motivo, ErroApi};
+    let motivo = exigir_motivo(true, motivo, "o laudo fisco-químico")?;
+    let mut tx = pool.begin().await?;
+    let copia: Option<serde_json::Value> = sqlx::query_scalar("SELECT to_jsonb(t) FROM fisco_quimica_analyses t WHERE id = $1 FOR UPDATE")
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let copia = copia.ok_or_else(|| ErroApi::nao_encontrado("Laudo não encontrado."))?;
+    sqlx::query("DELETE FROM fisco_quimica_analyses WHERE id = $1").bind(id).execute(&mut *tx).await?;
+    tx.commit().await?;
+    crate::modules::geral::audit::record_domain(
+        pool,
+        Some(ctx),
+        "fisco_quimica",
+        "excluir_analise_fisco",
+        "fisco_quimica_analysis",
+        id,
+        &format!("Laudo fisco-químico {id} excluído: {motivo}"),
+        Some(serde_json::json!({ "motivo": motivo, "copia": copia })),
+        None,
+    )
+    .await;
+    Ok(())
+}
+
+async fn delete_analysis_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Path(id): Path<String>,
+    Query(m): Query<crate::core::acao::Motivo>,
+) -> impl IntoResponse {
+    match excluir_analise_fisco(state.db.pool(), &ctx, &id, m.motivo.as_deref()).await {
         Ok(()) => ok_status().into_response(),
         Err(e) => e.into_response(),
     }

@@ -28,6 +28,7 @@ import Modal from '../../geral/components/ui/Modal';
 import { apiJson } from '../../geral/lib/http';
 import type { TipoAviso } from '../../geral/components/ui/Aviso';
 import { usePreviaServidor } from '../../producao/lib/usePreviaServidor';
+import { useMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import { printBlankSheets, printErpLaunchList, printSingleOrder } from './printHelpers';
 
 type Kind = 'entrada' | 'saida';
@@ -270,6 +271,7 @@ export default function OrdensManuaisView({ onBackToHub }: { onBackToHub: () => 
     }
   }, []);
   const { pedir: pedirPrevia, elemento: previaElemento } = usePreviaServidor(avisarPrevia);
+  const { pedirMotivo, elemento: motivoElemento } = useMotivoExclusao();
 
   const retiradaCount = useMemo(
     () => (activeTab === 'registro' ? sheets.filter((s) => s.status === 'retirada').length : undefined),
@@ -513,18 +515,20 @@ export default function OrdensManuaisView({ onBackToHub }: { onBackToHub: () => 
     });
   };
 
-  const remove = async (o: ManualOrder) => {
-    if (!window.confirm(`ATENÇÃO: Tem certeza que deseja excluir definitivamente a ordem ${o.orderNumber}?`)) return;
-    try {
-      await apiJson(`/estoque/ordens-manuais/${o.id}?confirmar=true`, { method: 'DELETE' });
-      showToast(`Ordem ${o.orderNumber} excluída.`);
-      if (viewingOrder?.id === o.id) {
-        setViewingOrder(null);
-      }
-      await loadOrders();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Falha ao excluir ordem');
-    }
+  const remove = (o: ManualOrder) => {
+    pedirMotivo({
+      titulo: 'Excluir ordem manual',
+      alvo: `Ordem ${o.orderNumber}`,
+      detalhe: 'Exclusão definitiva',
+      executar: async (motivo) => {
+        await apiJson(`/estoque/ordens-manuais/${o.id}?confirmar=true&motivo=${encodeURIComponent(motivo)}`, { method: 'DELETE' });
+        showToast(`Ordem ${o.orderNumber} excluída.`);
+        if (viewingOrder?.id === o.id) {
+          setViewingOrder(null);
+        }
+        await loadOrders();
+      },
+    });
   };
 
   const saveType = async (typeName?: string) => {
@@ -548,15 +552,18 @@ export default function OrdensManuaisView({ onBackToHub }: { onBackToHub: () => 
     }
   };
 
-  const deleteType = async (t: RecordType) => {
-    if (!window.confirm(`Remover o tipo de registro "${t.name}"?\n\nAs ordens já existentes continuarão com a descrição preservada.`)) return;
-    try {
-      await apiJson(`/estoque/ordens-manuais/tipos/${t.id}?confirmar=true`, { method: 'DELETE' });
-      showToast(`Tipo "${t.name}" removido.`);
-      await loadTypes();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Falha ao remover tipo');
-    }
+  const deleteType = (t: RecordType) => {
+    pedirMotivo({
+      titulo: 'Remover tipo de registro',
+      alvo: `Tipo "${t.name}"`,
+      avisos: ['As ordens já existentes continuarão com a descrição preservada.'],
+      confirmarRotulo: 'OK, remover',
+      executar: async (motivo) => {
+        await apiJson(`/estoque/ordens-manuais/tipos/${t.id}?confirmar=true&motivo=${encodeURIComponent(motivo)}`, { method: 'DELETE' });
+        showToast(`Tipo "${t.name}" removido.`);
+        await loadTypes();
+      },
+    });
   };
 
   const printSheets = (list: SheetRegister[]) => {
@@ -695,6 +702,7 @@ export default function OrdensManuaisView({ onBackToHub }: { onBackToHub: () => 
   return (
     <>
       {previaElemento}
+      {motivoElemento}
       <AppLayout
         moduleTitle="Ordens Manuais"
         moduleSubtitle="Controle Operacional de Entradas (CEI), Saídas (CSI) e Folhas Físicas"

@@ -37,7 +37,12 @@ where
 {
     let r = executar_em_2_passos(pool, acao, confirmar, move |tx| Box::pin(async move { f(&mut **tx).await })).await?;
     if confirmar {
-        auditoria::registrar(pool, autor, acao, alvo, json!({ "entrada": entrada, "resultado": resumo(&r.resultado) })).await;
+        let mut detalhe = json!({ "entrada": entrada, "resultado": resumo(&r.resultado) });
+        // Exclusões trazem a cópia do que foi apagado em `copia` e ela vai inteira para a auditoria.
+        if let Some(copia) = r.resultado.get("copia") {
+            detalhe["copia"] = copia.clone();
+        }
+        auditoria::registrar(pool, autor, acao, alvo, detalhe).await;
     }
     Ok(r)
 }

@@ -33,6 +33,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { apiJson } from '../../geral/lib/http';
+import { useMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { ReportTabs } from '../../geral/components/ui/ReportKit';
 import Modal from '../../geral/components/ui/Modal';
@@ -275,6 +276,7 @@ export default function EquipamentosView({
   focusTicket = 0,
   onOpenMaintenance,
 }: Props) {
+  const { pedirMotivo, elemento: motivoElemento } = useMotivoExclusao();
   const [statusFiltro, setStatusFiltro] = useState<'todos' | 'ativos' | 'manutencao' | 'baixados'>('todos');
   const [selectedFamily, setSelectedFamily] = useState<string>('todas');
   const [equipments, setEquipments] = useState<Equipment[]>([]);
@@ -730,16 +732,18 @@ export default function EquipamentosView({
     reader.readAsDataURL(file);
   };
 
-  const deleteFoto = async (fotoId: string) => {
-    try {
-      await apiJson(`/almox/fotos/${encodeURIComponent(fotoId)}?confirmar=true`, { method: 'DELETE' });
-      if (selectedId) {
-        await loadPark();
-        await openDetail(selectedId);
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Erro ao excluir foto');
-    }
+  const deleteFoto = (fotoId: string) => {
+    pedirMotivo({
+      titulo: 'Excluir foto',
+      alvo: 'Foto do equipamento',
+      executar: async (motivo) => {
+        await apiJson(`/almox/fotos/${encodeURIComponent(fotoId)}?confirmar=true&motivo=${encodeURIComponent(motivo)}`, { method: 'DELETE' });
+        if (selectedId) {
+          await loadPark();
+          await openDetail(selectedId);
+        }
+      },
+    });
   };
 
   const togglePecaAssoc = (code: string) => {
@@ -807,6 +811,7 @@ export default function EquipamentosView({
         </div>
       }
     >
+      {motivoElemento}
       <div className="space-y-4">
         {error && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs font-bold px-4 py-3 flex items-center gap-2">

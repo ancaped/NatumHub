@@ -103,6 +103,12 @@ async fn auth_middleware_inner(
                     .into_response();
             }
 
+            if ctx.is_agente() && crate::core::catalogo::e_exclusao(&method, &path) {
+                return ErroApi::sem_permissao(crate::core::catalogo::AGENTE_NAO_EXCLUI)
+                    .com_detalhes(json!({ "metodo": method, "caminho": path }))
+                    .into_response();
+            }
+
             if !store::has_write_access(&ctx, &path, &method) {
                 return ErroApi::sem_permissao("Sem permissão para alterar dados neste módulo.")
                     .com_detalhes(json!({ "metodo": method, "caminho": path }))

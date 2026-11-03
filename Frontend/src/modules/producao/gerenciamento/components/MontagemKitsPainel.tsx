@@ -413,6 +413,7 @@ export function MontagemKitsPainel({ tabOptions = [], onOpenComposition }: Props
         init: { method: 'DELETE' },
         titulo: 'Excluir ordem de montagem',
         confirmarRotulo: 'OK, excluir',
+        pedirMotivo: true,
         linhas: (d) => [{
           titulo: `Ordem ${d.item?.order_number ?? id}`,
           detalhe: `${d.item?.kit_product_code ?? ''} • ${d.item?.quantity ?? ''} un`,

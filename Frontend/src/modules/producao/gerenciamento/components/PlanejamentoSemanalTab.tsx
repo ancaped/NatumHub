@@ -819,6 +819,7 @@ export function PlanejamentoSemanalTab({
         })),
         avisos: Number(data.blocked) > 0 ? [`${data.blocked} ordem(ns) ficam: já estão em envase, rotulagem ou avançaram nos quadros.`] : [],
         confirmarRotulo: 'OK, limpar a semana',
+        pedirMotivo: true,
         executar: executarLimparSemana,
       });
     } catch (e) {
@@ -827,9 +828,9 @@ export function PlanejamentoSemanalTab({
     }
   };
 
-  const executarLimparSemana = async () => {
+  const executarLimparSemana = async (motivo?: string) => {
     try {
-      const res = await apiFetch(`/producao/planejamento-semanal/clear?week=${currentWeekKey}&confirmar=true`, {
+      const res = await apiFetch(`/producao/planejamento-semanal/clear?week=${currentWeekKey}&confirmar=true&motivo=${encodeURIComponent(motivo ?? '')}`, {
         method: 'DELETE'
       });
       if (!res.ok) {
@@ -1150,16 +1151,17 @@ export function PlanejamentoSemanalTab({
       linhas,
       avisos: [...new Set(avisos)],
       confirmarRotulo: 'OK, remover',
-      executar: () => executarDeleteBatch(batchItems),
+      pedirMotivo: true,
+      executar: (motivo) => executarDeleteBatch(batchItems, motivo),
     });
   };
 
-  const executarDeleteBatch = async (batchItems: PlanejamentoItem[]) => {
+  const executarDeleteBatch = async (batchItems: PlanejamentoItem[], motivo?: string) => {
     const removidos: PlanejamentoItem[] = [];
     let bloqueado = false;
     for (const it of batchItems) {
       try {
-        const res = await apiFetch(`/producao/planejamento-semanal/${it.id}?confirmar=true`, { method: 'DELETE' });
+        const res = await apiFetch(`/producao/planejamento-semanal/${it.id}?confirmar=true&motivo=${encodeURIComponent(motivo ?? '')}`, { method: 'DELETE' });
         if (res.status === 409) {
           bloqueado = true;
           const err = await res.json().catch(() => ({}));

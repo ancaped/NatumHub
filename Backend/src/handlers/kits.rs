@@ -9,7 +9,7 @@ use serde_json::json;
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
-use crate::core::acao::{executar_em_2_passos, Confirmar, ErroApi};
+use crate::core::acao::{executar_em_2_passos, exigir_motivo, Confirmar, ErroApi, Motivo};
 use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 use crate::models::NewKitComposicao;
@@ -270,10 +270,16 @@ pub async fn delete_kit_composicao_handler(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path((kit, comp)): Path<(String, String)>,
+    Query(m): Query<Motivo>,
 ) -> impl IntoResponse {
     if let Err(r) = exigir_montagem(&ctx) {
         return r;
     }
+    // Exclusão direta (sem prévia): o motivo é sempre obrigatório.
+    let motivo = match exigir_motivo(true, m.motivo.as_deref(), "a relação de kit") {
+        Ok(m) => m,
+        Err(e) => return e.into_response(),
+    };
     let pool = state.db.pool();
     let antes = instantaneo_composicao(pool, "kit_composicao", "kit_codigo", "componente_codigo", &kit, &comp).await;
     match state.db.delete_kit_composicao(&kit, &comp).await {
@@ -286,7 +292,7 @@ pub async fn delete_kit_composicao_handler(
                 "kit_composicao",
                 &format!("{kit}/{comp}"),
                 &format!("Composição do kit {kit}: componente {comp} removido"),
-                antes,
+                Some(json!({ "motivo": motivo, "copia": antes })),
                 None,
             )
             .await;
@@ -672,8 +678,9 @@ pub async fn delete_kit_order(
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
     Query(q): Query<Confirmar>,
+    Query(m): Query<Motivo>,
 ) -> impl IntoResponse {
-    excluir_ordem(state, ctx, id, q.confirmar, "kit_assembly_orders", "excluir_ordem_kit", "Ordem de montagem", "Ordem de montagem excluída").await
+    excluir_ordem(state, ctx, id, q.confirmar, m.motivo, "kit_assembly_orders", "excluir_ordem_kit", "Ordem de montagem", "Ordem de montagem excluída").await
 }
 
 /// Exclui uma ordem (kit ou reembalagem) em 2 passos: sem `confirmar` só devolve a ordem que sairia.
@@ -682,6 +689,7 @@ async fn excluir_ordem(
     ctx: AuthContext,
     id: i64,
     confirmar: bool,
+    motivo: Option<String>,
     tabela: &'static str,
     acao: &'static str,
     rotulo: &'static str,
@@ -690,6 +698,10 @@ async fn excluir_ordem(
     if let Err(r) = exigir_montagem(&ctx) {
         return r;
     }
+    let motivo = match exigir_motivo(confirmar, motivo.as_deref(), "a ordem") {
+        Ok(m) => m,
+        Err(e) => return e.into_response(),
+    };
     let pool = state.db.pool();
     let r = executar_em_2_passos(pool, acao, confirmar, |tx| {
         Box::pin(async move {
@@ -721,7 +733,7 @@ async fn excluir_ordem(
                 tabela,
                 &id.to_string(),
                 &format!("{rotulo} {id} excluída"),
-                Some(r.resultado),
+                Some(json!({ "motivo": motivo, "copia": r.resultado })),
                 None,
             )
             .await;
@@ -869,10 +881,16 @@ pub async fn delete_vira_composicao(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path((de, para)): Path<(String, String)>,
+    Query(m): Query<Motivo>,
 ) -> impl IntoResponse {
     if let Err(r) = exigir_montagem(&ctx) {
         return r;
     }
+    // Exclusão direta (sem prévia): o motivo é sempre obrigatório.
+    let motivo = match exigir_motivo(true, m.motivo.as_deref(), "a composição de vira") {
+        Ok(m) => m,
+        Err(e) => return e.into_response(),
+    };
     let pool = state.db.pool();
     let antes = instantaneo_composicao(pool, "vira_composicao", "de_produto_codigo", "para_produto_codigo", &de, &para).await;
     match sqlx::query(
@@ -892,7 +910,7 @@ pub async fn delete_vira_composicao(
                 "vira_composicao",
                 &format!("{de}/{para}"),
                 &format!("Composição de vira {de} -> {para} excluída"),
-                antes,
+                Some(json!({ "motivo": motivo, "copia": antes })),
                 None,
             )
             .await;
@@ -1202,8 +1220,9 @@ pub async fn delete_vira_order(
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
     Query(q): Query<Confirmar>,
+    Query(m): Query<Motivo>,
 ) -> impl IntoResponse {
-    excluir_ordem(state, ctx, id, q.confirmar, "vira_ordens", "excluir_ordem_vira", "Ordem de reembalagem", "Ordem de vira excluída").await
+    excluir_ordem(state, ctx, id, q.confirmar, m.motivo, "vira_ordens", "excluir_ordem_vira", "Ordem de reembalagem", "Ordem de vira excluída").await
 }
 
 pub async fn get_next_vira_order_number(State(state): State<Arc<AppState>>) -> impl IntoResponse {

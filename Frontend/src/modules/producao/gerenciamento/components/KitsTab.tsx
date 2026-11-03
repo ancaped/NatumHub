@@ -169,6 +169,7 @@ export function KitsTab({
         init: { method: 'DELETE' },
         titulo: 'Tirar da fila',
         confirmarRotulo: 'OK, tirar da fila',
+        pedirMotivo: true,
         linhas: linhasExclusaoFila,
         erroPadrao: 'Não foi possível tirar o item da fila.',
         aoConcluir: () => {

@@ -322,8 +322,8 @@ export const api = {
     });
     return res.analise;
   },
-  deleteFiscoQuimicaAnalysis(id: string): Promise<void> {
-    return hubJson(`fisco/analyses/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  deleteFiscoQuimicaAnalysis(id: string, motivo: string): Promise<void> {
+    return hubJson(`fisco/analyses/${encodeURIComponent(id)}${qs({ motivo })}`, { method: 'DELETE' });
   },
   getFiscoErpLotes(params?: {
     search?: string;

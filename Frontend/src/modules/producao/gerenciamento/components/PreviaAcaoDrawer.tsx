@@ -11,19 +11,23 @@ export interface PreviaAcao {
   linhas: LinhaPrevia[];
   avisos?: string[];
   confirmarRotulo: string;
-  executar: () => Promise<void>;
+  /** Exclusões: pede o motivo (obrigatório) antes do OK e o entrega a `executar`. */
+  pedirMotivo?: boolean;
+  executar: (motivo?: string) => Promise<void>;
 }
 
 /** Mostra o que a ação vai mudar (prévia do servidor) e só executa no OK. */
 export default function PreviaAcaoDrawer({ previa, onClose }: { previa: PreviaAcao; onClose: () => void }) {
   const [executando, setExecutando] = useState(false);
   const [erro, setErro] = useState('');
+  const [motivo, setMotivo] = useState('');
+  const semMotivo = !!previa.pedirMotivo && motivo.trim() === '';
 
   const ok = async () => {
     setExecutando(true);
     setErro('');
     try {
-      await previa.executar();
+      await previa.executar(previa.pedirMotivo ? motivo.trim() : undefined);
       onClose();
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não foi possível concluir.');
@@ -45,7 +49,7 @@ export default function PreviaAcaoDrawer({ previa, onClose }: { previa: PreviaAc
           </button>
           <button
             type="button"
-            disabled={executando || previa.linhas.length === 0}
+            disabled={executando || previa.linhas.length === 0 || semMotivo}
             onClick={ok}
             className="px-3 py-1.5 text-xs font-bold rounded-lg bg-zinc-900 text-white disabled:opacity-50 cursor-pointer"
           >
@@ -59,6 +63,18 @@ export default function PreviaAcaoDrawer({ previa, onClose }: { previa: PreviaAc
         {(previa.avisos ?? []).map((a) => (
           <div key={a} className="px-2 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 font-semibold">{a}</div>
         ))}
+        {previa.pedirMotivo && (
+          <label className="flex flex-col gap-1">
+            <span className="font-bold text-zinc-700">Motivo da exclusão (obrigatório)</span>
+            <textarea
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+              rows={2}
+              placeholder="Por que está apagando? Fica na auditoria com a cópia do registro."
+              className="w-full px-2 py-1.5 text-xs rounded-lg border border-zinc-200 bg-white text-zinc-900 outline-none focus:border-zinc-400"
+            />
+          </label>
+        )}
         {previa.linhas.length === 0 ? (
           <div className="text-zinc-500">Nada para mudar.</div>
         ) : (

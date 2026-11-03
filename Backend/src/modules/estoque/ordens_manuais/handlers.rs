@@ -9,7 +9,7 @@ use serde_json::json;
 use sqlx::{PgConnection, PgPool, Row};
 use std::sync::Arc;
 
-use crate::core::acao::{corpo_acao, Confirmar, ErroApi, RespostaAcao};
+use crate::core::acao::{corpo_acao, Confirmar, ErroApi, Motivo, RespostaAcao};
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 
@@ -458,8 +458,9 @@ pub async fn delete_order(
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
     Query(c): Query<Confirmar>,
+    Query(m): Query<Motivo>,
 ) -> Result<Response, ErroApi> {
-    let r = servicos::excluir_ordem(state.db.pool(), id, &autor(&ctx), c.confirmar).await?;
+    let r = servicos::excluir_ordem(state.db.pool(), id, m.motivo.as_deref(), &autor(&ctx), c.confirmar).await?;
     Ok(resposta(&r, None))
 }
 
@@ -588,8 +589,9 @@ pub async fn delete_record_type(
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
     Query(c): Query<Confirmar>,
+    Query(m): Query<Motivo>,
 ) -> Result<Response, ErroApi> {
-    let r = servicos::excluir_tipo_registro(state.db.pool(), id, &autor(&ctx), c.confirmar).await?;
+    let r = servicos::excluir_tipo_registro(state.db.pool(), id, m.motivo.as_deref(), &autor(&ctx), c.confirmar).await?;
     Ok(resposta(&r, None))
 }
 
