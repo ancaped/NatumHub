@@ -17,7 +17,7 @@ use std::sync::Arc;
 use crate::core::acao::ErroApi;
 use crate::core::catalogo::Acao;
 use crate::handlers::AppState;
-use crate::modules::producao::{cobertura, contexto, fila, planejamento, regras};
+use crate::modules::producao::{cobertura, contexto, fila, planejamento, regras, sequencia};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new().route("/api/producao/planejamento/roteiro", get(roteiro_rota))
@@ -36,10 +36,10 @@ pub fn acoes() -> Vec<Acao> {
 
 const PASSOS: &[&str] = &[
     "1. Leia este roteiro e as regras (`listar_regras_producao`). Regra geral só o Edson muda.",
-    "2. Leia a semana (`listar_planejamento_semana`), a fila (`listar_fila_demandas`) e a cobertura (`obter_cobertura_semana`).",
+    "2. Leia a semana (`listar_planejamento_semana`), a fila (`listar_fila_demandas`: itens manuais e automáticos, cada um com a situação de insumos, disponivel ou aguardando_insumos) e a cobertura (`obter_cobertura_semana`).",
     "3. Para cada candidato, leia o contexto do produto (`contexto_produto_producao`): estoque, vendas, últimos lotes, fila, regras e anotações.",
     "4. Simule (`simular_candidatos_cobertura`) antes de propor: só entra no dia o que tem 100% dos insumos e embalagens cobertos.",
-    "5. Grave em 2 passos, um dia por vez, com motivo: primeiro sem confirmar (prévia), depois com confirmar=true (`gravar_ordens_planejamento`, `enviar_para_fila`).",
+    "5. Para preencher um dia pela fila, use `sugerir_sequencia_planejamento` com o dia em dias: sem confirmar mostra as bateladas propostas e os pulados (com o que falta); com confirmar=true grava. Para decidir item a item, grave em 2 passos, um dia por vez, com motivo: primeiro sem confirmar (prévia), depois com confirmar=true (`gravar_ordens_planejamento`, `enviar_para_fila`).",
     "6. Registre o que aprendeu como anotação do produto (`criar_regra_producao` com tipo anotacao). Nunca mude regra geral sem o Edson.",
 ];
 
@@ -54,6 +54,7 @@ fn acoes_do_planejamento() -> Vec<Acao> {
     v.extend(regras::acoes());
     v.extend(contexto::acoes());
     v.extend(planejamento::acoes());
+    v.extend(sequencia::acoes());
     v.extend(fila::acoes());
     v.extend(cobertura::acoes());
     v
@@ -115,6 +116,7 @@ mod tests {
             "/api/producao/planejamento-semanal/bulk",
             "/api/producao/fila-demandas",
             "/api/producao/cobertura/simular",
+            "/api/producao/planejamento/sugerir-sequencia",
         ] {
             assert!(txt.contains(esperado), "falta {esperado}");
         }

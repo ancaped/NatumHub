@@ -68,7 +68,7 @@ pub fn todas() -> Vec<Acao> {
         auditoria, bases, calculo, cobertura, decisoes, fila, historico, insumos_classificacao, kits, lotes, planejamento, proc,
         reatores, trocas,
     };
-    use crate::modules::producao::{contexto, regras, roteiro};
+    use crate::modules::producao::{contexto, regras, roteiro, sequencia};
     let mut v = Vec::new();
     v.extend(planejamento::acoes());
     v.extend(fila::acoes());
@@ -84,6 +84,7 @@ pub fn todas() -> Vec<Acao> {
     v.extend(regras::acoes());
     v.extend(contexto::acoes());
     v.extend(roteiro::acoes());
+    v.extend(sequencia::acoes());
     v.extend(trocas::acoes());
     v.extend(insumos_classificacao::acoes());
     v.extend(historico::acoes());
@@ -173,6 +174,7 @@ mod tests {
             include_str!("../modules/producao/regras.rs"),
             include_str!("../modules/producao/contexto.rs"),
             include_str!("../modules/producao/roteiro.rs"),
+            include_str!("../modules/producao/sequencia.rs"),
             include_str!("../modules/producao/trocas.rs"),
             include_str!("../modules/producao/insumos_classificacao.rs"),
             include_str!("../modules/producao/historico.rs"),

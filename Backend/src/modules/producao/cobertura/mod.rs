@@ -24,7 +24,7 @@ use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 use crate::modules::producao::decisoes;
-use calc::{simular, Aviso, BaseFonte, OrdemEntrada, ResultadoOrdem, ResumoInsumo};
+use calc::{simular, Aviso, BaseFonte, EntradaSimulacao, OrdemEntrada, ResultadoOrdem, ResumoInsumo};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -202,6 +202,36 @@ async fn post_simular(State(state): State<Arc<AppState>>, Json(body): Json<Simul
     (StatusCode::OK, Json(json!({ "semana": semana, "candidatos": out }))).into_response()
 }
 
+/// Ordem ainda não gravada (candidato da fila ou batelada proposta) para entrar na simulação.
+#[derive(Debug, Clone)]
+pub(crate) struct Proposta {
+    pub id: String,
+    pub codigo: String,
+    pub kg: f64,
+    pub data: NaiveDate,
+}
+
+/// A proposta como ordem da simulação: usa a última escolha do Edson para a base (a ordem real só sugere).
+fn ordem_da_proposta(ctx: &store::Contexto, p: &Proposta, sequencia: i32) -> OrdemEntrada {
+    let fonte = ctx.decisoes_base.get(&p.codigo).copied().unwrap_or_default();
+    OrdemEntrada {
+        id: p.id.clone(),
+        data: p.data,
+        sequencia,
+        codigo_produto: p.codigo.clone(),
+        descricao: None,
+        kg: p.kg,
+        lote_erp: None,
+        lote_no_erp: false,
+        grupo: p.id.clone(),
+        necessidades: ctx.formulas.necessidades_com(&p.codigo, p.kg, fonte),
+        bases_usadas: ctx.formulas.bases_usadas(&p.codigo),
+        base_fonte: fonte,
+        sugestao_base: None,
+        da_semana: true,
+    }
+}
+
 /// Avalia um candidato (ainda não é ordem) como se fosse a última ordem do dia, sem somar com outros candidatos.
 /// Usa a última escolha do Edson para a base (a ordem real só sugere).
 pub(crate) fn simular_candidato(
@@ -212,25 +242,60 @@ pub(crate) fn simular_candidato(
     data: NaiveDate,
 ) -> Option<ResultadoOrdem> {
     let id = format!("cand:{indice}");
-    let fonte = ctx.decisoes_base.get(codigo).copied().unwrap_or_default();
     let mut entrada = ctx.entrada.clone();
-    entrada.ordens.push(OrdemEntrada {
-        id: id.clone(),
-        data,
-        sequencia: i32::MAX,
-        codigo_produto: codigo.to_string(),
-        descricao: None,
-        kg,
-        lote_erp: None,
-        lote_no_erp: false,
-        grupo: id.clone(),
-        necessidades: ctx.formulas.necessidades_com(codigo, kg, fonte),
-        bases_usadas: ctx.formulas.bases_usadas(codigo),
-        base_fonte: fonte,
-        sugestao_base: None,
-        da_semana: true,
-    });
+    entrada.ordens.push(ordem_da_proposta(ctx, &Proposta { id: id.clone(), codigo: codigo.to_string(), kg, data }, i32::MAX));
     simular(&entrada).ordens.into_iter().find(|o| o.id == id)
+}
+
+/// Resultado da avaliação de propostas: as que já tinham sido aceitas (continuam cobertas?) e as novas.
+pub(crate) struct Avaliacao {
+    pub aceitas: Vec<ResultadoOrdem>,
+    pub novas: Vec<ResultadoOrdem>,
+}
+
+/// Simulação com ordens a mais por cima do quadro da semana: guarda as propostas aceitas (acumulado) e avalia as novas
+/// sem gravar nada. Quem decide o que entra (cobertura 100%) é o chamador; aqui só se simula e se acumula.
+pub(crate) struct Simulador<'a> {
+    ctx: &'a store::Contexto,
+    entrada: EntradaSimulacao,
+    aceitas: Vec<String>,
+}
+
+/// Aceitas vêm antes das novas na mesma data (as novas usam a sequência mais alta).
+const SEQUENCIA_ACEITA: i32 = 1_000_000;
+
+impl<'a> Simulador<'a> {
+    pub fn novo(ctx: &'a store::Contexto) -> Self {
+        Self { ctx, entrada: ctx.entrada.clone(), aceitas: Vec::new() }
+    }
+
+    /// Avalia as propostas novas como se fossem as últimas de seus dias, sem guardá-las.
+    pub fn avaliar(&mut self, novas: &[Proposta]) -> Avaliacao {
+        let base = self.entrada.ordens.len();
+        let total = novas.len() as i32;
+        for (i, p) in novas.iter().enumerate() {
+            let ordem = ordem_da_proposta(self.ctx, p, i32::MAX - (total - 1 - i as i32));
+            self.entrada.ordens.push(ordem);
+        }
+        let saida = simular(&self.entrada);
+        self.entrada.ordens.truncate(base);
+        let pega = |ids: &mut dyn Iterator<Item = &String>| -> Vec<ResultadoOrdem> {
+            ids.filter_map(|id| saida.ordens.iter().find(|o| &o.id == id).cloned()).collect()
+        };
+        Avaliacao {
+            aceitas: pega(&mut self.aceitas.iter()),
+            novas: pega(&mut novas.iter().map(|p| &p.id)),
+        }
+    }
+
+    /// Passa a contar as propostas como ordens do quadro nas próximas avaliações.
+    pub fn aceitar(&mut self, props: &[Proposta]) {
+        for p in props {
+            let ordem = ordem_da_proposta(self.ctx, p, SEQUENCIA_ACEITA + self.aceitas.len() as i32);
+            self.entrada.ordens.push(ordem);
+            self.aceitas.push(p.id.clone());
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

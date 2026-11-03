@@ -39,9 +39,9 @@ pub fn acoes() -> Vec<Acao> {
         Acao::leitura(
             "listar_fila_demandas",
             M,
-            "Lista a Fila de Demandas (produtos que precisam ser produzidos), por prioridade e data.",
+            "Lista a Fila de Demandas da semana: os itens manuais (por prioridade) e os automáticos (produtos que a Demanda de Produção marca como necessários, do que acaba antes ao que acaba depois, menos o que já tem item manual, já está planejado na semana ou foi tirado da fila). Cada item traz a situação de insumos (`disponivel` ou `aguardando_insumos`, com o que falta), o processo do produto e a quantidade em unidades e kg.",
             "/api/producao/fila-demandas",
-            vec![],
+            vec![param("week", "query", "texto", false, "Semana 2026-W43; padrão: semana de hoje.")],
         ),
         Acao::gravacao(
             "enviar_para_fila",
@@ -425,21 +425,21 @@ pub async fn ensure_fila_demandas_table(pool: &PgPool) -> Result<(), sqlx::Error
     Ok(())
 }
 
+#[derive(Debug, Deserialize)]
+pub struct FilaQuery {
+    /// Semana 2026-W43; padrão: a semana de hoje.
+    pub week: Option<String>,
+}
+
+/// Fila da semana: os itens manuais (tabela) e os automáticos (calculados), cada um com a situação de insumos.
+/// A montagem fica em `fila_auto`.
 pub async fn list_fila_demandas(
     State(state): State<Arc<AppState>>,
+    Query(q): Query<FilaQuery>,
 ) -> impl IntoResponse {
-    let pool = state.db.pool();
-    let sql = r#"
-        SELECT id, codigo_produto, descricao, quantidade::float8, unidade,
-               quantidade_kg::float8, origem_demanda, linha_envase, base_codigo,
-               base_nome, observacoes, prioridade, created_at::text, updated_at::text
-        FROM producao_fila_demandas
-        ORDER BY COALESCE(prioridade, 1) ASC, created_at ASC
-    "#;
-
-    match sqlx::query_as::<_, FilaDemandaRow>(sql).fetch_all(pool).await {
-        Ok(items) => (StatusCode::OK, Json(json!({ "ok": true, "items": items }))).into_response(),
-        Err(e) => ErroApi::interno(format!("Erro ao listar fila de demandas: {}", e)).into_response(),
+    match crate::modules::producao::fila_auto::resposta_fila(&state.db, q.week.as_deref()).await {
+        Ok(corpo) => (StatusCode::OK, Json(corpo)).into_response(),
+        Err(e) => e.into_response(),
     }
 }
 

@@ -304,20 +304,26 @@ pub async fn list_products(
     State(state): State<Arc<AppState>>,
     Query(params): Query<QueryParams>,
 ) -> impl IntoResponse {
+    match listar_produtos(&state.db, &params).await {
+        Ok(corpo) => (StatusCode::OK, Json(corpo)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// Serviço da lista de produtos (a mesma de `GET /api/products`): cálculo na hora, filtros, segmento e paginação.
+/// Outros serviços (fila automática do planejamento) usam este para não recalcular a "Demanda de Produção" à parte.
+pub async fn listar_produtos(db: &Db, params: &QueryParams) -> Result<serde_json::Value, String> {
     let (products, stocks, fat_map, configs, overrides, sales_faltas_map) =
-        match fetch_calculation_data(&state.db).await {
+        match fetch_calculation_data(db).await {
         Ok(data) => data,
-        Err(e) => return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao ler dados para cálculos: {}", e) }))
-        ).into_response(),
+        Err(e) => return Err(format!("Erro ao ler dados para cálculos: {}", e)),
     };
 
     // Calculate all items in real time
     let mut computed = calculate_products(&products, &stocks, &fat_map, &configs, &overrides);
 
     // Fetch kit composition and apply kit-only overrides
-    let kit_composition = state.db.get_kit_composition().await.unwrap_or_default();
+    let kit_composition = db.get_kit_composition().await.unwrap_or_default();
     post_process_kit_only_production(&mut computed, &kit_composition);
 
     let mut kit_components_set = std::collections::HashSet::new();
@@ -328,7 +334,7 @@ pub async fn list_products(
     }
 
     // Fetch formulation and latest stock levels for error decoration
-    let pool = state.db.pool();
+    let pool = db.pool();
 
     let target_days_coloracao = {
         let mut target = 90.0;
@@ -956,33 +962,30 @@ pub async fn list_products(
         Vec::new()
     };
 
-    (
-        StatusCode::OK,
-        Json(json!({
-            "items": items_slice,
-            "total": total_items,
-            "page": page,
-            "limit": limit,
-            "total_pages": total_pages,
-            "stats": {
-                "critico": count_critico,
-                "ordem": count_ordem,
-                "saudavel": count_saudavel,
-                "abundante": count_abundante,
-                "lancamentos": count_lancamentos,
-                "total_visible": total_visible,
-            },
-            "segment_counts": {
-                "needed": count_needed,
-                "normal": count_normal,
-                "kit_mixed": count_kit_mixed,
-                "kit_only": count_kit_only,
-                "programadas": count_programadas,
-                "fixas": count_fixas,
-            },
-            "bases": unique_bases,
-        }))
-    ).into_response()
+    Ok(json!({
+        "items": items_slice,
+        "total": total_items,
+        "page": page,
+        "limit": limit,
+        "total_pages": total_pages,
+        "stats": {
+            "critico": count_critico,
+            "ordem": count_ordem,
+            "saudavel": count_saudavel,
+            "abundante": count_abundante,
+            "lancamentos": count_lancamentos,
+            "total_visible": total_visible,
+        },
+        "segment_counts": {
+            "needed": count_needed,
+            "normal": count_normal,
+            "kit_mixed": count_kit_mixed,
+            "kit_only": count_kit_only,
+            "programadas": count_programadas,
+            "fixas": count_fixas,
+        },
+        "bases": unique_bases,
+    }))
 }
 
 // GET /api/producao/recalcular/preview

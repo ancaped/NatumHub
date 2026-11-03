@@ -56,12 +56,4 @@ export type TechnicalModalItem = {
   sugestaoProximo?: string | null;
 };
 
-export type HeuristicStats = {
-  totalBatches: number;
-  totalKg: number;
-  groupedBases: number;
-  avoidedHolidays: number;
-  caldeiraDays: number;
-};
-
 export type Setter<T> = React.Dispatch<React.SetStateAction<T>>;

@@ -15,6 +15,7 @@ pub mod core {
     pub mod vendas_atendimento;
     pub mod mdns;
     pub mod regras_produto;
+    pub mod feriados;
 }
 
 pub mod modules {
@@ -44,6 +45,9 @@ pub mod modules {
         pub mod regras;
         pub mod contexto;
         pub mod roteiro;
+        pub mod processo;
+        pub mod sequencia;
+        pub mod fila_auto;
     }
     pub mod compras;
     pub mod estoque;

@@ -23,17 +23,16 @@ import PreviaAcaoDrawer, { PreviaAcao } from './PreviaAcaoDrawer';
 import { canEdit, getAuthUser } from '../../../geral/lib/auth';
 import { useAviso } from '../../../geral/components/ui/Aviso';
 import Drawer from '../../../geral/components/ui/Drawer';
-import { SeloCobertura, piorResultado, useCoberturaSemana, useCoberturaFila, chaveCandidato } from './cobertura';
+import { SeloCobertura, piorResultado, useCoberturaSemana } from './cobertura';
+import { usePreviaServidor } from '../../lib/usePreviaServidor';
 import { getProductColorInfo, getProductProcessType, previsaoEnvase, getShortReatorName } from '../../lib/processoProduto';
-import { SugestaoDrawer } from './planejamento/SugestaoDrawer';
 import { ParametrosBateladaDrawer } from './planejamento/ParametrosBateladaDrawer';
 import { EditarQuantidadeDrawer } from './planejamento/EditarQuantidadeDrawer';
 import { VincularLoteDrawer } from './planejamento/VincularLoteDrawer';
 import { AgendarDrawer } from './planejamento/AgendarDrawer';
 import { AdicionarFilaDrawer } from './planejamento/AdicionarFilaDrawer';
 import { ReatoresDrawer } from './planejamento/ReatoresDrawer';
-import type { DiaSemana, ScheduleModalItem, LinkLoteModalItem, EditQtyModalItem, TechnicalModalItem, HeuristicStats } from './planejamento/tiposDrawers';
-import { planejarSemana } from '../../lib/heuristicaPlanejamento';
+import type { DiaSemana, ScheduleModalItem, LinkLoteModalItem, EditQtyModalItem, TechnicalModalItem } from './planejamento/tiposDrawers';
 import { eBase } from '../../../geral/lib/regrasProduto';
 
 export interface ReatorConfig {
@@ -282,7 +281,12 @@ function candidatoDaFila(f: any, p: any): any {
     base_codigo: f.baseCodigo || f.base_codigo,
     base: f.baseNome || f.base_nome,
     unidade: f.unidade || 'un',
-    observacoes: f.observacoes
+    observacoes: f.observacoes,
+    // Fila automática: calculada pelo servidor (sem linha na tabela); `situacao` e `falta` vêm da cobertura de insumos.
+    _automatica: f.origem === 'automatica',
+    _situacao: f.situacao === 'aguardando_insumos' ? 'aguardando_insumos' : 'disponivel',
+    _falta: Array.isArray(f.falta) ? f.falta : [],
+    _motivoSituacao: f.motivoSituacao || null,
   };
 }
 
@@ -346,8 +350,10 @@ export function PlanejamentoSemanalTab({
   // Painel lateral e busca do Banco de Demandas
   const [demandBankOpen, setDemandBankOpen] = useState(true);
   const [demandSearch, setDemandSearch] = useState('');
-  const [filaAba, setFilaAba] = useState<'todas' | 'falta' | 'bases'>('todas');
-  const [filaDemandas, setFilaDemandas] = useState<any[]>([]);
+  const [filaAba, setFilaAba] = useState<'disponiveis' | 'falta' | 'bases'>('disponiveis');
+  // Tudo o que o servidor manda (manuais da tabela + automáticos calculados); `filaDemandas` são só os manuais.
+  const [filaTodos, setFilaTodos] = useState<any[]>([]);
+  const filaDemandas = useMemo(() => filaTodos.filter(f => f.origem !== 'automatica'), [filaTodos]);
   const [retirarFilaId, setRetirarFilaId] = useState<string | null>(null);
   const [limparFilaAberto, setLimparFilaAberto] = useState(false);
   const [regrasAberto, setRegrasAberto] = useState(false);
@@ -361,18 +367,19 @@ export function PlanejamentoSemanalTab({
   const [demandFilter, setDemandFilter] = useState<'FILA' | 'ALL' | 'CRITICOS' | 'PROGRAMADAS' | 'KITS' | 'BASES'>('FILA');
   const [selectedLineFilter, setSelectedLineFilter] = useState<string>('ALL');
 
+  const semanaFila = getWeekKey(currentDate);
   const fetchFila = useCallback(async () => {
     try {
-      const res = await apiFetch('/producao/fila-demandas');
+      const res = await apiFetch(`/producao/fila-demandas?week=${encodeURIComponent(semanaFila)}`);
       if (res.ok) {
         const data = await res.json();
-        setFilaDemandas(Array.isArray(data.items) ? data.items : []);
+        setFilaTodos(Array.isArray(data.items) ? data.items : []);
       }
     } catch (e) {
       console.warn('Erro ao buscar fila de demandas:', e);
     }
 
-  }, []);
+  }, [semanaFila]);
 
   // Modais de Ação
   const [scheduleModalItem, setScheduleModalItem] = useState<ScheduleModalItem | null>(null);
@@ -417,11 +424,9 @@ export function PlanejamentoSemanalTab({
     }
   }, [onShowDetails]);
 
-  // Modal de Otimização Automática (Heurística)
+  // "Sugerir Sequência": a prévia e a gravação vêm do servidor (2 passos).
   const [sugerindo, setSugerindo] = useState(false);
-  const [heuristicModalOpen, setHeuristicModalOpen] = useState(false);
-  const [heuristicProposal, setHeuristicProposal] = useState<PlanejamentoItem[]>([]);
-  const [heuristicStats, setHeuristicStats] = useState<HeuristicStats>({ totalBatches: 0, totalKg: 0, groupedBases: 0, avoidedHolidays: 0, caldeiraDays: 0 });
+  const { pedir: pedirPrevia, elemento: previaServidor } = usePreviaServidor(avisar);
 
   // Datas da semana de Segunda a Sexta
   const weekDays = useMemo(() => {
@@ -639,7 +644,7 @@ export function PlanejamentoSemanalTab({
   const demandCandidates = useMemo(() => {
     const prodMap = new Map(products.map(p => [p.codigo, p]));
 
-    const mappedFila = filaDemandas
+    const mappedFila = filaTodos
       .filter(f => {
         if (!demandSearch.trim()) return true;
         const q = demandSearch.toLowerCase().trim();
@@ -670,7 +675,7 @@ export function PlanejamentoSemanalTab({
       }
     }
     return grouped;
-  }, [products, filaDemandas, demandSearch]);
+  }, [products, filaTodos, demandSearch]);
 
   // Mapeamento de Itens Agendados na Grade (por Reator e por Dia)
   const matrixItemsMap = useMemo(() => {
@@ -1250,23 +1255,11 @@ export function PlanejamentoSemanalTab({
     .map(i => `${i.id}:${i.data_planejada}:${i.quantidade_planejada}:${i.lote_erp || ''}:${i.ordem_sequencia ?? ''}`)
     .join('|');
   const { porOrdem: coberturaPorOrdem, recarregar: recarregarCobertura } = useCoberturaSemana(currentWeekKey, active, versaoPlano);
-  const candidatosFila = useMemo(
-    () =>
-      demandBankOpen
-        ? demandCandidates
-            .map((p: any) => ({ codigo: String(p.codigo || ''), kg: Number(p.quantidade_kg) || 0 }))
-            .filter(c => c.codigo && c.kg > 0)
-        : [],
-    [demandBankOpen, demandCandidates]
-  );
-  const coberturaPorCandidato = useCoberturaFila(currentWeekKey, demandBankOpen, candidatosFila);
-  // Aba "Aguardando insumos": mesmo critério do selo "Falta insumo" (cobertura da fila).
-  const aguardaInsumo = (p: any): boolean => {
-    const r = coberturaPorCandidato[chaveCandidato({ codigo: String(p.codigo || ''), kg: Number(p.quantidade_kg) || 0 })];
-    return Boolean(r && r.consome && r.status === 'falta');
-  };
+  // Abas da fila: mesma situação de insumos que o servidor calculou (depois das ordens do quadro da semana).
+  const aguardaInsumo = (p: any): boolean => p._situacao === 'aguardando_insumos';
   const qtdAguardandoInsumo = demandCandidates.filter(aguardaInsumo).length;
-  const demandVisiveis = filaAba === 'falta' ? demandCandidates.filter(aguardaInsumo) : demandCandidates;
+  const qtdDisponiveis = demandCandidates.length - qtdAguardandoInsumo;
+  const demandVisiveis = filaAba === 'falta' ? demandCandidates.filter(aguardaInsumo) : demandCandidates.filter(p => !aguardaInsumo(p));
   const produtoPorCodigo = useMemo(() => new Map<string, any>(products.map(p => [p.codigo, p])), [products]);
   const codigosNaFila = useMemo(() => new Set<string>(filaDemandas.map(f => f.codigoProduto || f.codigo_produto)), [filaDemandas]);
   const basesVisiveis = useMemo(() => {
@@ -1841,194 +1834,73 @@ export function PlanejamentoSemanalTab({
     printHtmlViaIframe(html);
   };
 
-  // Sugestão da semana. Parte da lista "Tudo p/ Produzir Hoje" do Gerenciamento (mesma fonte e critério: segment=needed),
-  // do mais urgente (estoque futuro menor) ao menos, sem limite de envase e sem limite diário por reator.
-  // A capacidade do reator limita só o tamanho de cada batelada; a regra de distribuição está em `planejarSemana`.
+  // Sugestão da semana ("Seguir sequência"): o servidor percorre a fila (manuais por prioridade, depois automáticos por EFP)
+  // e só propõe o que tem 100% dos insumos e embalagens cobertos, contando o quadro e o que a própria sequência já colocou.
+  // Aqui só se mostra a prévia (bateladas e pulados) e se grava no OK.
   const handleRunHeuristic = async () => {
     setSugerindo(true);
     try {
-      const res = await apiFetch('/products?segment=needed&include_all_regimes=true&sort=efp&order=asc&page=1&limit=9999');
-      if (!res.ok) {
-        avisar('Não foi possível ler a lista "Tudo p/ Produzir Hoje" do Gerenciamento.', 'erro');
-        return;
-      }
-      const lista: any[] = (await res.json()).items || [];
-
-      // Produto já planejado nesta semana não entra de novo; item na fila de demandas usa a quantidade da fila.
-      const jaPlanejados = new Set(plannedItems.map(i => i.codigo_produto));
-      const filaPorCodigo = new Map<string, any[]>();
-      for (const f of filaDemandas) {
-        const cod = f.codigoProduto || f.codigo_produto;
-        if (!filaPorCodigo.has(cod)) filaPorCodigo.set(cod, []);
-        filaPorCodigo.get(cod)!.push(f);
-      }
-      const candidates: any[] = [];
-      for (const p of lista) {
-        if (jaPlanejados.has(p.codigo)) continue;
-        const filas = filaPorCodigo.get(p.codigo);
-        if (filas && filas.length > 0) filas.forEach(f => candidates.push(candidatoDaFila(f, p)));
-        else candidates.push(p);
-      }
-
-      if (candidates.length === 0) {
-        avisar('Nenhum produto da lista "Tudo p/ Produzir Hoje" para planejar (os que já estão na semana não entram de novo).', 'info');
-        return;
-      }
-
-      const validDays = weekDays.filter(d => !d.holiday);
-      const avoidedHolidaysCount = weekDays.filter(d => d.holiday).length;
-
-      const infos = candidates.map((prod, idx) => {
-        const procInfo = getProductProcessType(prod);
-        const producaoMinKg = Number(prod.producao_minima_kg) || 0;
-        const kg = Math.max(procInfo.reqQtyKg, producaoMinKg);
-        const descExcl = (prod.descricao || '').toUpperCase();
-        const desc = descExcl;
-        let envLine = 'L1';
-        if (desc.includes('MASC') || desc.includes('POTE')) envLine = 'L2';
-        else if (desc.includes('POMADA') || desc.includes('OLEO') || desc.includes('SERUM')) envLine = 'L3';
-        return {
-          chave: `${prod.codigo}#${idx}`,
-          prod,
-          procInfo,
-          colorInfo: getProductColorInfo(prod),
-          producaoMinKg,
-          usouMinimo: producaoMinKg > 0 && producaoMinKg > procInfo.reqQtyKg,
-          envLine,
-          perfil: {
-            codigo: `${prod.codigo}#${idx}`,
-            kg,
-            isQuente: procInfo.isQuente,
-            isShampoo: procInfo.isShampoo,
-            canBombona: procInfo.canBombona,
-            exclusivo: Boolean(prod.exclusivo_no_dia ?? descExcl.includes('AOX')),
-          },
-        };
+      const dm = (iso: string) => iso.slice(0, 10).split('-').reverse().slice(0, 2).join('/');
+      await pedirPrevia({
+        url: '/producao/planejamento/sugerir-sequencia',
+        init: {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ week: currentWeekKey, motivo: 'Seguir sequência (tela do Planejamento)' }),
+        },
+        titulo: `Seguir sequência — semana ${currentWeekKey.split('-W')[1]}`,
+        confirmarRotulo: 'Gravar sequência',
+        linhas: (d) => (d?.bateladas ?? []).map((b: any) => ({
+          titulo: `${b.descricao || b.produto}${b.partes > 1 ? ` (batelada ${b.parte}/${b.partes})` : ''}`,
+          detalhe: `${dm(String(b.dia))} · ${getShortReatorName(b.reator, undefined, reatores)} · ${Number(b.kg).toLocaleString('pt-BR')} kg · ${b.recipiente} · ${b.origem === 'automatica' ? 'automático' : 'manual'}`,
+        })),
+        avisos: (d) => [
+          ...(d?.bateladas ?? []).length === 0 ? ['Nenhum item da fila tem os insumos 100% cobertos para entrar na semana.'] : [],
+          ...(d?.pulados ?? []).slice(0, 12).map((p: any) => `${p.codigo} ${p.descricao}: ${p.detalhe}`),
+          ...((d?.pulados ?? []).length > 12 ? [`E mais ${(d.pulados.length - 12)} item(ns) pulado(s).`] : []),
+        ],
+        erroPadrao: 'Não foi possível montar a sugestão da semana.',
+        aoConcluir: async () => {
+          await fetchPlanejamento();
+          await fetchFila();
+          avisar('Planejamento semanal aplicado.', 'sucesso');
+          window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
+          onScheduleChanged?.();
+        },
       });
-
-      const cargaKgPorDia: Record<string, number> = {};
-      for (const it of plannedItems) {
-        cargaKgPorDia[it.data_planejada] = (cargaKgPorDia[it.data_planejada] || 0) + Number(it.quantidade_planejada || 0);
-      }
-      const plano = planejarSemana({
-        perfis: infos.map(i => i.perfil),
-        reatores,
-        dias: validDays,
-        cargaKgPorDia,
-        diasOcupados: new Set(plannedItems.map(i => i.data_planejada)),
-      });
-
-      const infoPorChave = new Map(infos.map(i => [i.chave, i]));
-      const proposed: PlanejamentoItem[] = plano.bateladas.map(b => {
-        const info = infoPorChave.get(b.codigo)!;
-        const { prod, procInfo, colorInfo } = info;
-        const unidades = procInfo.unitWeightKg ? Math.round(b.kg / procInfo.unitWeightKg) : null;
-        const base = b.cenario === 'shampoo'
-          ? `Reator Shampoo | ${b.kg} kg`
-          : b.cenario === 'r40' ? 'Reator 40kg (Produção Quente)'
-          : b.cenario === 'bombona_quente' ? 'Água Quente Caldeira (Bombona)'
-          : b.cenario === 'bombona_frio' ? 'Mistura a Frio (Base Pronta)'
-          : !procInfo.isQuente ? 'Processo a Frio'
-          : b.reatorId === 'R_100' ? 'Resistência (100kg)' : 'Requer Caldeira (Quente)';
-        const partes = b.partes > 1 ? ` | batelada ${b.parte}/${b.partes}` : '';
-        const minimo = info.usouMinimo && b.parte === 1 ? ` | mín. ${info.producaoMinKg} kg` : '';
-        return {
-          id: `HEUR_${currentWeekKey}_${b.reatorId}_${b.dateStr}_${prod.codigo}_${info.chave.split('#')[1]}_${b.parte}`,
-          week_key: currentWeekKey,
-          data_planejada: b.dateStr,
-          reator_id: b.reatorId,
-          codigo_produto: prod.codigo,
-          descricao: prod.descricao,
-          quantidade_planejada: b.kg,
-          unidade: 'kg',
-          base_codigo: prod.base || null,
-          base_nome: prod.base || null,
-          linha_envase: info.envLine,
-          observacoes: `${base}${unidades == null ? '' : ` | ~${unidades.toLocaleString('pt-BR')} un`}${partes}${minimo}`,
-          ordem_status: 'planejado',
-          fisico_confirmado_massa: false,
-          fisico_confirmado_embalagem: false,
-          fisico_confirmado_rotulo: false,
-          recipiente_detalhe: b.recipiente,
-          cor_tag: colorInfo.tag,
-          ordem_sequencia: 1,
-          processo_termico: b.processoTermico,
-        } as PlanejamentoItem;
-      });
-
-      const aceitas = proposed.filter(item => !validarAlocacao({
-        reatorId: item.reator_id,
-        dateStr: item.data_planejada,
-        kg: Number(item.quantidade_planejada) || 0,
-        reatores,
-        plannedItems,
-      }));
-
-      const basesContadas = new Map<string, number>();
-      for (const c of candidates) {
-        const b = (c.base || '').trim().toUpperCase();
-        if (b) basesContadas.set(b, (basesContadas.get(b) || 0) + 1);
-      }
-      let groupedBasesCount = 0;
-      basesContadas.forEach(n => { if (n > 1) groupedBasesCount += n; });
-
-      if (aceitas.length === 0) {
-        avisar('Não foi possível encaixar nenhum produto: confira os reatores ativos e os dias úteis da semana.', 'info');
-        return;
-      }
-      if (plano.semLugar.length > 0) {
-        avisar(`${plano.semLugar.length} produto(s) ficaram de fora: sem reator compatível ou sem dia livre (exclusivo).`, 'info');
-      }
-      setHeuristicProposal(aceitas);
-      setHeuristicStats({
-        totalBatches: aceitas.length,
-        totalKg: aceitas.reduce((acc, i) => acc + Number(i.quantidade_planejada || 0), 0),
-        groupedBases: groupedBasesCount,
-        avoidedHolidays: avoidedHolidaysCount,
-        caldeiraDays: plano.diasCaldeira.size
-      });
-      setHeuristicModalOpen(true);
-    } catch (e) {
-      console.warn('Erro ao montar a sugestão:', e);
-      avisar('Falha de conexão ao montar a sugestão.', 'erro');
     } finally {
       setSugerindo(false);
     }
   };
 
-  // Aplicar proposta da Heurística
-  const handleApplyHeuristic = async () => {
-    try {
-      const kgPorFila = new Map<string, number>();
-      for (const item of heuristicProposal) {
-        const fila = filaDemandas.find((f: any) => (f.codigoProduto || f.codigo_produto) === item.codigo_produto);
-        if (!fila) continue;
-        kgPorFila.set(fila.id, (kgPorFila.get(fila.id) || 0) + (Number(item.quantidade_planejada) || 0));
-      }
-      const consumirFila = Array.from(kgPorFila.entries())
-        .filter(([filaId]) => filaDemandas.some((f: any) => f.id === filaId))
-        .map(([filaId, kg]) => ({ filaId, kg }));
-      // Ordens e consumo da fila gravam juntos no servidor (mesma transação).
-      const res = await apiFetch('/producao/planejamento-semanal/bulk?confirmar=true', {
-        method: 'PUT',
+  // Fixa um item automático da fila: vira item manual (rota existente, 2 passos) e passa a mandar sobre o automático.
+  const handleFixarNaFila = (prod: any) => {
+    void pedirPrevia({
+      url: '/producao/fila-demandas',
+      init: {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itens: heuristicProposal, consumirFila })
-      });
-      if (!res.ok) {
-        avisar('Não foi possível gravar a sugestão no servidor.', 'erro');
-        return;
-      }
-      await fetchPlanejamento();
-      await fetchFila();
-      setHeuristicModalOpen(false);
-      avisar("Planejamento semanal aplicado.", 'sucesso');
-    } catch (e) {
-      console.warn('Erro ao salvar a sugestão:', e);
-      avisar('Falha de conexão ao aplicar a sugestão.', 'erro');
-    } finally {
-      window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
-      onScheduleChanged?.();
-    }
+        body: JSON.stringify([{
+          codigoProduto: prod.codigo,
+          descricao: prod.descricao,
+          quantidade: Number(prod.quantidade) || 0,
+          unidade: prod.unidade || 'un',
+          quantidadeKg: Number(prod.quantidade_kg) || null,
+          origemDemanda: 'fixada_da_fila_automatica',
+          linhaEnvase: prod.linha_envase || null,
+          baseCodigo: prod.base_codigo || null,
+          baseNome: prod.base || null,
+        }]),
+      },
+      titulo: 'Fixar na fila',
+      confirmarRotulo: 'Fixar',
+      linhas: (d) => (d?.depois ?? []).map((i: any) => ({
+        titulo: i.descricao || i.codigo_produto,
+        detalhe: `${Number(i.quantidade).toLocaleString('pt-BR')} ${i.unidade ?? ''}${i.quantidade_kg != null ? ` (${Number(i.quantidade_kg).toLocaleString('pt-BR')} kg)` : ''}`,
+      })),
+      erroPadrao: 'Não foi possível fixar o item na fila.',
+      aoConcluir: fetchFila,
+    });
   };
 
   return (
@@ -2110,7 +1982,7 @@ export function PlanejamentoSemanalTab({
             <span className={`font-mono px-1.5 py-0.2 rounded text-[10px] ${
               demandBankOpen ? 'bg-white/15 text-white' : 'bg-zinc-100 text-zinc-800'
             }`}>
-              {filaDemandas.length}
+              {filaTodos.length}
             </span>
           </button>
 
@@ -2743,7 +2615,7 @@ export function PlanejamentoSemanalTab({
 
               {/* Abas */}
               <div className="flex items-center gap-1">
-                {([['todas', 'Todas', String(demandCandidates.length)], ['falta', 'Aguardando insumos', String(qtdAguardandoInsumo)], ['bases', 'Bases', basesResumo.length > 0 ? String(basesResumo.length) : '']] as const).map(([id, rotulo, n]) => (
+                {([['disponiveis', 'Disponíveis', String(qtdDisponiveis)], ['falta', 'Aguardando insumos', String(qtdAguardandoInsumo)], ['bases', 'Bases', basesResumo.length > 0 ? String(basesResumo.length) : '']] as const).map(([id, rotulo, n]) => (
                   <button
                     key={id}
                     type="button"
@@ -2828,7 +2700,7 @@ export function PlanejamentoSemanalTab({
                 )
               ) : demandVisiveis.length === 0 ? (
                 <div className="py-8 text-center text-zinc-400 text-xs">
-                  {filaAba === 'falta' ? 'Nenhum item da fila está aguardando insumos.' : 'Nenhum item pendente na fila de demandas.'}
+                  {filaAba === 'falta' ? 'Nenhum item da fila está aguardando insumos.' : 'Nenhum item disponível com os insumos cobertos.'}
                 </div>
               ) : (
                 demandVisiveis.map(prod => {
@@ -2957,11 +2829,25 @@ export function PlanejamentoSemanalTab({
                           <span>•</span>
                           <span>Cobertura: <strong className="text-zinc-700">{coberturaDias !== null ? `${coberturaDias}d` : '—'}</strong></span>
                         </div>
-                        <SeloCobertura
-                          resultado={coberturaPorCandidato[chaveCandidato({ codigo: String(prod.codigo || ''), kg: Number(prod.quantidade_kg) || 0 })]}
-                          onClick={() => setCoberturaAberta(true)}
-                        />
+                        <span
+                          className={`shrink-0 px-1.5 py-0.5 text-[9px] font-bold rounded border ${prod._automatica ? 'bg-zinc-100 text-zinc-600 border-zinc-200' : 'bg-zinc-900 text-white border-zinc-900'}`}
+                          title={prod._automatica ? 'Calculado pela Demanda de Produção (acaba antes, primeiro). Fixe para virar item manual.' : 'Item manual da fila'}
+                        >
+                          {prod._automatica ? 'Automático' : 'Manual'}
+                        </span>
                       </div>
+                      {prod._situacao === 'aguardando_insumos' && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setCoberturaAberta(true); }}
+                          className="text-left px-2 py-1 rounded-md border border-rose-200 bg-rose-50 text-rose-700 text-[10px] font-semibold cursor-pointer"
+                          title="Ver cobertura de insumos da semana"
+                        >
+                          {prod._motivoSituacao
+                            ? prod._motivoSituacao
+                            : `Falta: ${(prod._falta as any[]).slice(0, 3).map(f => `${f.descricao || f.codigo} (${Number(f.falta).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}${f.unidade ? ` ${f.unidade}` : ''})`).join(', ')}${(prod._falta as any[]).length > 3 ? ` e mais ${(prod._falta as any[]).length - 3}` : ''}`}
+                        </button>
+                      )}
 
                       {/* 5. Ação de Agendamento e Ver Detalhes */}
                       <div className="flex items-center justify-between pt-1 border-t border-zinc-100">
@@ -2986,6 +2872,16 @@ export function PlanejamentoSemanalTab({
                             title="Tirar este item da fila"
                           >
                             Tirar
+                          </button>
+                        )}
+                        {podeEditar && prod._automatica && (
+                          <button
+                            type="button"
+                            onClick={() => handleFixarNaFila(prod)}
+                            className="px-2.5 py-1 text-xs font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                            title="Fixar este item na fila (vira item manual)"
+                          >
+                            Fixar na fila
                           </button>
                         )}
                         {podeEditar && (
@@ -3078,17 +2974,7 @@ export function PlanejamentoSemanalTab({
         />
       )}
 
-      {/* MODAL: PROPOSTA DA HEURÍSTICA AUTOMÁTICA */}
-      {heuristicModalOpen && (
-        <SugestaoDrawer
-          heuristicProposal={heuristicProposal}
-          heuristicStats={heuristicStats}
-          reatores={reatores}
-          setHeuristicModalOpen={setHeuristicModalOpen}
-          handleApplyHeuristic={handleApplyHeuristic}
-        />
-      )}
-
+      {previaServidor}
 
       {/* MODAL: RELATÓRIO DE CONSUMO DE MATÉRIAS-PRIMAS E EMBALAGENS */}
       {previaAcao && <PreviaAcaoDrawer previa={previaAcao} onClose={() => setPreviaAcao(null)} />}

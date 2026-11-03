@@ -42,24 +42,26 @@ pub struct ReatorConfigDto {
     pub ativo: bool,
 }
 
-pub async fn list_reatores(State(state): State<Arc<AppState>>) -> Response {
-    let pool = state.db.pool();
+/// Reatores configurados, na ordem da tela (serviço usado pela rota e pela sequência do planejamento).
+pub async fn carregar_reatores(pool: &sqlx::PgPool) -> Result<Vec<ReatorConfigDto>, sqlx::Error> {
     let query = "SELECT id, nome, capacidade_kg::float8, tipo, ordem, ativo FROM producao_reatores_config ORDER BY ordem ASC, capacidade_kg ASC";
-    match sqlx::query(query).fetch_all(pool).await {
-        Ok(rows) => {
-            let reatores: Vec<ReatorConfigDto> = rows
-                .into_iter()
-                .map(|r| ReatorConfigDto {
-                    id: r.get(0),
-                    nome: r.get(1),
-                    capacidade_kg: r.get(2),
-                    tipo: r.get(3),
-                    ordem: r.get(4),
-                    ativo: r.get(5),
-                })
-                .collect();
-            (StatusCode::OK, Json(json!(reatores))).into_response()
-        }
+    let rows = sqlx::query(query).fetch_all(pool).await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ReatorConfigDto {
+            id: r.get(0),
+            nome: r.get(1),
+            capacidade_kg: r.get(2),
+            tipo: r.get(3),
+            ordem: r.get(4),
+            ativo: r.get(5),
+        })
+        .collect())
+}
+
+pub async fn list_reatores(State(state): State<Arc<AppState>>) -> Response {
+    match carregar_reatores(state.db.pool()).await {
+        Ok(reatores) => (StatusCode::OK, Json(json!(reatores))).into_response(),
         Err(e) => ErroApi::interno(e.to_string()).into_response(),
     }
 }

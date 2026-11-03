@@ -587,7 +587,7 @@ async fn instantaneo_ordens(conn: &mut sqlx::PgConnection, ids: &[String]) -> Re
 
 /// Grava uma ou várias ordens na conexão/transação do chamador: se qualquer uma falhar ou violar regra, o chamador
 /// desfaz tudo. O consumo da Fila de Demandas entra na mesma transação (ordem gravada e demanda consumida, ou nenhuma).
-async fn gravar_planejamento_em(
+pub async fn gravar_planejamento_em(
     conn: &mut sqlx::PgConnection,
     itens: &mut [PlanejamentoItemDto],
     consumir: &[PedidoConsumoFila],
