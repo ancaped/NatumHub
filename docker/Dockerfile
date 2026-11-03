@@ -45,6 +45,8 @@ COPY Backend ./Backend
 COPY erp-import ./erp-import
 # O build.rs do Backend varre Frontend/src para gerar o mapa do código (ficha da central Desenvolvimento).
 COPY Frontend/src ./Frontend/src
+# Script do PC que a tela de Impressoras oferece para baixar (include_bytes! em ferramentas/impressoras/handlers.rs).
+COPY scripts/configurar_pc_nexus.bat ./scripts/configurar_pc_nexus.bat
 
 WORKDIR /app/Backend
 # A versão (option_env! em core/app_config.rs) só entra aqui: antes, invalidava a camada das dependências a cada commit.

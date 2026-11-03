@@ -20,6 +20,10 @@ pub fn router() -> Router<Arc<AppState>> {
             get(handlers::list_printers_handler).post(handlers::create_printer_handler),
         )
         .route(
+            "/api/ferramentas/impressoras/script-pc",
+            get(handlers::download_script_pc_handler),
+        )
+        .route(
             "/api/ferramentas/impressoras/system-scan",
             get(handlers::scan_system_printers_handler),
         )

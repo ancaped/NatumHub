@@ -279,3 +279,22 @@ pub async fn cancel_print_job_handler(
         ),
     }
 }
+
+/// Script do PC (aponta nexus.local e compartilha as impressoras de etiqueta), embutido no binário.
+/// Os bytes saem como estão no repositório (CRLF) para o cmd.exe do Windows.
+const SCRIPT_PC_NEXUS: &[u8] =
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../scripts/configurar_pc_nexus.bat"));
+
+pub async fn download_script_pc_handler() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [
+            (axum::http::header::CONTENT_TYPE, "application/octet-stream"),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                "attachment; filename=\"configurar_pc_nexus.bat\"",
+            ),
+        ],
+        SCRIPT_PC_NEXUS,
+    )
+}

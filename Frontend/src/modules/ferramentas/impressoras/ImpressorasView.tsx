@@ -18,8 +18,10 @@ import {
   AlertCircle,
   CheckCircle2,
   Terminal,
+  Download,
 } from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
+import { apiFetch } from '../../geral/lib/http';
 import { printersApi } from './lib/printersApi';
 import type {
   HubPrinter,
@@ -225,6 +227,27 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
   }, [printers, search, activeTab]);
 
   // Handle open add modal
+  const SCRIPT_PC_DESCRICAO =
+    'Aponta o nexus.local para o servidor e compartilha as impressoras de etiqueta deste PC. Rode como administrador.';
+
+  // Baixa o script do PC pelo servidor (precisa do token, por isso fetch + blob e não um link direto).
+  const handleBaixarScriptPc = async () => {
+    try {
+      const res = await apiFetch('/api/ferramentas/impressoras/script-pc');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'configurar_pc_nexus.bat';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(`Não foi possível baixar o script: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   const handleOpenAdd = (preset?: Partial<CreatePrinterPayload>) => {
     setEditingPrinter(null);
     setFormData({
@@ -446,6 +469,16 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
                 >
                   <RefreshCw className="h-3.5 w-3.5 text-zinc-600" />
                   <span>Spooler Servidor</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleBaixarScriptPc}
+                  title={SCRIPT_PC_DESCRICAO}
+                  className="flex items-center gap-1.5 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-300 font-bold px-3.5 py-1.5 rounded-xl text-xs transition-colors cursor-pointer shadow-2xs"
+                >
+                  <Download className="h-3.5 w-3.5 text-zinc-600" />
+                  <span>Baixar script do PC</span>
                 </button>
 
                 <button
@@ -1070,7 +1103,11 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
                     />
                   </div>
                   <p className="text-[11px] text-zinc-500">
-                    Rode no PC o script <span className="font-mono">configurar_pc_nexus.bat</span>; ele mostra os dois valores.
+                    Rode no PC o script{' '}
+                    <button type="button" onClick={handleBaixarScriptPc} className="font-mono underline cursor-pointer">
+                      configurar_pc_nexus.bat
+                    </button>
+                    ; ele mostra os dois valores. {SCRIPT_PC_DESCRICAO}
                   </p>
                 </div>
               )}
