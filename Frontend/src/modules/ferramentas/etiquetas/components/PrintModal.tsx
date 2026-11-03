@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, ExternalLink, Loader2, Printer, X } from 'lucide-react';
 import type { LabelTemplate, PrintConfig } from '../lib/types';
 import { openPrintWindow } from '../lib/printService';
-import { printLabelDirect, readLabelFeed, validarImpressoraDireta, type LabelFeed } from '../lib/directPrint';
+import { dpiDoDesenho, printLabelDirect, readLabelFeed, validarImpressoraDireta, type LabelFeed } from '../lib/directPrint';
 import { readLabelFillScale } from '../lib/printService';
 import { renderLabelPngDataUrl } from '../lib/printCanvasRenderer';
 import { labelsApi } from '../lib/labelsApi';
@@ -149,11 +149,7 @@ export default function PrintModal({
     try {
       if (batch) {
         const printerName = validarImpressoraDireta(selectedPrinter);
-        const dpi = printDpi && printDpi >= 150
-          ? printDpi
-          : selectedPrinter.dpi && selectedPrinter.dpi >= 150
-            ? selectedPrinter.dpi
-            : 300;
+        const dpi = dpiDoDesenho(selectedPrinter, printDpi);
         const pages: string[] = [];
         for (const page of batch) {
           pages.push(await renderLabelPngDataUrl(page, 0, batch.length, 1, 2, dpi));

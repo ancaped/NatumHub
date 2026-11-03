@@ -394,10 +394,14 @@ pub async fn imprimir_etiquetas(pool: &PgPool, mut req: DirectPrintRequest) -> R
     let landscape = req.landscape;
     let fill = req.fill_scale;
     let paginas_png = std::mem::take(&mut req.pages_png_base64);
+    // A imagem chega com o tamanho da etiqueta em mm; em pontos da impressora ela tem de ter mm × DPI dela.
+    let dpi = if printer.dpi >= 100 { printer.dpi as f64 } else { 203.0 };
+    let alvo_w = ((req.width_mm / 25.4) * dpi).round() as u32;
+    let alvo_h = ((req.height_mm / 25.4) * dpi).round() as u32;
     tokio::task::spawn_blocking(move || {
         let mut paginas = Vec::with_capacity(paginas_png.len());
         for raw in &paginas_png {
-            let bm = raw_label::png_para_bitmap(&decode_png(raw)?)?;
+            let bm = raw_label::png_para_bitmap_no_tamanho(&decode_png(raw)?, alvo_w, alvo_h)?;
             paginas.push((raw_label::preparar(bm, landscape, fill), copias));
         }
         enviar_para_impressora(&printer, &paginas)

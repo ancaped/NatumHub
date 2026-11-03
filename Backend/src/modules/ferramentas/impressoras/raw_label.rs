@@ -50,7 +50,8 @@ impl Bitmap {
 
 /// Decodifica um PNG (RGBA, RGB, cinza, paleta) para preto e branco.
 /// Transparente conta como branco; limiar de luminância 128.
-pub fn png_para_bitmap(bytes: &[u8]) -> Result<Bitmap, String> {
+/// Luminância (0 = preto, 255 = branco) de cada ponto do PNG, com o alfa transparente contando como branco.
+fn png_para_luminancia(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
     let invalida = || "Imagem da etiqueta inválida.".to_string();
     let mut decoder = png::Decoder::new(Cursor::new(bytes));
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
@@ -70,7 +71,7 @@ pub fn png_para_bitmap(bytes: &[u8]) -> Result<Bitmap, String> {
     if info.bit_depth != png::BitDepth::Eight {
         return Err(invalida());
     }
-    let mut bm = Bitmap::branco(info.width, info.height);
+    let mut lum = vec![255u8; info.width as usize * info.height as usize];
     let linha_bytes = info.line_size;
     for y in 0..info.height as usize {
         let linha = &buf[y * linha_bytes..(y + 1) * linha_bytes];
@@ -83,13 +84,57 @@ pub fn png_para_bitmap(bytes: &[u8]) -> Result<Bitmap, String> {
                 _ => (p[0], p[1], p[2], p[3]),
             };
             let sobre_branco = |c: u8| (c as u32 * a as u32 + 255 * (255 - a as u32)) / 255;
-            let lum = (299 * sobre_branco(r) + 587 * sobre_branco(g) + 114 * sobre_branco(b)) / 1000;
-            if lum < 128 {
-                bm.definir(x as u32, y as u32, true);
+            lum[y * info.width as usize + x] =
+                ((299 * sobre_branco(r) + 587 * sobre_branco(g) + 114 * sobre_branco(b)) / 1000) as u8;
+        }
+    }
+    Ok((info.width, info.height, lum))
+}
+
+fn limiar(largura: u32, altura: u32, lum: &[u8]) -> Bitmap {
+    let mut bm = Bitmap::branco(largura, altura);
+    for y in 0..altura {
+        for x in 0..largura {
+            if lum[(y * largura + x) as usize] < 128 {
+                bm.definir(x, y, true);
             }
         }
     }
-    Ok(bm)
+    bm
+}
+
+pub fn png_para_bitmap(bytes: &[u8]) -> Result<Bitmap, String> {
+    let (w, h, lum) = png_para_luminancia(bytes)?;
+    Ok(limiar(w, h, &lum))
+}
+
+/// Igual a `png_para_bitmap`, mas redimensiona para `largura`×`altura` pontos (média da área, antes do preto/branco).
+/// A tela pode desenhar numa DPI diferente da impressora (ex.: 300 numa Zebra de 203): sem isso a etiqueta sai maior
+/// que o papel, porque o envio direto (ZPL/EPL) não passa pelo driver, que é quem ajustava o tamanho.
+pub fn png_para_bitmap_no_tamanho(bytes: &[u8], largura: u32, altura: u32) -> Result<Bitmap, String> {
+    let (w, h, lum) = png_para_luminancia(bytes)?;
+    if (w, h) == (largura, altura) || largura == 0 || altura == 0 {
+        return Ok(limiar(w, h, &lum));
+    }
+    let mut out = vec![255u8; largura as usize * altura as usize];
+    let (fx, fy) = (w as f64 / largura as f64, h as f64 / altura as f64);
+    for ny in 0..altura {
+        let y0 = (ny as f64 * fy) as u32;
+        let y1 = (((ny + 1) as f64 * fy).ceil() as u32).clamp(y0 + 1, h);
+        for nx in 0..largura {
+            let x0 = (nx as f64 * fx) as u32;
+            let x1 = (((nx + 1) as f64 * fx).ceil() as u32).clamp(x0 + 1, w);
+            let (mut soma, mut n) = (0u64, 0u64);
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    soma += lum[(y * w + x) as usize] as u64;
+                    n += 1;
+                }
+            }
+            out[(ny * largura + nx) as usize] = (soma / n.max(1)) as u8;
+        }
+    }
+    Ok(limiar(largura, altura, &out))
 }
 
 /// Gira 90° no sentido horário quando `landscape` (mesmo sentido do `Landscape` do spooler do
@@ -167,6 +212,25 @@ pub fn epl(b: &Bitmap, copias: u32) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redimensiona_300_para_203_dpi() {
+        // 100×50 mm desenhado a 300 dpi (1181×591) vira 203 dpi (799×400), mantendo o preto.
+        let (w, h) = (1181u32, 591u32);
+        let mut png_bytes = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut png_bytes, w, h);
+            enc.set_color(png::ColorType::Grayscale);
+            enc.set_depth(png::BitDepth::Eight);
+            let mut wr = enc.write_header().unwrap();
+            let dados: Vec<u8> = (0..h).flat_map(|_| (0..w).map(|x| if x < w / 2 { 0 } else { 255 })).collect();
+            wr.write_image_data(&dados).unwrap();
+        }
+        let bm = png_para_bitmap_no_tamanho(&png_bytes, 799, 400).unwrap();
+        assert_eq!((bm.largura, bm.altura), (799, 400));
+        assert!(bm.ponto(10, 200));
+        assert!(!bm.ponto(790, 200));
+    }
 
     fn bm_16x2() -> Bitmap {
         Bitmap {
