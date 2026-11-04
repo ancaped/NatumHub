@@ -6,7 +6,7 @@ import {
   Database, Trash2, Plus, Loader2, Settings, GraduationCap, UploadCloud
 } from 'lucide-react';
 import { cn, randomId } from '../../geral/lib/utils';
-import { Category, PRODUCT_LINE_STATUSES, GraduationCandidate } from '../../geral/lib/types';
+import { Category, PRODUCT_LINE_STATUSES, PRODUCT_ROUTING_CATEGORIES, GraduationCandidate } from '../../geral/lib/types';
 import { api } from '../../geral/lib/api';
 import { eBase, STATUS_IGNORADOS_PADRAO, DIAS_COMERCIAIS_PADRAO, LIMITE_POR_PAGINA_PADRAO } from '../../geral/lib/regrasProduto';
 import KitCompositionDrawer from '../../producao/components/KitCompositionDrawer';
@@ -1024,26 +1024,40 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     });
   };
 
-  const handleToggleIgnoredStatus = async (status: string) => {
+  // Status ignorado vale para todas as telas que consideram produto ativo: mostra quantos produtos mudam e só grava no OK.
+  const handleToggleIgnoredStatus = (status: string) => {
     const isIgnored = configIgnoredStatuses.includes(status);
-    const updated = isIgnored 
+    const updated = isIgnored
       ? configIgnoredStatuses.filter(s => s !== status)
       : [...configIgnoredStatuses, status];
-    
-    setConfigIgnoredStatuses(updated);
-    
-    try {
-      const res = await apiFetch(`/settings/ignored_product_statuses`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value: JSON.stringify(updated) })
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    } catch (e) {
-      console.error(e);
-      setConfigIgnoredStatuses(configIgnoredStatuses);
-      avisar("Erro ao salvar status ignorados", 'erro');
-    }
+    const rotulo = PRODUCT_LINE_STATUSES.find(st => st.value === status)?.label || status;
+    const n = products.filter(p => (p.status_produto || 'ativo') === status).length;
+    setPrevia({
+      titulo: isIgnored ? `Voltar a considerar "${rotulo}"` : `Ignorar "${rotulo}" no planejamento`,
+      linhas: [
+        {
+          titulo: rotulo,
+          detalhe: `${n} produto(s) afetado(s)`,
+        },
+      ],
+      avisos: [
+        isIgnored
+          ? 'Os produtos com esse status passam a entrar nas demandas e nas estimativas de dias de estoque.'
+          : 'Os produtos com esse status deixam de entrar nas demandas e nas estimativas de dias de estoque.',
+        'Ajuste global: vale para todas as telas que consideram produto ativo.',
+      ],
+      confirmarRotulo: isIgnored ? 'Voltar a considerar' : 'Ignorar status',
+      executar: async () => {
+        const res = await apiFetch(`/settings/ignored_product_statuses`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: JSON.stringify(updated) }),
+        });
+        if (!res.ok) throw new Error('Não foi possível salvar os status ignorados.');
+        setConfigIgnoredStatuses(updated);
+        avisar('Status ignorados atualizados.', 'sucesso');
+      },
+    });
   };
 
   const configsFiltradas = useMemo(() => {
@@ -2149,6 +2163,8 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                           <input
                             type="number"
                             className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold text-zinc-800"
+                            min={1}
+                            max={31}
                             value={globalDiasComerciais}
                             onChange={(e) => setGlobalDiasComerciais(e.target.value)}
                             required
@@ -2163,6 +2179,8 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                           <input
                             type="number"
                             className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold text-zinc-800"
+                            min={10}
+                            max={1000}
                             value={globalLimitPerPage}
                             onChange={(e) => setGlobalLimitPerPage(e.target.value)}
                             required
@@ -2177,6 +2195,8 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                           <input
                             type="number"
                             className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold text-zinc-800"
+                            min={1}
+                            max={36}
                             value={globalLancamentoMeta}
                             onChange={(e) => setGlobalLancamentoMeta(e.target.value)}
                             required
@@ -2203,26 +2223,28 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                       
                       <div className="space-y-4 text-xs text-zinc-650 leading-relaxed text-left">
                         <div>
-                          <h4 className="font-bold text-zinc-800 mb-1.5">Status do produto</h4>
+                          <h4 className="font-bold text-zinc-800 mb-1.5">Status do produto (ciclo de vida)</h4>
                           <ul className="space-y-1 text-zinc-500 text-[11px]">
-                            <li><strong className="text-zinc-700">Ativa:</strong> estoque ideal via dias-estoque da linha × média móvel.</li>
-                            <li><strong className="text-zinc-700">Lançamento:</strong> meta manual; gradua para Ativa após o giro configurado.</li>
-                            <li><strong className="text-zinc-700">Saindo de Linha:</strong> produz para consumir materiais; compras exclusivas freiam gradualmente.</li>
+                            {PRODUCT_LINE_STATUSES.map(st => (
+                              <li key={st.value}><strong className="text-zinc-700">{st.label}:</strong> {st.description}.</li>
+                            ))}
                           </ul>
                         </div>
 
                         <div>
-                          <h4 className="font-bold text-zinc-800 mb-1.5">Roteamento por categoria</h4>
+                          <h4 className="font-bold text-zinc-800 mb-1.5">Tipo e roteamento</h4>
                           <ul className="space-y-1 text-zinc-500 text-[11px]">
+                            <li><strong className="text-zinc-700">Base:</strong> tipo de produto próprio (fórmula interna); pode estar ativa ou inativa e em várias linhas; roteada para Gestão de Bases em Produção.</li>
                             <li><strong className="text-zinc-700">MP / Embalagem:</strong> painel geral de Compras.</li>
-                            <li><strong className="text-zinc-700">Base (`cat_base`):</strong> Produção → Gestão de Bases.</li>
-                            <li><strong className="text-zinc-700">Coloração / Apoio:</strong> painéis exclusivos em Compras.</li>
+                            {PRODUCT_ROUTING_CATEGORIES.filter(c => c.id !== 'cat_base').map(c => (
+                              <li key={c.id}><strong className="text-zinc-700">{c.label}:</strong> {c.description}.</li>
+                            ))}
                           </ul>
                         </div>
 
-                        <div className="bg-amber-50/60 border border-amber-100 rounded-xl px-3.5 py-3">
-                          <p className="text-[11px] text-amber-800 leading-relaxed">
-                            <strong>Fim de linha:</strong> embalagens exclusivas suspendem na hora; MPs seguem enquanto houver saldo de embalagem, para escoar o acabado.
+                        <div className="bg-zinc-50 border border-zinc-200 rounded-xl px-3.5 py-3">
+                          <p className="text-[11px] text-zinc-600 leading-relaxed">
+                            <strong className="text-zinc-800">Fim de linha:</strong> embalagens exclusivas suspendem na hora; MPs seguem enquanto houver saldo de embalagem, para escoar o acabado.
                           </p>
                         </div>
                       </div>
@@ -2241,39 +2263,20 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                       </p>
                       
                       <div className="space-y-1.5 pt-1">
-                        {['ativo', 'lancamento', 'saindo_de_linha', 'descontinuado', 'terceirizado'].map(statusVal => {
-                          const labelMap: Record<string, string> = {
-                            ativo: 'Ativa',
-                            lancamento: 'Lançamento',
-                            saindo_de_linha: 'Saindo de Linha',
-                            descontinuado: 'Saiu de Linha',
-                            terceirizado: 'Terceirizado',
-                          };
-                          const descMap: Record<string, string> = {
-                            ativo: 'Planejamento normal.',
-                            lancamento: 'Meta manual e giro progressivo.',
-                            saindo_de_linha: 'Compra freada; consome estoque.',
-                            descontinuado: 'Produção e compras zeradas.',
-                            terceirizado: 'Sem requisição local de insumos.',
-                          };
-                          const isChecked = configIgnoredStatuses.includes(statusVal);
-                          return (
-                            <label key={statusVal} className="flex items-start gap-3 p-2.5 hover:bg-zinc-50 rounded-xl transition-colors cursor-pointer border border-zinc-100">
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={() => handleToggleIgnoredStatus(statusVal)}
-                                className="mt-0.5 rounded border-zinc-350 text-zinc-900 focus:ring-zinc-900 h-4 w-4"
-                              />
-                              <div className="min-w-0">
-                                <div className="text-xs font-bold text-zinc-800">{labelMap[statusVal]}</div>
-                                <span className="text-[10px] text-zinc-400 font-medium leading-snug block">
-                                  {descMap[statusVal]}
-                                </span>
-                              </div>
-                            </label>
-                          );
-                        })}
+                        {PRODUCT_LINE_STATUSES.map(st => (
+                          <label key={st.value} className="flex items-start gap-3 p-2.5 hover:bg-zinc-50 rounded-xl transition-colors cursor-pointer border border-zinc-100">
+                            <input
+                              type="checkbox"
+                              checked={configIgnoredStatuses.includes(st.value)}
+                              onChange={() => handleToggleIgnoredStatus(st.value)}
+                              className="mt-0.5 rounded border-zinc-350 text-zinc-900 focus:ring-zinc-900 h-4 w-4"
+                            />
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-zinc-800">{st.label}</div>
+                              <span className="text-[10px] text-zinc-400 font-medium leading-snug block">{st.description}</span>
+                            </div>
+                          </label>
+                        ))}
                       </div>
                     </div>
 
@@ -2358,9 +2361,10 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                                 </div>
                                 <button
                                   onClick={() => handleDeleteCategory(cat.id)}
-                                  className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[10px] font-bold border border-rose-100 transition-colors cursor-pointer"
+                                  className="p-1.5 hover:bg-zinc-100 text-zinc-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
+                                  title="Excluir subcategoria"
                                 >
-                                  Excluir
+                                  <Trash2 className="w-4 h-4" />
                                 </button>
                               </div>
                             );
