@@ -228,7 +228,12 @@ const DEMANDS_SQL_PRODUCTS: &str = "
              LEFT JOIN estoque_atual e ON p.codigo = e.codigo
              LEFT JOIN config_linhas cl ON cl.linha_prefix = @LINHA_EFETIVA@
              LEFT JOIN item_stock_calibrations cal ON TRIM(cal.item_code) = TRIM(p.codigo)
-             WHERE (p.codigo LIKE '1.34.%' OR p.codigo LIKE '1.30.%' OR o.categoria_produto = 'cat_coloracao' OR o.categoria_produto = 'cat_apoio')
+             WHERE (p.codigo LIKE '1.34.%' OR p.codigo LIKE '1.30.%' OR o.categoria_produto IN (
+                       WITH RECURSIVE arvore AS (
+                           SELECT id FROM categories WHERE id IN ('cat_coloracao', 'cat_apoio')
+                           UNION
+                           SELECT c.id FROM categories c JOIN arvore a ON c.parent_id = a.id
+                       ) SELECT id FROM arvore))
                AND COALESCE(o.visivel, 1) <> 0
                AND COALESCE(cl.visivel, 1) <> 0
 ";
@@ -944,6 +949,7 @@ pub async fn get_demands_query(
     category_id: Option<String>,
     target_days: i32,
     override_period: Option<i32>,
+    incluir_subcategorias: bool,
 ) -> Result<Vec<DemandResult>, String> {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS item_stock_calibrations (
@@ -1038,12 +1044,19 @@ pub async fn get_demands_query(
         _ => true,
     };
     let demands_base = build_demands_sql(include_products);
-    // Filtro exato: cat_mp/cat_emb = só itens da raiz; subcategoria = só ela.
-    // (Itens já classificados em Fragrâncias etc. não entram na lista principal.)
-    let sql = if category_id.is_some() {
-        format!("{demands_base} AND t.category_id = $1 ORDER BY t.description")
-    } else {
-        format!("{demands_base} ORDER BY t.description")
+    // Por padrão o filtro é exato: cat_mp/cat_emb = só itens da raiz; subcategoria = só ela (a tela depende disso).
+    // Com `incluir_subcategorias` entra a categoria e todas as filhas, em qualquer nível.
+    let sql = match (&category_id, incluir_subcategorias) {
+        (Some(_), true) => format!(
+            "{demands_base} AND t.category_id IN (
+                 WITH RECURSIVE arvore AS (
+                     SELECT id FROM categories WHERE id = $1
+                     UNION
+                     SELECT c.id FROM categories c JOIN arvore a ON c.parent_id = a.id
+                 ) SELECT id FROM arvore) ORDER BY t.description"
+        ),
+        (Some(_), false) => format!("{demands_base} AND t.category_id = $1 ORDER BY t.description"),
+        (None, _) => format!("{demands_base} ORDER BY t.description"),
     };
 
     let mut monthly_movements: HashMap<String, HashMap<String, f64>> = HashMap::new();
@@ -1312,5 +1325,54 @@ mod testes_trocas {
         let mut v = vec![contrib("P1", "245", 2.0)];
         aplicar_trocas_contribuicoes(&mut v, &[]);
         assert_eq!(v[0].ingredient_code, "245");
+    }
+
+    async fn limpar_demanda_zz(pool: &sqlx::PgPool) {
+        for sql in [
+            "DELETE FROM overrides_produtos WHERE codigo = 'ZZ.DEM.PROD'",
+            "DELETE FROM produtos WHERE codigo = 'ZZ.DEM.PROD'",
+            "DELETE FROM items WHERE code = '9.99.ZZDEM'",
+            "DELETE FROM categories WHERE id IN ('zz_dem_apoio_neta', 'zz_dem_apoio', 'zz_dem_mp')",
+        ] {
+            sqlx::query(sql).execute(pool).await.unwrap();
+        }
+    }
+
+    /// Item movido para subcategoria não pode sumir da demanda: produto de Apoio fora do prefixo 1.30 e insumo de MP.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn demanda_inclui_itens_em_subcategorias() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = sqlx::PgPool::connect(&url).await.unwrap();
+        limpar_demanda_zz(&pool).await;
+        sqlx::query("INSERT INTO categories (id, name, parent_id) VALUES ('zz_dem_apoio', 'ZZ apoio', 'cat_apoio'), ('zz_dem_apoio_neta', 'ZZ apoio neta', 'zz_dem_apoio'), ('zz_dem_mp', 'ZZ mp', 'cat_mp')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO config_linhas (linha_prefix, nome_linha) VALUES ('ZZDEM', 'teste') ON CONFLICT DO NOTHING").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO produtos (codigo, descricao, linha_prefix) VALUES ('ZZ.DEM.PROD', 'ZZ produto de apoio', 'ZZDEM')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO overrides_produtos (codigo, categoria_produto) VALUES ('ZZ.DEM.PROD', 'zz_dem_apoio_neta')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO items (code, description, unit, category_id) VALUES ('9.99.ZZDEM', 'ZZ insumo', 'KG', 'zz_dem_mp')").execute(&pool).await.unwrap();
+
+        let tem = |lista: &[DemandResult], code: &str| lista.iter().any(|d| d.item_code == code);
+        // sem categoria: tudo, inclusive o produto cuja categoria é neta de Apoio
+        let todos = get_demands_query(pool.clone(), None, 90, None, false).await.unwrap();
+        assert!(tem(&todos, "ZZ.DEM.PROD") && tem(&todos, "9.99.ZZDEM"));
+        // filtro exato segue exato (a tela e o Estoque dependem disso)
+        let raiz_apoio = get_demands_query(pool.clone(), Some("cat_apoio".into()), 90, None, false).await.unwrap();
+        assert!(!tem(&raiz_apoio, "ZZ.DEM.PROD"));
+        let raiz_mp = get_demands_query(pool.clone(), Some("cat_mp".into()), 90, None, false).await.unwrap();
+        assert!(!tem(&raiz_mp, "9.99.ZZDEM"));
+        let exata = get_demands_query(pool.clone(), Some("zz_dem_apoio_neta".into()), 90, None, false).await.unwrap();
+        assert!(tem(&exata, "ZZ.DEM.PROD"));
+        // com subcategorias, a raiz traz as filhas em qualquer nível
+        let arvore_apoio = get_demands_query(pool.clone(), Some("cat_apoio".into()), 90, None, true).await.unwrap();
+        assert!(tem(&arvore_apoio, "ZZ.DEM.PROD"));
+        let filha_apoio = get_demands_query(pool.clone(), Some("zz_dem_apoio".into()), 90, None, true).await.unwrap();
+        assert!(tem(&filha_apoio, "ZZ.DEM.PROD"));
+        let arvore_mp = get_demands_query(pool.clone(), Some("cat_mp".into()), 90, None, true).await.unwrap();
+        assert!(tem(&arvore_mp, "9.99.ZZDEM"));
+        // e não puxa o que é de outra família
+        assert!(!tem(&arvore_mp, "ZZ.DEM.PROD"));
+
+        limpar_demanda_zz(&pool).await;
     }
 }

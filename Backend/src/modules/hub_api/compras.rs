@@ -46,6 +46,9 @@ struct DemandsQuery {
     #[serde(default = "default_target_days")]
     target_days: i32,
     override_period: Option<i32>,
+    /// Com `categoryId`: traz também as subcategorias dela (padrão: só a categoria exata).
+    #[serde(default)]
+    incluir_subcategorias: bool,
 }
 
 fn default_target_days() -> i32 {
@@ -567,7 +570,7 @@ async fn dados_dos_itens(pool: &sqlx::PgPool, itens: &[CreatePurchaseRequestItem
     let demanda = if completos {
         Vec::new()
     } else {
-        get_demands_query(pool.clone(), None, default_target_days(), None).await.unwrap_or_default()
+        get_demands_query(pool.clone(), None, default_target_days(), None, false).await.unwrap_or_default()
     };
     let por_codigo: std::collections::HashMap<String, &DemandResult> =
         demanda.iter().map(|d| (d.item_code.replace('.', ""), d)).collect();
@@ -692,7 +695,7 @@ async fn import_item_observations_handler(State(state): State<Arc<AppState>>, Js
 // --- Demands & Custom Configs ---
 
 async fn get_demands_handler(State(state): State<Arc<AppState>>, Query(q): Query<DemandsQuery>) -> impl IntoResponse {
-    match with_pool(&state, |pool| get_demands_query(pool, q.category_id, q.target_days, q.override_period)).await {
+    match with_pool(&state, |pool| get_demands_query(pool, q.category_id, q.target_days, q.override_period, q.incluir_subcategorias)).await {
         Ok(v) => ok_json(v).into_response(),
         Err(e) => e.into_response(),
     }
@@ -1499,7 +1502,8 @@ pub fn acoes() -> Vec<Acao> {
             "Simulador de compras: necessidade de cada insumo para cobrir os dias-alvo (estoque, consumo, pedidos pendentes e sugestão).",
             "/api/hub/compras/demands",
             vec![
-                param("categoryId", "query", "texto", false, "Filtra por categoria."),
+                param("categoryId", "query", "texto", false, "Id da categoria. Traz só os itens classificados exatamente nela; para incluir as subcategorias use `incluirSubcategorias=true`. Sem `categoryId` vêm todos os itens."),
+                param("incluirSubcategorias", "query", "booleano", false, "true junta as subcategorias (e as filhas delas) da `categoryId`; ex.: cat_apoio com Classe A e demais. Padrão false."),
                 param("targetDays", "query", "inteiro", false, "Dias de cobertura desejados (padrão 90)."),
                 param("overridePeriod", "query", "inteiro", false, "Período de consumo a considerar, em dias, no lugar do configurado."),
             ],
