@@ -26,6 +26,7 @@ pub struct AvariaOut {
     pub fq_necessaria: bool,
     pub fq_resultado: Option<String>,
     pub fq_observacao: Option<String>,
+    pub tipo: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -44,17 +45,20 @@ pub struct UpsertAvariaRequest {
     pub fq_necessaria: Option<bool>,
     pub fq_resultado: Option<String>,
     pub fq_observacao: Option<String>,
+    pub tipo: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ListQuery {
     pub status: Option<String>,
+    pub tipo: Option<String>,
     pub q: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LookupQuery {
     pub q: Option<String>,
+    pub tipo: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
