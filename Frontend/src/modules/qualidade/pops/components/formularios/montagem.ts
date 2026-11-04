@@ -135,6 +135,7 @@ export const ROTULO_ACAO: Record<string, string> = {
   revalidado: 'Revalidado',
   obsoleto: 'Tornado obsoleto',
   nova_revisao: 'Nova revisão aberta',
+  pasta_do_mes: 'Pasta do mês',
 };
 
 export function rev2(n: number | null | undefined): string {

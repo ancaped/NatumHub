@@ -140,6 +140,22 @@ pub async fn publicar_formulario(
     Ok(resposta(&r, None))
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct PastaDoMesInput {
+    pub ativo: bool,
+}
+
+pub async fn pasta_do_mes_formulario(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(code): Path<String>,
+    Query(c): Query<Confirmar>,
+    Json(input): Json<PastaDoMesInput>,
+) -> Result<Response, ErroApi> {
+    let r = formularios::marcar_pasta_do_mes(state.db.pool(), &code, input.ativo, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
+}
+
 pub async fn revisar_formulario(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,

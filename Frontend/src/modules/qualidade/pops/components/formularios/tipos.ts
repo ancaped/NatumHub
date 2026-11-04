@@ -38,6 +38,8 @@ export interface Formulario {
   emRevisao?: boolean;
   orientation?: string;
   rowsPerSheet?: number | null;
+  /** Entra na pasta do mês do setor (formulário que a fábrica preenche todo mês). */
+  pastaDoMes?: boolean;
   effectiveDate?: string | null;
   nextReviewDate?: string | null;
   daysToReview?: number | null;

@@ -32,9 +32,11 @@ export interface FolhaProps {
   total: number;
   logoSrc?: string | null;
   marca?: MarcaFolha;
+  /** «MM/AAAA» já impresso no cabeçalho (pasta do mês); sem ele fica a linha para escrever. */
+  mesAno?: string;
 }
 
-export function Folha({ f, area, pagina, total, logoSrc, marca }: FolhaProps) {
+export function Folha({ f, area, pagina, total, logoSrc, marca, mesAno }: FolhaProps) {
   const paisagem = deitado(f);
   // FOR-PRD-047: o laudo em papel só preenche o mês (decisão do Edson, 2026-11-04); o equipamento já é uma coluna.
   const soMes = f.code.startsWith('FOR-PRD-047');
@@ -47,7 +49,7 @@ export function Folha({ f, area, pagina, total, logoSrc, marca }: FolhaProps) {
   const vigencia = fmtData(f.effectiveDate) || '__/__/____';
   return (
     <div
-      className="for-folha"
+      className={`for-folha ${paisagem ? 'for-folha-l' : 'for-folha-p'}`}
       style={{
         position: 'relative',
         width: paisagem ? '297mm' : '210mm',
@@ -102,7 +104,7 @@ export function Folha({ f, area, pagina, total, logoSrc, marca }: FolhaProps) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 16, fontSize: 9, padding: '3px 8px', borderBottom: BORDA }}>
-          <span><b>Mês/Ano:</b> ____/______</span>
+          <span><b>Mês/Ano:</b> {mesAno ?? '____/______'}</span>
           {!soMes && <span><b>{area ? 'Área:' : 'Setor/Área:'}</b> {area || '________________'}</span>}
           {!soMes && <span><b>Equipamento/ID:</b> ____________</span>}
         </div>
@@ -163,17 +165,19 @@ export interface ImpressaoDados {
   form: Formulario;
   marca: MarcaFolha;
   logoSrc?: string | null;
+  mesAno?: string;
 }
 
-/** Todas as folhas do formulário (uma por área) num portal que só aparece no `@media print`. */
-export function FolhasImpressao({ dados }: { dados: ImpressaoDados }) {
-  const { form, marca, logoSrc } = dados;
-  const areas = montarFolhas(form.areas);
-  const pagina = deitado(form) ? 'A4 landscape' : 'A4 portrait';
+/** Todas as folhas de um ou mais formulários (uma por área) num portal que só aparece no `@media print`. */
+export function FolhasImpressao({ dados }: { dados: ImpressaoDados | ImpressaoDados[] }) {
+  const lista = Array.isArray(dados) ? dados : [dados];
+  const pagina = lista.length > 0 && deitado(lista[0].form) ? 'A4 landscape' : 'A4 portrait';
   return createPortal(
     <>
       <style>{`
         @media screen { .for-print-root { display: none !important; } }
+        @page for-p { size: A4 portrait; margin: 0; }
+        @page for-l { size: A4 landscape; margin: 0; }
         @media print {
           @page { size: ${pagina}; margin: 0; }
           html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
@@ -181,12 +185,17 @@ export function FolhasImpressao({ dados }: { dados: ImpressaoDados }) {
           .for-print-root { display: block !important; background: #fff !important; }
           .for-folha { break-after: page; page-break-after: always; }
           .for-folha:last-child { break-after: auto; page-break-after: auto; }
+          .for-folha-p { page: for-p; }
+          .for-folha-l { page: for-l; }
         }
       `}</style>
       <div className="for-print-root">
-        {areas.map((area, i) => (
-          <Folha key={`${form.code}-${i}`} f={form} area={area} pagina={i + 1} total={areas.length} logoSrc={logoSrc} marca={marca} />
-        ))}
+        {lista.map(({ form, marca, logoSrc, mesAno }) => {
+          const areas = montarFolhas(form.areas);
+          return areas.map((area, i) => (
+            <Folha key={`${form.code}-${i}`} f={form} area={area} pagina={i + 1} total={areas.length} logoSrc={logoSrc} marca={marca} mesAno={mesAno} />
+          ));
+        })}
       </div>
     </>,
     document.body,

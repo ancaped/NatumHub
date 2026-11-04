@@ -43,6 +43,8 @@ pub struct Formulario {
     pub orientation: String,
     /// Linhas em branco por folha; vazio = padrão da orientação (14 em pé, 8 deitado).
     pub rows_per_sheet: Option<i32>,
+    /// Entra na «pasta do mês» do setor: é um dos formulários que a fábrica preenche todo mês.
+    pub pasta_do_mes: bool,
     pub effective_date: Option<String>,
     pub next_review_date: Option<String>,
     pub days_to_review: Option<i64>,
@@ -261,6 +263,11 @@ pub(super) async fn ensure(pool: &PgPool) -> Result<(), String> {
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
+    // Coluna da migração 086.
+    sqlx::query("ALTER TABLE pop_formularios ADD COLUMN IF NOT EXISTS monthly_pack BOOLEAN NOT NULL DEFAULT FALSE")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
 
     for s in SEED {
         sqlx::query(
@@ -334,6 +341,7 @@ fn map_row(row: &sqlx::postgres::PgRow) -> Formulario {
         revision,
         orientation: row.try_get("orientation").unwrap_or_else(|_| "portrait".into()),
         rows_per_sheet: row.try_get("rows_per_sheet").unwrap_or(None),
+        pasta_do_mes: row.try_get("monthly_pack").unwrap_or(false),
         effective_date: data_iso(row.try_get("effective_date").unwrap_or(None)),
         next_review_date: data_iso(proxima),
         days_to_review: proxima.map(|d| (d - store::today()).num_days()),
@@ -625,6 +633,29 @@ pub(super) async fn mover_status_tx(c: &mut PgConnection, code: &str, destino: &
     .await?;
     eventos::registrar(&mut *c, "formulario", code, evento_do_destino(destino), Some(&atual.status), Some(destino), Some(motivo), quem).await?;
     para_json(&buscar(&mut *c, code, false).await?)
+}
+
+/// Liga/desliga o formulário na «pasta do mês» do setor. Marca de uso, não conteúdo do documento: não muda status nem revisão.
+pub async fn marcar_pasta_do_mes(pool: &PgPool, code: &str, ativo: bool, autor: &str, confirmar: bool) -> Resp {
+    ensure(pool).await.map_err(ErroApi::interno)?;
+    let code = code.to_string();
+    let quem = autor.to_string();
+    let entrada = json!({ "code": code, "ativo": ativo });
+    let alvo = code.clone();
+    gravar_auditado(pool, "marcar_pasta_do_mes_formulario_pop", autor, &alvo, entrada, confirmar, move |c| {
+        Box::pin(async move {
+            let atual = buscar(&mut *c, &code, true).await?;
+            sqlx::query("UPDATE pop_formularios SET monthly_pack = $2 WHERE code = $1")
+                .bind(&code)
+                .bind(ativo)
+                .execute(&mut *c)
+                .await?;
+            let texto = if ativo { "Entra na pasta do mês" } else { "Sai da pasta do mês" };
+            eventos::registrar(&mut *c, "formulario", &code, "pasta_do_mes", Some(&atual.status), Some(&atual.status), Some(texto), &quem).await?;
+            para_json(&buscar(&mut *c, &code, false).await?)
+        })
+    })
+    .await
 }
 
 /// Aprova e publica: do rascunho (passa antes por «em aprovação», com o mesmo motivo e os dois eventos na trilha) ou de «em aprovação».

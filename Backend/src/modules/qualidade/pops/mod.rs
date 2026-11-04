@@ -96,6 +96,10 @@ pub fn router() -> Router<Arc<AppState>> {
             post(handlers::revisar_formulario),
         )
         .route(
+            "/api/qualidade/pops/formularios/:code/pasta-mes",
+            post(handlers::pasta_do_mes_formulario),
+        )
+        .route(
             "/api/qualidade/pops/normas",
             get(handlers::normas),
         )
@@ -403,6 +407,19 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
             vec![
                 param("code", "caminho", "texto", true, "Código do formulário."),
                 param("motivo", "corpo", "texto", true, "Motivo."),
+                confirmar(),
+            ],
+        ),
+        Acao::gravacao(
+            "marcar_formulario_pasta_do_mes",
+            "qualidade_pops",
+            "Liga ou desliga o formulário na «pasta do mês» do setor (os formulários que a fábrica preenche todo mês e que saem juntos na impressão mensal). Não muda status nem revisão. Sem `confirmar=true` mostra só a prévia.",
+            "POST",
+            "/api/qualidade/pops/formularios/:code/pasta-mes",
+            true,
+            vec![
+                param("code", "caminho", "texto", true, "Código do formulário."),
+                param("ativo", "corpo", "booleano", true, "true = entra na pasta do mês; false = sai."),
                 confirmar(),
             ],
         ),

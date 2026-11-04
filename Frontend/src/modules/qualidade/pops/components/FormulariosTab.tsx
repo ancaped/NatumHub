@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Layers, Printer, Search } from 'lucide-react';
+import { CalendarDays, Layers, Printer, Search } from 'lucide-react';
 import { apiJson } from '../../../geral/lib/http';
 import { useAviso } from '../../../geral/components/ui/Aviso';
 import { usePreviaServidor } from '../../../producao/lib/usePreviaServidor';
 import { useEmitirLote } from './EmitirLote';
 import type { PopSector } from '../types';
 import FormularioDrawer from './formularios/FormularioDrawer';
+import PastaDoMesDrawer from './PastaDoMesDrawer';
 import { FolhasImpressao, type ImpressaoDados } from './formularios/FormularioFolhas';
 import { fmtData, linhasPorFolha, montarFolhas, paraImpressao, rev2, rotuloStatus } from './formularios/montagem';
 import type { Formulario, FormularioDetalhe } from './formularios/tipos';
@@ -32,7 +33,8 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
   const [setor, setSetor] = useState('');
   const [status, setStatus] = useState('');
   const [aberto, setAberto] = useState<string | null>(null);
-  const [imprimindo, setImprimindo] = useState<ImpressaoDados | null>(null);
+  const [imprimindo, setImprimindo] = useState<ImpressaoDados | ImpressaoDados[] | null>(null);
+  const [pastaAberta, setPastaAberta] = useState(false);
   const [novoAberto, setNovoAberto] = useState(false);
   const [sectors, setSectors] = useState<PopSector[]>([]);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
@@ -115,7 +117,7 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
   const emitir = (codes: string[], descricao: string) =>
     abrirLote({ url: '/qualidade/pops/formularios/emitir-lote', selecao: { codes }, descricao, tipo: 'formulários' });
 
-  const imprimir = useCallback((d: ImpressaoDados) => {
+  const imprimir = useCallback((d: ImpressaoDados | ImpressaoDados[]) => {
     setImprimindo(d);
     window.setTimeout(() => window.print(), 200);
   }, []);
@@ -126,6 +128,21 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
       imprimir({ ...paraImpressao({ ...det, revisoes: det.revisoes ?? [], eventos: det.eventos ?? [] }), logoSrc });
     } catch (e) {
       avisar(e instanceof Error ? e.message : 'Não foi possível preparar a impressão.', 'erro');
+    }
+  };
+
+  /** Marca de uso (não muda o documento): grava direto e a lista mostra já; se falhar, volta. */
+  const marcarPasta = async (f: Formulario, ativo: boolean) => {
+    const troca = (v: boolean) => setLista((l) => l.map((x) => (x.code === f.code ? { ...x, pastaDoMes: v } : x)));
+    troca(ativo);
+    try {
+      await apiJson(`/qualidade/pops/formularios/${encodeURIComponent(f.code)}/pasta-mes?confirmar=true`, {
+        method: 'POST',
+        body: JSON.stringify({ ativo }),
+      });
+    } catch (e) {
+      troca(!ativo);
+      avisar(e instanceof Error ? e.message : 'Não foi possível marcar o formulário.', 'erro');
     }
   };
 
@@ -182,6 +199,13 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
             Emitir selecionados ({marcados.size})
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => setPastaAberta(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-sm font-semibold text-zinc-800"
+        >
+          <CalendarDays className="w-4 h-4" /> Pasta do mês
+        </button>
         <button type="button" onClick={() => setNovoAberto((v) => !v)} className="px-3 py-2 rounded-xl bg-zinc-900 text-white text-sm font-medium">
           Novo
         </button>
@@ -243,9 +267,8 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
               <th className="w-10 px-4 py-3" />
               <th className="px-4 py-3 font-semibold">Código</th>
               <th className="px-4 py-3 font-semibold">Título</th>
-              <th className="px-4 py-3 font-semibold">POP</th>
-              <th className="px-4 py-3 font-semibold text-center">Folhas</th>
               <th className="px-4 py-3 font-semibold">Quando</th>
+              <th className="px-4 py-3 font-semibold text-center" title="Entra na impressão da pasta do mês do setor">Pasta</th>
               <th className="px-4 py-3 font-semibold text-center">Rev.</th>
               <th className="px-4 py-3 font-semibold">Vigência</th>
               <th className="px-4 py-3 font-semibold text-center">Status</th>
@@ -273,13 +296,27 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
                     <div className="font-mono text-xs font-bold text-zinc-900">{f.code}</div>
                     <div className="text-[10px] text-zinc-400">antes: {f.previousCode}</div>
                   </td>
-                  <td className="px-4 py-3 font-medium text-zinc-900">{f.title}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{f.popCode}</td>
-                  <td className="px-4 py-3 text-center text-zinc-600">
-                    {montarFolhas(f.areas).length > 1 ? `${montarFolhas(f.areas).length} (por área)` : '1'}
-                    <div className="text-[10px] text-zinc-400">{f.orientation === 'landscape' ? 'horizontal' : 'vertical'} · {linhasPorFolha(f)} linhas</div>
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-zinc-900">{f.title}</div>
+                    <div className="font-mono text-[10px] text-zinc-400">{f.popCode}</div>
                   </td>
-                  <td className="px-4 py-3 text-zinc-500">{f.periodicity}</td>
+                  <td className="px-4 py-3 text-zinc-600">
+                    {f.periodicity}
+                    <div className="text-[10px] text-zinc-400">
+                      {montarFolhas(f.areas).length > 1 ? `${montarFolhas(f.areas).length} folhas · ` : ''}{f.orientation === 'landscape' ? 'horizontal' : 'vertical'} · {linhasPorFolha(f)} linhas
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                    {f.status !== 'obsolete' && (
+                      <input
+                        type="checkbox"
+                        aria-label={`${f.code} entra na pasta do mês`}
+                        checked={!!f.pastaDoMes}
+                        onChange={(e) => void marcarPasta(f, e.target.checked)}
+                        className="w-4 h-4 accent-zinc-900 cursor-pointer"
+                      />
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-center font-mono text-xs">
                     {rev2(f.revision)}
                     {f.emRevisao && <div className="text-[10px] text-sky-700">Rev. {rev2(f.nextRevision)} em edição</div>}
@@ -319,6 +356,18 @@ export default function FormulariosTab({ logoSrc }: { logoSrc?: string | null })
         onMudou={carregar}
         onImprimir={imprimir}
         avisar={avisar}
+      />
+
+      <PastaDoMesDrawer
+        aberto={pastaAberta}
+        onClose={() => setPastaAberta(false)}
+        lista={lista}
+        setores={setores}
+        nomeDoSetor={nomeDoSetor}
+        setorInicial={setor}
+        logoSrc={logoSrc}
+        avisar={avisar}
+        onImprimir={imprimir}
       />
 
       {previaElemento}
