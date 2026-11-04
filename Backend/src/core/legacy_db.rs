@@ -4625,3 +4625,27 @@ pub async fn sync_recebe_insumos(pool: &PgPool, force_full: bool) -> Result<(usi
 }
 
 
+
+#[cfg(test)]
+mod d1_sql_tests {
+    use super::d1_insumos_stock_sql;
+
+    #[test]
+    fn d1_filtro_por_codigo_so_aparece_uma_vez() {
+        let lote = d1_insumos_stock_sql(false);
+        let um = d1_insumos_stock_sql(true);
+        assert!(!lote.contains("FILTRO_CODIGO") && !lote.contains("@P1"));
+        assert_eq!(um.matches("@P1").count(), 1);
+    }
+
+    #[test]
+    fn d1_devolve_saldo_calculado_em_float_sem_declare() {
+        let sql = d1_insumos_stock_sql(false);
+        // O leitor mssql_f64 devolve 0 para DECIMAL: a saída precisa ser FLOAT.
+        assert!(sql.contains("AS FLOAT) AS nQtdeEstoque,"));
+        assert!(sql.contains("AS nQtdeEstoqueCache"));
+        assert!(!sql.to_uppercase().contains("DECLARE"));
+        // Lotes cancelados não descontam do saldo.
+        assert!(sql.contains("l.cStatus <> 'CA'"));
+    }
+}
