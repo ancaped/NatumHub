@@ -114,6 +114,20 @@ test('largurasColunas somam 100 e texto é mais largo que sim_nao', () => {
   assert.ok(l[1] > l[2]);
 });
 
+test('largurasColunas: a coluna com largura fixa a mantém e as outras dividem o resto', () => {
+  const l = largurasColunas(['data', 'texto'], [null, 30]);
+  assert.ok(Math.abs(l[0] - 70) < 1e-9 && Math.abs(l[1] - 30) < 1e-9);
+  const passa = largurasColunas(['data', 'texto'], [80, 80]);
+  assert.ok(Math.abs(passa.reduce((a, b) => a + b, 0) - 100) < 1e-9);
+});
+
+test('editor: cabeçalho vem do layout e volta no payload', () => {
+  assert.equal(estadoDoFormulario(form({})).showArea, true);
+  const e = estadoDoFormulario(form({ layout: { showArea: false, showEquip: false } }));
+  assert.equal(e.showArea, false);
+  assert.deepEqual(payloadDoEditor(e).layout, { showArea: false, showEquip: false });
+});
+
 test('editor: áreas uma por linha, colunas aparadas, 0 volta ao padrão', () => {
   assert.deepEqual(areasDoTexto(' A \n\nB\n'), ['A', 'B']);
   const e = estadoDoFormulario(form({ areas: ['X'], limits: 'pH 5', rowsPerSheet: 27 }));
@@ -121,7 +135,7 @@ test('editor: áreas uma por linha, colunas aparadas, 0 volta ao padrão', () =>
   const p = payloadDoEditor({ ...e, popCode: ' pop-cql-012 ', rowsPerSheet: '', columns: [{ label: ' Data ', kind: 'data', limit: ' ' }] });
   assert.equal(p.popCode, 'POP-CQL-012');
   assert.equal(p.rowsPerSheet, 0);
-  assert.deepEqual(p.columns, [{ label: 'Data', kind: 'data', limit: null }]);
+  assert.deepEqual(p.columns, [{ label: 'Data', kind: 'data', limit: null, width: null }]);
 });
 
 test('moverItem e formatadores', () => {
