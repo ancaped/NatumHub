@@ -149,24 +149,81 @@ async fn raiz_de(conn: &mut PgConnection, id: &str) -> Result<String, ErroApi> {
     Err(ErroApi::regra("A árvore de categorias passou de 8 níveis."))
 }
 
-async fn periodo_de(conn: &mut PgConnection, id: &str) -> Result<Option<i32>, ErroApi> {
-    let mut atual = Some(id.to_string());
-    for _ in 0..8 {
-        let Some(cid) = atual else { break };
-        let p: Option<i32> = sqlx::query_scalar(
-            "SELECT periodo_media FROM compras_config_personalizado WHERE target_id = $1 AND periodo_media IS NOT NULL ORDER BY CASE WHEN level = 'subcategoria' THEN 0 ELSE 1 END LIMIT 1",
-        )
-        .bind(&cid)
+/// Período gravado para esta categoria (só a linha dela, sem herdar).
+async fn periodo_configurado(conn: &mut PgConnection, id: &str) -> Result<Option<i32>, ErroApi> {
+    Ok(sqlx::query_scalar(
+        "SELECT periodo_media FROM compras_config_personalizado WHERE target_id = $1 AND periodo_media IS NOT NULL ORDER BY CASE WHEN level = 'subcategoria' THEN 0 ELSE 1 END LIMIT 1",
+    )
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .flatten())
+}
+
+/// Período geral da família (tela de configurações de Compras); 12 meses se não houver.
+async fn periodo_global(conn: &mut PgConnection, raiz: &str) -> Result<i32, ErroApi> {
+    let chave = match raiz {
+        "cat_coloracao" => "compras_coloracao",
+        "cat_apoio" => "compras_apoio",
+        _ => "compras_main",
+    };
+    let p: Option<i32> = sqlx::query_scalar("SELECT CAST((value::json->>'averagePeriodMonths') AS INTEGER) FROM config WHERE key = $1")
+        .bind(chave)
         .fetch_optional(&mut *conn)
         .await?
         .flatten();
-        if p.is_some() {
-            return Ok(p);
-        }
-        let cat = ler_categoria(conn, &cid).await?;
-        atual = cat.parent_id.filter(|s| !s.trim().is_empty());
+    Ok(p.filter(|p| *p > 0).unwrap_or(12))
+}
+
+/// O que uma subcategoria nova sob `parent_id` herda: o período da mãe, senão o geral da família.
+/// Mesma ordem que a demanda usa (`resolve_periodo_media`): a própria, a mãe, o geral, 12.
+async fn periodo_herdado_por(conn: &mut PgConnection, parent_id: &str) -> Result<i32, ErroApi> {
+    if let Some(p) = periodo_configurado(conn, parent_id).await? {
+        return Ok(p);
     }
-    Ok(None)
+    let raiz = raiz_de(conn, parent_id).await?;
+    periodo_global(conn, &raiz).await
+}
+
+/// Período que vale hoje para a categoria.
+async fn periodo_efetivo(conn: &mut PgConnection, cat: &Cat) -> Result<i32, ErroApi> {
+    if let Some(p) = periodo_configurado(conn, &cat.id).await? {
+        return Ok(p);
+    }
+    match cat.parent_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(mae) => periodo_herdado_por(conn, mae).await,
+        None => periodo_global(conn, &cat.id).await,
+    }
+}
+
+/// Acha a categoria pelo id completo; senão por prefixo do id (8+ caracteres) ou pelo nome exato, se só houver um.
+async fn resolver_categoria(conn: &mut PgConnection, referencia: &str) -> Result<Cat, ErroApi> {
+    let r = referencia.trim();
+    if r.is_empty() {
+        return Err(ErroApi::invalido("Informe a categoria (id, prefixo do id ou nome exato)."));
+    }
+    if let Ok(cat) = ler_categoria(conn, r).await {
+        return Ok(cat);
+    }
+    let rows = sqlx::query(
+        "SELECT id, name, parent_id FROM categories
+         WHERE (length($1) >= 8 AND id LIKE $1 || '%') OR lower(trim(name)) = lower(trim($1))
+         ORDER BY id LIMIT 6",
+    )
+    .bind(r)
+    .fetch_all(&mut *conn)
+    .await?;
+    match rows.len() {
+        0 => Err(ErroApi::nao_encontrado("Categoria não encontrada.").com_detalhes(json!({ "referencia": r }))),
+        1 => Ok(Cat { id: rows[0].get("id"), name: rows[0].get("name"), parent_id: rows[0].get("parent_id") }),
+        _ => {
+            let candidatas: Vec<Value> = rows
+                .iter()
+                .map(|x| json!({ "id": x.get::<String, _>("id"), "nome": x.get::<String, _>("name"), "parentId": x.get::<Option<String>, _>("parent_id") }))
+                .collect();
+            Err(ErroApi::conflito("Mais de uma categoria combina; use o id completo.").com_detalhes(json!({ "referencia": r, "candidatas": candidatas })))
+        }
+    }
 }
 
 async fn gravar_periodo(conn: &mut PgConnection, id: &str, periodo: i32) -> Result<(), ErroApi> {
@@ -215,16 +272,17 @@ pub async fn criar_subcategoria(
     if nome.is_empty() {
         return Err(ErroApi::invalido("Informe o nome da subcategoria."));
     }
-    let parent = ler_categoria(conn, parent_id.trim()).await?;
+    let parent = resolver_categoria(conn, parent_id).await?;
     let raiz = raiz_de(conn, &parent.id).await?;
     let familia = exige_familia(ctx, &raiz)?;
     if nome_repetido(conn, &parent.id, nome, None).await? {
         return Err(ErroApi::conflito("Já existe uma subcategoria com esse nome nessa família."));
     }
-    let herdado = periodo_de(conn, &parent.id).await?;
-    let aplicado = match periodo {
+    let herdado = periodo_herdado_por(conn, &parent.id).await?;
+    // só grava período próprio se vier no corpo; senão a nova segue a mãe (e o geral) como a demanda já faz
+    let explicito = match periodo {
         Some(p) => Some(validar_periodo(p)?),
-        None => herdado,
+        None => None,
     };
     let id = format!("cat_{}", Uuid::new_v4().simple());
     sqlx::query("INSERT INTO categories (id, name, parent_id) VALUES ($1, $2, $3)")
@@ -233,12 +291,12 @@ pub async fn criar_subcategoria(
         .bind(&parent.id)
         .execute(&mut *conn)
         .await?;
-    if let Some(p) = aplicado {
+    if let Some(p) = explicito {
         gravar_periodo(conn, &id, p).await?;
     }
     Ok(json!({
         "antes": Value::Null,
-        "depois": { "id": id, "nome": nome, "parentId": parent.id, "periodo": aplicado, "periodoHerdado": herdado },
+        "depois": { "id": id, "nome": nome, "parentId": parent.id, "periodo": explicito.unwrap_or(herdado), "periodoHerdado": herdado, "periodoGravado": explicito.is_some() },
         "motivo": motivo,
         "familia": familia,
     }))
@@ -254,7 +312,7 @@ pub async fn ajustar_subcategoria(
     motivo: &str,
 ) -> Result<Value, ErroApi> {
     let motivo = motivo_ok(motivo)?;
-    let cat = ler_categoria(conn, id.trim()).await?;
+    let cat = resolver_categoria(conn, id).await?;
     let raiz = raiz_de(conn, &cat.id).await?;
     let familia = exige_familia(ctx, &raiz)?;
     let e_raiz = cat.parent_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).is_none();
@@ -280,9 +338,9 @@ pub async fn ajustar_subcategoria(
             return Err(ErroApi::conflito("Já existe uma subcategoria com esse nome nessa família."));
         }
     }
-    let periodo_antes = periodo_de(conn, &cat.id).await?;
+    let periodo_antes = periodo_efetivo(conn, &cat).await?;
     let periodo_depois = match periodo {
-        Some(p) => Some(validar_periodo(p)?),
+        Some(p) => validar_periodo(p)?,
         None => periodo_antes,
     };
     if nome_final == cat.name && periodo_depois == periodo_antes {
@@ -379,15 +437,16 @@ pub async fn mover_itens(
     if codigos.len() > 1000 {
         return Err(ErroApi::invalido("O lote aceita no máximo 1000 códigos."));
     }
-    let destino = ler_categoria(conn, category_id.trim()).await?;
+    let destino = resolver_categoria(conn, category_id).await?;
     let raiz_destino = raiz_de(conn, &destino.id).await?;
     let familia = exige_familia(ctx, &raiz_destino)?;
+    // um lote por vez e sempre na mesma ordem de código: dois lotes que se cruzam não travam um ao outro (deadlock)
+    sqlx::query("SELECT pg_advisory_xact_lock(7270118)").execute(&mut *conn).await?;
+    let mut ordenados: Vec<&str> = codigos.iter().map(|c| c.trim()).filter(|c| !c.is_empty()).collect();
+    ordenados.sort_unstable();
+    ordenados.dedup();
     let mut itens = Vec::new();
-    for code in codigos {
-        let code = code.trim();
-        if code.is_empty() {
-            continue;
-        }
+    for code in ordenados {
         let antes = categoria_do_codigo(conn, code).await?;
         if ctx.is_agente() && e_produto(conn, code).await? {
             let raiz_atual = match antes.as_deref() {
@@ -952,6 +1011,51 @@ mod tests {
         let neg = [ItemLista { item_code: "ZZ.AG.002", item_description: "x", unit: None, quantity_requested: -1.0, observacao: None, dados: DadosDoItem::default() }];
         let e = criar_lista(&mut *tx, &agente, "materia_prima", None, None, "zz", &neg, "teste").await.unwrap_err();
         assert_eq!(e.codigo, "invalido");
+
+        tx.rollback().await.unwrap();
+    }
+
+    /// Subcategoria nova herda o período (da mãe, senão o geral); id, prefixo ou nome acham a categoria; lote em ordem estável.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn subcategoria_herda_periodo_e_acha_por_nome_ou_prefixo() {
+        use crate::modules::geral::auth::models::{OperatorRole, Origem};
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = sqlx::PgPool::connect(&url).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        let agente = ctx_de(OperatorRole::Operador, Origem::Agente);
+        sqlx::query("INSERT INTO config (key, value) VALUES ('compras_main', '{\"averagePeriodMonths\": 7}') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+            .execute(&mut *tx).await.unwrap();
+
+        // sem período no corpo e sem período na mãe: herda o geral da família, sem gravar linha própria
+        let a = criar_subcategoria(&mut *tx, &agente, "ZZ rev A", "cat_mp", None, "t").await.unwrap();
+        let id_a = a["depois"]["id"].as_str().unwrap().to_string();
+        assert_eq!((a["depois"]["periodo"].as_i64(), a["depois"]["periodoHerdado"].as_i64()), (Some(7), Some(7)));
+        assert_eq!(a["depois"]["periodoGravado"], false);
+        let linhas: i64 = sqlx::query_scalar("SELECT count(*) FROM compras_config_personalizado WHERE target_id = $1").bind(&id_a).fetch_one(&mut *tx).await.unwrap();
+        assert_eq!(linhas, 0);
+
+        // período no corpo é gravado; filha criada pelo NOME da mãe herda esse período
+        let b = criar_subcategoria(&mut *tx, &agente, "ZZ rev B", "cat_mp", Some(5), "t").await.unwrap();
+        let id_b = b["depois"]["id"].as_str().unwrap().to_string();
+        assert_eq!((b["depois"]["periodo"].as_i64(), b["depois"]["periodoGravado"].as_bool()), (Some(5), Some(true)));
+        let c = criar_subcategoria(&mut *tx, &agente, "ZZ rev igual", "ZZ rev B", None, "t").await.unwrap();
+        assert_eq!((c["depois"]["periodo"].as_i64(), c["depois"]["periodoHerdado"].as_i64()), (Some(5), Some(5)));
+        // mãe achada por prefixo do id
+        criar_subcategoria(&mut *tx, &agente, "ZZ rev igual", &id_a[..12], None, "t").await.unwrap();
+
+        // nome que existe em duas categorias: recusa e lista as candidatas
+        let amb = ajustar_subcategoria(&mut *tx, &agente, "ZZ rev igual", Some("ZZ x"), None, false, "t").await.unwrap_err();
+        assert_eq!(amb.codigo, "conflito");
+
+        // ajusta por prefixo do id; o período de antes e de depois é o que vale hoje
+        let aj = ajustar_subcategoria(&mut *tx, &agente, &id_b[..12], Some("ZZ rev B2"), None, false, "t").await.unwrap();
+        assert_eq!((aj["antes"]["periodo"].as_i64(), aj["depois"]["periodo"].as_i64()), (Some(5), Some(5)));
+
+        // lote com código repetido e destino pelo nome: um item só, sem travar
+        sqlx::query("INSERT INTO items (code, description, unit, category_id) VALUES ('9.99.ZZMV', 'ZZ item', 'KG', 'cat_mp')").execute(&mut *tx).await.unwrap();
+        let mv = mover_itens(&mut *tx, &agente, &["9.99.ZZMV".to_string(), "9.99.ZZMV".to_string()], "ZZ rev B2", "t").await.unwrap();
+        assert_eq!(mv["quantidade"], 1);
 
         tx.rollback().await.unwrap();
     }

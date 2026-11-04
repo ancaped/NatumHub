@@ -442,30 +442,6 @@ async fn trocar_categoria_item_handler(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SalvarCategoriaBody {
-    #[serde(default)]
-    id: Option<String>,
-    #[serde(default)]
-    name: String,
-    #[serde(default)]
-    parent_id: String,
-}
-
-// POST /api/hub/compras/categorias (2 passos: sem confirmar=true só devolve a prévia)
-async fn salvar_categoria_handler(
-    State(state): State<Arc<AppState>>,
-    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
-    Query(c): Query<crate::core::acao::Confirmar>,
-    Json(body): Json<SalvarCategoriaBody>,
-) -> impl IntoResponse {
-    match salvar_categoria_compras(state.db.pool(), &ctx, body.id.as_deref(), &body.name, &body.parent_id, c.confirmar).await {
-        Ok(v) => Json(v).into_response(),
-        Err(e) => e.into_response(),
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct AjustarCategoriaBody {
     nome: Option<String>,
     periodo: Option<i32>,
@@ -1206,7 +1182,6 @@ pub fn router() -> Router<Arc<AppState>> {
         // Categories
         .route("/api/hub/compras/categories", get(get_categories_handler).post(save_category_handler))
         .route("/api/hub/compras/categories/:id", patch(ajustar_categoria_handler).delete(delete_category_handler))
-        .route("/api/hub/compras/categorias", post(salvar_categoria_handler))
         // Items
         .route("/api/hub/compras/items", get(get_items_handler))
         .route("/api/hub/compras/items/details", post(update_item_details_handler))
@@ -1291,20 +1266,6 @@ pub fn acoes() -> Vec<Acao> {
             ],
         ),
         Acao::gravacao(
-            "salvar_categoria_compras",
-            "compras_categorias",
-            "Cria ou renomeia uma subcategoria do Hub de Compras. Sem `confirmar=true` devolve a prévia (`antes`, `depois`, `mudou`) e não grava; com ele grava e audita. `parentId` é obrigatório e precisa existir; `name` não pode ser vazio; sem `id` gera um (a prévia devolve `id` nulo). Recusa alterar categorias raiz e criar ciclo; `parentId` diferente do atual move a subcategoria dentro da mesma família; mover para outra família é só do supervisor (recusa `sem_permissao`). Não exclui. Os ids vêm de `listar_categorias_compras`.",
-            "POST",
-            "/api/hub/compras/categorias",
-            true,
-            vec![
-                param("id", "corpo", "texto", false, "Id da categoria a renomear/mover; ausente cria uma nova."),
-                param("name", "corpo", "texto", true, "Nome da categoria."),
-                param("parentId", "corpo", "texto", true, "Id da categoria-mãe."),
-                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
-            ],
-        ),
-        Acao::gravacao(
             "trocar_categoria_item",
             MP,
             "Troca a categoria de um item (produto de Apoio/Coloração ou insumo) pelo `code`. Sem `confirmar=true` devolve a prévia (`categoriaAntes`, `categoriaDepois`, `mudou`) e não grava; com ele grava e audita. Permissão: o agente precisa de editar em um módulo da família da categoria de ORIGEM e em um da família do DESTINO (cat_apoio = compras_apoio; cat_coloracao = compras_coloracao; cat_mp = compras_materia_prima; cat_emb = compras_embalagens; demais = materia_prima ou embalagens); a recusa diz qual módulo falta. Produto só pode ser movido por agente se já for de Apoio/Coloração. Os ids de categoria vêm de `listar_categorias_compras`.",
@@ -1313,7 +1274,7 @@ pub fn acoes() -> Vec<Acao> {
             true,
             vec![
                 param("code", "caminho", "texto", true, "Código do item (produto ou insumo)."),
-                param("categoryId", "corpo", "texto", true, "Id da categoria de destino."),
+                param("categoryId", "corpo", "texto", true, "Id da categoria de destino; aceita também prefixo do id (8+ caracteres) ou o nome exato, se só houver uma."),
                 param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
             ],
         )
@@ -1327,7 +1288,7 @@ pub fn acoes() -> Vec<Acao> {
             true,
             vec![
                 param("nome", "corpo", "texto", true, "Nome da subcategoria."),
-                param("parentId", "corpo", "texto", true, "Id da categoria-mãe."),
+                param("parentId", "corpo", "texto", true, "Id da categoria-mãe; aceita também prefixo do id (8+ caracteres) ou o nome exato, se só houver uma."),
                 param("periodo", "corpo", "inteiro", false, "Período de estoque em dias; ausente herda da mãe."),
                 param("motivo", "corpo", "texto", true, "Por que a subcategoria está sendo criada."),
                 param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
@@ -1342,7 +1303,7 @@ pub fn acoes() -> Vec<Acao> {
             "/api/hub/compras/categories/:id",
             true,
             vec![
-                param("id", "caminho", "texto", true, "Id da subcategoria."),
+                param("id", "caminho", "texto", true, "Id da subcategoria; aceita também prefixo do id (8+ caracteres) ou o nome exato, se só houver uma."),
                 param("nome", "corpo", "texto", false, "Novo nome; ausente mantém o atual."),
                 param("periodo", "corpo", "inteiro", false, "Novo período de estoque em dias."),
                 param("permitirRestrito", "corpo", "booleano", false, "true libera raiz e Classe A."),
@@ -1360,7 +1321,7 @@ pub fn acoes() -> Vec<Acao> {
             true,
             vec![
                 param("codigos", "corpo", "lista", true, "Códigos dos itens."),
-                param("categoryId", "corpo", "texto", true, "Id da categoria de destino."),
+                param("categoryId", "corpo", "texto", true, "Id da categoria de destino; aceita também prefixo do id (8+ caracteres) ou o nome exato, se só houver uma."),
                 param("motivo", "corpo", "texto", true, "Por que os itens estão mudando de categoria."),
                 param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
             ],
