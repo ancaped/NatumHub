@@ -719,7 +719,8 @@ fn componentes(
     e: &EntradaSimulacao,
     consumido: &HashMap<String, f64>,
 ) -> (f64, f64, f64, f64) {
-    let livre0 = e.estoque.get(codigo).map(|s| s.livre()).unwrap_or(0.0);
+    // saldo livre negativo (estoque do ERP abaixo de zero ou reserva maior que o estoque) não aumenta a necessidade: conta como zero
+    let livre0 = e.estoque.get(codigo).map(|s| s.livre().max(0.0)).unwrap_or(0.0);
     let chegadas: f64 = e
         .chegadas
         .get(codigo)
@@ -1401,6 +1402,16 @@ mod tests {
         );
         e.ordens.push(ordem("o1", "2026-10-23", 1, "P1", 100.0, vec![nec("A", 50.0)]));
         assert_eq!(res(&simular(&e), "o1").status, StatusCobertura::Ok);
+    }
+
+    #[test]
+    fn saldo_negativo_nao_aumenta_a_falta() {
+        let mut e = base_entrada();
+        e.estoque.insert("A".into(), est(-3881.0, 0.0));
+        e.ordens.push(ordem("o1", "2026-10-22", 1, "P1", 100.0, vec![nec("A", 50.0)]));
+        let r = simular(&e);
+        assert_eq!(res(&r, "o1").status, StatusCobertura::Falta);
+        assert!((res(&r, "o1").insumos[0].falta - 50.0).abs() < 1e-9, "falta = necessidade, sem somar o saldo negativo");
     }
 
     #[test]
