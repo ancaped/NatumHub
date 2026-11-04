@@ -1,6 +1,6 @@
 import { apiFetch } from '../../geral/lib/http';
 import React, { useState, useEffect } from 'react';
-import { Search, CheckCircle2, RefreshCw, ShieldAlert, Layers, Database, Settings } from 'lucide-react';
+import { Search, CheckCircle2, RefreshCw, ShieldAlert, Layers, Database, Tags, SlidersHorizontal, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
 import { Category, PRODUCT_LINE_STATUSES, GraduationCandidate } from '../../geral/lib/types';
 import { api } from '../../geral/lib/api';
@@ -13,6 +13,7 @@ import AuditOverridesTab from './AuditOverridesTab';
 import type { LineConfig, ProductOverride, ProductResult } from './tipos';
 import KitsTab from './KitsTab';
 import LinhasTab from './LinhasTab';
+import LinhasKitsTab from './LinhasKitsTab';
 import StatusTab from './StatusTab';
 
 
@@ -33,7 +34,15 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
   // Bulk actions state
 
-  const [activeAtivosTab, setActiveAtivosTab] = useState<'status' | 'linhas' | 'kits' | 'overrides' | 'configuracoes'>('status');
+  const [activeAtivosTab, setActiveAtivosTab] = useState<'status' | 'linhas' | 'linhaskits' | 'kits' | 'overrides' | 'configuracoes'>('status');
+  const [mini, setMini] = useState(() => {
+    try { return localStorage.getItem('nexus_linha_produtos_sidebar_mini') === '1'; } catch { return false; }
+  });
+  const alternarMini = () => setMini(m => {
+    const n = !m;
+    try { localStorage.setItem('nexus_linha_produtos_sidebar_mini', n ? '1' : '0'); } catch { /* sem armazenamento */ }
+    return n;
+  });
 
   // Kits Composition state
   const [kitComposicao, setKitComposicao] = useState<any[]>([]);
@@ -240,70 +249,100 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     loadData();
   }, []);
 
-  return (
-    <div className="flex flex-1 h-full bg-zinc-50 font-sans text-zinc-900 overflow-hidden w-full">
-      {/* Sidebar */}
-      <div className="w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0 -mt-px">
+  const SECOES = [
+    { id: 'status' as const, label: 'Produtos', icon: CheckCircle2, sub: 'Catálogo mestre: status, linha, tipo e categoria de cada produto. Selecione vários para editar em lote.' },
+    { id: 'linhas' as const, label: 'Linhas', icon: Layers, sub: 'Linhas de produto por prefixo do código. Abra uma linha para ver e mover seus produtos.' },
+    { id: 'linhaskits' as const, label: 'Linhas de Kits', icon: Tags, sub: 'Classificação própria dos kits, no mesmo desenho das linhas de produto. Abra uma linha para ver e mover seus kits.' },
+    { id: 'kits' as const, label: 'Composição de Kits', icon: Database, sub: 'Kits ativos e a composição vinda do ERP.' },
+    { id: 'overrides' as const, label: 'Audit de Overrides', icon: ShieldAlert, sub: 'Ajustes manuais por produto sobre as regras automáticas.' },
+    { id: 'configuracoes' as const, label: 'Configurações', icon: SlidersHorizontal, sub: 'Parâmetros globais, status ignorados e subcategorias.' },
+  ];
+  const secaoAtual = SECOES.find(x => x.id === activeAtivosTab) || SECOES[0];
 
-        {/* Navigation Tabs */}
-        <div className="p-2 border-b border-zinc-100 space-y-0.5">
-          <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-            Painel Ativos
-          </div>
-          {([
-            { id: 'status' as const, label: 'Status dos Produtos', icon: CheckCircle2 },
-            { id: 'linhas' as const, label: 'Definição de Linhas', icon: Layers },
-            { id: 'kits' as const, label: 'Composição de Kits', icon: Database },
-            { id: 'overrides' as const, label: 'Audit de Overrides', icon: ShieldAlert },
-            { id: 'configuracoes' as const, label: 'Configurações', icon: Settings },
-          ]).map((item) => {
+  return (
+    <div className="flex flex-1 h-full bg-zinc-100 font-sans text-zinc-900 overflow-hidden w-full">
+      {/* Sidebar */}
+      <div className={cn('bg-white border-r border-zinc-200 flex flex-col shrink-0 -mt-px transition-[width] duration-300 ease-[cubic-bezier(0.2,0,0,1)]', mini ? 'w-16' : 'w-64')}>
+        <div className={cn('flex items-center', mini ? 'justify-center py-3.5' : 'justify-between pl-5 pr-2 py-3.5')}>
+          {!mini && <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest whitespace-nowrap">Painel Ativos</span>}
+          <button
+            type="button"
+            onClick={alternarMini}
+            aria-label={mini ? 'Expandir menu' : 'Recolher menu'}
+            title={mini ? 'Expandir menu' : 'Recolher menu'}
+            className="p-1.5 rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-colors cursor-pointer"
+          >
+            {mini ? <PanelLeftOpen className="h-[17px] w-[17px]" /> : <PanelLeftClose className="h-[17px] w-[17px]" />}
+          </button>
+        </div>
+
+        {/* Navigation */}
+        <div className="px-2 pb-2 space-y-0.5">
+          {SECOES.map((item) => {
             const Icon = item.icon;
             const isActive = activeAtivosTab === item.id;
             return (
               <button
                 key={item.id}
                 onClick={() => setActiveAtivosTab(item.id)}
+                title={mini ? item.label : undefined}
                 className={cn(
-                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all cursor-pointer",
-                  isActive
-                    ? "bg-zinc-900 text-white font-bold shadow-sm"
-                    : "text-zinc-600 font-medium hover:bg-zinc-50 hover:text-zinc-900"
+                  'group relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] transition-all cursor-pointer',
+                  mini && 'justify-center',
+                  isActive ? 'bg-zinc-900 text-white font-bold shadow-sm' : 'text-zinc-600 font-medium hover:bg-zinc-100 hover:text-zinc-900'
                 )}
               >
-                <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-white" : item.id === 'overrides' ? "text-rose-500" : "text-zinc-400")} />
-                <span className="truncate text-left">{item.label}</span>
+                <Icon className="h-[17px] w-[17px] shrink-0" />
+                {!mini && <span className="truncate text-left">{item.label}</span>}
+                {mini && (
+                  <span className="pointer-events-none absolute left-full ml-2 z-50 whitespace-nowrap rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1.5 text-xs text-white shadow-xl opacity-0 scale-95 transition-all duration-150 group-hover:opacity-100 group-hover:scale-100">
+                    {item.label}
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
 
-        {/* Sidebar Info/Stats */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-3.5 space-y-2.5">
-            <div className="flex justify-between items-center">
-              <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Produtos</span>
-              <span className="text-sm font-extrabold text-zinc-900 tabular-nums">{products.length}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Linhas</span>
-              <span className="text-sm font-extrabold text-zinc-900 tabular-nums">{configs.length}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Overrides</span>
-              <span className="text-sm font-extrabold text-amber-600 tabular-nums">{allOverrides.length}</span>
+        {/* Resumo */}
+        {!mini && (
+          <div className="flex-1 overflow-y-auto p-3">
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3.5 py-2.5 space-y-1.5">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Produtos</span>
+                <span className="text-sm font-extrabold text-zinc-900 tabular-nums">{products.length}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Linhas</span>
+                <span className="text-sm font-extrabold text-zinc-900 tabular-nums">{configs.length}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Overrides</span>
+                <span className="text-sm font-extrabold text-zinc-900 tabular-nums">{allOverrides.length}</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
         <main className="flex-1 overflow-y-auto p-6 flex flex-col">
-          <div className="flex items-center justify-between mb-6 no-print">
-            <div />
-            <button 
+          <div className="flex items-start justify-between gap-4 mb-4 no-print">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                <span>Administrativo</span>
+                <span aria-hidden="true">/</span>
+                <span>Linha de Produtos</span>
+                <span aria-hidden="true">/</span>
+                <span className="font-semibold text-zinc-900">{secaoAtual.label}</span>
+              </div>
+              <h1 className="mt-1.5 text-[22px] font-extrabold tracking-tight text-zinc-900">{secaoAtual.label}</h1>
+              <p className="mt-1 text-[13px] text-zinc-500">{secaoAtual.sub}</p>
+            </div>
+            <button
               onClick={loadData}
-              className="p-2 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-xl text-zinc-650 transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-sm cursor-pointer active:scale-98"
+              className="shrink-0 px-3 py-2 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-xl text-zinc-700 transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-sm cursor-pointer"
             >
               <RefreshCw className="h-4 w-4" />
               Recarregar
@@ -339,6 +378,10 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
             />
           )}
 
+          {activeAtivosTab === 'linhaskits' && (
+            <LinhasKitsTab pedirPrevia={(p) => setPrevia(p)} avisar={avisar} />
+          )}
+
           {activeAtivosTab === 'kits' && (
             <KitsTab
               products={products}
@@ -352,8 +395,6 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
               onNovoKit={() => setIsNewKitModalOpen(true)}
               uploadingKits={uploadingKitsConfig}
               onUploadKits={handleUploadKitsConfig}
-              pedirPrevia={(p) => setPrevia(p)}
-              avisar={avisar}
             />
           )}
 

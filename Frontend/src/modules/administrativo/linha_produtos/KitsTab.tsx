@@ -1,10 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { Edit, Layers, Plus, Search, UploadCloud } from 'lucide-react';
+import { Edit, Plus, Search, UploadCloud } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
 import { Category } from '../../geral/lib/types';
-import type { PreviaAcao } from '../../producao/gerenciamento/components/PreviaAcaoDrawer';
-import LinhasKitsDrawer from './LinhasKitsDrawer';
-import { chamarLinhasKits, KitComLinha, useLinhasKits } from './linhasKits';
+import { KitComLinha, useLinhasKits } from './linhasKits';
 
 interface ProdutoKit {
   codigo: string;
@@ -23,15 +21,12 @@ interface Props {
   onNovoKit: () => void;
   uploadingKits: boolean;
   onUploadKits: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  pedirPrevia: (previa: PreviaAcao) => void;
-  avisar: (mensagem: string, tipo?: 'sucesso' | 'erro' | 'info') => void;
 }
 
-/** Aba Composição de Kits da Linha de Produtos: kits ativos com linha de kits, composição do ERP e painel de linhas. */
-export default function KitsTab({ products, categories, kitComposicao, onAbrirComposicao, onNovoKit, uploadingKits, onUploadKits, pedirPrevia, avisar }: Props) {
+/** Aba Composição de Kits da Linha de Produtos: kits ativos com a linha de kits e a composição do ERP. A gestão das linhas é a aba Linhas de Kits. */
+export default function KitsTab({ products, categories, kitComposicao, onAbrirComposicao, onNovoKit, uploadingKits, onUploadKits }: Props) {
   const [kitCompSearch, setKitCompSearch] = useState('');
   const [kitFiltro, setKitFiltro] = useState<string>('ALL');
-  const [linhasKitsAberto, setLinhasKitsAberto] = useState(false);
 
   const masterKitsList = useMemo(() => {
     const map = new Map<string, { codigo: string; descricao: string; status?: string; categoria?: string }>();
@@ -78,7 +73,7 @@ export default function KitsTab({ products, categories, kitComposicao, onAbrirCo
     );
   }, [categories, products, kitComposicao, kitCompSearch]);
 
-  const { linhas: linhasKits, kits: kitsServidor, recarregar: recarregarKits } = useLinhasKits(true);
+  const { linhas: linhasKits, kits: kitsServidor } = useLinhasKits(true);
 
   // Fonte da tabela: kits ativos do servidor (com linha sugerida e manual); sem resposta, a lista local.
   const kitsTabela = useMemo<KitComLinha[]>(() => {
@@ -102,30 +97,6 @@ export default function KitsTab({ products, categories, kitComposicao, onAbrirCo
   );
   const nomeLinhaKit = (id: string | null) => (id ? linhasKits.find(l => l.id === id)?.nome || id : null);
 
-  // Liga um kit a uma linha (ou volta ao automático): prévia do servidor e só grava no OK.
-  const atribuirKit = async (kit: KitComLinha, linhaId: string) => {
-    const corpo = { codigos: [kit.codigo], linhaId: linhaId || null };
-    try {
-      const data = await chamarLinhasKits('/atribuir', 'POST', corpo);
-      const itens: { codigo: string; descricao: string; de: string | null; para: string | null }[] = data.resultado?.itens || [];
-      pedirPrevia({
-        titulo: 'Ligar kit a uma linha',
-        linhas: itens.map(i => ({
-          titulo: `${i.codigo} · ${i.descricao}`,
-          detalhe: `Linha: ${nomeLinhaKit(i.de) || 'automática'} → ${nomeLinhaKit(i.para) || 'automática'}`,
-        })),
-        confirmarRotulo: 'Aplicar',
-        executar: async () => {
-          await chamarLinhasKits('/atribuir', 'POST', corpo, { confirmar: true });
-          await recarregarKits();
-          avisar('Linha do kit atualizada.', 'sucesso');
-        },
-      });
-    } catch (e) {
-      avisar(e instanceof Error ? e.message : 'Erro ao preparar a alteração.', 'erro');
-    }
-  };
-
   return (
     <>
             <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
@@ -144,7 +115,6 @@ export default function KitsTab({ products, categories, kitComposicao, onAbrirCo
                   </div>
                   {[
                     { id: 'ALL', rotulo: 'Todos', n: kitsTabela.length },
-                    ...linhasKits.map(l => ({ id: l.id, rotulo: l.nome, n: kitsTabela.filter(k => k.linha === l.id).length })),
                     { id: 'SEM', rotulo: 'Sem composição', n: kitsSemComposicao },
                   ].filter(c => c.id === 'ALL' || c.n > 0 || kitFiltro === c.id).map(c => (
                     <button
@@ -162,14 +132,6 @@ export default function KitsTab({ products, categories, kitComposicao, onAbrirCo
                 </div>
 
                 <div className="shrink-0 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setLinhasKitsAberto(true)}
-                    className="bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold py-2 px-4 rounded-xl transition-all cursor-pointer inline-flex items-center gap-1.5"
-                  >
-                    <Layers className="w-4 h-4 text-zinc-500" />
-                    Linhas de kits
-                  </button>
                   <label className="bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold py-2 px-4 rounded-xl transition-all cursor-pointer inline-flex items-center gap-1.5">
                     <UploadCloud className="w-4 h-4 text-zinc-500" />
                     {uploadingKits ? 'Importando...' : 'Importar Excel (.xlsx)'}
@@ -223,23 +185,9 @@ export default function KitsTab({ products, categories, kitComposicao, onAbrirCo
                             >
                               <td className="px-6 py-2.5 font-mono font-bold text-zinc-500">{kit.codigo}</td>
                               <td className="px-6 py-2.5 font-bold text-zinc-800">{kit.descricao}</td>
-                              <td className="px-6 py-2.5" onClick={(e) => e.stopPropagation()}>
-                                <select
-                                  value={kit.linhaManual || ''}
-                                  onChange={(e) => void atribuirKit(kit, e.target.value)}
-                                  className={cn(
-                                    'w-full pl-2 pr-6 py-1 bg-white border border-zinc-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-1 focus:ring-zinc-900 cursor-pointer',
-                                    kit.linhaManual ? 'text-zinc-800 font-bold' : 'text-zinc-500'
-                                  )}
-                                  title={kit.linhaManual ? 'Linha corrigida à mão' : 'Linha sugerida pelo prefixo do código'}
-                                >
-                                  <option value="">
-                                    {kit.linhaSugerida ? `Automática (${nomeLinhaKit(kit.linhaSugerida)})` : 'Sem linha'}
-                                  </option>
-                                  {linhasKits.map(l => (
-                                    <option key={l.id} value={l.id}>{l.nome}</option>
-                                  ))}
-                                </select>
+                              <td className="px-6 py-2.5 text-zinc-700">
+                                {nomeLinhaKit(kit.linha) || <span className="text-zinc-400">Sem linha</span>}
+                                {kit.linhaManual && <span className="ml-2 text-[10px] font-bold uppercase bg-zinc-100 text-zinc-500 border border-zinc-200 rounded px-1.5 py-0.5">manual</span>}
                               </td>
                               <td className="px-6 py-2.5">
                                 {compCount > 0 ? (
@@ -272,15 +220,6 @@ export default function KitsTab({ products, categories, kitComposicao, onAbrirCo
                 </div>
               </div>
             </div>
-      {linhasKitsAberto && (
-        <LinhasKitsDrawer
-          linhas={linhasKits}
-          onClose={() => setLinhasKitsAberto(false)}
-          onChanged={recarregarKits}
-          pedirPrevia={pedirPrevia}
-          avisar={avisar}
-        />
-      )}
     </>
   );
 }
