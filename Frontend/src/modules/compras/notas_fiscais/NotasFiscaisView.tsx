@@ -19,6 +19,8 @@ interface InvoiceHeader {
   itemsCount: number;
   itemEncontrado?: string | null;
   pedidos: number[];
+  /** 'recebimento' = nota que só existe no recebimento do ERP (sem impostos, frete nem parcelas). */
+  origem?: 'nf' | 'recebimento';
 }
 
 interface VinculoItem {
@@ -79,6 +81,7 @@ interface InvoiceDetail {
   fteNatureza?: string | null;
   fteIcmsValue?: number;
   vinculos: VinculoItem[];
+  origem?: 'nf' | 'recebimento';
 }
 
 type AbaPeriodo = '30' | '90' | 'todas';
@@ -142,10 +145,7 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
     (val ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const formatDate = fmtData;
 
-  const ultimaNota = useMemo(() => {
-    const datas = invoices.map((i) => (i.invoiceDate || '').slice(0, 10)).filter(Boolean);
-    return datas.length ? datas.reduce((a, b) => (a > b ? a : b)) : null;
-  }, [invoices]);
+  const soRecebimento = useMemo(() => invoices.filter((i) => i.origem === 'recebimento').length, [invoices]);
 
   const diasDesde = (iso: string) => Math.floor((Date.now() - new Date(`${iso}T12:00:00`).getTime()) / 86400000);
 
@@ -174,7 +174,6 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
     );
   }, [selectedInvoice]);
 
-  const dadoParado = ultimaNota !== null && diasDesde(ultimaNota) > 7;
 
   return (
     <AppLayout
@@ -190,12 +189,12 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
         titulo="Notas fiscais de compra"
         subtitulo={
           <>
-            Notas de entrada importadas do ERP, com o pedido de cada item.
-            {dadoParado && ultimaNota && (
+            Notas de entrada do ERP, com o pedido que o ERP registrou no recebimento.
+            {soRecebimento > 0 && (
               <>
                 {' '}
-                <StatusBadge variante="ordem" title="A importação de notas do ERP não traz notas mais recentes que esta data.">
-                  Última nota importada do ERP: {fmtData(ultimaNota)}
+                <StatusBadge variante="apoio" title="Notas que o sync de compras não trouxe: vêm só do recebimento do ERP, sem impostos, frete nem parcelas.">
+                  {soRecebimento} só do recebimento
                 </StatusBadge>
               </>
             )}
@@ -232,7 +231,12 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
           {!loading && visiveis.map((inv) => (
             <tr key={`${inv.invoiceNumber}-${inv.supplierId}`} style={{ cursor: 'pointer' }} onClick={() => handleOpenDetail(inv.invoiceNumber, inv.supplierId)}>
               <td>
-                <span className="product-code" style={{ fontWeight: 700 }}>#{inv.invoiceNumber}</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                  <span className="product-code" style={{ fontWeight: 700 }}>#{inv.invoiceNumber}</span>
+                  {inv.origem === 'recebimento' && (
+                    <StatusBadge variante="apoio" title="Só no recebimento do ERP: sem impostos, frete nem parcelas.">recebimento</StatusBadge>
+                  )}
+                </span>
                 {inv.itemEncontrado && (
                   <div style={{ marginTop: 2 }}>
                     <StatusBadge variante="apoio" title="Item da nota que casou com a busca">contém {inv.itemEncontrado}</StatusBadge>
@@ -289,16 +293,23 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
           <div className="space-y-6">
                   {activeTab === 'geral' && (
                     <div className="animate-in fade-in duration-200">
+                      {selectedInvoice.origem === 'recebimento' && (
+                        <p className="mx-6 mt-5 text-xs text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2">
+                          Nota vinda do recebimento do ERP: traz fornecedor, itens, quantidades, valores e data de entrada, mas não impostos, frete, CNPJ nem parcelas.
+                        </p>
+                      )}
                       {/* Info Header */}
                       <div className="px-6 py-5 grid grid-cols-2 md:grid-cols-3 gap-6">
                         <div className="space-y-1">
                           <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Valor Total Faturado</span>
                           <p className="text-base font-black text-zinc-900">{formatCurrency(selectedInvoice.totalValue)}</p>
                         </div>
+                        {selectedInvoice.origem !== 'recebimento' && (
                         <div className="space-y-1">
                           <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">CNPJ Fornecedor</span>
                           <p className="text-sm font-mono font-bold text-zinc-700">{selectedInvoice.supplierCnpj || '-'}</p>
                         </div>
+                        )}
                         <div className="space-y-1">
                           <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Data Emissão</span>
                           <p className="text-sm font-semibold text-zinc-700">{formatDate(selectedInvoice.invoiceDate)}</p>
