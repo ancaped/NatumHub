@@ -10,6 +10,7 @@ import { LoteDetailsDrawer } from '../../../producao/gerenciamento/components/Lo
 import Drawer from '../../../geral/components/ui/Drawer';
 import { useListaCompra } from '../useListaCompra';
 import { HistoricoPedidosTable } from './HistoricoPedidosTable';
+import { ItensSemelhantesTab } from './ItensSemelhantesTab';
 
 interface InsumoDetalhes {
   code: string;
@@ -316,6 +317,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
 
   // Solicitar = colocar na aba Lista de Compra, em 2 passos: prévia dos recomendados e confirmação.
   const [listaPrevia, setListaPrevia] = useState<DemandResult[] | null>(null);
+  const [semelhantesAberto, setSemelhantesAberto] = useState(false);
   const [listaSel, setListaSel] = useState<Set<string>>(new Set());
   const abrirPreviaLista = () => {
     const cand = filteredDemands.filter((d) => d.recommendedQty > 0 && !d.semControle);
@@ -1084,6 +1086,16 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 >
                   <PlusCircle className="h-3.5 w-3.5" />
                   <span>Adicionar à Lista ({selectedItems.size})</span>
+                </button>
+              )}
+              {mode === 'materia_prima' && (
+                <button
+                  onClick={() => setSemelhantesAberto(true)}
+                  className="text-xs bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                  title="Grupos de insumos que se substituem: somam estoque, consumo e pedidos"
+                >
+                  <Layers className="h-3.5 w-3.5" />
+                  <span>Itens semelhantes</span>
                 </button>
               )}
               <button
@@ -2516,6 +2528,18 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
         </div>
       )}
 
+      {semelhantesAberto && (
+        <Drawer
+          onClose={() => setSemelhantesAberto(false)}
+          title="Itens semelhantes"
+          subtitle="Grupos de insumos que se substituem"
+          size="xl"
+        >
+          <div className="p-4">
+            <ItensSemelhantesTab active />
+          </div>
+        </Drawer>
+      )}
       {listaPrevia && (
         <Drawer
           onClose={() => setListaPrevia(null)}
