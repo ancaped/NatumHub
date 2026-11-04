@@ -300,6 +300,8 @@ pub struct InvoiceHeaderResponse {
     pub item_encontrado: Option<String>,
     /// Nº de registro dos pedidos vinculados aos itens da nota.
     pub pedidos: Vec<i32>,
+    /// 'nf' (sync de compras) ou 'recebimento' (só o recebimento do ERP: sem impostos, frete nem parcelas).
+    pub origem: String,
 }
 
 #[derive(serde::Serialize)]
@@ -341,6 +343,7 @@ pub struct InvoiceDetailResponse {
     pub fte_cfop: Option<String>,
     pub fte_natureza: Option<String>,
     pub fte_icms_value: f64,
+    pub origem: String,
     /// Pedido(s) vinculado(s) a cada item (`item_id` = id do item da nota); item sem entrada = sem pedido.
     pub vinculos: Vec<VinculoItemNotaResponse>,
 }
@@ -370,14 +373,15 @@ pub async fn list_invoices(
             let casa = "(item_code ILIKE $1 OR REPLACE(item_code, '.', '') ILIKE $2 OR description ILIKE $1)";
             (
                 format!("MIN(CASE WHEN {casa} THEN item_code || ' ' || COALESCE(description, '') END)"),
-                format!(" AND (supplier_name ILIKE $1 OR invoice_number ILIKE $1 OR EXISTS (SELECT 1 FROM invoices x WHERE x.invoice_number = invoices.invoice_number AND x.supplier_id IS NOT DISTINCT FROM invoices.supplier_id AND (x.item_code ILIKE $1 OR REPLACE(x.item_code, '.', '') ILIKE $2 OR x.description ILIKE $1)))"),
+                format!(" AND (supplier_name ILIKE $1 OR invoice_number ILIKE $1 OR EXISTS (SELECT 1 FROM notas x WHERE x.invoice_number = notas.invoice_number AND x.supplier_id IS NOT DISTINCT FROM notas.supplier_id AND (x.item_code ILIKE $1 OR REPLACE(x.item_code, '.', '') ILIKE $2 OR x.description ILIKE $1)))"),
             )
         }
         None => ("NULL::text".to_string(), String::new()),
     };
 
     let mut query = format!(
-        "SELECT invoice_number, invoice_date, supplier_id, supplier_name, SUM(total_value) as total_val, COUNT(*) as items_count, {col_item} AS item_encontrado FROM invoices WHERE 1=1"
+        "{} SELECT invoice_number, invoice_date, supplier_id, supplier_name, SUM(total_value) as total_val, COUNT(*) as items_count, {col_item} AS item_encontrado, MIN(origem) AS origem FROM notas WHERE 1=1",
+        super::vinculo::NOTAS_CTE
     );
 
     if let Some(ref supplier_id) = params.supplier_id {
@@ -426,6 +430,7 @@ pub async fn list_invoices(
                         items_count: crate::core::pg_row::pg_i32(row, 5),
                         item_encontrado: row.get(6),
                         pedidos,
+                        origem: row.get(7),
                     }
                 })
                 .collect();
@@ -447,15 +452,14 @@ pub async fn get_invoice_detail(
 ) -> impl IntoResponse {
     let pool = state.db.pool().clone();
 
-    let mut query = "
+    let mut query = format!("{}
         SELECT id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date,
                cfop, COALESCE(icms_value, 0.0), COALESCE(ipi_value, 0.0), COALESCE(freight_value, 0.0), entry_date, carrier_name, supplier_cnpj, payment_installments,
                fte_number, COALESCE(fte_value, 0.0), fte_carrier_name, fte_carrier_cnpj, fte_issue_date, fte_entry_date, fte_cif_fob,
                fte_serie, fte_cfop, fte_natureza, COALESCE(fte_icms_value, 0.0)
-        FROM invoices 
+        FROM notas
         WHERE invoice_number = $1
-    "
-    .to_string();
+    ", super::vinculo::NOTAS_CTE);
 
     let mut args: Vec<String> = vec![number.clone()];
     if let Some(ref supplier_id) = params.supplier_id {
@@ -524,6 +528,7 @@ pub async fn get_invoice_detail(
     }
 
     let first = items[0].clone();
+    let first_origem = if first.id.starts_with("rec-") { "recebimento" } else { "nf" }.to_string();
     let total_value: f64 = items.iter().map(|it| it.total_value).sum();
     let icms_value: f64 = items.iter().map(|it| it.icms_value).sum();
     let ipi_value: f64 = items.iter().map(|it| it.ipi_value).sum();
@@ -583,6 +588,7 @@ pub async fn get_invoice_detail(
         fte_cfop: first.fte_cfop.clone(),
         fte_natureza: first.fte_natureza.clone(),
         fte_icms_value: first.fte_icms_value,
+        origem: first_origem,
         vinculos,
     };
 

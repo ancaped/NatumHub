@@ -11,6 +11,29 @@ use sqlx::{PgPool, Row};
 
 use crate::modules::producao::cobertura::store::{parse_data, sem_pontos};
 
+/// Notas de entrada: as do sync de compras (`invoices`, COMPRAS1/2) mais as que só existem nos recebimentos do ERP
+/// (Recebe_Insumos: nota, fornecedor, insumo, quantidade, valor e data de entrada). Cada linha tem `origem`
+/// ('nf' ou 'recebimento'); a nota de recebimento não traz impostos, frete, CNPJ nem parcelas.
+pub const NOTAS_CTE: &str = r#"
+WITH notas AS (
+    SELECT id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id,
+           invoice_date, cfop, icms_value, ipi_value, freight_value, entry_date, carrier_name, supplier_cnpj, payment_installments,
+           fte_number, fte_value, fte_carrier_name, fte_carrier_cnpj, fte_issue_date, fte_entry_date, fte_cif_fob,
+           fte_serie, fte_cfop, fte_natureza, fte_icms_value, 'nf'::text AS origem
+    FROM invoices
+    UNION ALL
+    SELECT 'rec-' || r.registro::text, r.nota_fiscal::text, r.codigo_insumo, r.descricao_insumo, r.unidade,
+           r.quantidade::float8, r.valor_unitario::float8, COALESCE(r.valor_total, 0)::float8, r.fornecedor, r.cod_fornecedor::text,
+           to_char(COALESCE(r.data_emissao::date, r.data_entrada), 'YYYY-MM-DD HH24:MI:SS'), NULL, NULL::float8, NULL::float8, NULL::float8,
+           to_char(r.data_entrada, 'YYYY-MM-DD HH24:MI:SS'), NULL, NULL, NULL,
+           NULL, NULL::float8, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL::float8, 'recebimento'::text
+    FROM erp_recebimentos_insumos r
+    WHERE COALESCE(r.status_erp, '') <> 'CA' AND r.nota_fiscal IS NOT NULL AND r.nota_fiscal <> 0
+      AND r.data_entrada >= (CURRENT_DATE - INTERVAL '48 months')::date -- mesma janela do sync de compras
+      AND NOT EXISTS (SELECT 1 FROM invoices i WHERE i.invoice_number = r.nota_fiscal::text AND COALESCE(i.supplier_id, '') = COALESCE(r.cod_fornecedor::text, ''))
+)
+"#;
+
 #[derive(Debug, Clone)]
 pub struct ItemNf {
     pub chave: usize,
@@ -148,12 +171,9 @@ pub async fn carregar(pool: &PgPool) -> Result<Carga, String> {
         })
         .collect();
 
-    let nf_rows = sqlx::query(
-        r#"
-        SELECT id, invoice_number, COALESCE(supplier_id, '') AS supplier_id, item_code, invoice_date
-        FROM invoices
-        "#,
-    )
+    let nf_rows = sqlx::query(&format!(
+        "{NOTAS_CTE} SELECT id, invoice_number, COALESCE(supplier_id, '') AS supplier_id, item_code, invoice_date FROM notas"
+    ))
     .fetch_all(pool)
     .await
     .map_err(|e| format!("Erro ao ler notas fiscais: {e}"))?;
