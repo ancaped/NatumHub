@@ -38,3 +38,36 @@ export interface PedirBulkOpts {
   aoConcluir: () => void | Promise<void>;
   aoCancelar?: () => void;
 }
+
+export interface ProductResult {
+  codigo: string;
+  descricao: string;
+  linha_prefix: string;
+  nome_linha: string;
+  base: string | null;
+  fase: string | null;
+  estoque: number;
+  producao: number;
+  pedidos_aberto: number;
+  estoque_futuro: number;
+  estoque_futuro_com_producao: number;
+  status: string;
+  status_label: string;
+  producao_recomendada: number;
+  media_vendas: number;
+  is_lancamento: boolean;
+  visivel: number | null;
+  observacao: string | null;
+  linha_prefix_manual: string | null;
+  status_produto: string | null;
+  categoria_produto: string | null;
+  base_codigo?: string | null;
+  terceirizado_modo?: string | null;
+  produzir_apenas_kit?: number | null;
+  is_kit?: boolean;
+  is_kit_component?: boolean;
+  parent_kits?: string[];
+  estoque_ideal_manual?: number | null;
+  estoque_ideal_qtd?: number;
+  estoque_ideal_meses?: number;
+}
