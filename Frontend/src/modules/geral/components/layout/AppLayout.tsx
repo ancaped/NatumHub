@@ -10,6 +10,8 @@ export interface SidebarItem {
   badge?: number | string;
   badgeTone?: 'amber';
   iconOnly?: boolean;
+  /** Título de seção: aparece quando o grupo muda em relação ao item anterior. */
+  grupo?: string;
 }
 
 function badgeClass(isActive: boolean, tone?: 'amber'): string {
@@ -49,12 +51,16 @@ function SidebarNav({
 }) {
   return (
     <div className="space-y-1">
-      {items.map((item) => {
+      {items.map((item, idx) => {
         const Icon = item.icon;
         const isActive = activeTab === item.id;
+        const novoGrupo = item.grupo && item.grupo !== items[idx - 1]?.grupo;
         return (
+          <React.Fragment key={item.id}>
+          {novoGrupo && (collapsed
+            ? <div className="mx-auto my-2 h-px w-6 bg-zinc-200" aria-hidden />
+            : <p className={cn('px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-zinc-400', idx > 0 ? 'pt-4' : 'pt-1')}>{item.grupo}</p>)}
           <button
-            key={item.id}
             type="button"
             onClick={() => {
               onTabChange(item.id);
@@ -105,6 +111,7 @@ function SidebarNav({
               </span>
             )}
           </button>
+          </React.Fragment>
         );
       })}
     </div>

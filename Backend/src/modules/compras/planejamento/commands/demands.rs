@@ -939,8 +939,6 @@ fn build_demand_result(
         sem_controle: false,
         classificacao: None,
         classificacao_detalhe: None,
-        acaba_em: None,
-        acaba_chega_em: None,
     })
 }
 
@@ -1233,13 +1231,12 @@ pub async fn get_demands_query(
 
     let auto_ignored = get_auto_ignored_ingredients_query(pool.clone()).await?;
     let sim_producao_map = compute_sim_producao_map(&pool).await;
-    // Decisões do Edson e cobertura das próximas 4 semanas (se falhar, a tabela segue sem esses campos).
+    // Decisões do Edson (se falhar, a tabela segue sem esses campos).
     let classes = crate::modules::producao::insumos_classificacao::carregar_por_tipo(&pool).await.unwrap_or_default();
     let mut trocados: HashMap<String, String> = HashMap::new();
     for t in crate::modules::producao::trocas::listar(&pool).await.unwrap_or_default() {
         trocados.entry(t.insumo_de).or_insert(if t.descricao_para.is_empty() { t.insumo_para } else { t.descricao_para });
     }
-    let acaba_em = crate::modules::producao::cobertura::horizonte::acaba_em(&pool).await.unwrap_or_default();
 
     let mut results = Vec::with_capacity(rows.len());
     for row in rows {
@@ -1272,13 +1269,6 @@ pub async fn get_demands_query(
             } else if let Some(para) = trocados.get(&chave) {
                 item.classificacao = Some("trocado".to_string());
                 item.classificacao_detalhe = Some(para.clone());
-                if let Some(a) = acaba_em.get(&chave) {
-                    item.acaba_em = Some(a.data.format("%Y-%m-%d").to_string());
-                    item.acaba_chega_em = a.chega_em.map(|d| d.format("%Y-%m-%d").to_string());
-                }
-            } else if let Some(a) = acaba_em.get(&chave) {
-                item.acaba_em = Some(a.data.format("%Y-%m-%d").to_string());
-                item.acaba_chega_em = a.chega_em.map(|d| d.format("%Y-%m-%d").to_string());
             }
             results.push(item);
         }

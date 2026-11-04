@@ -481,7 +481,7 @@ export default function App() {
     if (view === 'compras_materia_prima') {
       return (
         <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Matéria-Prima">
-          <ComprasView mode="materia_prima" onBackToHub={() => setView('compras_hub')} />
+          <ComprasView key="materia_prima" mode="materia_prima" onBackToHub={() => setView('compras_hub')} />
         </ErrorBoundary>
       );
     }
@@ -489,7 +489,7 @@ export default function App() {
     if (view === 'compras_embalagens') {
       return (
         <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Embalagens">
-          <ComprasView mode="embalagens" onBackToHub={() => setView('compras_hub')} />
+          <ComprasView key="embalagens" mode="embalagens" onBackToHub={() => setView('compras_hub')} />
         </ErrorBoundary>
       );
     }
@@ -497,7 +497,7 @@ export default function App() {
     if (view === 'compras_coloracao') {
       return (
         <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Coloração">
-          <ComprasView mode="coloracao" onBackToHub={() => setView('compras_hub')} />
+          <ComprasView key="coloracao" mode="coloracao" onBackToHub={() => setView('compras_hub')} />
         </ErrorBoundary>
       );
     }
@@ -505,7 +505,7 @@ export default function App() {
     if (view === 'compras_apoio') {
       return (
         <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Material de Apoio">
-          <ComprasView mode="apoio" onBackToHub={() => setView('compras_hub')} />
+          <ComprasView key="apoio" mode="apoio" onBackToHub={() => setView('compras_hub')} />
         </ErrorBoundary>
       );
     }
@@ -513,7 +513,7 @@ export default function App() {
     if (view === 'compras_simulation') {
       return (
         <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Simulação">
-          <ComprasView mode="simulation" onBackToHub={() => setView('compras_hub')} />
+          <ComprasView key="simulation" mode="simulation" onBackToHub={() => setView('compras_hub')} />
         </ErrorBoundary>
       );
     }

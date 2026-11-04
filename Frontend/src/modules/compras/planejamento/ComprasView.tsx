@@ -69,6 +69,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           id: `sub_${c.id}`,
           label: c.name,
           icon: Tag,
+          grupo: 'Itens',
         }));
     };
 
@@ -80,50 +81,50 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
     switch (mode) {
       case 'materia_prima':
         items = [
-          { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes },
-          { id: 'itens_semelhantes', label: 'Itens Semelhantes', icon: Layers },
+          { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes, grupo: 'Itens' },
+          { id: 'itens_semelhantes', label: 'Itens Semelhantes', icon: Layers, grupo: 'Itens' },
           ...getSubcategoryNavItems('cat_mp'),
-          { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
-          { id: 'suppliers', label: 'Fornecedores', icon: Users },
-          { id: 'reports', label: 'Relatórios', icon: BarChart3 },
-          { id: 'print_list', label: 'Lista de Compra', icon: Printer, badge: totalLista },
-          { id: 'listas_acompanhamento', label: 'Solicitações', icon: ClipboardCheck },
+          { id: 'print_list', label: 'Lista de Compra', icon: Printer, badge: totalLista, grupo: 'Compra' },
+          { id: 'listas_acompanhamento', label: 'Solicitações', icon: ClipboardCheck, grupo: 'Compra' },
+          { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff, grupo: 'Gestão' },
+          { id: 'suppliers', label: 'Fornecedores', icon: Users, grupo: 'Gestão' },
+          { id: 'reports', label: 'Relatórios', icon: BarChart3, grupo: 'Gestão' },
           ...settingsItem,
         ];
         break;
       case 'embalagens':
         items = [
-          { id: 'embalagens', label: 'Embalagens', icon: Layers },
+          { id: 'embalagens', label: 'Embalagens', icon: Layers, grupo: 'Itens' },
           ...getSubcategoryNavItems('cat_emb'),
-          { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
-          { id: 'suppliers', label: 'Fornecedores', icon: Users },
-          { id: 'reports', label: 'Relatórios', icon: BarChart3 },
-          { id: 'print_list', label: 'Lista de Compra', icon: Printer, badge: totalLista },
-          { id: 'listas_acompanhamento', label: 'Solicitações', icon: ClipboardCheck },
+          { id: 'print_list', label: 'Lista de Compra', icon: Printer, badge: totalLista, grupo: 'Compra' },
+          { id: 'listas_acompanhamento', label: 'Solicitações', icon: ClipboardCheck, grupo: 'Compra' },
+          { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff, grupo: 'Gestão' },
+          { id: 'suppliers', label: 'Fornecedores', icon: Users, grupo: 'Gestão' },
+          { id: 'reports', label: 'Relatórios', icon: BarChart3, grupo: 'Gestão' },
           ...settingsItem,
         ];
         break;
       case 'coloracao':
         items = [
-          { id: 'coloracao', label: 'Coloração', icon: Palette },
+          { id: 'coloracao', label: 'Coloração', icon: Palette, grupo: 'Itens' },
           ...getSubcategoryNavItems('cat_coloracao'),
-          { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
-          { id: 'suppliers', label: 'Fornecedores', icon: Users },
-          { id: 'reports', label: 'Relatórios', icon: BarChart3 },
-          { id: 'print_list', label: 'Lista de Compra', icon: Printer, badge: totalLista },
-          { id: 'listas_acompanhamento', label: 'Solicitações', icon: ClipboardCheck },
+          { id: 'print_list', label: 'Lista de Compra', icon: Printer, badge: totalLista, grupo: 'Compra' },
+          { id: 'listas_acompanhamento', label: 'Solicitações', icon: ClipboardCheck, grupo: 'Compra' },
+          { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff, grupo: 'Gestão' },
+          { id: 'suppliers', label: 'Fornecedores', icon: Users, grupo: 'Gestão' },
+          { id: 'reports', label: 'Relatórios', icon: BarChart3, grupo: 'Gestão' },
           ...settingsItem,
         ];
         break;
       case 'apoio':
         items = [
-          { id: 'apoio', label: 'Material de Apoio', icon: Tag },
+          { id: 'apoio', label: 'Material de Apoio', icon: Tag, grupo: 'Itens' },
           ...getSubcategoryNavItems('cat_apoio'),
-          { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
-          { id: 'suppliers', label: 'Fornecedores', icon: Users },
-          { id: 'reports', label: 'Relatórios', icon: BarChart3 },
-          { id: 'print_list', label: 'Lista de Compra', icon: Printer, badge: totalLista },
-          { id: 'listas_acompanhamento', label: 'Solicitações', icon: ClipboardCheck },
+          { id: 'print_list', label: 'Lista de Compra', icon: Printer, badge: totalLista, grupo: 'Compra' },
+          { id: 'listas_acompanhamento', label: 'Solicitações', icon: ClipboardCheck, grupo: 'Compra' },
+          { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff, grupo: 'Gestão' },
+          { id: 'suppliers', label: 'Fornecedores', icon: Users, grupo: 'Gestão' },
+          { id: 'reports', label: 'Relatórios', icon: BarChart3, grupo: 'Gestão' },
           ...settingsItem,
         ];
         break;

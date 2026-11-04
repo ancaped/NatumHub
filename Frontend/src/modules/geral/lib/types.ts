@@ -172,10 +172,6 @@ export interface DemandResult {
   /** Classe decidida pelo Edson: sem_controle, nao_usado ou trocado (ausente = OK). */
   classificacao?: 'sem_controle' | 'nao_usado' | 'trocado';
   classificacaoDetalhe?: string;
-  /** Primeira data (próximas 4 semanas, planejamento + fila) em que a cobertura não fecha (YYYY-MM-DD). */
-  acabaEm?: string;
-  /** Quando um pedido em aberto cobre depois dessa data (YYYY-MM-DD). */
-  acabaChegaEm?: string;
   itemCode: string;
   description: string;
   unit: string;

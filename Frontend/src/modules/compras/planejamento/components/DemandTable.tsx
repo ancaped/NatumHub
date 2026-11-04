@@ -1138,7 +1138,6 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                     </th>
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-right cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('futureStockForecast')}><span className="flex items-center justify-end gap-1">Prev. Futura <SortIcon col="futureStockForecast" /></span></th>
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-center cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('estimatedDurationDays')}><span className="flex items-center justify-center gap-1">Duração Est. <SortIcon col="estimatedDurationDays" /></span></th>
-                    <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-center" title="Primeira data, nas próximas 4 semanas (planejamento + fila), em que o estoque livre não cobre o consumo">Acaba em</th>
                     <th className="px-4 py-3 font-semibold text-zinc-900 border-b border-zinc-200 text-right cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('recommendedQty')}><span className="flex items-center justify-end gap-1">Qtd Recom. <SortIcon col="recommendedQty" /></span></th>
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-center w-12">Lista</th>
                   </tr>
@@ -1241,21 +1240,6 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                         <span className={cn("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium", demand.urgency === 'critical' && "bg-red-100 text-red-800", demand.urgency === 'warning' && "bg-amber-100 text-amber-800", demand.urgency === 'ok' && "bg-emerald-100 text-emerald-800")}>
                           {demand.estimatedDurationDays === 9999 ? '∞' : `${demand.estimatedDurationDays} dias`}
                         </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {(() => {
-                          if (demand.semControle) return <span className="text-zinc-300">—</span>;
-                          if (!demand.acabaEm) return <span className="text-zinc-300" title="Sem falta prevista nas próximas 4 semanas">—</span>;
-                          const dias = Math.round((new Date(demand.acabaEm + 'T00:00:00').getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
-                          const cor = dias <= 7 ? 'bg-red-50 text-red-700 border-red-200' : dias <= 14 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                          const fmtD = (d: string) => d.split('-').reverse().slice(0, 2).join('/');
-                          return (
-                            <div title={demand.acabaChegaEm ? `Pedido em aberto cobre a partir de ${fmtD(demand.acabaChegaEm)}` : 'Sem pedido que cubra'}>
-                              <span className={cn('inline-flex px-1.5 py-0.5 rounded text-[11px] font-bold border', cor)}>{fmtD(demand.acabaEm)}</span>
-                              {demand.acabaChegaEm && <div className="text-[10px] text-zinc-500 mt-0.5">pedido {fmtD(demand.acabaChegaEm)}</div>}
-                            </div>
-                          );
-                        })()}
                       </td>
                       <td className="px-4 py-3 text-right">
                         {demand.semControle ? (
@@ -2564,13 +2548,12 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                     <th className="px-3 py-2 w-8"></th>
                     <th className="px-3 py-2 text-left">Insumo</th>
                     <th className="px-3 py-2 text-right">Recomendado</th>
-                    <th className="px-3 py-2 text-center">Acaba em</th>
                     <th className="px-3 py-2 text-left">Situação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
                   {listaPrevia.length === 0 && (
-                    <tr><td colSpan={5} className="px-3 py-6 text-center text-zinc-400">Nenhum item com quantidade recomendada neste filtro.</td></tr>
+                    <tr><td colSpan={4} className="px-3 py-6 text-center text-zinc-400">Nenhum item com quantidade recomendada neste filtro.</td></tr>
                   )}
                   {listaPrevia.map((d) => {
                     const clean = (d.itemCode || '').replace(/\./g, '');
@@ -2595,7 +2578,6 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                           <div className="font-mono text-[10px] text-zinc-500">{d.itemCode}</div>
                         </td>
                         <td className="px-3 py-2 text-right font-bold">{d.recommendedQty.toLocaleString('pt-BR')} {d.unit}</td>
-                        <td className="px-3 py-2 text-center">{d.acabaEm ? d.acabaEm.split('-').reverse().slice(0, 2).join('/') : '—'}</td>
                         <td className="px-3 py-2">
                           {jaNaLista && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Já na Lista</span>}
                           {!jaNaLista && ativo && ativo.status !== 'entregue' && (

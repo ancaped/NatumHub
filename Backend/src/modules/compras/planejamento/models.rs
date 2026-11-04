@@ -230,12 +230,6 @@ pub struct DemandResult {
     /// Para `trocado`: descrição do insumo que substitui.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub classificacao_detalhe: Option<String>,
-    /// Primeira data (próximas 4 semanas: planejamento + fila) em que a cobertura do insumo não fecha (YYYY-MM-DD).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub acaba_em: Option<String>,
-    /// Quando o pedido em aberto cobre depois dessa data (YYYY-MM-DD).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub acaba_chega_em: Option<String>,
 }
 
 
