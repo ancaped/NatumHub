@@ -66,6 +66,9 @@ pub struct Item {
     pub is_ignored: bool,
     pub is_auto_ignored: Option<bool>,
     pub ignored_reason: Option<String>,
+    /// `Some(true)` só nos produtos de Apoio/Coloração (vindos de `produtos`); insumos de `items` não trazem o campo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_product: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

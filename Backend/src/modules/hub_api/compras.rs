@@ -23,10 +23,15 @@ fn mode_to_parent_category(mode: Option<&str>) -> Option<String> {
     }
 }
 
+/// `GET /api/hub/compras/items`: sem parâmetros devolve só `items`; qualquer um deles junta os produtos de Apoio/Coloração.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CategoryIdQuery {
+struct ItemsQuery {
+    #[serde(alias = "category_id")]
     category_id: Option<String>,
+    search: Option<String>,
+    #[serde(default)]
+    incluir_produtos: bool,
 }
 
 #[derive(Deserialize)]
@@ -215,8 +220,9 @@ async fn delete_category_handler(
 
 // --- Items ---
 
-async fn get_items_handler(State(state): State<Arc<AppState>>, Query(q): Query<CategoryIdQuery>) -> impl IntoResponse {
-    match with_pool(&state, |pool| get_items_query(pool, q.category_id)).await {
+async fn get_items_handler(State(state): State<Arc<AppState>>, Query(q): Query<ItemsQuery>) -> impl IntoResponse {
+    let filtro = FiltroItens { category_id: q.category_id, search: q.search, incluir_produtos: q.incluir_produtos };
+    match with_pool(&state, |pool| get_items_query(pool, filtro)).await {
         Ok(v) => ok_json(v).into_response(),
         Err(e) => e.into_response(),
     }
@@ -352,6 +358,27 @@ async fn remove_similar_item_handler(
 async fn update_items_category_handler(State(state): State<Arc<AppState>>, Json(body): Json<UpdateItemsCategoryBody>) -> impl IntoResponse {
     match with_pool(&state, |pool| update_items_category_query(pool, &body.codes, body.category_id)).await {
         Ok(()) => ok_status().into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TrocarCategoriaItemBody {
+    #[serde(default)]
+    category_id: String,
+}
+
+// POST /api/hub/compras/items/:code/categoria (2 passos: sem confirmar=true só devolve a prévia)
+async fn trocar_categoria_item_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Path(code): Path<String>,
+    Query(c): Query<crate::core::acao::Confirmar>,
+    Json(body): Json<TrocarCategoriaItemBody>,
+) -> impl IntoResponse {
+    match trocar_categoria_item(state.db.pool(), &ctx, &code, &body.category_id, c.confirmar).await {
+        Ok(v) => Json(v).into_response(),
         Err(e) => e.into_response(),
     }
 }
@@ -735,6 +762,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/hub/compras/items/stock-calibrations", get(list_stock_calibrations_handler))
         .route("/api/hub/compras/items/stock", post(set_item_real_stock_handler))
         .route("/api/hub/compras/items/category", post(update_items_category_handler))
+        .route("/api/hub/compras/items/:code/categoria", post(trocar_categoria_item_handler))
         .route("/api/hub/compras/items/observations", post(import_item_observations_handler))
         // Demands
         .route("/api/hub/compras/demands", get(get_demands_handler))
@@ -788,9 +816,26 @@ pub fn acoes() -> Vec<Acao> {
         Acao::leitura(
             "listar_itens_compras",
             MP,
-            "Lista os insumos do Hub de Compras por descrição: código, descrição, unidade, categoria, linha, tipo, observação e se está ignorado (e por quê). Não traz estoque nem consumo: para isso use `simular_demanda_compras`. Filtre por `categoryId`.",
+            "Lista os itens do Hub de Compras por descrição: código, descrição, unidade, categoria, linha, tipo, observação e se está ignorado (e por quê). SEM filtro vêm só os insumos (matéria-prima, embalagens e materiais). Com `categoryId`, `search` ou `incluirProdutos=true` entram também os produtos de Material de Apoio e Coloração (marcados com `isProduct: true`, inclusive os ocultos, com `isIgnored: true`). `categoryId` aceita o id ou o nome exato da categoria e já inclui todas as subcategorias. Não traz estoque nem consumo: para isso use `simular_demanda_compras`.",
             "/api/hub/compras/items",
-            vec![param("categoryId", "query", "texto", false, "Filtra por categoria (cat_mp, cat_emb, coloracao, apoio ou subcategoria).")],
+            vec![
+                param("categoryId", "query", "texto", false, "Id ou nome exato (sem diferenciar maiúsculas) da categoria; inclui as subcategorias (ex.: cat_mp, cat_emb, cat_apoio, cat_coloracao). Ids em `listar_categorias_compras`."),
+                param("search", "query", "texto", false, "Parte do código ou da descrição."),
+                param("incluirProdutos", "query", "booleano", false, "true junta os produtos de Apoio/Coloração mesmo sem outro filtro (padrão false)."),
+            ],
+        ),
+        Acao::gravacao(
+            "trocar_categoria_item",
+            "compras_apoio",
+            "Troca a categoria de um item (produto de Apoio/Coloração ou insumo) pelo `code`. Sem `confirmar=true` devolve a prévia (`categoriaAntes`, `categoriaDepois`, `mudou`) e não grava; com ele grava e audita. Permissão: o agente precisa de editar em um módulo da família da categoria de ORIGEM e em um da família do DESTINO (cat_apoio = compras_apoio; cat_coloracao = compras_coloracao; cat_mp = compras_materia_prima; cat_emb = compras_embalagens; demais = materia_prima ou embalagens); a recusa diz qual módulo falta. Produto só pode ser movido por agente se já for de Apoio/Coloração. Os ids de categoria vêm de `listar_categorias_compras`.",
+            "POST",
+            "/api/hub/compras/items/:code/categoria",
+            true,
+            vec![
+                param("code", "caminho", "texto", true, "Código do item (produto ou insumo)."),
+                param("categoryId", "corpo", "texto", true, "Id da categoria de destino."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
         ),
         Acao::leitura(
             "simular_demanda_compras",
