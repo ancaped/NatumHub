@@ -1,30 +1,34 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../geral/lib/api';
 import { PurchaseRequestBatch, PurchaseRequestBatchDetail, PurchaseRequestBatchItem } from '../../../geral/lib/types';
-import { 
-  ClipboardList, Search, RefreshCw, Printer, CheckCircle2, Clock, 
-  AlertCircle, ChevronDown, ChevronRight, Eye, Trash2, Edit3, Check, 
-  X, Layers, Boxes, Palette, Tag, Package, ExternalLink, Calendar, User, FileText, Settings
-} from 'lucide-react';
+import { RefreshCw, Printer, Check, X, Edit3, Settings } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
 import { imprimirRelatorioCompra } from '../imprimirRelatorioCompra';
 import type { ItemRelatorio } from '../relatorioCompra';
-import { ReportHeader, BotaoAcao, ReportTabs, FilterBar, FiltroSelect, StatusBadge } from '../../../geral/components/ui/ReportKit';
+import { ReportHeader, BotaoAcao, ReportTabs, FilterBar, FiltroSelect, StatusBadge, TabelaPainel, type VarianteBadge } from '../../../geral/components/ui/ReportKit';
+import Drawer from '../../../geral/components/ui/Drawer';
 
 interface ListasAcompanhamentoTabProps {
   active?: boolean;
   mode?: string;
-  /** Lote recém-gerado: a tela abre esse lote, rola até ele e o destaca. */
+  /** Lote recém-gerado: a tela abre o Drawer desse lote. */
   destaqueLoteId?: string | null;
 }
 
-const MODULO_LABELS: Record<string, { label: string; icon: any; color: string }> = {
-  materia_prima: { label: 'Matéria-Prima', icon: Boxes, color: 'bg-blue-50 text-blue-700 border-blue-200' },
-  embalagens: { label: 'Embalagens', icon: Layers, color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  coloracao: { label: 'Coloração', icon: Palette, color: 'bg-purple-50 text-purple-700 border-purple-200' },
-  apoio: { label: 'Material de Apoio', icon: Tag, color: 'bg-amber-50 text-amber-700 border-amber-200' },
-  geral: { label: 'Geral', icon: Package, color: 'bg-zinc-100 text-zinc-700 border-zinc-200' },
+const MODULOS_FIXOS = ['materia_prima', 'embalagens', 'coloracao', 'apoio'];
+
+const STATUS_BADGE: Record<string, { variante: VarianteBadge; rotulo: string }> = {
+  pendente: { variante: 'aguardando', rotulo: 'Aguardando pedido' },
+  parcial: { variante: 'ordem', rotulo: 'Parcial' },
+  atendido: { variante: 'saudavel', rotulo: 'Pedidos lançados' },
+  concluido: { variante: 'abundante', rotulo: 'Concluído' },
+  cancelado: { variante: 'descontinuado', rotulo: 'Cancelado' },
 };
+
+const fmtData = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '—');
+const fmtDataCurta = (iso?: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '');
+const numeroLote = (n: string) => n.replace(/^lote\s*/i, '');
+const vazio: React.CSSProperties = { textAlign: 'center', padding: 24, color: 'hsl(var(--text-secondary-hsl))' };
 
 const COLUMN_METADATA: Record<string, { label: string; align: 'left' | 'center' | 'right' }> = {
   itemCode: { label: 'Ref / Item', align: 'left' },
@@ -91,8 +95,8 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all', destaqueL
     localStorage.setItem('natum_hub_print_list_column_config', JSON.stringify(newConfig));
   };
 
-  // Selected batch for detail modal/expansion
-  const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null);
+  // Lote aberto no Drawer
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [batchDetails, setBatchDetails] = useState<Record<string, PurchaseRequestBatchDetail>>({});
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
 
@@ -147,18 +151,11 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all', destaqueL
     }
   };
 
-  // Lote recém-gerado: mostra todos os status, sem busca, abre o lote, rola até ele e dá um anel de destaque.
-  const [destaqueId, setDestaqueId] = useState<string | null>(null);
-  const rolouPara = useRef<string | null>(null);
+  // Lote recém-gerado: mostra todos os status, sem busca, recarrega e abre o Drawer desse lote.
   useEffect(() => {
-    if (!destaqueLoteId) {
-      setDestaqueId(null);
-      return;
-    }
+    if (!destaqueLoteId) return;
     setStatusFilter('ALL');
     setSearch('');
-    setDestaqueId(destaqueLoteId);
-    rolouPara.current = null;
     (async () => {
       setLoading(true);
       try {
@@ -168,31 +165,14 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all', destaqueL
       } finally {
         setLoading(false);
       }
-      setExpandedBatchId(destaqueLoteId);
+      setSelectedBatchId(destaqueLoteId);
       loadBatchDetail(destaqueLoteId);
     })();
   }, [destaqueLoteId]);
 
-  useEffect(() => {
-    if (!active || !destaqueId || loading || rolouPara.current === destaqueId) return;
-    if (!batches.some(b => b.id === destaqueId)) return;
-    const t = setTimeout(() => {
-      const el = document.getElementById(`lote-${destaqueId}`);
-      if (el && el.offsetParent !== null) {
-        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        rolouPara.current = destaqueId;
-      }
-    }, 80);
-    return () => clearTimeout(t);
-  }, [active, destaqueId, loading, batches]);
-
-  const handleToggleExpand = (id: string) => {
-    if (expandedBatchId === id) {
-      setExpandedBatchId(null);
-    } else {
-      setExpandedBatchId(id);
-      loadBatchDetail(id);
-    }
+  const handleOpenBatch = (id: string) => {
+    setSelectedBatchId(id);
+    loadBatchDetail(id);
   };
 
   const handleUpdateStatus = async (id: string, newStatus: string) => {
@@ -310,6 +290,9 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all', destaqueL
     return { total, pendentes, parciais, atendidos, concluidos };
   }, [batches]);
 
+  const selectedBatch = batches.find(b => b.id === selectedBatchId) ?? null;
+  const selectedDetail = selectedBatchId ? batchDetails[selectedBatchId] : undefined;
+
   const filteredBatches = useMemo(() => {
     return batches.filter(b => {
       if (statusFilter !== 'ALL' && b.status !== statusFilter) return false;
@@ -326,10 +309,10 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all', destaqueL
   }, [batches, search, statusFilter]);
 
   return (
-    <div className="flex flex-col gap-4 h-[calc(100vh-12.25rem)] animate-in fade-in duration-200">
+    <div className="animate-in fade-in duration-200">
       <ReportHeader
         titulo="Solicitações"
-        subtitulo="Listas enviadas, status de atendimento e cruzamento com os pedidos de compra do ERP."
+        subtitulo="Lotes enviados para compra e o que já virou pedido no ERP."
         acoes={
           <>
             <BotaoAcao onClick={() => setShowColumnConfig(!showColumnConfig)} title="Escolher quais colunas serão impressas no relatório">
@@ -386,8 +369,8 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all', destaqueL
         ativa={statusFilter}
         onChange={setStatusFilter}
         abas={[
-          { id: 'pendente', label: 'Aguardando pedido ERP', contagem: kpis.pendentes },
-          { id: 'parcial', label: 'Parcialmente comprado', contagem: kpis.parciais },
+          { id: 'pendente', label: 'Aguardando pedido', contagem: kpis.pendentes },
+          { id: 'parcial', label: 'Parcial', contagem: kpis.parciais },
           { id: 'atendido', label: 'Pedidos lançados', contagem: kpis.atendidos },
           { id: 'concluido', label: 'Concluídos', contagem: kpis.concluidos },
           { id: 'ALL', label: 'Todos', contagem: kpis.total },
@@ -395,331 +378,184 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all', destaqueL
       />
 
       <FilterBar busca={search} onBusca={setSearch} placeholder="Buscar por lote, título, solicitante ou observação...">
-        <FiltroSelect
-          value={moduleFilter}
-          onChange={setModuleFilter}
-          opcoes={[
-            { valor: 'ALL', rotulo: 'Módulo: Todos' },
-            { valor: 'materia_prima', rotulo: 'Matéria-Prima' },
-            { valor: 'embalagens', rotulo: 'Embalagens' },
-            { valor: 'coloracao', rotulo: 'Coloração' },
-            { valor: 'apoio', rotulo: 'Apoio' },
-          ]}
-        />
-        <span className="text-xs text-zinc-500 font-semibold">{filteredBatches.length} lotes</span>
+        {!MODULOS_FIXOS.includes(mode) && (
+          <FiltroSelect
+            value={moduleFilter}
+            onChange={setModuleFilter}
+            opcoes={[
+              { valor: 'ALL', rotulo: 'Módulo: Todos' },
+              { valor: 'materia_prima', rotulo: 'Matéria-Prima' },
+              { valor: 'embalagens', rotulo: 'Embalagens' },
+              { valor: 'coloracao', rotulo: 'Coloração' },
+              { valor: 'apoio', rotulo: 'Apoio' },
+            ]}
+          />
+        )}
       </FilterBar>
 
-      {/* Main Table Panel */}
-      <div className="flex-1 bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col min-h-0">
-        <div className="flex-1 overflow-auto">
-          {loading ? (
-            <div className="flex items-center justify-center h-full text-zinc-400 text-xs">
-              <RefreshCw className="h-4 w-4 animate-spin mr-2" /> Carregando lotes de solicitação...
-            </div>
-          ) : filteredBatches.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-zinc-400 gap-3 py-16">
-              <ClipboardList className="h-10 w-10 text-zinc-300" />
-              <p className="text-sm font-semibold">Nenhum lote de solicitação encontrado</p>
-              <p className="text-xs max-w-sm text-center text-zinc-400">
-                Para criar um lote, adicione produtos na aba "Lista" do módulo correspondente e clique no botão "Gerar Lote de Solicitação".
-              </p>
-            </div>
-          ) : (
-            <div className="divide-y divide-zinc-150">
-              {filteredBatches.map(batch => {
-                const isExpanded = expandedBatchId === batch.id;
-                const detail = batchDetails[batch.id];
-                const modMeta = MODULO_LABELS[batch.modulo] || MODULO_LABELS.geral;
-                const ModIcon = modMeta.icon;
-                const createdAt = new Date(batch.createdAt);
-                const daysAgo = Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
-
-                return (
-                  <div
-                    key={batch.id}
-                    id={`lote-${batch.id}`}
-                    className={cn('transition-colors hover:bg-zinc-50/40', destaqueId === batch.id && 'ring-2 ring-inset ring-amber-300 bg-amber-50/30')}
-                  >
-                    {/* Batch Row Header */}
-                    <div className="p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                      {/* Left: Lote Info */}
-                      <div className="flex items-start gap-3 min-w-[280px]">
-                        <button
-                          onClick={() => handleToggleExpand(batch.id)}
-                          className="p-1 text-zinc-400 hover:text-zinc-800 rounded hover:bg-zinc-100 transition-colors mt-0.5 cursor-pointer"
-                          title={isExpanded ? "Recolher itens" : "Ver itens do lote"}
-                        >
-                          {isExpanded ? <ChevronDown className="h-5 w-5 text-zinc-800" /> : <ChevronRight className="h-5 w-5" />}
-                        </button>
-
-                        <div className="text-left">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-extrabold text-sm text-zinc-900 bg-zinc-100 px-2 py-0.5 rounded border border-zinc-200">
-                              {batch.loteNumero}
-                            </span>
-                            <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1", modMeta.color)}>
-                              <ModIcon className="h-3 w-3" />
-                              {modMeta.label}
-                            </span>
-                          </div>
-
-                          <div className="font-bold text-xs text-zinc-800 mt-1">
-                            {batch.titulo || `Lista de Solicitação — ${modMeta.label}`}
-                          </div>
-
-                          <div className="flex items-center gap-3 text-[10px] text-zinc-400 mt-0.5 font-medium">
-                            <span className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" /> {createdAt.toLocaleDateString('pt-BR')} às {createdAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                            <span>•</span>
-                            <span className="flex items-center gap-1">
-                              <User className="h-3 w-3" /> {batch.createdBy || 'Sistema'}
-                            </span>
-                            {daysAgo > 0 && (
-                              <>
-                                <span>•</span>
-                                <span className={cn(daysAgo >= 3 && batch.status === 'pendente' ? "text-amber-600 font-bold" : "")}>
-                                  há {daysAgo} {daysAgo === 1 ? 'dia' : 'dias'}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Middle: Progress / Status */}
-                      <div className="flex-1 max-w-sm w-full text-left">
-                        <div className="flex justify-between items-center text-[10px] font-bold text-zinc-600 mb-1">
-                          <span>Atendimento no ERP</span>
-                          <span>{batch.itemsWithOrder} de {batch.totalItems} itens com pedido</span>
-                        </div>
-                        <div className="w-full bg-zinc-150 h-2 rounded-full overflow-hidden">
-                          <div
-                            className={cn(
-                              "h-full transition-all duration-300",
-                              batch.status === 'concluido' ? "bg-emerald-500" :
-                              batch.status === 'atendido' ? "bg-teal-500" :
-                              batch.status === 'parcial' ? "bg-blue-500" : "bg-amber-400"
-                            )}
-                            style={{ width: `${batch.totalItems > 0 ? (batch.itemsWithOrder / batch.totalItems) * 100 : 0}%` }}
-                          />
-                        </div>
-
-                        <div className="mt-1.5 flex items-center gap-2">
-                          {batch.status === 'pendente' && (
-                            <StatusBadge variante="aguardando"><Clock size={11} /> Aguardando pedido no ERP</StatusBadge>
-                          )}
-                          {batch.status === 'parcial' && (
-                            <StatusBadge variante="ordem"><RefreshCw size={11} /> Parcialmente lançado ({batch.itemsWithOrder}/{batch.totalItems})</StatusBadge>
-                          )}
-                          {batch.status === 'atendido' && (
-                            <StatusBadge variante="saudavel"><CheckCircle2 size={11} /> Pedidos ERP lançados</StatusBadge>
-                          )}
-                          {batch.status === 'concluido' && (
-                            <StatusBadge variante="abundante"><Package size={11} /> Concluído / entregue</StatusBadge>
-                          )}
-                          {batch.status === 'cancelado' && (
-                            <StatusBadge variante="descontinuado"><X size={11} /> Cancelado</StatusBadge>
-                          )}
-
-                          {batch.observacoes && (
-                            <span className="text-[10px] text-zinc-500 italic truncate max-w-xs" title={batch.observacoes}>
-                              "{batch.observacoes}"
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Right: Actions */}
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => handlePrintBatch(batch)}
-                          className="px-3 py-1.5 text-xs font-bold bg-zinc-900 text-white rounded-lg hover:bg-zinc-800 flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
-                          title="Reimprimir relatório deste lote"
-                        >
-                          <Printer className="h-3.5 w-3.5" />
-                          Reimprimir Lote
-                        </button>
-
-                        <button
-                          onClick={() => handleToggleExpand(batch.id)}
-                          className="px-3 py-1.5 text-xs font-bold border border-zinc-200 text-zinc-700 rounded-lg hover:bg-zinc-100 flex items-center gap-1 cursor-pointer transition-colors"
-                        >
-                          {isExpanded ? 'Ocultar' : 'Ver Itens'} ({batch.totalItems})
-                        </button>
-
-                        {batch.status !== 'concluido' && batch.status !== 'cancelado' && (
-                          <button
-                            onClick={() => handleUpdateStatus(batch.id, 'concluido')}
-                            className="p-1.5 text-zinc-400 hover:text-emerald-600 rounded hover:bg-emerald-50 cursor-pointer"
-                            title="Marcar lote como concluído manualmente"
-                          >
-                            <CheckCircle2 className="h-4 w-4" />
-                          </button>
-                        )}
-
-                        {batch.status !== 'cancelado' && (
-                          <button
-                            onClick={() => handleUpdateStatus(batch.id, 'cancelado')}
-                            className="p-1.5 text-zinc-400 hover:text-rose-600 rounded hover:bg-rose-50 cursor-pointer"
-                            title="Cancelar lote"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Expanded Detail Panel */}
-                    {isExpanded && (
-                      <div className="bg-zinc-50/70 border-t border-zinc-200 p-4 animate-in slide-in-from-top-2 duration-150">
-                        {loadingDetail === batch.id ? (
-                          <div className="py-6 text-center text-xs text-zinc-400">Carregando itens e dados do ERP...</div>
-                        ) : !detail || detail.items.length === 0 ? (
-                          <div className="py-6 text-center text-xs text-zinc-400">Nenhum item encontrado neste lote.</div>
-                        ) : (
-                          <div className="space-y-3">
-                            <div className="flex justify-between items-center">
-                              <div className="flex items-center gap-3">
-                                <span className="text-xs font-bold text-zinc-700 uppercase tracking-wider">
-                                  Itens Solicitados no Lote ({detail.items.length})
-                                </span>
-                                <button
-                                  onClick={() => handlePrintBatch(batch)}
-                                  className="px-2 py-1 text-[11px] font-medium text-zinc-700 bg-white border border-zinc-200 rounded hover:bg-zinc-100 flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
-                                  title="Imprimir relatório deste lote"
-                                >
-                                  <Printer className="h-3.5 w-3.5 text-zinc-600" />
-                                  Imprimir Relatório
-                                </button>
-                              </div>
-
-                              {editingBatchId === batch.id ? (
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="text"
-                                    value={editNotes}
-                                    onChange={e => setEditNotes(e.target.value)}
-                                    placeholder="Editar observação do lote..."
-                                    className="px-2 py-1 text-xs border border-zinc-300 rounded bg-white w-64"
-                                  />
-                                  <button onClick={() => handleSaveNotes(batch.id)} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded">
-                                    <Check className="h-4 w-4" />
-                                  </button>
-                                  <button onClick={() => setEditingBatchId(null)} className="p-1 text-zinc-400 hover:bg-zinc-100 rounded">
-                                    <X className="h-4 w-4" />
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => { setEditingBatchId(batch.id); setEditNotes(batch.observacoes || ''); }}
-                                  className="text-[10px] text-zinc-500 hover:text-zinc-800 flex items-center gap-1 font-semibold cursor-pointer"
-                                >
-                                  <Edit3 className="h-3 w-3" /> Editar Observações
-                                </button>
-                              )}
-                            </div>
-
-                            <div className="bg-white rounded-lg border border-zinc-200 overflow-hidden shadow-2xs">
-                              <table className="w-full text-xs text-left">
-                                <thead className="bg-zinc-100/70 border-b border-zinc-200 text-zinc-600 font-bold uppercase text-[10px] tracking-wider">
-                                  <tr>
-                                    <th className="py-2 px-3">Ref / Código</th>
-                                    <th className="py-2 px-3">Descrição do Insumo</th>
-                                    <th className="py-2 px-3 text-right">Estoque Época</th>
-                                    <th className="py-2 px-3 text-right">Média Mês</th>
-                                    <th className="py-2 px-3 text-center">Meta</th>
-                                    <th className="py-2 px-3 text-right">Qtd Solicitada</th>
-                                    <th className="py-2 px-3">Pedidos no ERP</th>
-                                    <th className="py-2 px-3">Previsão / Fornecedor</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-zinc-100">
-                                  {detail.items.map(item => {
-                                    const hasOrder = !!item.erpPedidoNumero;
-                                    const isDelivered = item.status === 'entregue';
-
-                                    return (
-                                      <tr key={item.id} className="hover:bg-zinc-50/70">
-                                        <td className="py-2.5 px-3 font-mono font-bold text-zinc-900">
-                                          {item.itemCode}
-                                        </td>
-                                        <td className="py-2.5 px-3">
-                                          <div className="font-semibold text-zinc-800">{item.itemDescription}</div>
-                                          {item.supplierName && (
-                                            <span className="text-[10px] text-zinc-400 block">Fornec. sugerido: {item.supplierName}</span>
-                                          )}
-                                        </td>
-                                        <td className="py-2.5 px-3 text-right font-mono text-zinc-600">
-                                          {item.currentStockAtTime.toLocaleString('pt-BR')} <span className="text-[9px] text-zinc-400">{item.unit}</span>
-                                        </td>
-                                        <td className="py-2.5 px-3 text-right font-mono text-zinc-600">
-                                          {Math.round(item.overallAvgAtTime).toLocaleString('pt-BR')} <span className="text-[9px] text-zinc-400">{item.unit}</span>
-                                        </td>
-                                        <td className="py-2.5 px-3 text-center font-mono font-bold text-blue-700 text-[10px]">
-                                          {item.targetDaysAtTime}d
-                                        </td>
-                                        <td className="py-2.5 px-3 text-right font-mono font-bold text-zinc-900 bg-zinc-50/50">
-                                          {item.quantityRequested.toLocaleString('pt-BR')} <span className="text-[9px] text-zinc-400 font-sans">{item.unit}</span>
-                                        </td>
-
-                                        {/* Pedidos do ERP atribuídos ao item */}
-                                        <td className="py-2.5 px-3">
-                                          {(item.erpPedidos ?? []).length > 0 ? (
-                                            <div className="space-y-1.5">
-                                              {(item.erpPedidos ?? []).map(ped => (
-                                                <div key={`${ped.numero}-${ped.qtd}-${ped.qtdAtribuida}`} className="text-[10px] text-zinc-600">
-                                                  <StatusBadge variante={ped.aberto ? 'saudavel' : 'abundante'} title={ped.aberto ? 'Pedido aberto' : 'Pedido finalizado ou já recebido'}>
-                                                    <Package size={11} /> Pedido ERP #{ped.numero}
-                                                  </StatusBadge>
-                                                  <span className="ml-1.5">
-                                                    {ped.data ? `${ped.data.slice(0, 10).split('-').reverse().join('/')} · ` : ''}
-                                                    <strong>{ped.qtd.toLocaleString('pt-BR')}</strong> {item.unit}
-                                                    {ped.qtdAtribuida < ped.qtd - 1e-6 && (
-                                                      <span className="text-zinc-400"> (parte: {ped.qtdAtribuida.toLocaleString('pt-BR')})</span>
-                                                    )}
-                                                    <span className={ped.chegou > 0 ? 'text-emerald-700' : 'text-zinc-400'}> · chegou {ped.chegou.toLocaleString('pt-BR')}</span>
-                                                  </span>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          ) : (
-                                            <StatusBadge variante="aguardando"><Clock size={11} /> Aguardando pedido no ERP</StatusBadge>
-                                          )}
-                                        </td>
-
-                                        {/* Fornecedor / Previsão */}
-                                        <td className="py-2.5 px-3 text-left text-[10px]">
-                                          {hasOrder ? (
-                                            <div>
-                                              <div className="font-semibold text-zinc-800 truncate max-w-[160px]" title={item.erpFornecedor || ''}>
-                                                {item.erpFornecedor || 'Fornecedor não informado'}
-                                              </div>
-                                              <div className="text-zinc-400 mt-0.5">
-                                                {item.erpPrevisaoEntrega ? `Prev. Entrega: ${item.erpPrevisaoEntrega}` : item.erpPedidoData ? `Feito em: ${item.erpPedidoData}` : ''}
-                                              </div>
-                                            </div>
-                                          ) : (
-                                            <span className="text-zinc-400 italic">Pendente de compra</span>
-                                          )}
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+      <TabelaPainel>
+        <thead>
+          <tr>
+            <th>Lote</th>
+            <th>Título</th>
+            <th>Enviado em</th>
+            <th>Por</th>
+            <th>Itens com pedido</th>
+            <th className="numeric-col">Entregues</th>
+            <th>Status</th>
+            <th style={{ width: 1 }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading && (
+            <tr><td colSpan={8} style={vazio}>Carregando solicitações...</td></tr>
           )}
-        </div>
-      </div>
+          {!loading && filteredBatches.length === 0 && (
+            <tr><td colSpan={8} style={vazio}>Nenhuma solicitação encontrada.</td></tr>
+          )}
+          {!loading && filteredBatches.map(batch => {
+            const st = STATUS_BADGE[batch.status];
+            const pct = batch.totalItems > 0 ? Math.min(100, (batch.itemsWithOrder / batch.totalItems) * 100) : 0;
+            return (
+              <tr key={batch.id} style={{ cursor: 'pointer' }} onClick={() => handleOpenBatch(batch.id)}>
+                <td><span className="product-code" style={{ fontWeight: 700 }}>{numeroLote(batch.loteNumero)}</span></td>
+                <td style={{ fontWeight: 600 }}>{batch.titulo || '—'}</td>
+                <td>{fmtData(batch.createdAt)}</td>
+                <td>{batch.createdBy || 'Sistema'}</td>
+                <td>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 150 }}>
+                    <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'hsl(var(--border-hsl, 240 6% 90%))', overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', background: 'hsl(240 6% 10%)' }} />
+                    </div>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{batch.itemsWithOrder} de {batch.totalItems}</span>
+                  </div>
+                </td>
+                <td className="numeric-col">{batch.itemsCompleted}</td>
+                <td>{st ? <StatusBadge variante={st.variante}>{st.rotulo}</StatusBadge> : batch.status}</td>
+                <td>
+                  <button
+                    type="button"
+                    title="Reimprimir"
+                    aria-label="Reimprimir"
+                    onClick={e => { e.stopPropagation(); void handlePrintBatch(batch); }}
+                    className="p-1.5 text-zinc-400 hover:text-zinc-800 rounded hover:bg-zinc-100 cursor-pointer"
+                  >
+                    <Printer className="h-4 w-4" />
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </TabelaPainel>
+
+      <Drawer
+        isOpen={Boolean(selectedBatch)}
+        onClose={() => { setSelectedBatchId(null); setEditingBatchId(null); }}
+        badge="Solicitação"
+        title={selectedBatch ? `LOTE ${numeroLote(selectedBatch.loteNumero)}${selectedBatch.titulo ? ` · ${selectedBatch.titulo}` : ''}` : ''}
+        subtitle={selectedBatch ? `${selectedBatch.createdBy || 'Sistema'} · ${fmtData(selectedBatch.createdAt)} · ${selectedBatch.itemsWithOrder} de ${selectedBatch.totalItems} itens com pedido` : undefined}
+        size="xl"
+        loading={Boolean(selectedBatch && loadingDetail === selectedBatch.id)}
+        loadingText="Carregando itens e dados do ERP..."
+        footer={selectedBatch && (
+          <div className="flex items-center justify-end gap-2 w-full">
+            {selectedBatch.status !== 'cancelado' && (
+              <BotaoAcao onClick={() => handleUpdateStatus(selectedBatch.id, 'cancelado')}>Cancelar lote</BotaoAcao>
+            )}
+            {selectedBatch.status !== 'concluido' && selectedBatch.status !== 'cancelado' && (
+              <BotaoAcao onClick={() => handleUpdateStatus(selectedBatch.id, 'concluido')}>Marcar concluído</BotaoAcao>
+            )}
+            <BotaoAcao primario onClick={() => handlePrintBatch(selectedBatch)}>
+              <Printer size={13} /> Imprimir
+            </BotaoAcao>
+          </div>
+        )}
+      >
+        {selectedBatch && (
+          <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              {STATUS_BADGE[selectedBatch.status]
+                ? <StatusBadge variante={STATUS_BADGE[selectedBatch.status].variante}>{STATUS_BADGE[selectedBatch.status].rotulo}</StatusBadge>
+                : <span>{selectedBatch.status}</span>}
+              {editingBatchId === selectedBatch.id ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={editNotes}
+                    onChange={e => setEditNotes(e.target.value)}
+                    placeholder="Editar observação do lote..."
+                    className="px-2 py-1 text-xs border border-zinc-300 rounded bg-white w-64"
+                  />
+                  <button onClick={() => handleSaveNotes(selectedBatch.id)} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded cursor-pointer" title="Salvar">
+                    <Check className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => setEditingBatchId(null)} className="p-1 text-zinc-400 hover:bg-zinc-100 rounded cursor-pointer" title="Cancelar edição">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setEditingBatchId(selectedBatch.id); setEditNotes(selectedBatch.observacoes || ''); }}
+                  className="text-[11px] text-zinc-500 hover:text-zinc-800 flex items-center gap-1 font-semibold cursor-pointer"
+                >
+                  <Edit3 className="h-3 w-3" /> Editar observações
+                </button>
+              )}
+            </div>
+
+            {selectedBatch.observacoes && editingBatchId !== selectedBatch.id && (
+              <div className="panel-card" style={{ padding: '8px 12px', fontSize: '0.75rem', whiteSpace: 'pre-wrap' }}>
+                <strong>Observações: </strong>{selectedBatch.observacoes}
+              </div>
+            )}
+
+            <TabelaPainel>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th className="numeric-col">Solicitado</th>
+                  <th>Pedidos no ERP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(!selectedDetail || selectedDetail.items.length === 0) && (
+                  <tr><td colSpan={3} style={vazio}>Nenhum item encontrado neste lote.</td></tr>
+                )}
+                {selectedDetail?.items.map(item => (
+                  <tr key={item.id}>
+                    <td>
+                      <span className="product-code" style={{ fontSize: '0.68rem', fontWeight: 700 }}>{item.itemCode}</span>
+                      <div style={{ fontWeight: 600 }}>{item.itemDescription}</div>
+                      {item.observacao && (
+                        <div style={{ fontSize: '0.68rem', fontStyle: 'italic', color: 'hsl(var(--text-secondary-hsl))' }}>{item.observacao}</div>
+                      )}
+                    </td>
+                    <td className="numeric-col" style={{ whiteSpace: 'nowrap' }}>{item.quantityRequested.toLocaleString('pt-BR')} {item.unit}</td>
+                    <td>
+                      {(item.erpPedidos ?? []).length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          {(item.erpPedidos ?? []).map(ped => (
+                            <div key={`${ped.numero}-${ped.qtd}-${ped.qtdAtribuida}`} style={{ fontSize: '0.72rem' }}>
+                              <strong>#{ped.numero}</strong>{' '}
+                              <span style={{ color: 'hsl(var(--text-secondary-hsl))' }}>
+                                {ped.qtdAtribuida.toLocaleString('pt-BR')} {item.unit}
+                                {ped.previsao ? ` · prev. ${fmtDataCurta(ped.previsao)}` : ''}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <StatusBadge variante="aguardando">Sem pedido</StatusBadge>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </TabelaPainel>
+          </div>
+        )}
+      </Drawer>
     </div>
   );
 }
