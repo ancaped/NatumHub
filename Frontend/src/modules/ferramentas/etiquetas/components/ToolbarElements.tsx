@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Type,
   Heading,
@@ -6,17 +6,23 @@ import {
   QrCode,
   Square,
   Minus,
-  Tag,
   Upload,
-  Layers,
-  Sparkles,
   Search,
   BookOpen,
+  Database,
+  Package,
+  ChevronDown,
+  ChevronRight,
   Rows,
   LayoutGrid,
   AlignLeft,
+  Tag,
+  Calendar,
+  Hash,
+  Box,
 } from 'lucide-react';
-import type { ElementType, LabelElement } from '../lib/types';
+import type { LucideIcon } from 'lucide-react';
+import type { LabelElement } from '../lib/types';
 
 interface ToolbarElementsProps {
   onAddElement: (newElement: LabelElement) => void;
@@ -24,6 +30,13 @@ interface ToolbarElementsProps {
   onOpenProductSearch: () => void;
   onOpenTemplatesModal: () => void;
   onOpenSystemVariablesModal?: () => void;
+}
+
+interface Item {
+  label: string;
+  icon: LucideIcon;
+  hint?: string;
+  onClick: () => void;
 }
 
 export default function ToolbarElements({
@@ -377,380 +390,262 @@ export default function ToolbarElements({
     e.target.value = '';
   };
 
+  // --- Dados dinâmicos do sistema ---
+  const addCodigoNome = () => {
+    const addBatch = onAddMultipleElements || ((items: LabelElement[]) => items.forEach(onAddElement));
+    addBatch([
+      {
+        id: createId('txt_code'),
+        type: 'text',
+        x_mm: 5,
+        y_mm: 5,
+        width_mm: 40,
+        height_mm: 5,
+        zIndex: 10,
+        props: { text: 'CÓD: {product_code}', fontSize: 8.5, fontWeight: 'bold', fontFamily: 'JetBrains Mono', textAlign: 'left', color: '#18181b', uppercase: true },
+      },
+      {
+        id: createId('txt_name'),
+        type: 'text',
+        x_mm: 5,
+        y_mm: 11,
+        width_mm: 90,
+        height_mm: 8,
+        zIndex: 10,
+        props: { text: '{product_name}', fontSize: 11, fontWeight: '800', fontFamily: 'Inter', textAlign: 'left', color: '#18181b', uppercase: true },
+      },
+    ]);
+  };
+
+  const addLoteFabValidade = () => {
+    const addBatch = onAddMultipleElements || ((items: LabelElement[]) => items.forEach(onAddElement));
+    addBatch([
+      {
+        id: createId('txt_lot'),
+        type: 'text',
+        x_mm: 5,
+        y_mm: 20,
+        width_mm: 40,
+        height_mm: 4.5,
+        zIndex: 10,
+        props: { text: 'LOTE: {lot}', fontSize: 8, fontWeight: 'bold', fontFamily: 'Inter', textAlign: 'left', color: '#18181b', uppercase: true },
+      },
+      {
+        id: createId('txt_fab'),
+        type: 'text',
+        x_mm: 5,
+        y_mm: 25,
+        width_mm: 40,
+        height_mm: 4.5,
+        zIndex: 10,
+        props: { text: 'FAB: {manufacturing_date}', fontSize: 7.5, fontWeight: 'normal', fontFamily: 'Inter', textAlign: 'left', color: '#18181b', uppercase: true },
+      },
+      {
+        id: createId('txt_val'),
+        type: 'text',
+        x_mm: 5,
+        y_mm: 30,
+        width_mm: 40,
+        height_mm: 4.5,
+        zIndex: 10,
+        props: { text: 'VAL: {expiry_date}', fontSize: 8, fontWeight: 'bold', fontFamily: 'Inter', textAlign: 'left', color: '#18181b', uppercase: true },
+      },
+    ]);
+  };
+
+  const addCaixaSeqTotal = () => {
+    onAddElement({
+      id: createId('txt_seq'),
+      type: 'text',
+      x_mm: 5,
+      y_mm: 40,
+      width_mm: 50,
+      height_mm: 6,
+      zIndex: 10,
+      props: { text: '{box_sequence} ({box_qty})', fontSize: 9, fontWeight: '800', fontFamily: 'Inter', textAlign: 'left', color: '#18181b', uppercase: true },
+    });
+  };
+
+  const addEan13Item = () => {
+    onAddElement({
+      id: createId('bar_ean'),
+      type: 'barcode',
+      x_mm: 10,
+      y_mm: 20,
+      width_mm: 50,
+      height_mm: 15,
+      zIndex: 10,
+      props: { value: '{barcode}', format: 'ean13', showText: true, fontSize: 7.5 },
+    });
+  };
+
+  const addDun14Caixa = () => {
+    onAddElement({
+      id: createId('bar_dun'),
+      type: 'barcode',
+      x_mm: 10,
+      y_mm: 20,
+      width_mm: 60,
+      height_mm: 15,
+      zIndex: 10,
+      props: { value: '{box_barcode}', format: 'code128', showText: true, fontSize: 7.5 },
+    });
+  };
+
+  // --- Estado local da paleta ---
+  const [busca, setBusca] = useState('');
+  const [abertas, setAbertas] = useState<Record<string, boolean>>({
+    elementos: true,
+    dados: true,
+    blocos: false,
+    rapidos: false,
+    selos: false,
+  });
+
+  const elementos: Item[] = [
+    { label: 'Texto', icon: Type, onClick: () => addText('simple') },
+    { label: 'Título', icon: Heading, onClick: () => addText('heading') },
+    { label: 'Cód. barras', icon: Barcode, onClick: () => addBarcode('code128') },
+    { label: 'QR Code', icon: QrCode, onClick: () => addQrCode() },
+    { label: 'Borda', icon: Square, onClick: () => addBox() },
+    { label: 'Linha', icon: Minus, onClick: () => addLine('horizontal') },
+    { label: 'Imagem', icon: Upload, onClick: () => fileInputRef.current?.click() },
+  ];
+
+  const dados: Item[] = [
+    { label: 'Cód + Nome do produto', icon: Tag, hint: '2 lin.', onClick: addCodigoNome },
+    { label: 'Lote + Fab + Validade', icon: Calendar, hint: '3 lin.', onClick: addLoteFabValidade },
+    { label: 'Caixa {seq} de {total}', icon: Box, hint: '1 lin.', onClick: addCaixaSeqTotal },
+    { label: 'Código EAN-13 do item', icon: Barcode, hint: 'EAN', onClick: addEan13Item },
+    { label: 'Código DUN-14 da caixa', icon: Barcode, hint: 'DUN', onClick: addDun14Caixa },
+  ];
+
+  const blocos: Item[] = [
+    { label: 'Lote + Validade', icon: Rows, hint: '2 lin.', onClick: () => addAlignedBlock('lote_val') },
+    { label: 'Grade técnica', icon: AlignLeft, hint: '4 lin.', onClick: () => addAlignedBlock('tech_stack') },
+    { label: 'Texto + QR Code', icon: QrCode, onClick: () => addAlignedBlock('qr_stack') },
+    { label: 'Borda + topo com selo', icon: LayoutGrid, onClick: () => addAlignedBlock('box_header') },
+  ];
+
+  const rapidos: Item[] = [
+    { label: 'Lote', icon: Hash, hint: 'LOTE:', onClick: () => addText('lote') },
+    { label: 'Validade', icon: Calendar, hint: 'VAL:', onClick: () => addText('val') },
+    { label: 'SKU', icon: Tag, hint: 'CÓD:', onClick: () => addText('sku') },
+  ];
+
+  const selos: Item[] = [
+    { label: 'MATÉRIA-PRIMA', icon: Tag, onClick: () => addBadge('MATÉRIA-PRIMA', 'black') },
+    { label: 'EMBALAGEM', icon: Tag, onClick: () => addBadge('EMBALAGEM', 'black') },
+    { label: 'APROVADO CQ', icon: Tag, onClick: () => addBadge('APROVADO CQ', 'black') },
+    { label: 'QUARENTENA', icon: Tag, onClick: () => addBadge('QUARENTENA', 'outline') },
+  ];
+
+  const termo = busca.trim().toLowerCase();
+  const filtrar = (itens: Item[]) =>
+    termo ? itens.filter((i) => i.label.toLowerCase().includes(termo)) : itens;
+
+  const secoes: { key: string; titulo: string; itens: Item[]; grade?: boolean }[] = [
+    { key: 'elementos', titulo: 'Elementos', itens: filtrar(elementos), grade: true },
+    { key: 'dados', titulo: 'Dados do sistema', itens: filtrar(dados) },
+    { key: 'blocos', titulo: 'Blocos prontos', itens: filtrar(blocos) },
+    { key: 'rapidos', titulo: 'Campos rápidos', itens: filtrar(rapidos) },
+    { key: 'selos', titulo: 'Selos', itens: filtrar(selos) },
+  ];
+
+  const botaoTopo =
+    'flex-1 h-8 flex items-center justify-center gap-1 rounded-lg border border-zinc-200 bg-white text-xs text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default';
+
   return (
-    <div className="w-64 border-r border-zinc-200 bg-white flex flex-col h-full overflow-y-auto select-none">
-      {/* Search & System Variables Top Actions */}
-      <div className="p-3 border-b border-zinc-100 bg-zinc-50/50 space-y-2">
-        {onOpenSystemVariablesModal && (
+    <div className="w-60 border-r border-zinc-200 bg-white flex flex-col h-full overflow-y-auto select-none">
+      <div className="p-3 space-y-2">
+        <div className="flex gap-1.5">
           <button
             type="button"
             onClick={onOpenSystemVariablesModal}
-            className="w-full flex items-center justify-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white font-bold px-3 py-2 rounded-xl text-xs cursor-pointer"
+            disabled={!onOpenSystemVariablesModal}
+            className={botaoTopo}
           >
-            <Sparkles className="h-3.5 w-3.5" />
-            <span>Biblioteca de Dados</span>
+            <Database className="h-3.5 w-3.5" />
+            <span>Dados</span>
           </button>
-        )}
-
-        <button
-          type="button"
-          onClick={onOpenProductSearch}
-          className="w-full flex items-center justify-center gap-2 bg-white border border-zinc-200 hover:bg-zinc-100 text-zinc-800 font-bold px-3 py-1.5 rounded-xl text-xs transition-colors cursor-pointer shadow-2xs"
-        >
-          <Search className="h-3.5 w-3.5 text-blue-600" />
-          <span>Buscar do Catálogo</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={onOpenTemplatesModal}
-          className="w-full flex items-center justify-center gap-2 bg-white border border-zinc-200 hover:bg-zinc-100 text-zinc-700 font-semibold px-3 py-1.5 rounded-xl text-xs transition-colors cursor-pointer"
-        >
-          <BookOpen className="h-3.5 w-3.5" />
-          <span>Modelos Prontos</span>
-        </button>
-      </div>
-
-      <div className="p-3 space-y-4">
-        {/* System Dynamic Data Blocks */}
-        <div>
-          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-2 px-1 flex items-center gap-1">
-            <Sparkles className="h-3 w-3" /> Dados Dinâmicos do Sistema
-          </span>
-          <div className="space-y-1.5">
-            <button
-              onClick={() => {
-                const addBatch = onAddMultipleElements || ((items: LabelElement[]) => items.forEach(onAddElement));
-                addBatch([
-                  {
-                    id: createId('txt_code'),
-                    type: 'text',
-                    x_mm: 5,
-                    y_mm: 5,
-                    width_mm: 40,
-                    height_mm: 5,
-                    zIndex: 10,
-                    props: { text: 'CÓD: {product_code}', fontSize: 8.5, fontWeight: 'bold', fontFamily: 'JetBrains Mono', textAlign: 'left', color: '#18181b', uppercase: true },
-                  },
-                  {
-                    id: createId('txt_name'),
-                    type: 'text',
-                    x_mm: 5,
-                    y_mm: 11,
-                    width_mm: 90,
-                    height_mm: 8,
-                    zIndex: 10,
-                    props: { text: '{product_name}', fontSize: 11, fontWeight: '800', fontFamily: 'Inter', textAlign: 'left', color: '#18181b', uppercase: true },
-                  },
-                ]);
-              }}
-              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-xs text-zinc-800 transition-colors cursor-pointer"
-            >
-              <span className="font-semibold text-[11px]">🏷️ Cód + Nome do Produto</span>
-              <span className="text-[9px] bg-zinc-200 text-zinc-700 px-1 py-0.5 rounded font-mono">2 lin.</span>
-            </button>
-
-            <button
-              onClick={() => {
-                const addBatch = onAddMultipleElements || ((items: LabelElement[]) => items.forEach(onAddElement));
-                addBatch([
-                  {
-                    id: createId('txt_lot'),
-                    type: 'text',
-                    x_mm: 5,
-                    y_mm: 20,
-                    width_mm: 40,
-                    height_mm: 4.5,
-                    zIndex: 10,
-                    props: { text: 'LOTE: {lot}', fontSize: 8, fontWeight: 'bold', fontFamily: 'Inter', textAlign: 'left', color: '#18181b', uppercase: true },
-                  },
-                  {
-                    id: createId('txt_fab'),
-                    type: 'text',
-                    x_mm: 5,
-                    y_mm: 25,
-                    width_mm: 40,
-                    height_mm: 4.5,
-                    zIndex: 10,
-                    props: { text: 'FAB: {manufacturing_date}', fontSize: 7.5, fontWeight: 'normal', fontFamily: 'Inter', textAlign: 'left', color: '#18181b', uppercase: true },
-                  },
-                  {
-                    id: createId('txt_val'),
-                    type: 'text',
-                    x_mm: 5,
-                    y_mm: 30,
-                    width_mm: 40,
-                    height_mm: 4.5,
-                    zIndex: 10,
-                    props: { text: 'VAL: {expiry_date}', fontSize: 8, fontWeight: 'bold', fontFamily: 'Inter', textAlign: 'left', color: '#18181b', uppercase: true },
-                  },
-                ]);
-              }}
-              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-xs text-zinc-800 transition-colors cursor-pointer"
-            >
-              <span className="font-semibold text-[11px]">📅 Lote + Fab + Validade</span>
-              <span className="text-[9px] bg-zinc-200 text-zinc-700 px-1 py-0.5 rounded font-mono">3 lin.</span>
-            </button>
-
-            <button
-              onClick={() => {
-                onAddElement({
-                  id: createId('txt_seq'),
-                  type: 'text',
-                  x_mm: 5,
-                  y_mm: 40,
-                  width_mm: 50,
-                  height_mm: 6,
-                  zIndex: 10,
-                  props: { text: '{box_sequence} ({box_qty})', fontSize: 9, fontWeight: '800', fontFamily: 'Inter', textAlign: 'left', color: '#18181b', uppercase: true },
-                });
-              }}
-              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-xs text-zinc-800 transition-colors cursor-pointer"
-            >
-              <span className="font-semibold text-[11px]">📦 Caixa {`{seq}`} de {`{total}`}</span>
-              <span className="text-[9px] bg-zinc-100 text-zinc-600 px-1 py-0.5 rounded font-mono">1 lin.</span>
-            </button>
-
-            <button
-              onClick={() => {
-                onAddElement({
-                  id: createId('bar_ean'),
-                  type: 'barcode',
-                  x_mm: 10,
-                  y_mm: 20,
-                  width_mm: 50,
-                  height_mm: 15,
-                  zIndex: 10,
-                  props: { value: '{barcode}', format: 'ean13', showText: true, fontSize: 7.5 },
-                });
-              }}
-              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-xs text-zinc-800 transition-colors cursor-pointer"
-            >
-              <span className="font-semibold text-[11px]">||| Código EAN-13 do Item</span>
-              <span className="text-[9px] bg-zinc-100 text-zinc-600 px-1 py-0.5 rounded font-mono">EAN</span>
-            </button>
-
-            <button
-              onClick={() => {
-                onAddElement({
-                  id: createId('bar_dun'),
-                  type: 'barcode',
-                  x_mm: 10,
-                  y_mm: 20,
-                  width_mm: 60,
-                  height_mm: 15,
-                  zIndex: 10,
-                  props: { value: '{box_barcode}', format: 'code128', showText: true, fontSize: 7.5 },
-                });
-              }}
-              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-xs text-zinc-800 transition-colors cursor-pointer"
-            >
-              <span className="font-semibold text-[11px]">||| Código DUN-14 da Caixa</span>
-              <span className="text-[9px] bg-zinc-100 text-zinc-600 px-1 py-0.5 rounded font-mono">DUN</span>
-            </button>
-          </div>
-        </div>
-        {/* Auto-Aligned Composite Blocks */}
-        <div>
-          <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider block mb-2 px-1 flex items-center gap-1">
-            <Sparkles className="h-3 w-3" /> Blocos Auto-Alinhados
-          </span>
-          <div className="space-y-1.5">
-            <button
-              onClick={() => addAlignedBlock('lote_val')}
-              className="w-full flex items-center justify-between p-2 rounded-lg border border-blue-100 bg-blue-50/40 hover:bg-blue-100/60 text-xs text-zinc-800 transition-colors cursor-pointer"
-            >
-              <div className="flex items-center gap-2">
-                <Rows className="h-4 w-4 text-blue-600 shrink-0" />
-                <span className="font-semibold text-[11px]">Lote + Validade (Empilhados)</span>
-              </div>
-              <span className="text-[9px] bg-blue-100 text-blue-800 px-1 py-0.5 rounded font-mono">2 lin.</span>
-            </button>
-
-            <button
-              onClick={() => addAlignedBlock('tech_stack')}
-              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-xs text-zinc-800 transition-colors cursor-pointer"
-            >
-              <div className="flex items-center gap-2">
-                <AlignLeft className="h-4 w-4 text-zinc-600 shrink-0" />
-                <span className="font-semibold text-[11px]">Grade Técnica (4 Linhas)</span>
-              </div>
-              <span className="text-[9px] bg-zinc-100 text-zinc-600 px-1 py-0.5 rounded font-mono">4 lin.</span>
-            </button>
-
-            <button
-              onClick={() => addAlignedBlock('qr_stack')}
-              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-xs text-zinc-800 transition-colors cursor-pointer"
-            >
-              <div className="flex items-center gap-2">
-                <QrCode className="h-4 w-4 text-zinc-600 shrink-0" />
-                <span className="font-semibold text-[11px]">Texto + QR Code Alinhados</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => addAlignedBlock('box_header')}
-              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-xs text-zinc-800 transition-colors cursor-pointer"
-            >
-              <div className="flex items-center gap-2">
-                <LayoutGrid className="h-4 w-4 text-zinc-600 shrink-0" />
-                <span className="font-semibold text-[11px]">Borda + Topo com Badge</span>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        {/* Basic Elements */}
-        <div>
-          <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2 px-1">
-            Elementos Individuais
-          </span>
-          <div className="grid grid-cols-2 gap-1.5">
-            <button
-              onClick={() => addText('simple')}
-              className="flex items-center gap-2 p-2 rounded-lg border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 text-left text-xs text-zinc-800 transition-colors cursor-pointer"
-            >
-              <Type className="h-4 w-4 text-blue-600 shrink-0" />
-              <span className="truncate">Texto</span>
-            </button>
-
-            <button
-              onClick={() => addText('heading')}
-              className="flex items-center gap-2 p-2 rounded-lg border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 text-left text-xs text-zinc-800 transition-colors cursor-pointer"
-            >
-              <Heading className="h-4 w-4 text-blue-600 shrink-0" />
-              <span className="truncate">Título</span>
-            </button>
-
-            <button
-              onClick={() => addBarcode('code128')}
-              className="flex items-center gap-2 p-2 rounded-lg border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 text-left text-xs text-zinc-800 transition-colors cursor-pointer"
-            >
-              <Barcode className="h-4 w-4 text-blue-600 shrink-0" />
-              <span className="truncate">Cód. Barras</span>
-            </button>
-
-            <button
-              onClick={() => addQrCode()}
-              className="flex items-center gap-2 p-2 rounded-lg border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 text-left text-xs text-zinc-800 transition-colors cursor-pointer"
-            >
-              <QrCode className="h-4 w-4 text-blue-600 shrink-0" />
-              <span className="truncate">QR Code</span>
-            </button>
-
-            <button
-              onClick={() => addBox()}
-              className="flex items-center gap-2 p-2 rounded-lg border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 text-left text-xs text-zinc-800 transition-colors cursor-pointer"
-            >
-              <Square className="h-4 w-4 text-blue-600 shrink-0" />
-              <span className="truncate">Borda / Caixa</span>
-            </button>
-
-            <button
-              onClick={() => addLine('horizontal')}
-              className="flex items-center gap-2 p-2 rounded-lg border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 text-left text-xs text-zinc-800 transition-colors cursor-pointer"
-            >
-              <Minus className="h-4 w-4 text-blue-600 shrink-0" />
-              <span className="truncate">Linha Divisória</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Quick Industry Tags */}
-        <div>
-          <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2 px-1">
-            Campos Rápidos
-          </span>
-          <div className="space-y-1.5">
-            <button
-              onClick={() => addText('lote')}
-              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 text-xs text-zinc-700 transition-colors cursor-pointer"
-            >
-              <span className="font-semibold">Lote de Fabricação</span>
-              <span className="text-[10px] font-mono bg-zinc-100 text-zinc-500 px-1.5 py-0.5 rounded">
-                LOTE:
-              </span>
-            </button>
-
-            <button
-              onClick={() => addText('val')}
-              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 text-xs text-zinc-700 transition-colors cursor-pointer"
-            >
-              <span className="font-semibold">Data de Validade</span>
-              <span className="text-[10px] font-mono bg-zinc-100 text-zinc-500 px-1.5 py-0.5 rounded">
-                VAL:
-              </span>
-            </button>
-
-            <button
-              onClick={() => addText('sku')}
-              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 text-xs text-zinc-700 transition-colors cursor-pointer"
-            >
-              <span className="font-semibold">Código SKU / Item</span>
-              <span className="text-[10px] font-mono bg-zinc-100 text-zinc-500 px-1.5 py-0.5 rounded">
-                CÓD:
-              </span>
-            </button>
-          </div>
-        </div>
-
-        {/* Badges and Status */}
-        <div>
-          <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2 px-1">
-            Badges de Status
-          </span>
-          <div className="grid grid-cols-2 gap-1.5">
-            <button
-              onClick={() => addBadge('MATÉRIA-PRIMA', 'black')}
-              className="p-1.5 bg-zinc-900 text-white font-bold text-[10px] rounded-md hover:bg-zinc-800 text-center cursor-pointer truncate"
-            >
-              MATÉRIA-PRIMA
-            </button>
-
-            <button
-              onClick={() => addBadge('EMBALAGEM', 'black')}
-              className="p-1.5 bg-zinc-900 text-white font-bold text-[10px] rounded-md hover:bg-zinc-800 text-center cursor-pointer truncate"
-            >
-              EMBALAGEM
-            </button>
-
-            <button
-              onClick={() => addBadge('APROVADO CQ', 'black')}
-              className="p-1.5 bg-zinc-900 text-white font-bold text-[10px] rounded-md hover:bg-zinc-800 text-center cursor-pointer truncate"
-            >
-              APROVADO CQ
-            </button>
-
-            <button
-              onClick={() => addBadge('QUARENTENA', 'outline')}
-              className="p-1.5 bg-white border border-zinc-900 text-zinc-900 font-bold text-[10px] rounded-md hover:bg-zinc-100 text-center cursor-pointer truncate"
-            >
-              QUARENTENA
-            </button>
-          </div>
-        </div>
-
-        {/* Image / Logo Upload */}
-        <div>
-          <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2 px-1">
-            Logotipo / Imagem
-          </span>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center justify-center gap-2 p-2.5 rounded-lg border border-dashed border-zinc-300 hover:border-zinc-500 hover:bg-zinc-50 text-xs text-zinc-700 transition-colors cursor-pointer"
-          >
-            <Upload className="h-4 w-4 text-zinc-500" />
-            <span>Inserir Logo / Imagem</span>
+          <button type="button" onClick={onOpenProductSearch} className={botaoTopo}>
+            <Package className="h-3.5 w-3.5" />
+            <span>Catálogo</span>
           </button>
+          <button type="button" onClick={onOpenTemplatesModal} className={botaoTopo}>
+            <BookOpen className="h-3.5 w-3.5" />
+            <span>Modelos</span>
+          </button>
+        </div>
+
+        <div className="relative">
+          <Search className="h-3.5 w-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
           <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleImageUpload}
-            className="hidden"
+            type="text"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar elemento…"
+            className="w-full h-8 pl-8 pr-2 rounded-lg border border-zinc-200 bg-white text-xs text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-400"
           />
         </div>
       </div>
+
+      <div className="px-3 pb-4 space-y-3">
+        {secoes.map((s) => {
+          if (termo && s.itens.length === 0) return null;
+          const aberta = termo ? true : abertas[s.key];
+          return (
+            <div key={s.key}>
+              <button
+                type="button"
+                onClick={() => setAbertas((a) => ({ ...a, [s.key]: !a[s.key] }))}
+                className="w-full flex items-center justify-between px-1 py-1 text-[10px] uppercase tracking-wide text-zinc-500 hover:text-zinc-800 cursor-pointer"
+              >
+                <span>{s.titulo}</span>
+                {aberta ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              </button>
+              {aberta &&
+                (s.grade ? (
+                  <div className="grid grid-cols-3 gap-1.5 mt-1">
+                    {s.itens.map((i) => (
+                      <button
+                        key={i.label}
+                        type="button"
+                        onClick={i.onClick}
+                        className="h-16 flex flex-col items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-white text-xs text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition-colors cursor-pointer"
+                      >
+                        <i.icon className="h-4 w-4 text-zinc-500" />
+                        <span>{i.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-1">
+                    {s.itens.map((i) => (
+                      <button
+                        key={i.label}
+                        type="button"
+                        onClick={i.onClick}
+                        className="w-full h-8 flex items-center justify-between gap-2 px-2 rounded-md text-xs text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                      >
+                        <span className="truncate text-left">{i.label}</span>
+                        {i.hint && <span className="text-[10px] text-zinc-400 shrink-0">{i.hint}</span>}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+            </div>
+          );
+        })}
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleImageUpload}
+        className="hidden"
+      />
     </div>
   );
 }

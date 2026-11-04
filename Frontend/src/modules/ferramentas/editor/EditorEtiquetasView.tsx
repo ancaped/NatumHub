@@ -23,6 +23,8 @@ import {
   EyeOff,
 } from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
+import Drawer from '../../geral/components/ui/Drawer';
+import { FAMILIAS } from '../etiquetas/lib/familias';
 import type { LabelElement, LabelTemplate } from '../etiquetas/lib/types';
 import { DEFAULT_LABEL_TEMPLATES } from '../etiquetas/lib/defaultTemplates';
 import LabelCanvas from '../etiquetas/components/LabelCanvas';
@@ -614,19 +616,19 @@ export default function EditorEtiquetasView({
       }}
       headerActions={
         <>
-          <div className="flex items-center gap-1.5 bg-zinc-100 p-1 rounded-xl border border-zinc-200">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => setPreviewMode(!previewMode)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 h-8 px-3 rounded-lg border text-xs font-medium cursor-pointer transition-colors ${
                 previewMode
-                  ? 'bg-zinc-900 text-white'
-                  : 'text-zinc-700 hover:text-zinc-900 hover:bg-white'
+                  ? 'bg-zinc-900 text-white border-zinc-900'
+                  : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
               }`}
               title="Troca as tags {var} pelos dados do lote"
             >
               {previewMode ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-              <span>{previewMode ? 'Prévia do lote' : 'Ver com dados do lote'}</span>
+              <span>Dados do lote</span>
             </button>
             {previewMode && (
               <select
@@ -635,7 +637,7 @@ export default function EditorEtiquetasView({
                   const match = productionLots.find((l) => String(l.id) === e.target.value);
                   if (match) setSelectedPreviewLot(match);
                 }}
-                className="text-[11px] font-bold font-mono bg-white border border-zinc-300 rounded-md px-2 py-1 focus:outline-none"
+                className="h-8 text-xs font-mono bg-white border border-zinc-200 rounded-lg px-2 focus:outline-none focus:border-zinc-900"
               >
                 {productionLots.map((lot) => (
                   <option key={lot.id} value={lot.id}>
@@ -645,14 +647,7 @@ export default function EditorEtiquetasView({
               </select>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => setIsSystemVariablesModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-200 rounded-xl text-xs font-bold cursor-pointer"
-          >
-            <Database className="h-3.5 w-3.5" />
-            <span>Dados</span>
-          </button>
+          <div className="h-5 w-px bg-zinc-200" />
           <button
             type="button"
             onClick={() => {
@@ -660,31 +655,23 @@ export default function EditorEtiquetasView({
               setSaveAsCategory(template.category || 'custom');
               setIsSaveAsModalOpen(true);
             }}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-200 rounded-xl text-xs font-bold cursor-pointer"
+            className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50"
           >
             <FilePlus2 className="h-3.5 w-3.5" />
             <span>Salvar como</span>
           </button>
-          <button
-            type="button"
-            onClick={() => setIsPrintModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-200 rounded-xl text-xs font-bold cursor-pointer"
-          >
+          <button type="button" onClick={() => setIsPrintModalOpen(true)} className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50">
             <Printer className="h-3.5 w-3.5" />
             <span>Imprimir</span>
           </button>
-          <button
-            type="button"
-            onClick={() => setIsSystemPrintModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-200 rounded-xl text-xs font-bold cursor-pointer"
-          >
+          <button type="button" onClick={() => setIsSystemPrintModalOpen(true)} className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50">
             <span>Imprimir com lote</span>
           </button>
           <button
             type="button"
             onClick={handleSaveCurrent}
             disabled={saving}
-            className="flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-white font-bold px-4 py-2 rounded-xl text-xs cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-1.5 h-8 px-4 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
             <span>Salvar</span>
@@ -922,63 +909,57 @@ export default function EditorEtiquetasView({
         onClose={() => setIsPrintModalOpen(false)}
       />
 
-      {/* MODAL: Save As New Template */}
+      {/* Salvar como: painel lateral */}
       {isSaveAsModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl shadow-2xl border border-zinc-200 w-full max-w-md overflow-hidden p-6 space-y-4">
-            <h3 className="text-base font-bold text-zinc-900">Salvar Como Novo Modelo</h3>
-            <p className="text-xs text-zinc-500">
-              Defina o nome e a categoria para classificar esta etiqueta na sidebar do Nexus.
-            </p>
-
-            <form onSubmit={handleSaveAsSubmit} className="space-y-4 text-xs">
-              <div>
-                <label className="text-xs font-bold text-zinc-700 block mb-1">Nome do Modelo:</label>
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  value={saveAsName}
-                  onChange={(e) => setSaveAsName(e.target.value)}
-                  className="w-full p-2.5 border border-zinc-300 rounded-xl focus:outline-none focus:border-zinc-900 font-bold text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-zinc-700 block mb-1">Categoria na Sidebar:</label>
-                <select
-                  value={saveAsCategory}
-                  onChange={(e) => setSaveAsCategory(e.target.value)}
-                  className="w-full p-2.5 border border-zinc-300 rounded-xl bg-zinc-50 font-bold text-zinc-900 text-xs focus:outline-none focus:border-zinc-900"
-                >
-                  <option value="expedicao">📦 Caixas / Volumes (DUN-14)</option>
-                  <option value="producao">🧴 Produtos Acabados (EAN-13)</option>
-                  <option value="estoque">🧪 Matérias-Primas</option>
-                  <option value="embalagens">📦 Embalagens & Apoio</option>
-                  <option value="qualidade">🛡️ Controle de Qualidade</option>
-                  <option value="custom">⭐ Personalizada</option>
-                </select>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsSaveAsModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-zinc-600 hover:text-zinc-900 rounded-xl cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="bg-zinc-900 hover:bg-zinc-800 text-white font-bold px-5 py-2 rounded-xl text-xs transition-colors cursor-pointer shadow-xs active:scale-98 disabled:opacity-50"
-                >
-                  {saving ? 'Salvando...' : 'Salvar Modelo'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <Drawer
+          onClose={() => setIsSaveAsModalOpen(false)}
+          title="Salvar como novo modelo"
+          subtitle="O modelo atual não é alterado"
+          size="sm"
+          footer={
+            <div className="flex justify-end gap-2 p-3">
+              <button type="button" onClick={() => setIsSaveAsModalOpen(false)} className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50">
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                form="salvar-como-form"
+                disabled={saving}
+                className="h-8 px-4 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
+              >
+                {saving ? 'Salvando...' : 'Salvar modelo'}
+              </button>
+            </div>
+          }
+        >
+          <form id="salvar-como-form" onSubmit={handleSaveAsSubmit} className="p-4 space-y-4">
+            <div>
+              <label className="text-[11px] text-zinc-500 block mb-1">Nome do modelo</label>
+              <input
+                type="text"
+                required
+                autoFocus
+                value={saveAsName}
+                onChange={(e) => setSaveAsName(e.target.value)}
+                className="w-full h-8 px-2.5 text-xs border border-zinc-200 rounded-lg focus:outline-none focus:border-zinc-900"
+              />
+            </div>
+            <div>
+              <label className="text-[11px] text-zinc-500 block mb-1">Família no catálogo</label>
+              <select
+                value={saveAsCategory}
+                onChange={(e) => setSaveAsCategory(e.target.value)}
+                className="w-full h-8 px-2 text-xs border border-zinc-200 rounded-lg bg-white focus:outline-none focus:border-zinc-900"
+              >
+                {Object.entries(FAMILIAS).map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </form>
+        </Drawer>
       )}
     </AppLayout>
   );

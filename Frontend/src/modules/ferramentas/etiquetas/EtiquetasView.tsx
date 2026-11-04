@@ -1,305 +1,268 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { pedirMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
-import {
-  FilePlus,
-  Calendar as CalendarIcon,
-  History,
-  Tag,
-  Loader2,
-  Box,
-  CheckCircle2,
-  FlaskConical,
-  Layers,
-  ShieldAlert,
-  Star,
-  Printer,
-  ExternalLink,
-} from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Calendar as CalendarIcon, History, Plus, RefreshCw, Tag } from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
-import { GerarEtiquetasFlow } from './components/GerarEtiquetasFlow';
+import { BotaoAcao, FilterBar, ReportHeader, ReportTabs, StatusBadge, TabelaPainel, type AbaRelatorio } from '../../geral/components/ui/ReportKit';
+import { pedirMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import LabelsCalendarTab from './components/LabelsCalendarTab';
-import LabelsCatalogTab from './components/LabelsCatalogTab';
-import PrintWithSystemDataModal from './components/PrintWithSystemDataModal';
+import ModeloDrawer from './components/ModeloDrawer';
 import PrintModal from './components/PrintModal';
+import PrintWithSystemDataModal from './components/PrintWithSystemDataModal';
 import { labelsApi, type LabelPrintHistoryItem } from './lib/labelsApi';
-import type { LabelTemplate } from './lib/types';
 import { DEFAULT_LABEL_TEMPLATES } from './lib/defaultTemplates';
-import { getAuthUser } from '../../geral/lib/auth';
+import { FAMILIAS, familiaDe } from './lib/familias';
+import type { LabelTemplate } from './lib/types';
 
 interface EtiquetasViewProps {
   onBackToHub: () => void;
   onNavigateToEditor?: (template?: LabelTemplate) => void;
 }
 
+type Secao = 'modelos' | 'calendario' | 'historico';
+
+const muted = { color: 'hsl(var(--text-secondary-hsl))' } as const;
+
+/**
+ * Catálogo dos modelos de etiqueta: organizar, conferir e padronizar. Editar o desenho é no Editor;
+ * imprimir é pelo painel lateral do modelo. Padrão visual: tabela + abas + busca + badges + Drawer.
+ */
 export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: EtiquetasViewProps) {
-  const currentUser = useMemo(() => getAuthUser(), []);
-  const [activeTab, setActiveTab] = useState<string>('new');
+  const [secao, setSecao] = useState<Secao>('modelos');
+  const [familia, setFamilia] = useState<string>('todos');
+  const [busca, setBusca] = useState('');
 
-  // Templates state
-  const [savedTemplates, setSavedTemplates] = useState<LabelTemplate[]>([]);
-  const [loadingTemplates, setLoadingTemplates] = useState(true);
+  const [modelos, setModelos] = useState<LabelTemplate[]>(DEFAULT_LABEL_TEMPLATES);
+  const [carregando, setCarregando] = useState(true);
+  const [historico, setHistorico] = useState<LabelPrintHistoryItem[]>([]);
+  const [carregandoHist, setCarregandoHist] = useState(false);
 
-  // History state
-  const [printHistory, setPrintHistory] = useState<LabelPrintHistoryItem[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [aberto, setAberto] = useState<LabelTemplate | null>(null);
+  const [imprimirCom, setImprimirCom] = useState<LabelTemplate | null>(null);
+  const [imprimirRapido, setImprimirRapido] = useState<LabelTemplate | null>(null);
 
-  // Modals state
-  const [isSystemPrintModalOpen, setIsSystemPrintModalOpen] = useState(false);
-  const [selectedTemplateForPrint, setSelectedTemplateForPrint] = useState<LabelTemplate>(DEFAULT_LABEL_TEMPLATES[0]);
-  const [isQuickPrintModalOpen, setIsQuickPrintModalOpen] = useState(false);
-
-  // Fetch templates from API
-  const loadSavedTemplates = useCallback(async () => {
+  const carregarModelos = useCallback(async () => {
+    setCarregando(true);
     try {
-      setLoadingTemplates(true);
-      const apiList = await labelsApi.listTemplates();
-      if (apiList.length > 0) {
-        const merged = [...DEFAULT_LABEL_TEMPLATES];
-        for (const t of apiList) {
-          const idx = merged.findIndex((m) => m.id === t.id);
-          if (idx >= 0) {
-            merged[idx] = t;
-          } else {
-            merged.push(t);
-          }
+      const lista = await labelsApi.listTemplates();
+      if (lista.length > 0) {
+        const juntos = [...DEFAULT_LABEL_TEMPLATES];
+        for (const t of lista) {
+          const i = juntos.findIndex((m) => m.id === t.id);
+          if (i >= 0) juntos[i] = t;
+          else juntos.push(t);
         }
-        setSavedTemplates(merged);
-        return;
+        setModelos(juntos);
       }
     } catch (e) {
       console.warn('Erro ao carregar modelos da API:', e);
     } finally {
-      setLoadingTemplates(false);
+      setCarregando(false);
     }
-    setSavedTemplates(DEFAULT_LABEL_TEMPLATES);
   }, []);
 
-  // Fetch print history
-  const loadPrintHistory = useCallback(async () => {
+  const carregarHistorico = useCallback(async () => {
+    setCarregandoHist(true);
     try {
-      setLoadingHistory(true);
-      const data = await labelsApi.listHistory(200);
-      setPrintHistory(data);
+      setHistorico(await labelsApi.listHistory(200));
     } catch (e) {
       console.warn('Erro ao carregar histórico de impressão:', e);
     } finally {
-      setLoadingHistory(false);
+      setCarregandoHist(false);
     }
   }, []);
 
   useEffect(() => {
-    loadSavedTemplates();
-    loadPrintHistory();
-  }, [loadSavedTemplates, loadPrintHistory]);
+    carregarModelos();
+    carregarHistorico();
+  }, [carregarModelos, carregarHistorico]);
 
-  // Combined templates
-  const allTemplates = useMemo(() => {
-    if (Array.isArray(savedTemplates) && savedTemplates.length > 0) return savedTemplates;
-    return DEFAULT_LABEL_TEMPLATES;
-  }, [savedTemplates]);
+  const abas: AbaRelatorio[] = useMemo(() => {
+    const cont: Record<string, number> = {};
+    for (const t of modelos) cont[familiaDe(t)] = (cont[familiaDe(t)] ?? 0) + 1;
+    return [
+      { id: 'todos', label: 'Todos', contagem: modelos.length },
+      ...Object.entries(FAMILIAS)
+        .filter(([id]) => cont[id])
+        .map(([id, label]) => ({ id, label, contagem: cont[id] })),
+    ];
+  }, [modelos]);
 
-  // Category Counts
-  const counts = useMemo(() => {
-    const list = Array.isArray(allTemplates) ? allTemplates : [];
-    const total = list.length;
-    const expedicao = list.filter((t) => t?.category === 'expedicao' || (t?.name || '').toLowerCase().includes('caixa')).length;
-    const producao = list.filter((t) => t?.category === 'producao' || (t?.name || '').toLowerCase().includes('produto')).length;
-    const estoque = list.filter((t) => t?.category === 'estoque' || (t?.name || '').toLowerCase().includes('químico') || (t?.name || '').toLowerCase().includes('massa')).length;
-    const embalagens = list.filter((t) => t?.category === 'embalagens' || (t?.name || '').toLowerCase().includes('frasco')).length;
-    const qualidade = list.filter((t) => t?.category === 'qualidade' || (t?.name || '').toLowerCase().includes('aprovado') || (t?.name || '').toLowerCase().includes('quarentena')).length;
-    const custom = list.filter((t) => t?.category === 'custom' || (!t?.id?.startsWith('template_') && !t?.is_default)).length;
-    return { total, expedicao, producao, estoque, embalagens, qualidade, custom };
-  }, [allTemplates]);
+  const linhas = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    return modelos.filter((t) => {
+      if (familia !== 'todos' && familiaDe(t) !== familia) return false;
+      return !q || `${t.name} ${t.description ?? ''} ${FAMILIAS[familiaDe(t)]}`.toLowerCase().includes(q);
+    });
+  }, [modelos, familia, busca]);
 
-  // Sidebar items with operations + categories directly on the sidebar
-  const sidebarItems: SidebarItem[] = [
-    { id: 'new', label: 'Gerar Etiquetas', icon: FilePlus },
-    { id: 'calendar', label: 'Calendário', icon: CalendarIcon },
-    { id: 'cat_all', label: 'Todas as Etiquetas', icon: Tag, badge: counts.total },
-    { id: 'cat_expedicao', label: 'Caixas / Volumes', icon: Box, badge: counts.expedicao },
-    { id: 'cat_producao', label: 'Produtos Acabados', icon: CheckCircle2, badge: counts.producao },
-    { id: 'cat_estoque', label: 'Matérias-Primas', icon: FlaskConical, badge: counts.estoque },
-    { id: 'cat_embalagens', label: 'Embalagens & Apoio', icon: Layers, badge: counts.embalagens },
-    { id: 'cat_qualidade', label: 'Controle Qualidade', icon: ShieldAlert, badge: counts.qualidade },
-    { id: 'cat_custom', label: 'Minhas Criações', icon: Star, badge: counts.custom },
-    { id: 'history', label: 'Histórico', icon: History },
-  ];
-
-  // Handle open system print
-  const handleOpenSystemPrint = (tpl: LabelTemplate) => {
-    setSelectedTemplateForPrint(tpl);
-    setIsSystemPrintModalOpen(true);
-  };
-
-  // Handle open quick print
-  const handleOpenQuickPrint = (tpl: LabelTemplate) => {
-    setSelectedTemplateForPrint(tpl);
-    setIsQuickPrintModalOpen(true);
-  };
-
-  // Handle delete template
-  const handleDeleteTemplate = (id: string, name: string) => {
+  const excluir = (t: LabelTemplate) => {
     pedirMotivoExclusao({
       titulo: 'Excluir modelo de etiqueta',
-      alvo: `Modelo "${name}"`,
+      alvo: `Modelo "${t.name}"`,
       executar: async (motivo) => {
-        await labelsApi.deleteTemplate(id, motivo);
-        await loadSavedTemplates();
+        await labelsApi.deleteTemplate(t.id, motivo);
+        setAberto(null);
+        await carregarModelos();
       },
     });
   };
 
-  // Handle reprint from calendar
-  const handleReprint = (item: LabelPrintHistoryItem) => {
-    const match =
-      allTemplates.find((t) => t.id === item.template_id || t.name === item.template_name) ||
-      DEFAULT_LABEL_TEMPLATES[4];
-    setSelectedTemplateForPrint(match);
-    setIsSystemPrintModalOpen(true);
+  const reimprimir = (item: LabelPrintHistoryItem) => {
+    const modelo = modelos.find((t) => t.id === item.template_id || t.name === item.template_name);
+    if (modelo) setImprimirCom(modelo);
   };
+
+  const sidebarItems: SidebarItem[] = [
+    { id: 'modelos', label: 'Modelos', icon: Tag, badge: modelos.length },
+    { id: 'calendario', label: 'Calendário', icon: CalendarIcon },
+    { id: 'historico', label: 'Histórico', icon: History },
+  ];
 
   return (
     <AppLayout
       moduleTitle="Etiquetas"
+      moduleSubtitle="Catálogo de modelos"
       onBackToHub={onBackToHub}
       sidebarItems={sidebarItems}
-      activeTab={activeTab}
-      onTabChange={(id: string) => setActiveTab(id)}
+      activeTab={secao}
+      onTabChange={(id) => setSecao(id as Secao)}
     >
-      <div className="flex-1 p-6 overflow-y-auto font-sans">
-        {/* TAB: GERAR ETIQUETAS (FLOW) */}
-        {activeTab === 'new' && (
-          <GerarEtiquetasFlow
-            templates={allTemplates}
-            onPrintSuccess={loadPrintHistory}
-          />
-        )}
-
-        {/* TAB: CALENDAR */}
-        {activeTab === 'calendar' && (
-          <LabelsCalendarTab
-            history={printHistory}
-            templates={allTemplates}
-            onReprint={handleReprint}
-          />
-        )}
-
-        {/* TABS: CATEGORIES & TEMPLATES LIST */}
-        {activeTab.startsWith('cat_') && (
-          <LabelsCatalogTab
-            templates={allTemplates}
-            currentUser={currentUser}
-            activeCategory={activeTab}
-            onOpenSystemPrint={handleOpenSystemPrint}
-            onOpenQuickPrint={handleOpenQuickPrint}
-            onOpenEditor={(tpl) => {
-              if (onNavigateToEditor) {
-                onNavigateToEditor(tpl);
+      <div className="view-container" style={{ padding: '1.5rem', paddingBottom: 30 }}>
+        {secao === 'modelos' && (
+          <>
+            <ReportHeader
+              titulo="Modelos de etiqueta"
+              subtitulo="Clique num modelo para ver, imprimir ou abrir no editor"
+              acoes={
+                <BotaoAcao primario onClick={() => onNavigateToEditor?.()}>
+                  <Plus size={15} /> Novo modelo
+                </BotaoAcao>
               }
-            }}
-            onCreateNew={() => {
-              if (onNavigateToEditor) {
-                onNavigateToEditor();
-              }
-            }}
-            onDeleteTemplate={handleDeleteTemplate}
-          />
-        )}
-
-        {/* TAB: HISTORY */}
-        {activeTab === 'history' && (
-          <div className="space-y-4">
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={loadPrintHistory}
-                className="px-3.5 py-2 bg-white border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-xs font-bold rounded-xl cursor-pointer"
-              >
-                Atualizar
-              </button>
-            </div>
-
-            <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-zinc-200 bg-zinc-50/80 text-zinc-600 font-bold uppercase text-[10px] tracking-wider">
-                    <th className="p-3.5">Data / Hora</th>
-                    <th className="p-3.5">Modelo de Etiqueta</th>
-                    <th className="p-3.5">Cód. Produto</th>
-                    <th className="p-3.5">Descrição</th>
-                    <th className="p-3.5">Lote</th>
-                    <th className="p-3.5 text-center">Cópias</th>
-                    <th className="p-3.5">Impressora</th>
-                    <th className="p-3.5">Operador</th>
-                    <th className="p-3.5 text-right">Ação</th>
+            />
+            <ReportTabs abas={abas} ativa={familia} onChange={setFamilia} />
+            <FilterBar busca={busca} onBusca={setBusca} placeholder="Buscar modelo..." />
+            <TabelaPainel>
+              <thead>
+                <tr>
+                  <th>Modelo</th>
+                  <th style={{ width: 170 }}>Família</th>
+                  <th style={{ width: 110, textAlign: 'center' }}>Tamanho</th>
+                  <th style={{ width: 90 }}>Origem</th>
+                  <th style={{ width: 100 }}>Atualizado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {carregando && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 20, textAlign: 'center', ...muted }}>Carregando...</td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-100 text-zinc-700">
-                  {loadingHistory ? (
-                    <tr>
-                      <td colSpan={9} className="py-16 text-center text-zinc-400">
-                        <Loader2 className="h-6 w-6 animate-spin mx-auto text-zinc-900" />
-                        <span className="text-xs block mt-2">Carregando histórico...</span>
-                      </td>
-                    </tr>
-                  ) : printHistory.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="py-16 text-center text-zinc-400 text-xs">
-                        Nenhum registro de impressão encontrado no histórico.
-                      </td>
-                    </tr>
-                  ) : (
-                    printHistory.map((item) => (
-                      <tr key={item.id} className="hover:bg-zinc-50/70 transition-colors">
-                        <td className="p-3.5 font-mono text-[11px] text-zinc-500 whitespace-nowrap">
-                          {new Date(item.printed_at).toLocaleString('pt-BR')}
-                        </td>
-                        <td className="p-3.5 font-bold text-zinc-900">{item.template_name}</td>
-                        <td className="p-3.5 font-mono text-zinc-800 font-bold">
-                          {item.product_code || '-'}
-                        </td>
-                        <td className="p-3.5 font-medium text-zinc-800 max-w-xs truncate">
-                          {item.product_name || '-'}
-                        </td>
-                        <td className="p-3.5 font-mono font-bold text-zinc-900">{item.lot_number || '-'}</td>
-                        <td className="p-3.5 text-center font-bold text-zinc-900">{item.copies} un.</td>
-                        <td className="p-3.5 font-mono text-zinc-600 text-[11px]">
-                          {item.printer_name || 'Térmica'}
-                        </td>
-                        <td className="p-3.5 text-zinc-600">{item.operator_name || 'Operador'}</td>
-                        <td className="p-3.5 text-right">
-                          <button
-                            type="button"
-                            onClick={() => handleReprint(item)}
-                            className="px-2.5 py-1 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-200 rounded-lg text-xs font-bold cursor-pointer transition-colors shadow-2xs"
-                          >
-                            Reimprimir
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                )}
+                {!carregando && linhas.length === 0 && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 20, textAlign: 'center', ...muted }}>Nenhum modelo com este filtro.</td>
+                  </tr>
+                )}
+                {linhas.map((t) => (
+                  <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => setAberto(t)}>
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{t.name}</div>
+                      {t.description && (
+                        <div style={{ fontSize: '0.7rem', maxWidth: 520, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...muted }}>
+                          {t.description}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ fontSize: '0.75rem', ...muted }}>{FAMILIAS[familiaDe(t)]}</td>
+                    <td style={{ textAlign: 'center', fontSize: '0.75rem' }}>
+                      {t.width_mm}×{t.height_mm} mm
+                    </td>
+                    <td>
+                      <StatusBadge variante={t.is_default ? 'descontinuado' : 'saudavel'}>{t.is_default ? 'Padrão' : 'Criado'}</StatusBadge>
+                    </td>
+                    <td style={{ fontSize: '0.72rem', ...muted }}>
+                      {t.updated_at || t.created_at ? new Date((t.updated_at || t.created_at)!).toLocaleDateString('pt-BR') : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </TabelaPainel>
+          </>
+        )}
+
+        {secao === 'calendario' && (
+          <>
+            <ReportHeader titulo="Calendário" subtitulo="Etiquetas impressas por dia" />
+            <LabelsCalendarTab history={historico} templates={modelos} onReprint={reimprimir} />
+          </>
+        )}
+
+        {secao === 'historico' && (
+          <>
+            <ReportHeader
+              titulo="Histórico de impressão"
+              subtitulo="Últimas 200 impressões"
+              acoes={
+                <BotaoAcao onClick={carregarHistorico} disabled={carregandoHist}>
+                  <RefreshCw size={15} className={carregandoHist ? 'animate-spin' : ''} /> Atualizar
+                </BotaoAcao>
+              }
+            />
+            <TabelaPainel>
+              <thead>
+                <tr>
+                  <th style={{ width: 130 }}>Data</th>
+                  <th>Modelo</th>
+                  <th>Produto</th>
+                  <th style={{ width: 90 }}>Lote</th>
+                  <th style={{ width: 60, textAlign: 'center' }}>Cópias</th>
+                  <th style={{ width: 130 }}>Impressora</th>
+                  <th style={{ width: 110 }}>Operador</th>
+                  <th style={{ width: 90 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {!carregandoHist && historico.length === 0 && (
+                  <tr>
+                    <td colSpan={8} style={{ padding: 20, textAlign: 'center', ...muted }}>Nenhuma impressão registrada.</td>
+                  </tr>
+                )}
+                {historico.map((h) => (
+                  <tr key={h.id}>
+                    <td style={{ fontSize: '0.72rem', ...muted }}>{new Date(h.printed_at).toLocaleString('pt-BR')}</td>
+                    <td style={{ fontWeight: 600 }}>{h.template_name}</td>
+                    <td>
+                      <div>{h.product_name || '—'}</div>
+                      {h.product_code && <span className="product-code" style={{ fontSize: '0.65rem' }}>{h.product_code}</span>}
+                    </td>
+                    <td style={{ fontWeight: 700 }}>{h.lot_number || '—'}</td>
+                    <td style={{ textAlign: 'center' }}>{h.copies}</td>
+                    <td style={{ fontSize: '0.72rem', ...muted }}>{h.printer_name || '—'}</td>
+                    <td style={{ fontSize: '0.72rem', ...muted }}>{h.operator_name || '—'}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <BotaoAcao onClick={() => reimprimir(h)}>Reimprimir</BotaoAcao>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </TabelaPainel>
+          </>
         )}
       </div>
 
-      {/* MODAL: Print with System Data */}
-      <PrintWithSystemDataModal
-        template={selectedTemplateForPrint}
-        isOpen={isSystemPrintModalOpen}
-        onClose={() => setIsSystemPrintModalOpen(false)}
-        onPrintSuccess={loadPrintHistory}
-      />
+      {aberto && (
+        <ModeloDrawer
+          modelo={aberto}
+          onClose={() => setAberto(null)}
+          onImprimir={() => setImprimirRapido(aberto)}
+          onImprimirComLote={() => setImprimirCom(aberto)}
+          onAbrirEditor={() => onNavigateToEditor?.(aberto)}
+          onExcluir={aberto.is_default ? undefined : () => excluir(aberto)}
+        />
+      )}
 
-      {/* MODAL: Quick Simple Print */}
-      <PrintModal
-        template={selectedTemplateForPrint}
-        isOpen={isQuickPrintModalOpen}
-        onClose={() => setIsQuickPrintModalOpen(false)}
-      />
+      {imprimirCom && (
+        <PrintWithSystemDataModal template={imprimirCom} isOpen onClose={() => setImprimirCom(null)} onPrintSuccess={carregarHistorico} />
+      )}
+      {imprimirRapido && <PrintModal template={imprimirRapido} isOpen onClose={() => setImprimirRapido(null)} />}
     </AppLayout>
   );
 }

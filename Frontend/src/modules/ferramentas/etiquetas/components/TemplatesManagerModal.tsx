@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { BookOpen, X, Check, Copy, Trash2, Download, Upload, Plus, Layers, Sparkles } from 'lucide-react';
+import { Check, Copy, Trash2, Download, Upload, Plus } from 'lucide-react';
 import type { LabelTemplate } from '../lib/types';
 import { DEFAULT_LABEL_TEMPLATES } from '../lib/defaultTemplates';
+import Drawer from '../../../geral/components/ui/Drawer';
 
 interface TemplatesManagerModalProps {
   isOpen: boolean;
@@ -14,6 +15,11 @@ interface TemplatesManagerModalProps {
   onDuplicateTemplate: (template: LabelTemplate) => void;
   onImportTemplate: (template: LabelTemplate) => void;
 }
+
+const BTN_SECUNDARIO =
+  'inline-flex items-center gap-1.5 border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 rounded-lg text-xs h-8 px-2.5 cursor-pointer transition-colors';
+const BTN_PRIMARIO =
+  'inline-flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-xs h-8 px-2.5 cursor-pointer transition-colors';
 
 export default function TemplatesManagerModal({
   isOpen,
@@ -65,71 +71,38 @@ export default function TemplatesManagerModal({
   const listToRender = tab === 'defaults' ? DEFAULT_LABEL_TEMPLATES : savedTemplates;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl border border-zinc-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh]">
-        {/* Header */}
-        <div className="p-4 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/70">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-zinc-900 text-white rounded-xl">
-              <BookOpen className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-zinc-900">Galeria de Modelos de Etiquetas</h2>
-              <p className="text-xs text-zinc-500">Escolha um modelo pronto (100x50mm) ou gerencie seus modelos salvos</p>
-            </div>
-          </div>
+    <Drawer
+      onClose={onClose}
+      title="Galeria de Modelos de Etiquetas"
+      subtitle="Escolha um modelo pronto (100x50mm) ou gerencie seus modelos salvos"
+      size="lg"
+      tabs={[
+        { id: 'defaults', label: 'Modelos Padrão (100x50mm)' },
+        { id: 'custom', label: 'Meus Modelos Salvos', badge: savedTemplates.length },
+      ]}
+      activeTab={tab}
+      onTabChange={(id) => setTab(id as 'defaults' | 'custom')}
+    >
+      <div className="space-y-3 -mt-2">
+        <div className="flex items-center justify-end gap-2 flex-wrap">
+          {onNewBlankTemplate && (
+            <button
+              type="button"
+              onClick={() => {
+                onNewBlankTemplate();
+                onClose();
+              }}
+              className={BTN_SECUNDARIO}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Novo em Branco</span>
+            </button>
+          )}
 
-          <button
-            onClick={onClose}
-            className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-lg cursor-pointer transition-colors"
-          >
-            <X className="h-4 w-4" />
+          <button type="button" onClick={() => importFileRef.current?.click()} className={BTN_SECUNDARIO}>
+            <Upload className="h-3.5 w-3.5" />
+            <span>Importar JSON</span>
           </button>
-        </div>
-
-        {/* Tab switcher, New Blank Model & Import button */}
-        <div className="p-4 border-b border-zinc-100 flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5 bg-zinc-100 p-1 rounded-xl text-xs font-semibold">
-            <button
-              onClick={() => setTab('defaults')}
-              className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                tab === 'defaults' ? 'bg-white text-zinc-900 shadow-xs font-bold' : 'text-zinc-500 hover:text-zinc-900'
-              }`}
-            >
-              Modelos Padrão (100x50mm)
-            </button>
-            <button
-              onClick={() => setTab('custom')}
-              className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                tab === 'custom' ? 'bg-white text-zinc-900 shadow-xs font-bold' : 'text-zinc-500 hover:text-zinc-900'
-              }`}
-            >
-              Meus Modelos Salvos ({savedTemplates.length})
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {onNewBlankTemplate && (
-              <button
-                onClick={() => {
-                  onNewBlankTemplate();
-                  onClose();
-                }}
-                className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold border border-blue-200 px-3 py-1.5 rounded-xl text-xs cursor-pointer shadow-2xs transition-colors"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>Novo em Branco</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => importFileRef.current?.click()}
-              className="flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-900 border border-zinc-200 hover:bg-zinc-50 px-3 py-1.5 rounded-xl cursor-pointer"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              <span>Importar JSON</span>
-            </button>
-          </div>
 
           <input
             ref={importFileRef}
@@ -140,33 +113,30 @@ export default function TemplatesManagerModal({
           />
         </div>
 
-        {/* Template Cards List */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {listToRender.length === 0 ? (
-            <div className="py-12 text-center text-zinc-400 text-xs">
-              Nenhum modelo salvo ainda. Crie sua etiqueta e clique em "Salvar" na barra superior.
-            </div>
-          ) : (
-            listToRender.map((t) => {
+        {listToRender.length === 0 ? (
+          <div className="py-12 text-center text-zinc-400 text-xs">
+            Nenhum modelo salvo ainda. Crie sua etiqueta e clique em "Salvar" na barra superior.
+          </div>
+        ) : (
+          <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-lg overflow-hidden">
+            {listToRender.map((t) => {
               const isActive = t.id === activeTemplateId;
               return (
                 <div
                   key={t.id}
-                  className={`p-4 rounded-xl border transition-all flex items-center justify-between ${
-                    isActive
-                      ? 'border-blue-500 bg-blue-50/40 shadow-xs'
-                      : 'border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50/60'
+                  className={`px-3 py-2.5 flex items-center justify-between gap-3 transition-colors ${
+                    isActive ? 'bg-zinc-100' : 'hover:bg-zinc-50'
                   }`}
                 >
-                  <div className="space-y-1 max-w-md">
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-xs font-bold text-zinc-900">{t.name}</h4>
-                      <span className="px-2 py-0.5 rounded text-[9px] font-mono font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="text-xs font-semibold text-zinc-900">{t.name}</h4>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-100 text-zinc-600 border border-zinc-200">
                         {t.width_mm} x {t.height_mm} mm
                       </span>
                       {isActive && (
-                        <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-800">
-                          ATUALMENTE NO EDITOR
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-zinc-900 text-white">
+                          No editor
                         </span>
                       )}
                     </div>
@@ -176,43 +146,47 @@ export default function TemplatesManagerModal({
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <button
+                      type="button"
                       onClick={() => handleExportJson(t)}
                       title="Exportar arquivo JSON"
-                      className="p-2 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg cursor-pointer transition-colors"
+                      className={BTN_SECUNDARIO}
                     >
-                      <Download className="h-4 w-4" />
+                      <Download className="h-3.5 w-3.5" />
                     </button>
 
                     <button
+                      type="button"
                       onClick={() => onDuplicateTemplate(t)}
                       title="Duplicar modelo"
-                      className="p-2 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg cursor-pointer transition-colors"
+                      className={BTN_SECUNDARIO}
                     >
-                      <Copy className="h-4 w-4" />
+                      <Copy className="h-3.5 w-3.5" />
                     </button>
 
                     {!t.is_default && tab === 'custom' && (
                       <button
+                        type="button"
                         onClick={() => {
                           if (confirm(`Deseja realmente excluir o modelo "${t.name}"?`)) {
                             onDeleteTemplate(t.id);
                           }
                         }}
                         title="Excluir modelo"
-                        className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg cursor-pointer transition-colors"
+                        className={BTN_SECUNDARIO}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     )}
 
                     <button
+                      type="button"
                       onClick={() => {
                         onSelectTemplate(t);
                         onClose();
                       }}
-                      className="flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer"
+                      className={BTN_PRIMARIO}
                     >
                       <Check className="h-3.5 w-3.5" />
                       <span>Carregar</span>
@@ -220,10 +194,10 @@ export default function TemplatesManagerModal({
                   </div>
                 </div>
               );
-            })
-          )}
-        </div>
+            })}
+          </div>
+        )}
       </div>
-    </div>
+    </Drawer>
   );
 }
