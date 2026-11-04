@@ -420,3 +420,67 @@ pub async fn list_production_lots(pool: &PgPool) -> Result<Vec<super::models::Pr
 
     Ok(list)
 }
+
+/// Lotes do ERP, do mais recente para o mais antigo, com quanto de etiqueta já foi impressa.
+/// `q` procura no número do lote, código e descrição do produto.
+pub async fn list_lotes_etiqueta(
+    pool: &PgPool,
+    q: Option<&str>,
+    limit: i64,
+) -> Result<Vec<super::models::LoteEtiquetaItem>, sqlx::Error> {
+    let termo = q.map(str::trim).filter(|t| !t.is_empty()).map(|t| format!("%{}%", t));
+    let rows = sqlx::query_as::<_, (String, String, Option<String>, i32, Option<String>, Option<i32>, i64, Option<String>)>(
+        r#"
+        SELECT
+            h.lote_erp,
+            h.codigo,
+            p.descricao,
+            h.quantidade,
+            h.data_producao,
+            NULLIF(p.qtde_cx, 0),
+            COALESCE(e.copias, 0)::bigint,
+            e.ultima
+        FROM historico_producao h
+        LEFT JOIN produtos p ON p.codigo = h.codigo
+        LEFT JOIN (
+            SELECT lot_number, SUM(copies) AS copias, to_char(MAX(printed_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS ultima
+            FROM hub_label_print_history
+            WHERE template_name = 'Etiqueta de Lote (ERP)'
+            GROUP BY lot_number
+        ) e ON e.lot_number = h.lote_erp
+        WHERE h.lote_erp IS NOT NULL AND h.lote_erp <> ''
+          AND ($1::text IS NULL
+               OR h.lote_erp ILIKE $1
+               OR h.codigo ILIKE $1
+               OR p.descricao ILIKE $1)
+        ORDER BY h.data_producao DESC, h.id DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(termo)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(lote, codigo, descricao, quantidade, data_producao, qtde_cx, impressas, ultima)| {
+            let caixas = qtde_cx
+                .filter(|c| *c > 0)
+                .map(|c| (quantidade + c - 1) / c)
+                .filter(|n| *n > 0);
+            super::models::LoteEtiquetaItem {
+                descricao: descricao.unwrap_or_else(|| codigo.clone()),
+                lote,
+                codigo,
+                quantidade,
+                data_producao,
+                quantidade_caixa: qtde_cx,
+                etiquetas_sugeridas: caixas.map(|n| n + 1),
+                caixas,
+                etiquetas_impressas: impressas,
+                ultima_impressao: ultima,
+            }
+        })
+        .collect())
+}

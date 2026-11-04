@@ -97,3 +97,20 @@ pub struct ProductionLotItem {
     pub codigo_barras: Option<String>,
     pub codigo_barras_caixa: Option<String>,
 }
+
+/// Lote do ERP (historico_producao) com o registro de etiquetas já impressas para ele.
+#[derive(Debug, Clone, Serialize)]
+pub struct LoteEtiquetaItem {
+    pub lote: String,
+    pub codigo: String,
+    pub descricao: String,
+    pub quantidade: i32,
+    pub data_producao: Option<String>,
+    pub quantidade_caixa: Option<i32>,
+    /// Caixas do lote: quantidade produzida / unidades por caixa, arredondado para cima.
+    pub caixas: Option<i32>,
+    /// Sugestão de etiquetas: caixas + 1.
+    pub etiquetas_sugeridas: Option<i32>,
+    pub etiquetas_impressas: i64,
+    pub ultima_impressao: Option<String>,
+}

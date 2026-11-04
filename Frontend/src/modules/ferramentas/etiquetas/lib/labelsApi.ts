@@ -36,6 +36,19 @@ export interface ProductionLot {
   codigo_barras_caixa?: string | null;
 }
 
+export interface LoteEtiqueta {
+  lote: string;
+  codigo: string;
+  descricao: string;
+  quantidade: number;
+  data_producao?: string | null;
+  quantidade_caixa?: number | null;
+  caixas?: number | null;
+  etiquetas_sugeridas?: number | null;
+  etiquetas_impressas: number;
+  ultima_impressao?: string | null;
+}
+
 export interface RecordPrintPayload {
   template_id?: string;
   template_name: string;
@@ -127,5 +140,11 @@ export const labelsApi = {
     } catch {
       return [];
     }
+  },
+
+  async listLotes(q: string): Promise<LoteEtiqueta[]> {
+    const params = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
+    const data = await apiJson<LoteEtiqueta[]>(`/api/ferramentas/etiquetas/lotes${params}`);
+    return Array.isArray(data) ? data : [];
   },
 };

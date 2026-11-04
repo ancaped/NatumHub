@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Calendar as CalendarIcon, History, Plus, RefreshCw, Tag } from 'lucide-react';
+import { Boxes, Calendar as CalendarIcon, History, Plus, RefreshCw, Tag } from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
 import { BotaoAcao, FilterBar, ReportHeader, ReportTabs, StatusBadge, TabelaPainel, type AbaRelatorio } from '../../geral/components/ui/ReportKit';
 import { pedirMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import LabelsCalendarTab from './components/LabelsCalendarTab';
+import LotesTab from './components/LotesTab';
 import ModeloDrawer from './components/ModeloDrawer';
 import PrintModal from './components/PrintModal';
 import PrintWithSystemDataModal from './components/PrintWithSystemDataModal';
@@ -17,7 +18,9 @@ interface EtiquetasViewProps {
   onNavigateToEditor?: (template?: LabelTemplate) => void;
 }
 
-type Secao = 'modelos' | 'calendario' | 'historico';
+type Secao = 'modelos' | 'lotes' | 'calendario' | 'historico';
+
+const MODELO_LOTE = 'Etiqueta de Lote (ERP)';
 
 const muted = { color: 'hsl(var(--text-secondary-hsl))' } as const;
 
@@ -113,6 +116,7 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
 
   const sidebarItems: SidebarItem[] = [
     { id: 'modelos', label: 'Modelos', icon: Tag, badge: modelos.length },
+    { id: 'lotes', label: 'Lotes', icon: Boxes },
     { id: 'calendario', label: 'Calendário', icon: CalendarIcon },
     { id: 'historico', label: 'Histórico', icon: History },
   ];
@@ -186,6 +190,13 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
               </tbody>
             </TabelaPainel>
           </>
+        )}
+
+        {secao === 'lotes' && (
+          <LotesTab
+            modelo={modelos.find((t) => t.name === MODELO_LOTE) ?? DEFAULT_LABEL_TEMPLATES.find((t) => t.name === MODELO_LOTE)}
+            onImpresso={carregarHistorico}
+          />
         )}
 
         {secao === 'calendario' && (
