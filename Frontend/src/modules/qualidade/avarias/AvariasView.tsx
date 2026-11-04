@@ -11,6 +11,7 @@ import AvariasFicha from './AvariasFicha';
 type Status = 'em_analise' | 'retorno_estoque' | 'reparo' | 'embalagem' | 'descarte' | 'outro';
 type TabId = 'lista' | 'cadastro' | 'retorno' | 'controles';
 type Filtro = Status | 'all';
+type Tipo = 'produto_acabado' | 'materia_prima' | 'embalagem' | 'material_processo';
 type FiltroControle = 'all' | 'sem_controle' | 'com_controle';
 
 type Avaria = {
@@ -37,6 +38,7 @@ type Avaria = {
   fqNecessaria?: boolean;
   fqResultado?: string | null;
   fqObservacao?: string | null;
+  tipo?: Tipo;
 };
 
 type ItemHit = {
@@ -44,6 +46,14 @@ type ItemHit = {
   productCode: string;
   description: string;
 };
+
+const TIPOS: { id: Tipo; label: string; busca: string }[] = [
+  { id: 'produto_acabado', label: 'Produto acabado', busca: 'Código, nome ou lote' },
+  { id: 'materia_prima', label: 'Matéria-prima', busca: 'Código ou nome da matéria-prima' },
+  { id: 'embalagem', label: 'Embalagem', busca: 'Código ou nome da embalagem' },
+  { id: 'material_processo', label: 'Material de processo', busca: 'Descreva o material (sem cadastro)' },
+];
+const tipoLabel = (t?: string) => TIPOS.find((x) => x.id === t)?.label ?? 'Produto acabado';
 
 const STATUSES: { id: Status; label: string; short: string; subtitle: string; badge: string; tone: 'amber' | 'emerald' | 'blue' | 'rose' | 'zinc' }[] = [
   { id: 'em_analise', label: 'Em análise', short: 'Em análise', subtitle: 'Pendente CQ / Investigar', badge: 'aguardando', tone: 'amber' },
@@ -239,6 +249,8 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
   const [filtro, setFiltro] = useState<Filtro>('all');
   const [filtroControle, setFiltroControle] = useState<FiltroControle>('all');
   const [filtroLocal, setFiltroLocal] = useState<string>('all');
+  const [filtroTipo, setFiltroTipo] = useState<Tipo | 'all'>('all');
+  const [tipo, setTipo] = useState<Tipo>('produto_acabado');
   const [busca, setBusca] = useState('');
   const [editingId, setEditingId] = useState<number | null>(null);
   const [registerNumber, setRegisterNumber] = useState('');
@@ -287,14 +299,14 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
     }
     const t = setTimeout(async () => {
       try {
-        const hits = await apiJson<ItemHit[]>(`/qualidade/avarias/lookup-item?q=${encodeURIComponent(q)}`);
+        const hits = await apiJson<ItemHit[]>(`/qualidade/avarias/lookup-item?tipo=${tipo}&q=${encodeURIComponent(q)}`);
         setItemHits(Array.isArray(hits) ? hits : []);
       } catch {
         setItemHits([]);
       }
     }, 250);
     return () => clearTimeout(t);
-  }, [itemQuery]);
+  }, [itemQuery, tipo]);
 
   useEffect(() => {
     if (photoFile) {
@@ -453,7 +465,7 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
     const map = new Map<string, Avaria[]>();
     for (const row of sessao) {
       const status = row.status === 'embalagem' ? 'reparo' : row.status;
-      const key = `${row.itemCode.trim().toLowerCase()}|${(row.lote || '').trim().toLowerCase()}|${status}`;
+      const key = `${row.tipo ?? 'produto_acabado'}|${row.itemCode.trim().toLowerCase()}|${(row.lote || '').trim().toLowerCase()}|${status}`;
       const list = map.get(key) ?? [];
       list.push(row);
       map.set(key, list);
@@ -480,6 +492,7 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
       lote: lote.trim(),
       qty: Number(qty.replace(',', '.')),
       location: location.trim(),
+      tipo,
       status,
       notes: notes.trim() || null,
       repairType: status === 'reparo' ? 'embalagem' : null,
@@ -629,12 +642,13 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [rows]);
 
-  const hasActiveFilters = filtro !== 'all' || filtroControle !== 'all' || filtroLocal !== 'all' || !!busca.trim();
+  const hasActiveFilters = filtro !== 'all' || filtroTipo !== 'all' || filtroControle !== 'all' || filtroLocal !== 'all' || !!busca.trim();
 
   const clearAllFilters = () => {
     setFiltro('all');
     setFiltroControle('all');
     setFiltroLocal('all');
+    setFiltroTipo('all');
     setBusca('');
   };
 
@@ -648,6 +662,8 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
       if (filtroControle === 'sem_controle' && row.sheetNumber && row.sheetNumber.trim()) return false;
       if (filtroControle === 'com_controle' && (!row.sheetNumber || !row.sheetNumber.trim())) return false;
 
+      if (filtroTipo !== 'all' && (row.tipo ?? 'produto_acabado') !== filtroTipo) return false;
+
       if (filtroLocal !== 'all' && (row.location || '').trim().toLowerCase() !== filtroLocal.toLowerCase()) {
         return false;
       }
@@ -658,7 +674,7 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
         .toLowerCase()
         .includes(termo);
     });
-  }, [rows, filtro, filtroControle, filtroLocal, busca]);
+  }, [rows, filtro, filtroControle, filtroLocal, filtroTipo, busca]);
 
   const headerActions = (
     <div className="flex items-center gap-1.5 sm:gap-2">
@@ -833,6 +849,17 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
                   </button>
                 </div>
 
+                <select
+                  value={filtroTipo}
+                  onChange={(e) => setFiltroTipo(e.target.value as Tipo | 'all')}
+                  className="h-10 px-3 rounded-xl border border-zinc-200 bg-white text-xs font-semibold text-zinc-700 outline-none focus:border-zinc-400 shrink-0"
+                >
+                  <option value="all">Todos os tipos</option>
+                  {TIPOS.map((t) => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
+                  ))}
+                </select>
+
                 {distinctLocais.length > 0 && (
                   <select
                     value={filtroLocal}
@@ -875,6 +902,7 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
                     <thead className="bg-zinc-50 text-zinc-500 uppercase tracking-wider text-[10px] sticky top-0">
                       <tr>
                         <th className="text-left px-3 py-2.5 font-bold">Registro</th>
+                        <th className="text-left px-3 py-2.5 font-bold">Tipo</th>
                         <th className="text-left px-3 py-2.5 font-bold">Código</th>
                         <th className="text-left px-3 py-2.5 font-bold">Descrição</th>
                         <th className="text-left px-3 py-2.5 font-bold">Lote</th>
@@ -895,6 +923,7 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
                             onClick={() => void openFicha(row)}
                           >
                             <td className="px-3 py-2.5 font-mono font-bold text-zinc-900">{row.registerNumber}</td>
+                            <td className="px-3 py-2.5 text-zinc-600 whitespace-nowrap">{tipoLabel(row.tipo)}</td>
                             <td className="px-3 py-2.5 font-mono text-zinc-700">{row.itemCode}</td>
                             <td className="px-3 py-2.5 text-zinc-800">{row.description}</td>
                             <td className="px-3 py-2.5 font-mono">{row.lote || '—'}</td>
@@ -1031,8 +1060,28 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
               </div>
               <div className="p-4 space-y-4">
 
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Tipo da avaria</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {TIPOS.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      disabled={!canEdit || !!editingId}
+                      onClick={() => { setTipo(t.id); setItemQuery(''); setItemHits([]); }}
+                      className={cn(
+                        'h-9 px-3 rounded-xl border text-xs font-semibold transition-colors disabled:opacity-60',
+                        tipo === t.id ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white border-zinc-200 text-zinc-700 hover:border-zinc-300',
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <label className="space-y-1 relative block">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Código, nome ou lote</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">{TIPOS.find((t) => t.id === tipo)?.busca}</span>
                 <input
                   ref={itemQueryRef}
                   className={inputCls}
