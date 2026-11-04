@@ -396,7 +396,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::gravacao(
             "aprovar_formulario_pop",
             "qualidade_pops",
-            "Aprova o formulário em aprovação: vira vigente (vigência hoje, próxima revisão em 2 anos), soma a revisão e guarda a cópia no histórico.",
+            "Aprova o formulário (rascunho ou em aprovação): vira vigente (vigência hoje, próxima revisão em 2 anos), soma a revisão e guarda a cópia no histórico. Do rascunho, a trilha registra o envio e a aprovação.",
             "POST",
             "/api/qualidade/pops/formularios/:code/publicar",
             true,

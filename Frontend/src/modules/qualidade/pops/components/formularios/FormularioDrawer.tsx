@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Printer } from 'lucide-react';
 import Drawer from '../../../../geral/components/ui/Drawer';
-import { apiJson } from '../../../../geral/lib/http';
-import { usePreviaServidor } from '../../../../producao/lib/usePreviaServidor';
+import { apiFetch, apiJson } from '../../../../geral/lib/http';
+import { mensagemErroServidor, usePreviaServidor } from '../../../../producao/lib/usePreviaServidor';
 import type { TipoAviso } from '../../../../geral/components/ui/Aviso';
 import type { PopDocument } from '../../types';
 import { Folha, type ImpressaoDados } from './FormularioFolhas';
@@ -70,6 +70,11 @@ export default function FormularioDrawer({ code, logoSrc, onClose, onMudou, onIm
     if (code) void carregar();
   }, [code, carregar]);
 
+  // Primeira publicação: o motivo já vem pronto; nas revisões o motivo é de quem muda.
+  useEffect(() => {
+    if (det && !det.jaPublicado && det.status === 'draft') setMotivo((m) => m || 'Emissão inicial');
+  }, [det]);
+
   useEffect(() => {
     if (!code) return;
     void apiJson<PopDocument[]>('/qualidade/pops/documents')
@@ -111,8 +116,16 @@ export default function FormularioDrawer({ code, logoSrc, onClose, onMudou, onIm
     });
   };
 
-  const publicar = () => {
+  const publicar = async () => {
     if (!det || !exigirMotivo()) return;
+    // Rascunho editado e ainda não salvo: salva junto (é só rascunho; a aprovação segue com prévia e confirmação).
+    if (rascunho && editor && editorMudou(det, editor)) {
+      const r = await apiFetch(`${url}?confirmar=true`, { method: 'PUT', body: JSON.stringify(payloadDoEditor(editor)) });
+      if (!r.ok) {
+        avisar(await mensagemErroServidor(r, 'Não foi possível salvar o rascunho.'), 'erro');
+        return;
+      }
+    }
     void pedir({
       url: `${url}/publicar`,
       init: { method: 'POST', body: JSON.stringify({ motivo: motivo.trim() }) },
@@ -122,7 +135,10 @@ export default function FormularioDrawer({ code, logoSrc, onClose, onMudou, onIm
         { titulo: `${det.code} · Rev. ${rev2(d?.revision)}`, detalhe: `Vigência ${fmtData(d?.effectiveDate)} · próxima revisão ${fmtData(d?.nextReviewDate)}` },
         { titulo: 'Aprovado por', detalhe: String(d?.approvedBy ?? '') },
       ],
-      avisos: () => (det.jaPublicado ? [`A Rev. ${rev2(det.revision)} passa a «substituída» e fica no histórico.`] : []),
+      avisos: () => [
+        ...(det.jaPublicado ? [`A Rev. ${rev2(det.revision)} passa a «substituída» e fica no histórico.`] : []),
+        ...(rascunho ? ['A trilha registra o envio para aprovação e a aprovação.'] : []),
+      ],
       erroPadrao: 'Não foi possível publicar.',
       aoConcluir,
     });
@@ -138,7 +154,10 @@ export default function FormularioDrawer({ code, logoSrc, onClose, onMudou, onIm
       linhas: (d) => [{ titulo: det.code, detalhe: `Rascunho da Rev. ${rev2(d?.nextRevision)} · ${motivo.trim()}` }],
       avisos: () => [`A Rev. ${rev2(det.revision)} continua valendo e sendo impressa até a nova ser aprovada.`],
       erroPadrao: 'Não foi possível abrir a nova revisão.',
-      aoConcluir,
+      aoConcluir: async () => {
+        await aoConcluir();
+        setAba('editar');
+      },
     });
   };
 
@@ -228,25 +247,23 @@ export default function FormularioDrawer({ code, logoSrc, onClose, onMudou, onIm
               className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
               value={motivo}
               onChange={(e) => setMotivo(e.target.value)}
-              placeholder={vigente ? 'Motivo (obrigatório para abrir nova revisão ou tornar obsoleto)' : 'Motivo (obrigatório para enviar, devolver, aprovar ou tornar obsoleto)'}
+              placeholder={vigente ? 'Motivo da mudança (vai para a trilha)' : 'Motivo (vai para a trilha)'}
             />
             <div className="flex flex-wrap justify-end gap-2">
               {rascunho && (
                 <>
                   <button type="button" disabled={!editor || !editorMudou(det, editor)} onClick={salvar} className={botaoNeutro}>Salvar rascunho</button>
-                  <button type="button" disabled={!!editor && editorMudou(det, editor)} title={editor && editorMudou(det, editor) ? 'Salve as alterações antes de enviar.' : undefined} onClick={() => mover('in_review', 'Enviar para aprovação', 'Enviar para aprovação')} className={botaoPrimario}>
-                    Enviar para aprovação
-                  </button>
+                  <button type="button" onClick={() => void publicar()} className={botaoPrimario}>Aprovar e publicar</button>
                 </>
               )}
               {emAprovacao && (
                 <>
                   <button type="button" onClick={() => mover('draft', 'Devolver ao rascunho', 'Devolver')} className={botaoNeutro}>Devolver ao rascunho</button>
-                  <button type="button" onClick={publicar} className={botaoPrimario}>Aprovar e publicar</button>
+                  <button type="button" onClick={() => void publicar()} className={botaoPrimario}>Aprovar e publicar</button>
                 </>
               )}
               {vigente && (
-                <button type="button" onClick={novaRevisao} className={botaoPrimario}>Nova revisão</button>
+                <button type="button" onClick={novaRevisao} className={botaoPrimario}>Editar (abre a Rev. {rev2(det.nextRevision ?? det.revision + 1)})</button>
               )}
               {(vigente || emAprovacao) && (
                 <button type="button" onClick={() => mover('obsolete', 'Tornar obsoleto', 'Tornar obsoleto')} className={botaoNeutro}>Tornar obsoleto</button>

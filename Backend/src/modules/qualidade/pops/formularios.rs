@@ -627,7 +627,8 @@ pub(super) async fn mover_status_tx(c: &mut PgConnection, code: &str, destino: &
     para_json(&buscar(&mut *c, code, false).await?)
 }
 
-/// Aprova (só de «em aprovação»): vira vigente, grava vigência/próxima revisão/aprovador e a cópia no histórico.
+/// Aprova e publica: do rascunho (passa antes por «em aprovação», com o mesmo motivo e os dois eventos na trilha) ou de «em aprovação».
+/// Vira vigente, grava vigência/próxima revisão/aprovador e a cópia no histórico.
 pub async fn publicar(pool: &PgPool, code: &str, motivo: &str, autor: &str, confirmar: bool) -> Resp {
     ensure(pool).await.map_err(ErroApi::interno)?;
     let motivo = exigir_motivo(motivo)?;
@@ -636,7 +637,12 @@ pub async fn publicar(pool: &PgPool, code: &str, motivo: &str, autor: &str, conf
     let entrada = json!({ "code": code, "motivo": motivo });
     let alvo = code.clone();
     gravar_auditado(pool, "publicar_formulario_pop", autor, &alvo, entrada, confirmar, move |c| {
-        Box::pin(async move { publicar_tx(&mut *c, &code, &motivo, &quem).await })
+        Box::pin(async move {
+            if buscar(&mut *c, &code, true).await?.status == "draft" {
+                mover_status_tx(&mut *c, &code, "in_review", &motivo, &quem).await?;
+            }
+            publicar_tx(&mut *c, &code, &motivo, &quem).await
+        })
     })
     .await
 }
