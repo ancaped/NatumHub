@@ -163,3 +163,74 @@ pub async fn relatorio_produtos_ativos(
 
     Json(json!({ "items": items })).into_response()
 }
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrefixoSemLinha {
+    pub prefixo: String,
+    pub produtos: i64,
+    pub exemplo_codigo: String,
+    pub exemplo_descricao: String,
+}
+
+/// Prefixos (primeiro segmento do código) com produtos ativos que ficaram na linha DEFAULT
+/// ("Outros/Geral"): são os que ainda não têm linha cadastrada.
+pub async fn prefixos_sem_linha(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+) -> impl IntoResponse {
+    if !ctx.role.is_supervisor()
+        && !ctx.has_module(MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS)
+        && !ctx.has_module(MODULE_ADMIN_LINHA_PRODUTOS)
+    {
+        return deny();
+    }
+    let pool = state.db.pool();
+    let ignorados = crate::modules::compras::planejamento::commands::get_ignored_product_statuses_query(pool.clone())
+        .await
+        .unwrap_or_else(|_| status_ignorados_padrao());
+
+    let sql = format!(
+        r#"
+        SELECT p.codigo, p.descricao,
+               COALESCE(NULLIF(TRIM(o.status_produto), ''), 'ativo') AS status,
+               o.visivel
+        FROM produtos p
+        LEFT JOIN overrides_produtos o ON o.codigo = p.codigo
+        WHERE COALESCE({linha}, 'DEFAULT') = 'DEFAULT'
+        ORDER BY p.codigo
+        "#,
+        linha = LINHA_EFETIVA_SQL
+    );
+    let rows = match sqlx::query(&sql).fetch_all(pool).await {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Erro ao buscar produtos sem linha: {e}") })),
+            )
+                .into_response();
+        }
+    };
+
+    let mut grupos: Vec<PrefixoSemLinha> = Vec::new();
+    for row in rows {
+        let status: String = row.get(2);
+        if !produto_ativo(&status, row.get::<Option<i32>, _>(3), &ignorados) {
+            continue;
+        }
+        let codigo: String = row.get(0);
+        let prefixo = codigo.split('.').next().unwrap_or("").trim().to_string();
+        match grupos.iter_mut().find(|g| g.prefixo == prefixo) {
+            Some(g) => g.produtos += 1,
+            None => grupos.push(PrefixoSemLinha {
+                prefixo,
+                produtos: 1,
+                exemplo_codigo: codigo,
+                exemplo_descricao: row.get(1),
+            }),
+        }
+    }
+    grupos.sort_by(|a, b| b.produtos.cmp(&a.produtos).then_with(|| a.prefixo.cmp(&b.prefixo)));
+    Json(json!({ "prefixos": grupos })).into_response()
+}

@@ -203,12 +203,30 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [prodMultForm, setProdMultForm] = useState('1.0');
   const [fatorZForm, setFatorZForm] = useState('1.65');
   const [visibleLineForm, setVisibleLineForm] = useState('1');
+
+  // Prefixos com produto ativo em Outros/Geral (sem linha cadastrada); recarrega ao abrir a aba e ao fechar o painel da linha.
+  useEffect(() => {
+    if (activeAtivosTab !== 'linhas' || isLineModalOpen) return;
+    let cancelado = false;
+    (async () => {
+      try {
+        const res = await apiFetch('/admin/produtos-ativos/sem-linha');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelado) setSemLinha(Array.isArray(data?.prefixos) ? data.prefixos : []);
+      } catch {
+        if (!cancelado) setSemLinha([]);
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [activeAtivosTab, isLineModalOpen]);
   const [lineFormError, setLineFormError] = useState<string | null>(null);
   const [lineSaving, setLineSaving] = useState(false);
 
   // Overrides Audit states
   const [allOverrides, setAllOverrides] = useState<ProductOverride[]>([]);
   const [linhaSearch, setLinhaSearch] = useState('');
+  const [semLinha, setSemLinha] = useState<{ prefixo: string; produtos: number; exemploCodigo: string; exemploDescricao: string }[]>([]);
   const [auditSearch, setAuditSearch] = useState('');
   const [auditPage, setAuditPage] = useState(1);
   const AUDIT_POR_PAGINA = 50;
@@ -1418,6 +1436,40 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                   </button>
                 </div>
               </div>
+
+              {semLinha.length > 0 && (
+                <div className="table-card !rounded-2xl !mb-0 overflow-hidden">
+                  <div className="px-6 py-3 border-b border-zinc-100 bg-zinc-50 flex items-center justify-between">
+                    <span className="text-xs font-bold text-zinc-700">
+                      Sem linha cadastrada ({semLinha.length} {semLinha.length === 1 ? 'prefixo' : 'prefixos'})
+                    </span>
+                    <span className="text-[11px] text-zinc-500">Produtos ativos que estão em Outros/Geral</span>
+                  </div>
+                  <div className="max-h-52 overflow-y-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <tbody className="divide-y divide-zinc-100">
+                      {semLinha.map(g => (
+                        <tr key={g.prefixo} className="hover:bg-zinc-50/50 transition-colors">
+                          <td className="px-6 py-2.5 w-28 font-mono font-bold text-zinc-500">{g.prefixo}</td>
+                          <td className="px-6 py-2.5 text-zinc-700">
+                            <span className="font-mono text-zinc-400 mr-2">{g.exemploCodigo}</span>{g.exemploDescricao}
+                          </td>
+                          <td className="px-6 py-2.5 text-right text-zinc-600 whitespace-nowrap">{g.produtos} {g.produtos === 1 ? 'produto' : 'produtos'}</td>
+                          <td className="px-6 py-2.5 text-right">
+                            <button
+                              onClick={() => { handleOpenLineModal(null); setLinePrefixForm(g.prefixo); }}
+                              className="px-2.5 py-1 bg-zinc-100 hover:bg-zinc-200 rounded-lg font-bold text-zinc-700 transition-colors cursor-pointer border border-zinc-200"
+                            >
+                              Cadastrar linha
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  </div>
+                </div>
+              )}
 
               {/* Config Table Card */}
               <div className="table-card !rounded-2xl !mb-0 overflow-hidden flex flex-col">
