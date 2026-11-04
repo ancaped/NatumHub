@@ -221,10 +221,20 @@ async fn save_category_handler(
     Json(body): Json<PostCategoria>,
 ) -> Response {
     match body {
-        PostCategoria::Tela(category) => match with_pool(&state, |pool| save_category_query(pool, &category)).await {
-            Ok(()) => ok_status().into_response(),
-            Err(e) => e.into_response(),
-        },
+        PostCategoria::Tela(category) => {
+            if !ctx.role.is_supervisor() {
+                return crate::core::acao::ErroApi::novo(
+                    axum::http::StatusCode::FORBIDDEN,
+                    "apenas_supervisor",
+                    "A gravação da tela de categorias continua só com o supervisor.",
+                )
+                .into_response();
+            }
+            match with_pool(&state, |pool| save_category_query(pool, &category)).await {
+                Ok(()) => ok_status().into_response(),
+                Err(e) => e.into_response(),
+            }
+        }
         PostCategoria::Agente(b) => {
             let ctx_tx = ctx.clone();
             let nome = b.nome.clone();

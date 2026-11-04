@@ -1386,12 +1386,13 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
     if !matches!(method, "POST" | "PUT" | "DELETE" | "PATCH") {
         return false;
     }
-    // Configuração de Compras (Disp/Obj, categorias, regras, config app)
+    // Configuração de Compras (Disp/Obj, regras, config app). Apagar categoria continua só com o supervisor.
+    // Criar (POST) e ajustar (PATCH) em /categories seguem: a família é checada no handler.
     if path.starts_with("/api/hub/compras/custom-configs")
-        || path.starts_with("/api/hub/compras/categories")
         || path == "/api/hub/compras/config"
         || path == "/api/hub/compras/pinned-subcategories"
         || path == "/api/hub/compras/items/category"
+        || (path.starts_with("/api/hub/compras/categories") && method == "DELETE")
     {
         return true;
     }
@@ -1701,6 +1702,15 @@ mod tests {
         assert!(has_read_access_com(&op, "/api/settings/qualquer", "GET", true), "settings gerais seguem liberadas");
         assert!(has_read_access_com(&op, "/api/health", "GET", true));
         assert!(has_read_access_com(&op, "/api/producao/lotes", "POST", true), "restrição é só de leitura");
+    }
+
+    #[test]
+    fn criar_e_ajustar_categoria_nao_exigem_supervisor_apagar_exige() {
+        assert!(!requires_supervisor("/api/hub/compras/categories", "POST"));
+        assert!(!requires_supervisor("/api/hub/compras/categories/cat_x", "PATCH"));
+        assert!(!requires_supervisor("/api/hub/compras/categories", "GET"));
+        assert!(requires_supervisor("/api/hub/compras/categories/cat_x", "DELETE"));
+        assert!(requires_supervisor("/api/hub/compras/config", "POST"));
     }
 
     #[test]

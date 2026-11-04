@@ -227,32 +227,43 @@ fn liberada_por(ctx: &AuthContext, caminho: &str) -> Vec<LiberadaPor> {
     v
 }
 
+fn homes_da_acao(a: &catalogo::Acao, modulo: Option<&str>) -> Vec<&'static str> {
+    let homes: Vec<&'static str> = if a.modulos.is_empty() { vec![a.modulo] } else { a.modulos.to_vec() };
+    homes.into_iter().filter(|m| modulo.map_or(true, |f| f == *m)).collect()
+}
+
+fn acao_visivel(ctx: &AuthContext, mut acao: catalogo::Acao, home: &'static str, por_familia: bool) -> Option<AcaoVisivel> {
+    acao.modulo = home;
+    if !ctx.is_agente() {
+        let liberada_por = liberada_por(ctx, acao.caminho);
+        return Some(AcaoVisivel { acao, permitida: true, negada_por: None, liberada_por });
+    }
+    // Agente só vê as ações de módulos que tem. (`has_read_access` libera /api/agentes/* para todos, por
+    // causa de /eu e /acoes; aqui, nas ações de criação, vale o módulo da rota.)
+    if por_familia {
+        if !ctx.has_module(home) || !has_read_access(ctx, acao.caminho, "GET") {
+            return None;
+        }
+    } else if !has_read_access(ctx, acao.caminho, "GET") || !modulos_da_rota(acao.caminho).is_some_and(|ms| ms.iter().any(|m| ctx.has_module(m))) {
+        return None;
+    }
+    let exclusao = acao.exclui;
+    let pode_escrever = if por_familia { ctx.can_edit_module(home) } else { has_write_access(ctx, acao.caminho, acao.metodo) };
+    let permitida = !exclusao && (!acao.escrita || pode_escrever);
+    let negada_por = exclusao.then_some(catalogo::AGENTE_NAO_EXCLUI);
+    let liberada_por = liberada_por(ctx, acao.caminho);
+    Some(AcaoVisivel { acao, permitida, negada_por, liberada_por })
+}
+
 /// Ações do catálogo que o chamador enxerga. Operador: todas, permitidas. Agente: só as de módulos que ele pode
 /// ler; as de escrita vêm com `permitida` = pode editar a rota (mesmas funções que o middleware usa).
+/// Ação de várias famílias sai uma vez por família, com `modulo` dessa família.
 pub fn acoes_para(ctx: &AuthContext, modulo: Option<&str>) -> Vec<AcaoVisivel> {
     catalogo::todas()
         .into_iter()
-        .filter(|a| modulo.map_or(true, |m| a.familias().contains(&m)))
-        .filter_map(|a| {
-            if !ctx.is_agente() {
-                let liberada_por = liberada_por(ctx, a.caminho);
-                return Some(AcaoVisivel { acao: a, permitida: true, negada_por: None, liberada_por });
-            }
-            // Agente só vê as ações de módulos que tem. (`has_read_access` libera /api/agentes/* para todos, por
-            // causa de /eu e /acoes; aqui, nas ações de criação, vale o módulo da rota.)
-            if !has_read_access(ctx, a.caminho, "GET") || !modulos_da_rota(a.caminho).is_some_and(|ms| ms.iter().any(|m| ctx.has_module(m))) {
-                return None;
-            }
-            let exclusao = a.exclui;
-            let pode_escrever = if !a.modulos.is_empty() {
-                a.modulos.iter().any(|m| ctx.can_edit_module(m))
-            } else {
-                has_write_access(ctx, a.caminho, a.metodo)
-            };
-            let permitida = !exclusao && (!a.escrita || pode_escrever);
-            let negada_por = exclusao.then_some(catalogo::AGENTE_NAO_EXCLUI);
-            let liberada_por = liberada_por(ctx, a.caminho);
-            Some(AcaoVisivel { acao: a, permitida, negada_por, liberada_por })
+        .flat_map(|a| {
+            let por_familia = !a.modulos.is_empty();
+            homes_da_acao(&a, modulo).into_iter().filter_map(|home| acao_visivel(ctx, a.clone(), home, por_familia)).collect::<Vec<_>>()
         })
         .collect()
 }
@@ -896,8 +907,29 @@ mod tests {
     #[test]
     fn operador_ve_todas_as_acoes_permitidas() {
         let todas = acoes_para(&ctx_teste(Origem::Tela, "view"), None);
-        assert_eq!(todas.len(), catalogo::todas().len());
+        let mut nomes = std::collections::HashSet::new();
+        for a in &todas {
+            nomes.insert(a.acao.nome);
+        }
+        assert_eq!(nomes.len(), catalogo::todas().len());
         assert!(todas.iter().all(|a| a.permitida));
+        let familias = todas.iter().filter(|a| a.acao.nome == "criar_subcategoria_compras").map(|a| a.acao.modulo).collect::<Vec<_>>();
+        assert_eq!(familias.len(), 4, "cada família aparece com o próprio módulo");
+        assert!(familias.contains(&"compras_embalagens") && familias.contains(&"compras_apoio"));
+    }
+
+    #[test]
+    fn familia_de_compras_nao_fica_presa_em_materia_prima() {
+        let ctx = agente_com(&[("compras_embalagens", "edit"), ("compras_materia_prima", "view")]);
+        let emb = acoes_para(&ctx, Some("compras_embalagens"));
+        let criar = emb.iter().find(|a| a.acao.nome == "criar_subcategoria_compras").expect("embalagens");
+        assert_eq!(criar.acao.modulo, "compras_embalagens");
+        assert!(criar.permitida);
+        let mp = acoes_para(&ctx, Some("compras_materia_prima"));
+        let criar_mp = mp.iter().find(|a| a.acao.nome == "criar_subcategoria_compras").expect("mp");
+        assert_eq!(criar_mp.acao.modulo, "compras_materia_prima");
+        assert!(!criar_mp.permitida, "só ver não libera a escrita");
+        assert!(acoes_para(&ctx, Some("compras_coloracao")).iter().all(|a| a.acao.nome != "criar_subcategoria_compras"));
     }
 
     #[test]
