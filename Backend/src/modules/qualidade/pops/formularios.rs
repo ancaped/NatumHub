@@ -263,7 +263,7 @@ pub(super) async fn ensure(pool: &PgPool) -> Result<(), String> {
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
-    // Coluna da migração 086.
+    // Coluna da migração 087.
     sqlx::query("ALTER TABLE pop_formularios ADD COLUMN IF NOT EXISTS monthly_pack BOOLEAN NOT NULL DEFAULT FALSE")
         .execute(pool)
         .await
