@@ -1,9 +1,8 @@
-//! Vínculo NF x pedido de compra (só leitura): para cada item de nota fiscal de entrada, acha o(s) item(ns) de
-//! pedido do mesmo fornecedor e mesmo insumo que ela atende. Regra: pedido com `d_pedido <= data da NF`, pedido
-//! aberto primeiro (`n_qtde > n_chegou`), mais antigo primeiro (FIFO), alocando a quantidade da NF até o que falta
-//! chegar. O que sobrar vai para pedidos já fechados (mais antigos primeiro, até a quantidade pedida). Sem
-//! candidato = "sem pedido". Não grava nada; a alocação agregada da cobertura de insumos
-//! (`producao::cobertura::calc::alocar_nfs`) tem outro objetivo (abater chegadas futuras) e não diz qual NF atendeu qual pedido.
+//! Vínculo NF x pedido de compra (só leitura). A chave vem do ERP: cada linha de recebimento
+//! (`erp_recebimentos_insumos`, Recebe_Insumos) traz nota, fornecedor, insumo e `num_registro` = nRegistro do
+//! pedido que ela atendeu. Casa por nota + fornecedor + insumo (o número da nota repete entre fornecedores).
+//! Sem recebimento correspondente a NF fica "sem pedido": nada é adivinhado. Não grava nada.
+//! (A alocação agregada da cobertura de insumos, `producao::cobertura::calc::alocar_nfs`, tem outro objetivo.)
 
 use std::collections::HashMap;
 
@@ -15,21 +14,29 @@ use crate::modules::producao::cobertura::store::{parse_data, sem_pontos};
 #[derive(Debug, Clone)]
 pub struct ItemNf {
     pub chave: usize,
+    pub numero: String,
     pub fornecedor: String,
     pub referencia: String,
-    pub data: Option<NaiveDate>,
-    pub quantidade: f64,
 }
 
 #[derive(Debug, Clone)]
 pub struct ItemPedido {
     pub id: i32,
     pub n_registro: i32,
-    pub fornecedor: String,
     pub referencia: String,
     pub data: Option<NaiveDate>,
     pub qtde: f64,
     pub chegou: f64,
+}
+
+/// Linha de recebimento do ERP que aponta para um pedido.
+#[derive(Debug, Clone)]
+pub struct Recebimento {
+    pub nota: String,
+    pub fornecedor: String,
+    pub referencia: String,
+    pub num_registro: i32,
+    pub quantidade: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -40,52 +47,41 @@ pub struct Vinculo {
     pub quantidade: f64,
 }
 
-const EPS: f64 = 1e-9;
-
-pub fn vincular(nfs: &[ItemNf], pedidos: &[ItemPedido]) -> Vec<Vinculo> {
-    let mut por_par: HashMap<(&str, &str), Vec<&ItemPedido>> = HashMap::new();
+/// Cada recebimento vai para a primeira linha da nota com o mesmo fornecedor e insumo (linha repetida na nota não duplica).
+pub fn vincular(nfs: &[ItemNf], recebimentos: &[Recebimento], pedidos: &[ItemPedido]) -> Vec<Vinculo> {
+    let mut item_do_pedido: HashMap<(i32, &str), &ItemPedido> = HashMap::new();
     for p in pedidos {
-        por_par.entry((p.fornecedor.as_str(), p.referencia.as_str())).or_default().push(p);
-    }
-    for v in por_par.values_mut() {
-        v.sort_by(|a, b| a.data.cmp(&b.data).then(a.n_registro.cmp(&b.n_registro)).then(a.id.cmp(&b.id)));
-    }
-    let mut ordem: Vec<&ItemNf> = nfs.iter().collect();
-    ordem.sort_by(|a, b| a.data.cmp(&b.data).then(a.chave.cmp(&b.chave)));
-
-    let mut alocado: HashMap<i32, f64> = HashMap::new();
-    let mut out = Vec::new();
-    for nf in ordem {
-        let Some(cands) = por_par.get(&(nf.fornecedor.as_str(), nf.referencia.as_str())) else { continue };
-        let elegivel = |p: &&&ItemPedido| match (p.data, nf.data) {
-            (Some(dp), Some(dn)) => dp <= dn,
-            (None, Some(_)) => false,
-            _ => true,
-        };
-        let mut resta = nf.quantidade;
-        // Passo 1 = abertos (capacidade = o que falta chegar); passo 2 = fechados (capacidade = quantidade pedida).
-        for aberto in [true, false] {
-            for p in cands.iter().filter(elegivel) {
-                if resta <= EPS {
-                    break;
-                }
-                if (p.qtde > p.chegou) != aberto {
-                    continue;
-                }
-                let base = if aberto { p.qtde - p.chegou } else { p.qtde };
-                let usado = alocado.entry(p.id).or_insert(0.0);
-                let cap = (base - *usado).max(0.0);
-                let q = cap.min(resta);
-                if q <= EPS {
-                    continue;
-                }
-                *usado += q;
-                resta -= q;
-                out.push(Vinculo { chave: nf.chave, item_pedido_id: p.id, n_registro: p.n_registro, quantidade: q });
-            }
+        let e = item_do_pedido.entry((p.n_registro, p.referencia.as_str())).or_insert(p);
+        if p.id < e.id {
+            *e = p;
         }
     }
-    out
+    let mut primeira_linha: HashMap<(&str, &str, &str), usize> = HashMap::new();
+    for nf in nfs {
+        primeira_linha.entry((nf.numero.as_str(), nf.fornecedor.as_str(), nf.referencia.as_str())).or_insert(nf.chave);
+    }
+    let mut somado: HashMap<(usize, i32), f64> = HashMap::new();
+    let mut ordem: Vec<(usize, i32)> = Vec::new();
+    for r in recebimentos {
+        let Some(&chave) = primeira_linha.get(&(r.nota.as_str(), r.fornecedor.as_str(), r.referencia.as_str())) else { continue };
+        if !item_do_pedido.contains_key(&(r.num_registro, r.referencia.as_str())) {
+            continue;
+        }
+        let e = somado.entry((chave, r.num_registro)).or_insert_with(|| {
+            ordem.push((chave, r.num_registro));
+            0.0
+        });
+        *e += r.quantidade;
+    }
+    ordem.sort();
+    ordem
+        .into_iter()
+        .filter_map(|(chave, reg)| {
+            let nf = nfs.iter().find(|n| n.chave == chave)?;
+            let p = item_do_pedido.get(&(reg, nf.referencia.as_str()))?;
+            Some(Vinculo { chave, item_pedido_id: p.id, n_registro: reg, quantidade: somado[&(chave, reg)] })
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone)]
@@ -103,66 +99,80 @@ pub struct Carga {
     pub vinculos: Vec<Vinculo>,
 }
 
-/// Lê pedidos (não cancelados) e itens de NF e calcula o vínculo de tudo de uma vez (alocação consistente entre telas).
+/// Lê itens de NF, recebimentos do ERP e itens de pedido (não cancelados) e calcula o vínculo de tudo de uma vez.
 pub async fn carregar(pool: &PgPool) -> Result<Carga, String> {
+    let rec_rows = sqlx::query(
+        r#"
+        SELECT nota_fiscal::text AS nota, cod_fornecedor::text AS fornecedor, codigo_insumo, num_registro,
+               COALESCE(quantidade, 0)::float8 AS qtde
+        FROM erp_recebimentos_insumos
+        WHERE COALESCE(status_erp, '') <> 'CA' AND COALESCE(num_registro, 0) > 0
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Erro ao ler recebimentos do ERP: {e}"))?;
+    let recebimentos: Vec<Recebimento> = rec_rows
+        .iter()
+        .map(|r| Recebimento {
+            nota: r.get::<String, _>("nota").trim().to_string(),
+            fornecedor: r.get::<Option<String>, _>("fornecedor").unwrap_or_default().trim().to_string(),
+            referencia: sem_pontos(&r.get::<Option<String>, _>("codigo_insumo").unwrap_or_default()),
+            num_registro: r.get("num_registro"),
+            quantidade: r.get("qtde"),
+        })
+        .collect();
+
     let ped_rows = sqlx::query(
         r#"
-        SELECT poi.id, po.n_registro, po.n_cod_fornec, poi.c_referencia, po.d_pedido,
+        SELECT poi.id, po.n_registro, poi.c_referencia, po.d_pedido,
                COALESCE(poi.n_qtde, 0)::float8 AS qtde, COALESCE(poi.n_chegou, 0)::float8 AS chegou
         FROM purchase_order_items poi
         JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
-        WHERE po.n_cod_fornec IS NOT NULL
+        WHERE po.n_registro IN (SELECT DISTINCT num_registro FROM erp_recebimentos_insumos WHERE COALESCE(num_registro, 0) > 0)
           AND UPPER(COALESCE(po.c_status, '')) NOT IN ('C', 'CANCELADO')
         "#,
     )
     .fetch_all(pool)
     .await
     .map_err(|e| format!("Erro ao ler itens de pedidos: {e}"))?;
-    let mut pedidos_v: Vec<ItemPedido> = Vec::with_capacity(ped_rows.len());
-    for r in &ped_rows {
-        pedidos_v.push(ItemPedido {
+    let pedidos_v: Vec<ItemPedido> = ped_rows
+        .iter()
+        .map(|r| ItemPedido {
             id: r.get("id"),
             n_registro: r.get("n_registro"),
-            fornecedor: r.get::<i32, _>("n_cod_fornec").to_string(),
             referencia: sem_pontos(&r.get::<Option<String>, _>("c_referencia").unwrap_or_default()),
             data: r.get::<Option<String>, _>("d_pedido").and_then(|s| parse_data(&s)),
             qtde: r.get("qtde"),
             chegou: r.get("chegou"),
-        });
-    }
-    let pares: std::collections::HashSet<(String, String)> =
-        pedidos_v.iter().map(|p| (p.fornecedor.clone(), p.referencia.clone())).collect();
+        })
+        .collect();
 
     let nf_rows = sqlx::query(
         r#"
-        SELECT id, invoice_number, COALESCE(supplier_id, '') AS supplier_id, item_code, invoice_date,
-               COALESCE(quantity, 0)::float8 AS qtde
+        SELECT id, invoice_number, COALESCE(supplier_id, '') AS supplier_id, item_code, invoice_date
         FROM invoices
         "#,
     )
     .fetch_all(pool)
     .await
     .map_err(|e| format!("Erro ao ler notas fiscais: {e}"))?;
-    let mut linhas: Vec<LinhaNf> = Vec::new();
-    let mut itens: Vec<ItemNf> = Vec::new();
+    let mut linhas: Vec<LinhaNf> = Vec::with_capacity(nf_rows.len());
+    let mut itens: Vec<ItemNf> = Vec::with_capacity(nf_rows.len());
     for r in &nf_rows {
         let fornecedor: String = r.get::<String, _>("supplier_id").trim().to_string();
+        let numero: String = r.get::<String, _>("invoice_number").trim().to_string();
         let item_code: String = r.get("item_code");
-        let referencia = sem_pontos(&item_code);
-        if !pares.contains(&(fornecedor.clone(), referencia.clone())) {
-            continue;
-        }
-        let data = r.get::<Option<String>, _>("invoice_date").and_then(|s| parse_data(&s));
-        itens.push(ItemNf { chave: linhas.len(), fornecedor: fornecedor.clone(), referencia, data, quantidade: r.get("qtde") });
+        itens.push(ItemNf { chave: linhas.len(), numero: numero.clone(), fornecedor: fornecedor.clone(), referencia: sem_pontos(&item_code) });
         linhas.push(LinhaNf {
             invoice_id: r.get("id"),
-            invoice_number: r.get("invoice_number"),
+            invoice_number: numero,
             supplier_id: fornecedor,
             item_code,
-            data,
+            data: r.get::<Option<String>, _>("invoice_date").and_then(|s| parse_data(&s)),
         });
     }
-    let vinculos = vincular(&itens, &pedidos_v);
+    let vinculos = vincular(&itens, &recebimentos, &pedidos_v);
     Ok(Carga { nfs: linhas, pedidos: pedidos_v.into_iter().map(|p| (p.id, p)).collect(), vinculos })
 }
 
@@ -170,51 +180,49 @@ pub async fn carregar(pool: &PgPool) -> Result<Carga, String> {
 mod tests {
     use super::*;
 
-    fn d(s: &str) -> Option<NaiveDate> {
-        NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()
+    fn nf(chave: usize, numero: &str, forn: &str, rf: &str) -> ItemNf {
+        ItemNf { chave, numero: numero.into(), fornecedor: forn.into(), referencia: rf.into() }
     }
-    fn nf(chave: usize, forn: &str, rf: &str, data: &str, q: f64) -> ItemNf {
-        ItemNf { chave, fornecedor: forn.into(), referencia: rf.into(), data: d(data), quantidade: q }
+    fn ped(id: i32, reg: i32, rf: &str, qtde: f64, chegou: f64) -> ItemPedido {
+        ItemPedido { id, n_registro: reg, referencia: rf.into(), data: None, qtde, chegou }
     }
-    fn ped(id: i32, reg: i32, forn: &str, rf: &str, data: &str, qtde: f64, chegou: f64) -> ItemPedido {
-        ItemPedido { id, n_registro: reg, fornecedor: forn.into(), referencia: rf.into(), data: d(data), qtde, chegou }
+    fn rec(nota: &str, forn: &str, rf: &str, reg: i32, q: f64) -> Recebimento {
+        Recebimento { nota: nota.into(), fornecedor: forn.into(), referencia: rf.into(), num_registro: reg, quantidade: q }
     }
 
     #[test]
-    fn fifo_entre_pedidos_abertos() {
-        let pedidos = [ped(1, 10, "7", "A", "2026-08-01", 100.0, 0.0), ped(2, 11, "7", "A", "2026-08-10", 100.0, 0.0)];
-        let v = vincular(&[nf(0, "7", "A", "2026-09-01", 150.0)], &pedidos);
+    fn so_o_pedido_que_o_erp_informou() {
+        let pedidos = [ped(1, 26866, "A", 2000.0, 2000.0), ped(2, 2534, "A", 500.0, 500.0)];
+        let v = vincular(&[nf(0, "232499", "99", "A")], &[rec("232499", "99", "A", 26866, 2000.0)], &pedidos);
+        assert_eq!(v, vec![Vinculo { chave: 0, item_pedido_id: 1, n_registro: 26866, quantidade: 2000.0 }]);
+    }
+
+    #[test]
+    fn nota_repetida_entre_fornecedores_nao_mistura() {
+        let pedidos = [ped(1, 26394, "A", 10.0, 10.0), ped(2, 500, "A", 10.0, 10.0)];
+        let nfs = [nf(0, "23438", "1134", "A"), nf(1, "23438", "885", "A")];
+        let recs = [rec("23438", "885", "A", 500, 10.0), rec("23438", "1134", "A", 26394, 10.0)];
+        let v = vincular(&nfs, &recs, &pedidos);
         assert_eq!(v.len(), 2);
-        assert_eq!((v[0].n_registro, v[0].quantidade), (10, 100.0));
-        assert_eq!((v[1].n_registro, v[1].quantidade), (11, 50.0));
+        assert_eq!((v[0].chave, v[0].n_registro), (0, 26394));
+        assert_eq!((v[1].chave, v[1].n_registro), (1, 500));
     }
 
     #[test]
-    fn nao_vincula_pedido_posterior_nem_outro_fornecedor_ou_insumo() {
-        let pedidos = [
-            ped(1, 10, "7", "A", "2026-09-05", 100.0, 0.0),
-            ped(2, 11, "8", "A", "2026-08-01", 100.0, 0.0),
-            ped(3, 12, "7", "B", "2026-08-01", 100.0, 0.0),
-        ];
-        assert!(vincular(&[nf(0, "7", "A", "2026-09-01", 50.0)], &pedidos).is_empty());
+    fn sem_recebimento_ou_sem_item_no_pedido_fica_sem_pedido() {
+        let pedidos = [ped(1, 10, "A", 5.0, 5.0)];
+        assert!(vincular(&[nf(0, "1", "7", "A")], &[], &pedidos).is_empty());
+        assert!(vincular(&[nf(0, "1", "7", "B")], &[rec("1", "7", "B", 10, 5.0)], &pedidos).is_empty());
     }
 
     #[test]
-    fn aberto_antes_de_fechado_e_respeita_o_que_falta_chegar() {
-        let pedidos = [ped(1, 10, "7", "A", "2026-07-01", 100.0, 100.0), ped(2, 11, "7", "A", "2026-08-01", 100.0, 70.0)];
-        let v = vincular(&[nf(0, "7", "A", "2026-09-01", 50.0)], &pedidos);
+    fn varias_linhas_do_erp_somam_e_linha_repetida_na_nota_nao_duplica() {
+        let pedidos = [ped(1, 10, "A", 100.0, 100.0), ped(2, 11, "A", 100.0, 100.0)];
+        let nfs = [nf(0, "9", "7", "A"), nf(1, "9", "7", "A")];
+        let recs = [rec("9", "7", "A", 10, 30.0), rec("9", "7", "A", 10, 20.0), rec("9", "7", "A", 11, 5.0)];
+        let v = vincular(&nfs, &recs, &pedidos);
         assert_eq!(v.len(), 2);
-        assert_eq!((v[0].n_registro, v[0].quantidade), (11, 30.0));
-        assert_eq!((v[1].n_registro, v[1].quantidade), (10, 20.0));
-    }
-
-    #[test]
-    fn nfs_em_ordem_de_data_consomem_a_capacidade_uma_vez() {
-        let pedidos = [ped(1, 10, "7", "A", "2026-08-01", 100.0, 0.0)];
-        let nfs = [nf(0, "7", "A", "2026-09-10", 80.0), nf(1, "7", "A", "2026-09-01", 80.0)];
-        let v = vincular(&nfs, &pedidos);
-        let p = |c: usize| v.iter().filter(|x| x.chave == c).map(|x| x.quantidade).sum::<f64>();
-        assert_eq!(p(1), 80.0);
-        assert_eq!(p(0), 20.0);
+        assert_eq!((v[0].chave, v[0].n_registro, v[0].quantidade), (0, 10, 50.0));
+        assert_eq!((v[1].chave, v[1].n_registro, v[1].quantidade), (0, 11, 5.0));
     }
 }
