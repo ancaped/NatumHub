@@ -124,17 +124,18 @@ struct Cat {
     id: String,
     name: String,
     parent_id: Option<String>,
+    arquivada: bool,
 }
 
 async fn ler_categoria(conn: &mut PgConnection, id: &str) -> Result<Cat, ErroApi> {
-    let row = sqlx::query("SELECT id, name, parent_id FROM categories WHERE id = $1")
+    let row = sqlx::query("SELECT id, name, parent_id, arquivada_em IS NOT NULL AS arquivada FROM categories WHERE id = $1")
         .bind(id)
         .fetch_optional(&mut *conn)
         .await?;
     let Some(row) = row else {
         return Err(ErroApi::nao_encontrado("Categoria não encontrada.").com_detalhes(json!({ "id": id })));
     };
-    Ok(Cat { id: row.get("id"), name: row.get("name"), parent_id: row.get("parent_id") })
+    Ok(Cat { id: row.get("id"), name: row.get("name"), parent_id: row.get("parent_id"), arquivada: row.get("arquivada") })
 }
 
 async fn raiz_de(conn: &mut PgConnection, id: &str) -> Result<String, ErroApi> {
@@ -196,6 +197,13 @@ async fn periodo_efetivo(conn: &mut PgConnection, cat: &Cat) -> Result<i32, Erro
     }
 }
 
+fn exige_ativa(cat: Cat) -> Result<Cat, ErroApi> {
+    if cat.arquivada {
+        return Err(ErroApi::regra("A categoria está arquivada.").com_detalhes(json!({ "id": cat.id, "nome": cat.name })));
+    }
+    Ok(cat)
+}
+
 /// Acha a categoria pelo id completo; senão por prefixo do id (8+ caracteres) ou pelo nome exato, se só houver um.
 async fn resolver_categoria(conn: &mut PgConnection, referencia: &str) -> Result<Cat, ErroApi> {
     let r = referencia.trim();
@@ -203,11 +211,11 @@ async fn resolver_categoria(conn: &mut PgConnection, referencia: &str) -> Result
         return Err(ErroApi::invalido("Informe a categoria (id, prefixo do id ou nome exato)."));
     }
     if let Ok(cat) = ler_categoria(conn, r).await {
-        return Ok(cat);
+        return exige_ativa(cat);
     }
     let rows = sqlx::query(
-        "SELECT id, name, parent_id FROM categories
-         WHERE (length($1) >= 8 AND id LIKE $1 || '%') OR lower(trim(name)) = lower(trim($1))
+        "SELECT id, name, parent_id, false AS arquivada FROM categories
+         WHERE arquivada_em IS NULL AND ((length($1) >= 8 AND id LIKE $1 || '%') OR lower(trim(name)) = lower(trim($1)))
          ORDER BY id LIMIT 6",
     )
     .bind(r)
@@ -215,7 +223,7 @@ async fn resolver_categoria(conn: &mut PgConnection, referencia: &str) -> Result
     .await?;
     match rows.len() {
         0 => Err(ErroApi::nao_encontrado("Categoria não encontrada.").com_detalhes(json!({ "referencia": r }))),
-        1 => Ok(Cat { id: rows[0].get("id"), name: rows[0].get("name"), parent_id: rows[0].get("parent_id") }),
+        1 => Ok(Cat { id: rows[0].get("id"), name: rows[0].get("name"), parent_id: rows[0].get("parent_id"), arquivada: false }),
         _ => {
             let candidatas: Vec<Value> = rows
                 .iter()
@@ -249,7 +257,7 @@ fn validar_periodo(periodo: i32) -> Result<i32, ErroApi> {
 
 async fn nome_repetido(conn: &mut PgConnection, parent_id: &str, nome: &str, exceto: Option<&str>) -> Result<bool, ErroApi> {
     let id: Option<String> = sqlx::query_scalar(
-        "SELECT id FROM categories WHERE parent_id = $1 AND lower(trim(name)) = lower(trim($2)) AND ($3::text IS NULL OR id <> $3) LIMIT 1",
+        "SELECT id FROM categories WHERE arquivada_em IS NULL AND parent_id = $1 AND lower(trim(name)) = lower(trim($2)) AND ($3::text IS NULL OR id <> $3) LIMIT 1",
     )
     .bind(parent_id)
     .bind(nome)
@@ -357,6 +365,65 @@ pub async fn ajustar_subcategoria(
     Ok(json!({
         "antes": { "id": cat.id, "nome": cat.name, "parentId": cat.parent_id, "periodo": periodo_antes },
         "depois": { "id": cat.id, "nome": nome_final, "parentId": cat.parent_id, "periodo": periodo_depois },
+        "motivo": motivo,
+        "familia": familia,
+    }))
+}
+
+/// Arquiva uma subcategoria vazia (sem itens e sem filhas ativas). Não apaga: só marca `arquivada_em`.
+pub async fn arquivar_subcategoria(
+    conn: &mut PgConnection,
+    ctx: &AuthContext,
+    id: &str,
+    permitir_restrito: bool,
+    motivo: &str,
+) -> Result<Value, ErroApi> {
+    let motivo = motivo_ok(motivo)?;
+    let cat = resolver_categoria(conn, id).await?;
+    let raiz = raiz_de(conn, &cat.id).await?;
+    let familia = exige_familia(ctx, &raiz)?;
+    if cat.parent_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).is_none() {
+        return Err(ErroApi::regra("Categoria raiz não se arquiva."));
+    }
+    if e_classe_a(&cat.name) && !permitir_restrito {
+        return Err(ErroApi::regra("Classe A só se arquiva com permitirRestrito=true."));
+    }
+    let filhas: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, name FROM categories WHERE parent_id = $1 AND arquivada_em IS NULL ORDER BY name LIMIT 10",
+    )
+    .bind(&cat.id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let itens: Vec<String> = sqlx::query_scalar(
+        "SELECT code FROM items WHERE category_id = $1
+         UNION ALL SELECT codigo FROM overrides_produtos WHERE categoria_produto = $1
+         ORDER BY 1 LIMIT 10",
+    )
+    .bind(&cat.id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let total_itens: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM items WHERE category_id = $1) + (SELECT count(*) FROM overrides_produtos WHERE categoria_produto = $1)",
+    )
+    .bind(&cat.id)
+    .fetch_one(&mut *conn)
+    .await?;
+    if total_itens > 0 || !filhas.is_empty() {
+        return Err(ErroApi::regra("A subcategoria ainda tem itens ou subcategorias ativas; mova-os antes de arquivar.").com_detalhes(json!({
+            "id": cat.id,
+            "nome": cat.name,
+            "totalItens": total_itens,
+            "itens": itens,
+            "subcategorias": filhas.iter().map(|(i, n)| json!({ "id": i, "nome": n })).collect::<Vec<_>>(),
+        })));
+    }
+    sqlx::query("UPDATE categories SET arquivada_em = CURRENT_TIMESTAMP::TEXT WHERE id = $1")
+        .bind(&cat.id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(json!({
+        "antes": { "id": cat.id, "nome": cat.name, "parentId": cat.parent_id, "arquivada": false },
+        "depois": { "id": cat.id, "nome": cat.name, "parentId": cat.parent_id, "arquivada": true },
         "motivo": motivo,
         "familia": familia,
     }))
@@ -1056,6 +1123,29 @@ mod tests {
         sqlx::query("INSERT INTO items (code, description, unit, category_id) VALUES ('9.99.ZZMV', 'ZZ item', 'KG', 'cat_mp')").execute(&mut *tx).await.unwrap();
         let mv = mover_itens(&mut *tx, &agente, &["9.99.ZZMV".to_string(), "9.99.ZZMV".to_string()], "ZZ rev B2", "t").await.unwrap();
         assert_eq!(mv["quantidade"], 1);
+
+        // arquivar: recusa com item ou filha ativa; arquiva vazia; some das listas e não recebe mais itens
+        let e = arquivar_subcategoria(&mut *tx, &agente, "ZZ rev B2", false, "t").await.unwrap_err();
+        assert_eq!(e.codigo, "regra_violada");
+        sqlx::query("UPDATE items SET category_id = 'cat_mp' WHERE code = '9.99.ZZMV'").execute(&mut *tx).await.unwrap();
+        let e = arquivar_subcategoria(&mut *tx, &agente, "ZZ rev B2", false, "t").await.unwrap_err();
+        assert_eq!(e.codigo, "regra_violada", "ainda tem filha ativa");
+        let e = arquivar_subcategoria(&mut *tx, &agente, "cat_mp", false, "t").await.unwrap_err();
+        assert_eq!(e.codigo, "regra_violada", "raiz não arquiva");
+        let folha = criar_subcategoria(&mut *tx, &agente, "ZZ folha", "cat_mp", None, "t").await.unwrap();
+        let id_f = folha["depois"]["id"].as_str().unwrap().to_string();
+        let ok = arquivar_subcategoria(&mut *tx, &agente, &id_f, false, "t").await.unwrap();
+        assert_eq!(ok["depois"]["arquivada"], true);
+        let e = arquivar_subcategoria(&mut *tx, &agente, &id_f, false, "t").await.unwrap_err();
+        assert_eq!(e.codigo, "regra_violada", "já arquivada");
+        let visiveis: i64 = sqlx::query_scalar("SELECT count(*) FROM categories WHERE id = $1 AND arquivada_em IS NULL").bind(&id_f).fetch_one(&mut *tx).await.unwrap();
+        assert_eq!(visiveis, 0);
+        let e = criar_subcategoria(&mut *tx, &agente, "ZZ filha", &id_f, None, "t").await.unwrap_err();
+        assert_eq!(e.codigo, "regra_violada", "arquivada não recebe filha");
+        let e = mover_itens(&mut *tx, &agente, &["9.99.ZZMV".to_string()], &id_f, "t").await.unwrap_err();
+        assert_eq!(e.codigo, "regra_violada", "arquivada não recebe item");
+        // o nome da arquivada volta a ficar livre
+        criar_subcategoria(&mut *tx, &agente, "ZZ folha", "cat_mp", None, "t").await.unwrap();
 
         tx.rollback().await.unwrap();
     }

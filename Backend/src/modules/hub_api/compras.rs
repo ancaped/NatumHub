@@ -442,6 +442,36 @@ async fn trocar_categoria_item_handler(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ArquivarCategoriaBody {
+    motivo: String,
+    #[serde(default)]
+    permitir_restrito: bool,
+}
+
+// POST /api/hub/compras/categories/:id/arquivar (2 passos). Recusa se ainda houver itens ou subcategorias ativas.
+async fn arquivar_categoria_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<AuthContext>,
+    Path(id): Path<String>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<ArquivarCategoriaBody>,
+) -> Response {
+    let ctx_tx = ctx.clone();
+    let id_tx = id.clone();
+    let restrito = body.permitir_restrito;
+    let motivo = body.motivo.clone();
+    match executar_em_2_passos(state.db.pool(), "arquivar_subcategoria_compras", c.confirmar, move |tx| {
+        Box::pin(async move { agente::arquivar_subcategoria(&mut **tx, &ctx_tx, &id_tx, restrito, &motivo).await })
+    })
+    .await
+    {
+        Ok(r) => concluir(state.db.pool(), &ctx, "arquivar_subcategoria_compras", "category", r, false).await,
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AjustarCategoriaBody {
     nome: Option<String>,
     periodo: Option<i32>,
@@ -1182,6 +1212,7 @@ pub fn router() -> Router<Arc<AppState>> {
         // Categories
         .route("/api/hub/compras/categories", get(get_categories_handler).post(save_category_handler))
         .route("/api/hub/compras/categories/:id", patch(ajustar_categoria_handler).delete(delete_category_handler))
+        .route("/api/hub/compras/categories/:id/arquivar", post(arquivar_categoria_handler))
         // Items
         .route("/api/hub/compras/items", get(get_items_handler))
         .route("/api/hub/compras/items/details", post(update_item_details_handler))
@@ -1308,6 +1339,21 @@ pub fn acoes() -> Vec<Acao> {
                 param("periodo", "corpo", "inteiro", false, "Novo período de estoque em dias."),
                 param("permitirRestrito", "corpo", "booleano", false, "true libera raiz e Classe A."),
                 param("motivo", "corpo", "texto", true, "Por que a subcategoria está sendo ajustada."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
+        )
+        .com_familias(agente::FAMILIAS),
+        Acao::gravacao(
+            "arquivar_subcategoria_compras",
+            MP,
+            "Arquiva uma subcategoria: ela some das listas e não recebe mais itens nem filhas; nada é apagado. RECUSA (regra) se ainda houver itens ou subcategorias ativas nela; a resposta traz `totalItens`, até 10 `itens` e as `subcategorias` para mover antes (use `mover_itens_categoria`). Sem `confirmar=true` só devolve a prévia (`antes`, `depois`); com ele grava e audita o motivo. Raiz nunca; Classe A exige `permitirRestrito=true`. Exige editar a família.",
+            "POST",
+            "/api/hub/compras/categories/:id/arquivar",
+            true,
+            vec![
+                param("id", "caminho", "texto", true, "Id da subcategoria; aceita também prefixo do id (8+ caracteres) ou o nome exato, se só houver uma."),
+                param("permitirRestrito", "corpo", "booleano", false, "true libera Classe A."),
+                param("motivo", "corpo", "texto", true, "Por que a subcategoria está sendo arquivada."),
                 param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
             ],
         )

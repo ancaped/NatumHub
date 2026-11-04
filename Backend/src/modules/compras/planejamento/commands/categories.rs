@@ -3,7 +3,7 @@ use sqlx::{PgPool, Row};
 use crate::modules::compras::planejamento::models::*;
 
 pub async fn get_categories_query(pool: PgPool) -> Result<Vec<Category>, String> {
-    let rows = sqlx::query("SELECT id, name, parent_id FROM categories ORDER BY name")
+    let rows = sqlx::query("SELECT id, name, parent_id FROM categories WHERE arquivada_em IS NULL ORDER BY name")
         .fetch_all(&pool)
         .await
         .map_err(|e| e.to_string())?;

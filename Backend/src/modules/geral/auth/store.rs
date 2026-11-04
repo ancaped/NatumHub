@@ -1710,6 +1710,7 @@ mod tests {
         assert!(!requires_supervisor("/api/hub/compras/categories/cat_x", "PATCH"));
         assert!(!requires_supervisor("/api/hub/compras/categories", "GET"));
         assert!(requires_supervisor("/api/hub/compras/categories/cat_x", "DELETE"));
+        assert!(!requires_supervisor("/api/hub/compras/categories/cat_x/arquivar", "POST"));
         assert!(requires_supervisor("/api/hub/compras/config", "POST"));
     }
 
