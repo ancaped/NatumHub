@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Loader2, RefreshCw, Search, Users, X, Circle,
+  Loader2, RefreshCw, Search, Users, Circle,
   FileText, Shield, Calendar, Phone, Mail, MapPin, CheckCircle2,
 } from 'lucide-react';
 import { apiJson } from '../../geral/lib/http';
 import { cn } from '../../geral/lib/utils';
+import Drawer from '../../geral/components/ui/Drawer';
 
 export interface Funcionario {
   operatorId: string;
@@ -296,21 +297,33 @@ export default function FuncionariosView({ onBackToHub }: Props) {
       </main>
 
       {selected && form && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
-          <div className="h-full w-full max-w-lg bg-white shadow-xl flex flex-col">
-            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-              <div>
-                <h2 className="font-bold text-zinc-900">{selected.displayName}</h2>
-                <p className="text-xs text-zinc-500">
-                  {selected.role} · {selected.active ? 'ativo' : 'inativo'} · {selected.modules.length} módulos
-                </p>
-              </div>
-              <button type="button" onClick={() => setSelected(null)} className="p-2 rounded-lg hover:bg-zinc-100">
-                <X className="h-4 w-4" />
+        <Drawer
+          onClose={() => setSelected(null)}
+          title={selected.displayName}
+          subtitle={`${selected.role} · ${selected.active ? 'ativo' : 'inativo'} · ${selected.modules.length} módulos`}
+          size="lg"
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className="px-4 py-2 rounded-xl border border-zinc-200 text-xs font-bold text-zinc-650 hover:bg-zinc-50"
+              >
+                Fechar
               </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void save()}
+                className="px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center gap-2"
+              >
+                {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Salvar perfil
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Nome completo" value={form.fullName} onChange={(v) => setF('fullName', v)} className="col-span-2" />
                 <Field label="CPF" value={form.cpf} onChange={(v) => setF('cpf', v)} />
@@ -355,28 +368,8 @@ export default function FuncionariosView({ onBackToHub }: Props) {
                   </ul>
                 )}
               </div>
-            </div>
-
-            <div className="border-t border-zinc-200 px-5 py-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                className="px-4 py-2 rounded-xl border border-zinc-200 text-xs font-bold text-zinc-650 hover:bg-zinc-50"
-              >
-                Fechar
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void save()}
-                className="px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center gap-2"
-              >
-                {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Salvar perfil
-              </button>
-            </div>
           </div>
-        </div>
+        </Drawer>
       )}
     </div>
   );
