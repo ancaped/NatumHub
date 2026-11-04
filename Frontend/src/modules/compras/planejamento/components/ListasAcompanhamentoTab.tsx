@@ -7,6 +7,8 @@ import {
   X, Layers, Boxes, Palette, Tag, Package, ExternalLink, Calendar, User, FileText, Settings
 } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
+import { imprimirRelatorioCompra } from '../imprimirRelatorioCompra';
+import type { ItemRelatorio } from '../relatorioCompra';
 import { ReportHeader, BotaoAcao, ReportTabs, FilterBar, FiltroSelect, StatusBadge } from '../../../geral/components/ui/ReportKit';
 
 interface ListasAcompanhamentoTabProps {
@@ -243,90 +245,6 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all', destaqueL
       return;
     }
 
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.left = '0';
-    iframe.style.top = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = 'none';
-    iframe.style.opacity = '0';
-    iframe.style.pointerEvents = 'none';
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentWindow?.document;
-    if (!doc) {
-      alert('Não foi possível iniciar a impressão.');
-      document.body.removeChild(iframe);
-      return;
-    }
-
-    const rowsHtml = items.map(item => {
-      const currentAvg = item.overallAvgAtTime || 0;
-      const daily = currentAvg / 30.0;
-      const itemTargetDays = item.targetDaysAtTime || 90;
-      const itemTriggerDays = item.triggerDaysAtTime || 30;
-      const futureStock = item.futureStockAtTime || 0;
-      const qty = item.quantityRequested || 0;
-      const postStock = Math.max(0, futureStock + qty);
-      const postDuration = daily > 0 ? Math.round(postStock / daily) : 9999;
-      const currentDuration = daily > 0 ? Math.round(futureStock / daily) : 9999;
-      const sim = item.simProducaoAtTime || 0;
-
-      const cellsHtml = columnOrder.map(colKey => {
-        if (!columns[colKey]) return '';
-
-        if (colKey === 'itemCode') {
-          return `
-            <td style="font-family: monospace; font-size: 10px;">${item.itemCode || '-'}</td>
-            <td style="text-align: left; font-weight: 500; font-size: 10px;">
-              ${item.itemDescription || '-'}
-              ${item.supplierName ? `<span style="font-size: 8px; color: #6b7280; display: block;">Fornec. sugerido: ${item.supplierName}</span>` : ''}
-              ${item.observacao ? `<div style="font-size: 8px; color: #b45309; font-style: italic;">Obs: ${item.observacao}</div>` : ''}
-            </td>
-          `;
-        }
-        if (colKey === 'currentStock') {
-          return `<td style="text-align: right;">${item.currentStockAtTime.toLocaleString('pt-BR')} ${item.unit || ''}</td>`;
-        }
-        if (colKey === 'overallAvg') {
-          return `<td style="text-align: right;">${Math.round(currentAvg).toLocaleString('pt-BR')} ${item.unit || ''}</td>`;
-        }
-        if (colKey === 'simProducao') {
-          return `<td style="text-align: right;">${sim > 0 ? sim.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '-'}</td>`;
-        }
-        if (colKey === 'futureStockForecast') {
-          return `<td style="text-align: right;">${futureStock.toLocaleString('pt-BR')} ${item.unit || ''}</td>`;
-        }
-        if (colKey === 'estimatedDurationDays') {
-          return `
-            <td style="text-align: center; font-weight: ${currentDuration < itemTriggerDays ? 'bold' : 'normal'}; color: ${currentDuration < itemTriggerDays ? '#b91c1c' : '#374151'};">
-              ${currentDuration === 9999 ? '9999+' : `${currentDuration} dias`}
-            </td>
-          `;
-        }
-        if (colKey === 'triggerDays') {
-          return `<td style="text-align: center; font-size: 9px;">${item.triggerDaysAtTime !== undefined && item.triggerDaysAtTime !== null ? `${item.triggerDaysAtTime}d` : '-'}</td>`;
-        }
-        if (colKey === 'targetDays') {
-          return `<td style="text-align: center; font-size: 9px; font-weight: bold;">${item.targetDaysAtTime !== undefined && item.targetDaysAtTime !== null ? `${item.targetDaysAtTime}d` : '90d'}</td>`;
-        }
-        if (colKey === 'recommendedQty') {
-          return `
-            <td style="text-align: right; font-weight: bold; background-color: #f4f4f5;">
-              <div>${qty > 0 ? `${qty.toLocaleString('pt-BR')} ${item.unit || ''}` : '-'}</div>
-              <div style="font-size: 8px; color: ${postDuration < itemTriggerDays ? '#b91c1c' : postDuration < itemTargetDays ? '#b45309' : '#047857'}; font-weight: normal; margin-top: 2px; text-align: right;">
-                Pós: ${postDuration === 9999 ? '∞' : `${postDuration}d`}
-              </div>
-            </td>
-          `;
-        }
-        return '';
-      }).join('');
-
-      return `<tr>${cellsHtml}</tr>`;
-    }).join('');
-
     const reportTitle = batch.titulo || (
       batch.modulo === 'materia_prima' ? 'Relatório de Compras — Matéria-Prima' :
       batch.modulo === 'embalagens' ? 'Relatório de Compras — Embalagens' :
@@ -343,201 +261,43 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all', destaqueL
       minute: '2-digit',
     });
 
-    const printHtml = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>${reportTitle} — ${batch.loteNumero}</title>
-        <meta charset="utf-8">
-        <style>
-          @page {
-            size: A4 portrait;
-            margin: 15mm 10mm 15mm 10mm;
-          }
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            color: #1f2937;
-            background-color: #ffffff;
-            margin: 0;
-            padding: 0;
-            font-size: 10px;
-            line-height: 1.4;
-          }
-          header {
-            margin-bottom: 16px;
-            border-bottom: 2px solid #111827;
-            padding-bottom: 8px;
-          }
-          .title-container {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-          }
-          .header-title {
-            font-size: 16px;
-            font-weight: 800;
-            color: #111827;
-            margin: 0 0 4px 0;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-          }
-          .lote-badge {
-            background: #111827;
-            color: #ffffff;
-            font-weight: 800;
-            font-size: 13px;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-family: monospace;
-          }
-          .header-meta {
-            display: flex;
-            justify-content: space-between;
-            color: #4b5563;
-            font-size: 9px;
-            margin-top: 6px;
-          }
-          .meta-group {
-            display: flex;
-            gap: 15px;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 25px;
-            page-break-inside: auto;
-          }
-          tr {
-            page-break-inside: avoid;
-            page-break-after: auto;
-          }
-          thead {
-            display: table-header-group;
-          }
-          th {
-            background-color: #f3f4f6;
-            border-bottom: 1px solid #d1d5db;
-            border-top: 1px solid #d1d5db;
-            padding: 5px 6px;
-            font-weight: 700;
-            color: #374151;
-            font-size: 9px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-          }
-          td {
-            border-bottom: 1px solid #e5e7eb;
-            padding: 5px 6px;
-            vertical-align: middle;
-            font-size: 9px;
-          }
-          tfoot {
-            display: table-footer-group;
-          }
-          .signatures {
-            margin-top: 45px;
-            display: flex;
-            justify-content: space-between;
-            page-break-inside: avoid;
-          }
-          .sig-box {
-            width: 42%;
-            text-align: center;
-          }
-          .sig-line {
-            border-top: 1px solid #9ca3af;
-            margin-top: 30px;
-            margin-bottom: 4px;
-          }
-          .sig-label {
-            font-size: 9px;
-            color: #6b7280;
-            font-weight: bold;
-            text-transform: uppercase;
-          }
-          .footer-note {
-            margin-top: 15px;
-            font-size: 8.5px;
-            color: #6b7280;
-            border-top: 1px dashed #d1d5db;
-            padding-top: 6px;
-            display: flex;
-            justify-content: space-between;
-          }
-          @media print {
-            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          }
-        </style>
-      </head>
-      <body>
-        <header>
-          <div class="title-container">
-            <div class="header-title">${reportTitle}</div>
-            <div class="lote-badge">${batch.loteNumero}</div>
-          </div>
-          <div class="header-meta">
-            <div class="meta-group">
-              <div><strong>Gerado em:</strong> ${createdAtFormatted}</div>
-              <div><strong>Itens no Relatório:</strong> ${items.length}</div>
-              <div><strong>Solicitante:</strong> ${batch.createdBy || 'Sistema'}</div>
-              <div><strong>Objetivos de Estoque:</strong> Calculados por subcategoria</div>
-            </div>
-            <div><strong>Ambiente Industrial Nexus</strong></div>
-          </div>
-          ${batch.observacoes ? `<div style="margin-top: 6px; font-size: 9px; color: #374151; background: #f9fafb; padding: 4px 8px; border-radius: 4px; border-left: 3px solid #111827;"><strong>Observações:</strong> ${batch.observacoes}</div>` : ''}
-        </header>
+    const itens: ItemRelatorio[] = items.map(item => {
+      const currentAvg = item.overallAvgAtTime || 0;
+      const daily = currentAvg / 30.0;
+      const itemTargetDays = item.targetDaysAtTime || 90;
+      const itemTriggerDays = item.triggerDaysAtTime || 30;
+      const futureStock = item.futureStockAtTime || 0;
+      const qty = item.quantityRequested || 0;
+      const postStock = Math.max(0, futureStock + qty);
+      return {
+        codigo: item.itemCode,
+        descricao: item.itemDescription,
+        subtexto: item.supplierName ? `Fornec. sugerido: ${item.supplierName}` : null,
+        observacao: item.observacao || null,
+        unidade: item.unit || '',
+        estoque: item.currentStockAtTime,
+        media: Math.round(currentAvg),
+        simProducao: item.simProducaoAtTime || 0,
+        previsaoFutura: futureStock,
+        duracaoDias: daily > 0 ? Math.round(futureStock / daily) : 9999,
+        gatilhoDias: item.triggerDaysAtTime ?? null,
+        metaDias: item.targetDaysAtTime ?? null,
+        gatilhoRef: itemTriggerDays,
+        metaRef: itemTargetDays,
+        quantidade: qty,
+        duracaoPosDias: daily > 0 ? Math.round(postStock / daily) : 9999,
+      };
+    });
 
-        <table>
-          <thead>
-            <tr>
-              ${columnOrder.map(colKey => {
-                if (!columns[colKey]) return '';
-                const meta = COLUMN_METADATA[colKey];
-                if (colKey === 'itemCode') {
-                  return `
-                    <th style="text-align: left; width: 65px;">Ref</th>
-                    <th style="text-align: left;">Descrição do Insumo</th>
-                  `;
-                }
-                return `<th style="text-align: ${meta.align};">${meta.label}</th>`;
-              }).join('')}
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
-
-        <div class="signatures">
-          <div class="sig-box">
-            <div class="sig-line"></div>
-            <div class="sig-label">Solicitante ${batch.createdBy ? `(${batch.createdBy})` : ''}</div>
-          </div>
-          <div class="sig-box">
-            <div class="sig-line"></div>
-            <div class="sig-label">Comprador / Lançamento ERP</div>
-          </div>
-        </div>
-
-        <div class="footer-note">
-          <div>* Metas e pontos de disparo são calculados conforme a subcategoria/insumo definido no sistema. Rastreado sob ${batch.loteNumero}.</div>
-          <div>Página 1 de 1</div>
-        </div>
-      </body>
-      </html>
-    `;
-
-    doc.open();
-    doc.write(printHtml);
-    doc.close();
-
-    setTimeout(() => {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 1000);
-    }, 500);
+    void imprimirRelatorioCompra({
+      titulo: reportTitle,
+      lote: batch.loteNumero,
+      geradoEm: createdAtFormatted,
+      solicitante: batch.createdBy || 'Sistema',
+      observacoes: batch.observacoes || null,
+      colunas: columnOrder.filter(k => columns[k] && COLUMN_METADATA[k]).map(k => ({ key: k, label: COLUMN_METADATA[k].label, align: COLUMN_METADATA[k].align })),
+      itens,
+    });
   };
 
   // KPIs

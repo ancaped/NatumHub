@@ -5,6 +5,8 @@ import { DemandResult } from '../../../geral/lib/types';
 import { Trash2, Printer, Search, Plus, FileText, RefreshCw, X, Package, Settings, Layers, Tag, CheckCircle2, ClipboardList, Check, Pencil } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
 import { getAuthUser } from '../../../geral/lib/auth';
+import { imprimirRelatorioCompra } from '../imprimirRelatorioCompra';
+import type { ItemRelatorio } from '../relatorioCompra';
 
 
 const COLUMN_METADATA: Record<string, { label: string; align: 'left' | 'center' | 'right' }> = {
@@ -460,25 +462,6 @@ export function PrintListTab({ active = true, mode = 'all', onLoteGerado }: { ac
       'Relatório de Compras'
     );
 
-    // Create hidden iframe
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.left = '0';
-    iframe.style.top = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = 'none';
-    iframe.style.opacity = '0';
-    iframe.style.pointerEvents = 'none';
-    document.body.appendChild(iframe);
-    
-    const doc = iframe.contentWindow?.document;
-    if (!doc) {
-      alert("Não foi possível iniciar a impressão.");
-      document.body.removeChild(iframe);
-      return;
-    }
-    
     const today = new Date().toLocaleDateString('pt-BR', {
       day: '2-digit',
       month: '2-digit',
@@ -486,8 +469,8 @@ export function PrintListTab({ active = true, mode = 'all', onLoteGerado }: { ac
       hour: '2-digit',
       minute: '2-digit'
     });
-    
-    const rowsHtml = selectedDemands.map(item => {
+
+    const itens: ItemRelatorio[] = selectedDemands.map(item => {
       const currentAvg = manualAvgs[chaveItem(item.itemCode)] !== undefined ? manualAvgs[chaveItem(item.itemCode)] : item.overallAvg;
       const daily = currentAvg / 30.0;
       const itemTargetDays = item.targetDays || 90;
@@ -496,262 +479,34 @@ export function PrintListTab({ active = true, mode = 'all', onLoteGerado }: { ac
       const autoRec = Math.max(0, Math.round(calcTargetStock - futureStock));
       const qty = manualQtys[chaveItem(item.itemCode)] !== undefined ? manualQtys[chaveItem(item.itemCode)] : (item.recommendedQty !== undefined ? Math.round(item.recommendedQty) : autoRec);
       const postStock = Math.max(0, futureStock + qty);
-      const postDuration = daily > 0 ? Math.round(postStock / daily) : 9999;
-      const currentDuration = daily > 0 ? Math.round(futureStock / daily) : 9999;
+      return {
+        codigo: item.itemCode,
+        descricao: item.description,
+        subtexto: item.categoryName || null,
+        unidade: item.unit || '',
+        estoque: item.currentStock,
+        media: currentAvg,
+        simProducao: item.simProducao ?? 0,
+        previsaoFutura: item.futureStockForecast,
+        duracaoDias: daily > 0 ? Math.round(futureStock / daily) : 9999,
+        gatilhoDias: item.triggerDays !== undefined ? item.triggerDays : null,
+        metaDias: item.targetDays !== undefined ? item.targetDays : null,
+        gatilhoRef: item.triggerDays || 30,
+        metaRef: itemTargetDays,
+        quantidade: qty,
+        duracaoPosDias: daily > 0 ? Math.round(postStock / daily) : 9999,
+        ultimaNF: item.lastSupplierInvoice,
+        ultimoPedido: item.lastSupplierOrder,
+      };
+    });
 
-      const cellsHtml = columnOrder.map(colKey => {
-        if (!columns[colKey]) return '';
-        
-        if (colKey === 'itemCode') {
-          return `
-            <td style="font-family: monospace; font-size: 10px;">${item.itemCode || '-'}</td>
-            <td style="text-align: left; font-weight: 500; font-size: 10px;">
-              ${item.description || '-'}
-              ${item.categoryName ? `<span style="font-size: 8px; color: #6b7280; display: block;">${item.categoryName}</span>` : ''}
-            </td>
-          `;
-        }
-        if (colKey === 'lastSupplierInvoice') {
-          return `<td style="text-align: left; font-size: 9px; max-width: 120px; white-space: normal;">${item.lastSupplierInvoice || '-'}</td>`;
-        }
-        if (colKey === 'lastSupplierOrder') {
-          return `<td style="text-align: left; font-size: 9px; max-width: 120px; white-space: normal;">${item.lastSupplierOrder || '-'}</td>`;
-        }
-        if (colKey === 'currentStock') {
-          return `<td style="text-align: right;">${item.currentStock.toLocaleString('pt-BR')} ${item.unit || ''}</td>`;
-        }
-        if (colKey === 'overallAvg') {
-          return `<td style="text-align: right;">${currentAvg.toLocaleString('pt-BR')} ${item.unit || ''}</td>`;
-        }
-        if (colKey === 'simProducao') {
-          const sim = item.simProducao ?? 0;
-          return `<td style="text-align: right;">${sim > 0 ? sim.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '-'}</td>`;
-        }
-        if (colKey === 'futureStockForecast') {
-          return `<td style="text-align: right;">${item.futureStockForecast.toLocaleString('pt-BR')} ${item.unit || ''}</td>`;
-        }
-        if (colKey === 'estimatedDurationDays') {
-          return `
-            <td style="text-align: center; font-weight: ${currentDuration < (item.triggerDays || 30) ? 'bold' : 'normal'}; color: ${currentDuration < (item.triggerDays || 30) ? '#b91c1c' : '#374151'};">
-              ${currentDuration === 9999 ? '9999+' : `${currentDuration} dias`}
-            </td>
-          `;
-        }
-        if (colKey === 'triggerDays') {
-          return `<td style="text-align: center; font-size: 9px;">${item.triggerDays !== undefined ? `${item.triggerDays}d` : '-'}</td>`;
-        }
-        if (colKey === 'targetDays') {
-          return `<td style="text-align: center; font-size: 9px; font-weight: bold;">${item.targetDays !== undefined ? `${item.targetDays}d` : '90d'}</td>`;
-        }
-        if (colKey === 'recommendedQty') {
-          return `
-            <td style="text-align: right; font-weight: bold; background-color: #f4f4f5;">
-              <div>${qty > 0 ? `${qty.toLocaleString('pt-BR')} ${item.unit || ''}` : '-'}</div>
-              <div style="font-size: 8px; color: ${postDuration < (item.triggerDays || 30) ? '#b91c1c' : postDuration < itemTargetDays ? '#b45309' : '#047857'}; font-weight: normal; margin-top: 2px; text-align: right;">
-                Pós: ${postDuration === 9999 ? '∞' : `${postDuration}d`}
-              </div>
-            </td>
-          `;
-        }
-        return '';
-      }).join('');
-      
-      return `<tr>${cellsHtml}</tr>`;
-    }).join('');
-    
-    const printHtml = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>${reportTitle}${customLoteNumero ? ` — ${customLoteNumero}` : ''}</title>
-        <meta charset="utf-8">
-        <style>
-          @page {
-            size: A4 portrait;
-            margin: 15mm 10mm 15mm 10mm;
-          }
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            color: #1f2937;
-            background-color: #ffffff;
-            margin: 0;
-            padding: 0;
-            font-size: 10px;
-            line-height: 1.4;
-          }
-          header {
-            margin-bottom: 16px;
-            border-bottom: 2px solid #111827;
-            padding-bottom: 8px;
-          }
-          .title-container {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-          }
-          .header-title {
-            font-size: 16px;
-            font-weight: 800;
-            color: #111827;
-            margin: 0 0 4px 0;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-          }
-          .lote-badge {
-            background: #111827;
-            color: #ffffff;
-            font-weight: 800;
-            font-size: 13px;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-family: monospace;
-          }
-          .header-meta {
-            display: flex;
-            justify-content: space-between;
-            color: #4b5563;
-            font-size: 9px;
-            margin-top: 6px;
-          }
-          .meta-group {
-            display: flex;
-            gap: 15px;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 25px;
-            page-break-inside: auto;
-          }
-          tr {
-            page-break-inside: avoid;
-            page-break-after: auto;
-          }
-          thead {
-            display: table-header-group;
-          }
-          th {
-            background-color: #f3f4f6;
-            border-bottom: 1px solid #d1d5db;
-            border-top: 1px solid #d1d5db;
-            padding: 5px 6px;
-            font-weight: 700;
-            color: #374151;
-            font-size: 9px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-          }
-          td {
-            border-bottom: 1px solid #e5e7eb;
-            padding: 5px 6px;
-            vertical-align: middle;
-            font-size: 9px;
-          }
-          tfoot {
-            display: table-footer-group;
-          }
-          .signatures {
-            margin-top: 45px;
-            display: flex;
-            justify-content: space-between;
-            page-break-inside: avoid;
-          }
-          .sig-box {
-            width: 42%;
-            text-align: center;
-          }
-          .sig-line {
-            border-top: 1px solid #9ca3af;
-            margin-top: 30px;
-            margin-bottom: 4px;
-          }
-          .sig-label {
-            font-size: 9px;
-            color: #6b7280;
-            font-weight: bold;
-            text-transform: uppercase;
-          }
-          .footer-note {
-            margin-top: 15px;
-            font-size: 8.5px;
-            color: #6b7280;
-            border-top: 1px dashed #d1d5db;
-            padding-top: 6px;
-            display: flex;
-            justify-content: space-between;
-          }
-          @media print {
-            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          }
-        </style>
-      </head>
-      <body>
-        <header>
-          <div class="title-container">
-            <div class="header-title">${reportTitle}</div>
-            ${customLoteNumero ? `<div class="lote-badge">${customLoteNumero}</div>` : ''}
-          </div>
-          <div class="header-meta">
-            <div class="meta-group">
-              <div><strong>Gerado em:</strong> ${today}</div>
-              <div><strong>Itens no Relatório:</strong> ${selectedDemands.length}</div>
-              <div><strong>Objetivos de Estoque:</strong> Calculados por subcategoria</div>
-            </div>
-            <div><strong>Ambiente Industrial Nexus</strong></div>
-          </div>
-        </header>
-
-        <table>
-          <thead>
-            <tr>
-              ${columnOrder.map(colKey => {
-                if (!columns[colKey]) return '';
-                const meta = COLUMN_METADATA[colKey];
-                if (colKey === 'itemCode') {
-                  return `
-                    <th style="text-align: left; width: 65px;">Ref</th>
-                    <th style="text-align: left;">Descrição do Insumo</th>
-                  `;
-                }
-                return `<th style="text-align: ${meta.align};">${meta.label}</th>`;
-              }).join('')}
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
-
-        <div class="signatures">
-          <div class="sig-box">
-            <div class="sig-line"></div>
-            <div class="sig-label">Solicitante</div>
-          </div>
-          <div class="sig-box">
-            <div class="sig-line"></div>
-            <div class="sig-label">Comprador / Lançamento ERP</div>
-          </div>
-        </div>
-
-        <div class="footer-note">
-          <div>* Metas e pontos de disparo são calculados conforme a subcategoria/insumo definido no sistema. ${customLoteNumero ? `Rastreado sob ${customLoteNumero}.` : ''}</div>
-          <div>Página 1 de 1</div>
-        </div>
-      </body>
-      </html>
-    `;
-
-    doc.open();
-    doc.write(printHtml);
-    doc.close();
-
-    setTimeout(() => {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 1000);
-    }, 500);
+    void imprimirRelatorioCompra({
+      titulo: reportTitle,
+      lote: customLoteNumero || null,
+      geradoEm: today,
+      colunas: columnOrder.filter(k => columns[k] && COLUMN_METADATA[k]).map(k => ({ key: k, label: COLUMN_METADATA[k].label, align: COLUMN_METADATA[k].align })),
+      itens,
+    });
   };
 
   const handleGenerateBatch = async () => {
