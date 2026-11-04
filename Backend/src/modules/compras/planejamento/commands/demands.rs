@@ -229,6 +229,7 @@ const DEMANDS_SQL_PRODUCTS: &str = "
              LEFT JOIN config_linhas cl ON cl.linha_prefix = @LINHA_EFETIVA@
              LEFT JOIN item_stock_calibrations cal ON TRIM(cal.item_code) = TRIM(p.codigo)
              WHERE (p.codigo LIKE '1.34.%' OR p.codigo LIKE '1.30.%' OR o.categoria_produto = 'cat_coloracao' OR o.categoria_produto = 'cat_apoio')
+               AND COALESCE(o.visivel, 1) <> 0
                AND COALESCE(cl.visivel, 1) <> 0
 ";
 

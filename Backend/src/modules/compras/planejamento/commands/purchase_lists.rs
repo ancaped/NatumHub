@@ -112,7 +112,7 @@ pub async fn get_purchase_request_batches_query(
             b.created_at::text, b.updated_at::text,
             COUNT(i.id) as total_items
          FROM purchase_request_batches b
-         LEFT JOIN purchase_request_items i ON b.id = i.batch_id
+         LEFT JOIN purchase_request_items i ON b.id = i.batch_id AND i.status <> 'retirado'
          WHERE 1=1 "
     );
 
@@ -220,7 +220,7 @@ async fn get_batch_items_with_erp(
             erp_pedido_numero, erp_pedido_data, erp_fornecedor, erp_pedido_qtd, erp_pedido_chegou, erp_previsao_entrega,
             erp_synced_at::text, created_at::text
          FROM purchase_request_items
-         WHERE batch_id = $1
+         WHERE batch_id = $1 AND status <> 'retirado'
          ORDER BY item_code ASC"
     )
     .bind(batch_id)

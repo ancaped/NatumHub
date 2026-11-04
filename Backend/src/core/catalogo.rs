@@ -21,8 +21,11 @@ pub struct Param {
 #[serde(rename_all = "camelCase")]
 pub struct Acao {
     pub nome: &'static str,
-    /// `module_key` de permissão usado pela rota.
+    /// `module_key` de permissão usado pela rota. Quando `modulos` está preenchido, qualquer um deles libera.
     pub modulo: &'static str,
+    /// Famílias que liberam a ação. Vazio = só `modulo`.
+    #[serde(skip_serializing_if = "modulos_vazio")]
+    pub modulos: &'static [&'static str],
     pub descricao: &'static str,
     pub metodo: &'static str,
     pub caminho: &'static str,
@@ -39,15 +42,19 @@ pub fn param(nome: &'static str, onde: &'static str, tipo: &'static str, obrigat
     Param { nome, onde, tipo, obrigatorio, descricao }
 }
 
+fn modulos_vazio(m: &&[&str]) -> bool {
+    m.is_empty()
+}
+
 impl Acao {
     /// Consulta (não grava), por `GET`.
     pub fn leitura(nome: &'static str, modulo: &'static str, descricao: &'static str, caminho: &'static str, parametros: Vec<Param>) -> Self {
-        Self { nome, modulo, descricao, metodo: "GET", caminho, escrita: false, dois_passos: false, exclui: false, parametros }
+        Self { nome, modulo, modulos: &[], descricao, metodo: "GET", caminho, escrita: false, dois_passos: false, exclui: false, parametros }
     }
 
     /// Consulta que usa `POST` por causa do corpo (não grava).
     pub fn calculo(nome: &'static str, modulo: &'static str, descricao: &'static str, caminho: &'static str, parametros: Vec<Param>) -> Self {
-        Self { nome, modulo, descricao, metodo: "POST", caminho, escrita: false, dois_passos: false, exclui: false, parametros }
+        Self { nome, modulo, modulos: &[], descricao, metodo: "POST", caminho, escrita: false, dois_passos: false, exclui: false, parametros }
     }
 
     /// Grava no banco. `dois_passos`: sem `confirmar=true` devolve só a prévia.
@@ -60,7 +67,17 @@ impl Acao {
         dois_passos: bool,
         parametros: Vec<Param>,
     ) -> Self {
-        Self { nome, modulo, descricao, metodo, caminho, escrita: true, dois_passos, exclui: false, parametros }
+        Self { nome, modulo, modulos: &[], descricao, metodo, caminho, escrita: true, dois_passos, exclui: false, parametros }
+    }
+
+    /// A ação vale para qualquer uma destas famílias (a checagem fina continua no handler).
+    pub fn com_familias(mut self, modulos: &'static [&'static str]) -> Self {
+        self.modulos = modulos;
+        self
+    }
+
+    pub fn familias(&self) -> Vec<&'static str> {
+        if self.modulos.is_empty() { vec![self.modulo] } else { self.modulos.to_vec() }
     }
 }
 
@@ -85,7 +102,7 @@ impl Acao {
                 "Por que o registro está sendo apagado (obrigatório ao confirmar; vai para a auditoria com a cópia do que foi apagado). Também aceito no corpo, quando houver.",
             ));
         }
-        Self { nome, modulo, descricao, metodo, caminho, escrita: true, dois_passos: true, exclui: true, parametros }
+        Self { nome, modulo, modulos: &[], descricao, metodo, caminho, escrita: true, dois_passos: true, exclui: true, parametros }
     }
 }
 
@@ -175,6 +192,15 @@ mod tests {
     const ESCRITAS_SEM_DOIS_PASSOS: &[&str] = &[];
 
     #[test]
+    fn trocar_categoria_item_segue_a_familia_e_nao_so_apoio() {
+        let acao = todas().into_iter().find(|a| a.nome == "trocar_categoria_item").expect("ação no catálogo");
+        for familia in ["compras_materia_prima", "compras_embalagens", "compras_coloracao", "compras_apoio"] {
+            assert!(acao.familias().contains(&familia), "{familia} não libera a troca");
+        }
+        assert_ne!(acao.modulos, &["compras_apoio"][..]);
+    }
+
+    #[test]
     fn nomes_sao_unicos() {
         let mut vistos = HashSet::new();
         for a in todas() {
@@ -194,7 +220,9 @@ mod tests {
         for a in todas() {
             let modulos = crate::modules::geral::auth::store::modulos_da_rota(a.caminho)
                 .unwrap_or_else(|| panic!("{}: rota sem módulo mapeado ({})", a.nome, a.caminho));
-            assert!(modulos.contains(&a.modulo), "{}: módulo {} não dá acesso a {}", a.nome, a.modulo, a.caminho);
+            for m in a.familias() {
+                assert!(modulos.contains(&m), "{}: módulo {} não dá acesso a {}", a.nome, m, a.caminho);
+            }
         }
     }
 

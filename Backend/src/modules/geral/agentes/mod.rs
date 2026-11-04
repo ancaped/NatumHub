@@ -232,7 +232,7 @@ fn liberada_por(ctx: &AuthContext, caminho: &str) -> Vec<LiberadaPor> {
 pub fn acoes_para(ctx: &AuthContext, modulo: Option<&str>) -> Vec<AcaoVisivel> {
     catalogo::todas()
         .into_iter()
-        .filter(|a| modulo.map_or(true, |m| a.modulo == m))
+        .filter(|a| modulo.map_or(true, |m| a.familias().contains(&m)))
         .filter_map(|a| {
             if !ctx.is_agente() {
                 let liberada_por = liberada_por(ctx, a.caminho);
@@ -244,7 +244,12 @@ pub fn acoes_para(ctx: &AuthContext, modulo: Option<&str>) -> Vec<AcaoVisivel> {
                 return None;
             }
             let exclusao = a.exclui;
-            let permitida = !exclusao && (!a.escrita || has_write_access(ctx, a.caminho, a.metodo));
+            let pode_escrever = if !a.modulos.is_empty() {
+                a.modulos.iter().any(|m| ctx.can_edit_module(m))
+            } else {
+                has_write_access(ctx, a.caminho, a.metodo)
+            };
+            let permitida = !exclusao && (!a.escrita || pode_escrever);
             let negada_por = exclusao.then_some(catalogo::AGENTE_NAO_EXCLUI);
             let liberada_por = liberada_por(ctx, a.caminho);
             Some(AcaoVisivel { acao: a, permitida, negada_por, liberada_por })

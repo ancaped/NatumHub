@@ -462,6 +462,11 @@ pub struct CreatePurchaseRequestBatchInput {
     pub observacoes: Option<String>,
     pub created_by: Option<String>,
     pub items: Vec<CreatePurchaseRequestItemInput>,
+    /// Preenchido pelo agente: liga a prévia e a auditoria. A tela não envia.
+    #[serde(default)]
+    pub motivo: Option<String>,
+    #[serde(default)]
+    pub confirmar: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

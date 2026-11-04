@@ -7,7 +7,7 @@ import type {
   FiscoQuimicaPattern, FiscoQuimicaAgent, FiscoQuimicaAnalysis, LoteLookup,
   FiscoErpLoteItem, FiscoErpLoteInsumo,
   CustomPurchaseConfigRow,
-  PurchaseRequestBatch, PurchaseRequestBatchDetail, CreatePurchaseRequestBatchInput, ActiveRequestedItemSummary,
+  PurchaseRequestBatch, PurchaseRequestBatchDetail, CreatePurchaseRequestBatchInput, CreatePurchaseRequestItemInput, ActiveRequestedItemSummary,
   ModuloListaCompra, ListaCompraResposta
 } from './types';
 import type { FeedbackSubmitInput, FeedbackAdminUpdate, FeedbackNote, FeedbackDetail } from './types';
@@ -113,8 +113,14 @@ export const api = {
   createPurchaseList(payload: CreatePurchaseRequestBatchInput): Promise<PurchaseRequestBatchDetail> {
     return hubJson('compras/listas', { method: 'POST', body: JSON.stringify(payload) });
   },
-  updatePurchaseList(id: string, payload: { status?: string; observacoes?: string }): Promise<void> {
-    return hubJson(`compras/listas/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) });
+  updatePurchaseList(id: string, payload: { status?: string; observacoes?: string; titulo?: string; motivo?: string }, confirmar = false): Promise<void> {
+    return hubJson(`compras/listas/${encodeURIComponent(id)}${qs({ confirmar: confirmar ? 'true' : undefined })}`, { method: 'PATCH', body: JSON.stringify(payload) });
+  },
+  incluirItensLista(id: string, body: { itens: CreatePurchaseRequestItemInput[]; motivo: string }, confirmar = false): Promise<unknown> {
+    return hubJson(`compras/listas/${encodeURIComponent(id)}/itens${qs({ confirmar: confirmar ? 'true' : undefined })}`, { method: 'POST', body: JSON.stringify(body) });
+  },
+  retirarItensLista(id: string, body: { codigos: string[]; motivo: string }, confirmar = false): Promise<unknown> {
+    return hubJson(`compras/listas/${encodeURIComponent(id)}/itens/retirar${qs({ confirmar: confirmar ? 'true' : undefined })}`, { method: 'POST', body: JSON.stringify(body) });
   },
   deletePurchaseList(id: string, motivo: string): Promise<void> {
     return hubJson(`compras/listas/${encodeURIComponent(id)}${qs({ motivo })}`, { method: 'DELETE' });
@@ -207,6 +213,18 @@ export const api = {
   },
   saveCategory(category: Category): Promise<void> {
     return hubJson('compras/categories', { method: 'POST', body: JSON.stringify(category) });
+  },
+  criarSubcategoria(body: { nome: string; parentId: string; motivo: string; periodo?: number }, confirmar = false): Promise<unknown> {
+    return hubJson(`compras/categories${qs({ confirmar: confirmar ? 'true' : undefined })}`, { method: 'POST', body: JSON.stringify(body) });
+  },
+  ajustarSubcategoria(id: string, body: { nome?: string; periodo?: number; motivo: string; permitirRestrito?: boolean }, confirmar = false): Promise<unknown> {
+    return hubJson(`compras/categories/${encodeURIComponent(id)}${qs({ confirmar: confirmar ? 'true' : undefined })}`, { method: 'PATCH', body: JSON.stringify(body) });
+  },
+  moverItensCategoria(body: { codigos: string[]; categoryId: string; motivo: string }, confirmar = false): Promise<unknown> {
+    return hubJson(`compras/items/categoria/bulk${qs({ confirmar: confirmar ? 'true' : undefined })}`, { method: 'POST', body: JSON.stringify(body) });
+  },
+  alterarStatusItem(code: string, body: { status: 'ativo' | 'suspenso' | 'ignorado'; motivo: string }, confirmar = false): Promise<unknown> {
+    return hubJson(`compras/items/${encodeURIComponent(code)}/status${qs({ confirmar: confirmar ? 'true' : undefined })}`, { method: 'POST', body: JSON.stringify(body) });
   },
   deleteCategory(id: string, motivo: string): Promise<void> {
     return hubJson(`compras/categories/${encodeURIComponent(id)}${qs({ motivo })}`, { method: 'DELETE' });

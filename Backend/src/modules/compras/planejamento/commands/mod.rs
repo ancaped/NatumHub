@@ -7,6 +7,7 @@ mod suppliers;
 mod custom_configs;
 mod purchase_lists;
 mod lista_compra;
+pub mod agente;
 pub mod atribuicao_pedidos;
 
 pub use categories::*;

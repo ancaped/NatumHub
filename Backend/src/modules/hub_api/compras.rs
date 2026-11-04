@@ -1,16 +1,21 @@
 use axum::{
     extract::{Path, Query, State},
-    response::IntoResponse,
-    routing::{delete, get, post},
+    response::{IntoResponse, Response},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
 use serde::Deserialize;
+use serde_json::{json, Value};
 use std::sync::Arc;
 
+use crate::core::acao::{corpo_acao, executar_em_2_passos, Confirmar, RespostaAcao};
 use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
-use crate::modules::compras::planejamento::models::*;
+use crate::modules::compras::planejamento::commands::agente;
 use crate::modules::compras::planejamento::commands::*;
+use crate::modules::compras::planejamento::models::*;
+use crate::modules::geral::audit;
+use crate::modules::geral::auth::models::AuthContext;
 use crate::modules::hub_api::util::{ok_json, ok_status, with_pool};
 
 fn mode_to_parent_category(mode: Option<&str>) -> Option<String> {
@@ -192,10 +197,49 @@ async fn get_categories_handler(State(state): State<Arc<AppState>>) -> impl Into
     }
 }
 
-async fn save_category_handler(State(state): State<Arc<AppState>>, Json(category): Json<Category>) -> impl IntoResponse {
-    match with_pool(&state, |pool| save_category_query(pool, &category)).await {
-        Ok(()) => ok_status().into_response(),
-        Err(e) => e.into_response(),
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NovaSubcategoria {
+    nome: String,
+    parent_id: String,
+    motivo: String,
+    periodo: Option<i32>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum PostCategoria {
+    /// Agente: `{nome, parentId, motivo}`. A tela continua com `{id, name, parentId}`.
+    Agente(NovaSubcategoria),
+    Tela(Category),
+}
+
+async fn save_category_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<PostCategoria>,
+) -> Response {
+    match body {
+        PostCategoria::Tela(category) => match with_pool(&state, |pool| save_category_query(pool, &category)).await {
+            Ok(()) => ok_status().into_response(),
+            Err(e) => e.into_response(),
+        },
+        PostCategoria::Agente(b) => {
+            let ctx_tx = ctx.clone();
+            let nome = b.nome.clone();
+            let parent = b.parent_id.clone();
+            let motivo = b.motivo.clone();
+            let periodo = b.periodo;
+            match executar_em_2_passos(state.db.pool(), "criar_subcategoria_compras", c.confirmar, move |tx| {
+                Box::pin(async move { agente::criar_subcategoria(&mut **tx, &ctx_tx, &nome, &parent, periodo, &motivo).await })
+            })
+            .await
+            {
+                Ok(r) => concluir(state.db.pool(), &ctx, "criar_subcategoria_compras", "category", r, true).await,
+                Err(e) => e.into_response(),
+            }
+        }
     }
 }
 
@@ -405,6 +449,135 @@ async fn salvar_categoria_handler(
         Ok(v) => Json(v).into_response(),
         Err(e) => e.into_response(),
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AjustarCategoriaBody {
+    nome: Option<String>,
+    periodo: Option<i32>,
+    motivo: String,
+    #[serde(default)]
+    permitir_restrito: bool,
+}
+
+// PATCH /api/hub/compras/categories/:id (2 passos). Raiz e Classe A exigem permitirRestrito=true.
+async fn ajustar_categoria_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<AuthContext>,
+    Path(id): Path<String>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<AjustarCategoriaBody>,
+) -> Response {
+    let ctx_tx = ctx.clone();
+    let id_tx = id.clone();
+    let nome = body.nome.clone();
+    let periodo = body.periodo;
+    let restrito = body.permitir_restrito;
+    let motivo = body.motivo.clone();
+    match executar_em_2_passos(state.db.pool(), "ajustar_subcategoria_compras", c.confirmar, move |tx| {
+        let nome = nome.clone();
+        Box::pin(async move {
+            agente::ajustar_subcategoria(&mut **tx, &ctx_tx, &id_tx, nome.as_deref(), periodo, restrito, &motivo).await
+        })
+    })
+    .await
+    {
+        Ok(r) => concluir(state.db.pool(), &ctx, "ajustar_subcategoria_compras", "category", r, false).await,
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MoverItensBody {
+    #[serde(default)]
+    codigos: Vec<String>,
+    #[serde(default)]
+    category_id: String,
+    #[serde(default)]
+    motivo: String,
+}
+
+// POST /api/hub/compras/items/categoria/bulk (2 passos)
+async fn mover_itens_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<MoverItensBody>,
+) -> Response {
+    let ctx_tx = ctx.clone();
+    let codigos = body.codigos.clone();
+    let category_id = body.category_id.clone();
+    let motivo = body.motivo.clone();
+    match executar_em_2_passos(state.db.pool(), "mover_itens_categoria", c.confirmar, move |tx| {
+        Box::pin(async move { agente::mover_itens(&mut **tx, &ctx_tx, &codigos, &category_id, &motivo).await })
+    })
+    .await
+    {
+        Ok(r) => concluir(state.db.pool(), &ctx, "mover_itens_categoria", "item", r, false).await,
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StatusItemBody {
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    motivo: String,
+}
+
+// POST /api/hub/compras/items/:code/status (2 passos). Suspenso e ignorado saem da demanda; o cadastro fica.
+async fn status_item_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<AuthContext>,
+    Path(code): Path<String>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<StatusItemBody>,
+) -> Response {
+    let ctx_tx = ctx.clone();
+    let code_tx = code.clone();
+    let status = body.status.clone();
+    let motivo = body.motivo.clone();
+    match executar_em_2_passos(state.db.pool(), "alterar_status_item_compras", c.confirmar, move |tx| {
+        Box::pin(async move { agente::alterar_status_item(&mut **tx, &ctx_tx, &code_tx, &status, &motivo).await })
+    })
+    .await
+    {
+        Ok(r) => concluir(state.db.pool(), &ctx, "alterar_status_item_compras", "item", r, false).await,
+        Err(e) => e.into_response(),
+    }
+}
+
+fn id_do_resultado(v: &Value) -> String {
+    v.pointer("/depois/id")
+        .or_else(|| v.pointer("/depois/codigo"))
+        .and_then(|x| x.as_str())
+        .or_else(|| v.get("categoryId").and_then(|x| x.as_str()))
+        .unwrap_or("-")
+        .to_string()
+}
+
+async fn concluir(pool: &sqlx::PgPool, ctx: &AuthContext, acao: &'static str, entidade: &str, mut r: RespostaAcao<Value>, anular_id: bool) -> Response {
+    if anular_id && r.previa {
+        if let Some(obj) = r.resultado.get_mut("depois").and_then(|d| d.as_object_mut()) {
+            obj.insert("id".into(), Value::Null);
+        }
+    }
+    if !r.previa {
+        let familia = r.resultado.get("familia").and_then(|v| v.as_str()).unwrap_or("compras_materia_prima").to_string();
+        let id = id_do_resultado(&r.resultado);
+        let motivo = r.resultado.get("motivo").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let antes = r.resultado.get("antes").cloned();
+        let mut depois = r.resultado.get("depois").cloned().unwrap_or(Value::Null);
+        if let Some(obj) = depois.as_object_mut() {
+            obj.insert("motivo".into(), json!(motivo));
+        }
+        audit::record_domain(pool, Some(ctx), &familia, acao, entidade, &id, &format!("{acao}: {motivo}"), antes, Some(depois)).await;
+    }
+    Json(corpo_acao(&r)).into_response()
 }
 
 // --- Lista de Compra (itens separados para o próximo lote, uma lista por módulo) ---
@@ -755,6 +928,9 @@ struct PurchaseListsQuery {
 struct UpdatePurchaseListBody {
     status: Option<String>,
     observacoes: Option<String>,
+    titulo: Option<String>,
+    #[serde(default)]
+    motivo: Option<String>,
 }
 
 async fn get_purchase_lists_handler(
@@ -788,25 +964,170 @@ async fn get_purchase_list_detail_handler(
 
 async fn create_purchase_list_handler(
     State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
     Json(input): Json<CreatePurchaseRequestBatchInput>,
-) -> impl IntoResponse {
-    match with_pool(&state, |pool| create_purchase_request_batch_query(pool, input)).await {
-        Ok(v) => ok_json(v).into_response(),
+) -> Response {
+    let motivo = input.motivo.clone().unwrap_or_default();
+    if motivo.trim().is_empty() {
+        return match with_pool(&state, |pool| create_purchase_request_batch_query(pool, input)).await {
+            Ok(v) => ok_json(v).into_response(),
+            Err(e) => e.into_response(),
+        };
+    }
+    let ctx_tx = ctx.clone();
+    let modulo = input.modulo.clone();
+    let titulo = input.titulo.clone();
+    let observacoes = input.observacoes.clone();
+    let created_by = input.created_by.clone().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| ctx.display_name.clone());
+    let itens = input.items.clone();
+    let confirmar = c.confirmar || input.confirmar;
+    match executar_em_2_passos(state.db.pool(), "criar_lista_compra", confirmar, move |tx| {
+        Box::pin(async move {
+            let linhas: Vec<agente::ItemLista<'_>> = itens
+                .iter()
+                .map(|i| agente::ItemLista {
+                    item_code: i.item_code.as_str(),
+                    item_description: i.item_description.as_str(),
+                    unit: i.unit.as_deref(),
+                    quantity_requested: i.quantity_requested,
+                    observacao: i.observacao.as_deref(),
+                })
+                .collect();
+            agente::criar_lista(
+                &mut **tx,
+                &ctx_tx,
+                &modulo,
+                titulo.as_deref(),
+                observacoes.as_deref(),
+                &created_by,
+                &linhas,
+                &motivo,
+            )
+            .await
+        })
+    })
+    .await
+    {
+        Ok(r) => concluir(state.db.pool(), &ctx, "criar_lista_compra", "purchase_list", r, true).await,
         Err(e) => e.into_response(),
     }
 }
 
 async fn update_purchase_list_handler(
     State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<AuthContext>,
     Path(id): Path<String>,
+    Query(c): Query<Confirmar>,
     Json(body): Json<UpdatePurchaseListBody>,
-) -> impl IntoResponse {
-    match with_pool(&state, |pool| {
-        update_purchase_request_batch_query(pool, &id, body.status.as_deref(), body.observacoes.as_deref())
+) -> Response {
+    let motivo = body.motivo.clone().unwrap_or_default();
+    if motivo.trim().is_empty() {
+        return match with_pool(&state, |pool| {
+            update_purchase_request_batch_query(pool, &id, body.status.as_deref(), body.observacoes.as_deref())
+        })
+        .await
+        {
+            Ok(()) => ok_status().into_response(),
+            Err(e) => e.into_response(),
+        };
+    }
+    let ctx_tx = ctx.clone();
+    let id_tx = id.clone();
+    let titulo = body.titulo.clone();
+    let observacoes = body.observacoes.clone();
+    let status = body.status.clone();
+    match executar_em_2_passos(state.db.pool(), "editar_lista_compra", c.confirmar, move |tx| {
+        Box::pin(async move {
+            agente::editar_lista(
+                &mut **tx,
+                &ctx_tx,
+                &id_tx,
+                titulo.as_deref(),
+                observacoes.as_deref(),
+                status.as_deref(),
+                &motivo,
+            )
+            .await
+        })
     })
     .await
     {
-        Ok(()) => ok_status().into_response(),
+        Ok(r) => concluir(state.db.pool(), &ctx, "editar_lista_compra", "purchase_list", r, false).await,
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IncluirItensListaBody {
+    #[serde(default)]
+    itens: Vec<CreatePurchaseRequestItemInput>,
+    #[serde(default)]
+    motivo: String,
+}
+
+// POST /api/hub/compras/listas/:id/itens (2 passos)
+async fn incluir_itens_lista_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<AuthContext>,
+    Path(id): Path<String>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<IncluirItensListaBody>,
+) -> Response {
+    let ctx_tx = ctx.clone();
+    let id_tx = id.clone();
+    let itens = body.itens.clone();
+    let motivo = body.motivo.clone();
+    match executar_em_2_passos(state.db.pool(), "incluir_item_lista_compra", c.confirmar, move |tx| {
+        Box::pin(async move {
+            let linhas: Vec<agente::ItemLista<'_>> = itens
+                .iter()
+                .map(|i| agente::ItemLista {
+                    item_code: i.item_code.as_str(),
+                    item_description: i.item_description.as_str(),
+                    unit: i.unit.as_deref(),
+                    quantity_requested: i.quantity_requested,
+                    observacao: i.observacao.as_deref(),
+                })
+                .collect();
+            agente::incluir_itens_lista(&mut **tx, &ctx_tx, &id_tx, &linhas, &motivo).await
+        })
+    })
+    .await
+    {
+        Ok(r) => concluir(state.db.pool(), &ctx, "incluir_item_lista_compra", "purchase_list", r, false).await,
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RetirarItensListaBody {
+    #[serde(default)]
+    codigos: Vec<String>,
+    #[serde(default)]
+    motivo: String,
+}
+
+// POST /api/hub/compras/listas/:id/itens/retirar (2 passos). Marca o item como retirado; não apaga a linha.
+async fn retirar_itens_lista_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<AuthContext>,
+    Path(id): Path<String>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<RetirarItensListaBody>,
+) -> Response {
+    let ctx_tx = ctx.clone();
+    let id_tx = id.clone();
+    let codigos = body.codigos.clone();
+    let motivo = body.motivo.clone();
+    match executar_em_2_passos(state.db.pool(), "retirar_item_lista_compra", c.confirmar, move |tx| {
+        Box::pin(async move { agente::retirar_itens_lista(&mut **tx, &ctx_tx, &id_tx, &codigos, &motivo).await })
+    })
+    .await
+    {
+        Ok(r) => concluir(state.db.pool(), &ctx, "retirar_item_lista_compra", "purchase_list", r, false).await,
         Err(e) => e.into_response(),
     }
 }
@@ -849,7 +1170,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         // Categories
         .route("/api/hub/compras/categories", get(get_categories_handler).post(save_category_handler))
-        .route("/api/hub/compras/categories/:id", delete(delete_category_handler))
+        .route("/api/hub/compras/categories/:id", patch(ajustar_categoria_handler).delete(delete_category_handler))
         .route("/api/hub/compras/categorias", post(salvar_categoria_handler))
         // Items
         .route("/api/hub/compras/items", get(get_items_handler))
@@ -863,7 +1184,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/hub/compras/items/stock-calibrations", get(list_stock_calibrations_handler))
         .route("/api/hub/compras/items/stock", post(set_item_real_stock_handler))
         .route("/api/hub/compras/items/category", post(update_items_category_handler))
+        .route("/api/hub/compras/items/categoria/bulk", post(mover_itens_handler))
         .route("/api/hub/compras/items/:code/categoria", post(trocar_categoria_item_handler))
+        .route("/api/hub/compras/items/:code/status", post(status_item_handler))
         .route("/api/hub/compras/items/observations", post(import_item_observations_handler))
         // Demands
         .route("/api/hub/compras/demands", get(get_demands_handler))
@@ -871,6 +1194,8 @@ pub fn router() -> Router<Arc<AppState>> {
         // Purchase Request Lists (Lotes de Listas & Acompanhamento)
         .route("/api/hub/compras/listas", get(get_purchase_lists_handler).post(create_purchase_list_handler))
         .route("/api/hub/compras/listas/:id", get(get_purchase_list_detail_handler).patch(update_purchase_list_handler).delete(delete_purchase_list_handler))
+        .route("/api/hub/compras/listas/:id/itens/retirar", post(retirar_itens_lista_handler))
+        .route("/api/hub/compras/listas/:id/itens", post(incluir_itens_lista_handler))
         .route("/api/hub/compras/itens-solicitados", get(get_active_requested_items_handler))
         // Lista de Compra (no servidor, uma por módulo)
         .route("/api/hub/compras/lista-compra", get(lista_compra_handler))
@@ -946,7 +1271,7 @@ pub fn acoes() -> Vec<Acao> {
         ),
         Acao::gravacao(
             "trocar_categoria_item",
-            "compras_apoio",
+            MP,
             "Troca a categoria de um item (produto de Apoio/Coloração ou insumo) pelo `code`. Sem `confirmar=true` devolve a prévia (`categoriaAntes`, `categoriaDepois`, `mudou`) e não grava; com ele grava e audita. Permissão: o agente precisa de editar em um módulo da família da categoria de ORIGEM e em um da família do DESTINO (cat_apoio = compras_apoio; cat_coloracao = compras_coloracao; cat_mp = compras_materia_prima; cat_emb = compras_embalagens; demais = materia_prima ou embalagens); a recusa diz qual módulo falta. Produto só pode ser movido por agente se já for de Apoio/Coloração. Os ids de categoria vêm de `listar_categorias_compras`.",
             "POST",
             "/api/hub/compras/items/:code/categoria",
@@ -956,7 +1281,71 @@ pub fn acoes() -> Vec<Acao> {
                 param("categoryId", "corpo", "texto", true, "Id da categoria de destino."),
                 param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
             ],
-        ),
+        )
+        .com_familias(agente::FAMILIAS),
+        Acao::gravacao(
+            "criar_subcategoria_compras",
+            MP,
+            "Cria uma subcategoria em POST /api/hub/compras/categories com nome, parentId e motivo. Sem `confirmar=true` devolve a prévia (o id fica nulo, porque a gravação é desfeita) e não grava; com ele grava, herda o período de estoque da mãe e audita o motivo. `periodo` opcional substitui o herdado. Exige editar a família da categoria-mãe. Não mexe na raiz e não apaga.",
+            "POST",
+            "/api/hub/compras/categories",
+            true,
+            vec![
+                param("nome", "corpo", "texto", true, "Nome da subcategoria."),
+                param("parentId", "corpo", "texto", true, "Id da categoria-mãe."),
+                param("periodo", "corpo", "inteiro", false, "Período de estoque em dias; ausente herda da mãe."),
+                param("motivo", "corpo", "texto", true, "Por que a subcategoria está sendo criada."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
+        )
+        .com_familias(agente::FAMILIAS),
+        Acao::gravacao(
+            "ajustar_subcategoria_compras",
+            MP,
+            "Renomeia uma subcategoria ou ajusta o período de estoque. Sem `confirmar=true` só devolve a prévia (`antes`, `depois`) e não grava; com ele grava e audita o motivo. Categoria raiz e nome com Classe A exigem `permitirRestrito=true`; raiz ainda exige supervisor. Não apaga a categoria.",
+            "PATCH",
+            "/api/hub/compras/categories/:id",
+            true,
+            vec![
+                param("id", "caminho", "texto", true, "Id da subcategoria."),
+                param("nome", "corpo", "texto", false, "Novo nome; ausente mantém o atual."),
+                param("periodo", "corpo", "inteiro", false, "Novo período de estoque em dias."),
+                param("permitirRestrito", "corpo", "booleano", false, "true libera raiz e Classe A."),
+                param("motivo", "corpo", "texto", true, "Por que a subcategoria está sendo ajustada."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
+        )
+        .com_familias(agente::FAMILIAS),
+        Acao::gravacao(
+            "mover_itens_categoria",
+            MP,
+            "Troca a categoria de vários itens de uma vez (até 1000 códigos). Sem `confirmar=true` devolve a prévia de cada código (`antes`, `depois`) e não grava; com ele grava e audita o motivo. A permissão é a família do destino; cruzar família é só do supervisor. Não apaga item.",
+            "POST",
+            "/api/hub/compras/items/categoria/bulk",
+            true,
+            vec![
+                param("codigos", "corpo", "lista", true, "Códigos dos itens."),
+                param("categoryId", "corpo", "texto", true, "Id da categoria de destino."),
+                param("motivo", "corpo", "texto", true, "Por que os itens estão mudando de categoria."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
+        )
+        .com_familias(agente::FAMILIAS),
+        Acao::gravacao(
+            "alterar_status_item_compras",
+            MP,
+            "Marca um item como ativo, suspenso ou ignorado. Suspenso e ignorado saem da demanda e o cadastro permanece. Sem `confirmar=true` só devolve a prévia e não grava; com ele grava e audita o motivo. A permissão é a família da categoria do item.",
+            "POST",
+            "/api/hub/compras/items/:code/status",
+            true,
+            vec![
+                param("code", "caminho", "texto", true, "Código do item."),
+                param("status", "corpo", "texto", true, "ativo, suspenso ou ignorado."),
+                param("motivo", "corpo", "texto", true, "Por que o status está mudando."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
+        )
+        .com_familias(agente::FAMILIAS),
         Acao::leitura(
             "listar_lista_compra",
             MP,
@@ -976,7 +1365,8 @@ pub fn acoes() -> Vec<Acao> {
                 param("codigos", "corpo", "lista", true, "Códigos dos itens (insumos ou produtos de Apoio/Coloração)."),
                 param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
             ],
-        ),
+        )
+        .com_familias(agente::FAMILIAS),
         Acao::gravacao(
             "remover_itens_lista_compra",
             MP,
@@ -989,7 +1379,8 @@ pub fn acoes() -> Vec<Acao> {
                 param("codigos", "corpo", "lista", true, "Códigos dos itens a tirar da lista."),
                 param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
             ],
-        ),
+        )
+        .com_familias(agente::FAMILIAS),
         Acao::gravacao(
             "ajustar_item_lista_compra",
             MP,
@@ -1004,7 +1395,72 @@ pub fn acoes() -> Vec<Acao> {
                 param("mediaManual", "corpo", "numero", false, "Média mensal digitada; ausente ou nula limpa."),
                 param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
             ],
-        ),
+        )
+        .com_familias(agente::FAMILIAS),
+        Acao::gravacao(
+            "criar_lista_compra",
+            MP,
+            "Cria uma lista de solicitação (lote) quando o corpo traz `motivo`. Sem `confirmar=true` devolve a prévia e não grava (o id fica nulo); com ele grava os itens e audita. A tela, sem motivo, continua gravando direto. Exige editar a família do módulo da lista. Não apaga lista.",
+            "POST",
+            "/api/hub/compras/listas",
+            true,
+            vec![
+                param("modulo", "corpo", "texto", true, "materia_prima, embalagens, coloracao ou apoio."),
+                param("titulo", "corpo", "texto", false, "Título da lista."),
+                param("observacoes", "corpo", "texto", false, "Observações."),
+                param("items", "corpo", "lista", true, "Itens: itemCode, itemDescription, quantityRequested."),
+                param("motivo", "corpo", "texto", true, "Por que a lista está sendo criada."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
+        )
+        .com_familias(agente::FAMILIAS),
+        Acao::gravacao(
+            "editar_lista_compra",
+            MP,
+            "Altera título, observações ou status de uma lista de solicitação quando o corpo traz `motivo`. Sem `confirmar=true` só devolve a prévia; com ele grava e audita. Status aceita pendente, cancelado ou concluido. A tela, sem motivo, continua gravando direto. Não apaga a lista.",
+            "PATCH",
+            "/api/hub/compras/listas/:id",
+            true,
+            vec![
+                param("id", "caminho", "texto", true, "Id da lista."),
+                param("titulo", "corpo", "texto", false, "Novo título."),
+                param("observacoes", "corpo", "texto", false, "Novas observações."),
+                param("status", "corpo", "texto", false, "pendente, cancelado ou concluido."),
+                param("motivo", "corpo", "texto", true, "Por que a lista está sendo alterada."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
+        )
+        .com_familias(agente::FAMILIAS),
+        Acao::gravacao(
+            "incluir_item_lista_compra",
+            MP,
+            "Inclui itens numa lista de solicitação já existente. Sem `confirmar=true` só devolve a prévia e não grava; com ele grava e audita o motivo. Exige editar a família do módulo da lista. Não apaga item.",
+            "POST",
+            "/api/hub/compras/listas/:id/itens",
+            true,
+            vec![
+                param("id", "caminho", "texto", true, "Id da lista."),
+                param("itens", "corpo", "lista", true, "Itens: itemCode, itemDescription, quantityRequested."),
+                param("motivo", "corpo", "texto", true, "Por que os itens estão entrando na lista."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
+        )
+        .com_familias(agente::FAMILIAS),
+        Acao::gravacao(
+            "retirar_item_lista_compra",
+            MP,
+            "Tira itens de uma lista de solicitação marcando o status como retirado. A linha permanece no banco. Sem `confirmar=true` só devolve a prévia; com ele grava e audita o motivo. Exige editar a família do módulo da lista.",
+            "POST",
+            "/api/hub/compras/listas/:id/itens/retirar",
+            true,
+            vec![
+                param("id", "caminho", "texto", true, "Id da lista."),
+                param("codigos", "corpo", "lista", true, "Códigos a marcar como retirados."),
+                param("motivo", "corpo", "texto", true, "Por que os itens estão saindo da lista."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
+        )
+        .com_familias(agente::FAMILIAS),
         Acao::leitura(
             "simular_demanda_compras",
             "compras_simulation",

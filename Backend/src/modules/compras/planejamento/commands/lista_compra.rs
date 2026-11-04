@@ -435,6 +435,8 @@ mod tests {
                 observacoes: None,
                 created_by: Some("Teste".into()),
                 items: vec![item("ZZ.LISTA.A")],
+                motivo: None,
+                confirmar: false,
             },
         )
         .await
