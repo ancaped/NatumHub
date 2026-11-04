@@ -95,7 +95,9 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [lineFilter, setLineFilter] = useState('ALL');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
-  const [productTypeFilter, setProductTypeFilter] = useState<'ALL' | 'PRODUCTS' | 'KITS'>('ALL');
+  const [productTypeFilter, setProductTypeFilter] = useState<'ALL' | 'PRODUCTS' | 'KITS' | 'BASES'>('ALL');
+  const POR_PAGINA = 100;
+  const [pagina, setPagina] = useState(1);
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
   const [selectedOverrideCodes, setSelectedOverrideCodes] = useState<Set<string>>(new Set());
 
@@ -545,10 +547,12 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         kitComposicao.some(kc => kc.kit_codigo === p.codigo)
       );
 
+      const isBaseProduto = eBase(p.codigo, p.categoria_produto, p.status_produto);
       const matchesType = 
         productTypeFilter === 'ALL' ||
-        (productTypeFilter === 'PRODUCTS' && !isKit) ||
-        (productTypeFilter === 'KITS' && isKit);
+        (productTypeFilter === 'PRODUCTS' && !isKit && !isBaseProduto) ||
+        (productTypeFilter === 'KITS' && isKit) ||
+        (productTypeFilter === 'BASES' && isBaseProduto);
 
       return matchesSearch && matchesStatus && matchesLine && matchesCategory && matchesType;
     });
@@ -571,6 +575,25 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   }, [categories]);
 
   // Handle row selection
+  // Paginação no cliente: volta à primeira página quando qualquer filtro muda.
+  useEffect(() => {
+    setPagina(1);
+  }, [search, statusFilter, lineFilter, categoryFilter, productTypeFilter]);
+  const totalPaginas = Math.max(1, Math.ceil(filteredProducts.length / POR_PAGINA));
+  const paginaAtual = Math.min(pagina, totalPaginas);
+  const produtosDaPagina = useMemo(
+    () => filteredProducts.slice((paginaAtual - 1) * POR_PAGINA, paginaAtual * POR_PAGINA),
+    [filteredProducts, paginaAtual],
+  );
+  const temFiltro = search !== '' || statusFilter !== 'ALL' || lineFilter !== 'ALL' || categoryFilter !== 'ALL' || productTypeFilter !== 'ALL';
+  const limparFiltros = () => {
+    setSearch('');
+    setStatusFilter('ALL');
+    setLineFilter('ALL');
+    setCategoryFilter('ALL');
+    setProductTypeFilter('ALL');
+  };
+
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
       const codes = filteredProducts.map(p => p.codigo);
@@ -993,18 +1016,11 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     };
 
     const lifeStatus = statusVal === 'bases' ? 'ativo' : statusVal;
-    const isBase = eBase(codigo, categoria, statusVal);
-
     return (
       <span className="inline-flex items-center gap-1.5 flex-wrap">
         <span className={cn("inline-flex items-center px-2.5 py-1 border text-[11px] font-bold rounded-full whitespace-nowrap", styles[lifeStatus] || styles.ativo)}>
           {labels[lifeStatus] || labels.ativo}
         </span>
-        {isBase && (
-          <span className="inline-flex items-center px-2.5 py-1 border text-[11px] font-bold rounded-full whitespace-nowrap bg-zinc-100 text-zinc-700 border-zinc-200">
-            Base
-          </span>
-        )}
       </span>
     );
   };
@@ -1135,6 +1151,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                       <option value="ALL">Todos os Tipos</option>
                       <option value="PRODUCTS">Produtos Acabados</option>
                       <option value="KITS">Kits Comerciais</option>
+                      <option value="BASES">Bases de Produção</option>
                     </select>
                     <Layers className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
                   </div>
@@ -1173,7 +1190,14 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                 </div>
 
                 <div className="w-full flex items-center justify-between text-xs text-zinc-500 font-semibold pt-1 border-t border-zinc-100 mt-1">
-                  <span>{filteredProducts.length} de {products.length} produtos</span>
+                  <span className="flex items-center gap-3">
+                    {filteredProducts.length} de {products.length} produtos
+                    {temFiltro && (
+                      <button onClick={limparFiltros} className="text-zinc-500 hover:text-zinc-900 underline underline-offset-2 cursor-pointer">
+                        Limpar filtros
+                      </button>
+                    )}
+                  </span>
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Categoria</span>
                     <select
@@ -1212,7 +1236,8 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                         </th>
                         <th className="px-4 py-3 w-24 text-[10px] uppercase tracking-wider">Código</th>
                         <th className="px-4 py-3 text-[10px] uppercase tracking-wider">Descrição</th>
-                        <th className="px-4 py-3 w-40 text-[10px] uppercase tracking-wider">Linha de Venda</th>
+                        <th className="px-4 py-3 w-24 text-[10px] uppercase tracking-wider">Tipo</th>
+                        <th className="px-4 py-3 w-48 text-[10px] uppercase tracking-wider">Linha de Venda</th>
                         <th className="px-4 py-3 min-w-[9.5rem] text-[10px] uppercase tracking-wider">Status</th>
                         <th className="px-4 py-3 w-40 text-[10px] uppercase tracking-wider">Categoria</th>
                         <th className="px-4 py-3 text-[10px] uppercase tracking-wider">Obs.</th>
@@ -1222,17 +1247,17 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     <tbody className="divide-y divide-zinc-100">
                       {loading ? (
                         <tr>
-                          <td colSpan={8} className="p-8 text-center text-zinc-400 font-medium">
+                          <td colSpan={9} className="p-8 text-center text-zinc-400 font-medium">
                             <RefreshCw className="h-5 w-5 animate-spin text-zinc-500 mx-auto mb-2" />
                             Carregando produtos...
                           </td>
                         </tr>
                       ) : filteredProducts.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="p-8 text-center text-zinc-400">Nenhum produto corresponde aos filtros aplicados.</td>
+                          <td colSpan={9} className="p-8 text-center text-zinc-400">Nenhum produto corresponde aos filtros aplicados.</td>
                         </tr>
                       ) : (
-                        filteredProducts.map((p) => {
+                        produtosDaPagina.map((p) => {
                           const isSelected = selectedCodes.has(p.codigo);
                           const isKit = Boolean(
                             p.is_kit || 
@@ -1261,11 +1286,6 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                               <td className="px-4 py-2.5 font-bold text-zinc-800">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span>{p.descricao}</span>
-                                  {isKit && (
-                                    <span className="px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide bg-zinc-100 text-zinc-700 border border-zinc-200 rounded">
-                                      KIT
-                                    </span>
-                                  )}
                                   {p.produzir_apenas_kit === 1 && (
                                     <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-250 rounded" title={p.parent_kits?.length ? `Usado nos kits: ${p.parent_kits.join(', ')}` : 'Produzido apenas para kits'}>
                                       Apenas Kit
@@ -1278,15 +1298,25 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                                   )}
                                 </div>
                               </td>
+                              <td className="px-4 py-2.5">
+                                <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-zinc-100 text-zinc-600 border border-zinc-200 rounded">
+                                  {isKit ? 'Kit' : eBase(p.codigo, p.categoria_produto, p.status_produto) ? 'Base' : 'Produto'}
+                                </span>
+                              </td>
                               <td className="px-4 py-2.5 text-zinc-600">
-                                {p.linha_prefix_manual ? (
-                                  <span className="flex items-center gap-1">
-                                    {configs.find(c => c.linha_prefix === p.linha_prefix_manual)?.nome_linha || p.linha_prefix_manual}
-                                    <span className="text-[9px] bg-zinc-100 text-zinc-500 px-1 rounded font-bold uppercase scale-90">manual</span>
-                                  </span>
-                                ) : (
-                                  configs.find(c => c.linha_prefix === p.linha_prefix)?.nome_linha || p.linha_prefix
-                                )}
+                                {(() => {
+                                  const prefixo = p.linha_prefix_manual || p.linha_prefix;
+                                  const nome = configs.find(c => c.linha_prefix === prefixo)?.nome_linha || prefixo;
+                                  return (
+                                    <span className="flex items-center gap-1.5">
+                                      {prefixo !== 'DEFAULT' && <span className="font-mono text-[10px] text-zinc-400 shrink-0">{prefixo}</span>}
+                                      <span>{nome}</span>
+                                      {p.linha_prefix_manual && (
+                                        <span className="text-[9px] bg-zinc-100 text-zinc-500 px-1 rounded font-bold uppercase scale-90">manual</span>
+                                      )}
+                                    </span>
+                                  );
+                                })()}
                               </td>
                               <td className="px-4 py-3 align-middle">{renderStatusBadge(p.status_produto, p.categoria_produto, p.codigo)}</td>
                               <td className="px-4 py-2.5">
@@ -1330,6 +1360,31 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     </tbody>
                   </table>
                 </div>
+
+                {filteredProducts.length > POR_PAGINA && (
+                  <div className="px-4 py-2 border-t border-zinc-200 bg-zinc-50 flex items-center justify-between text-xs text-zinc-500 font-semibold shrink-0">
+                    <span>
+                      {(paginaAtual - 1) * POR_PAGINA + 1}–{Math.min(paginaAtual * POR_PAGINA, filteredProducts.length)} de {filteredProducts.length}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setPagina(paginaAtual - 1)}
+                        disabled={paginaAtual <= 1}
+                        className="px-2.5 py-1 rounded-lg border border-zinc-200 bg-white text-zinc-700 font-bold disabled:opacity-40 cursor-pointer disabled:cursor-default"
+                      >
+                        Anterior
+                      </button>
+                      <span>Página {paginaAtual} de {totalPaginas}</span>
+                      <button
+                        onClick={() => setPagina(paginaAtual + 1)}
+                        disabled={paginaAtual >= totalPaginas}
+                        className="px-2.5 py-1 rounded-lg border border-zinc-200 bg-white text-zinc-700 font-bold disabled:opacity-40 cursor-pointer disabled:cursor-default"
+                      >
+                        Próxima
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Bulk Actions Bar */}
                 {selectedCodes.size > 0 && (
