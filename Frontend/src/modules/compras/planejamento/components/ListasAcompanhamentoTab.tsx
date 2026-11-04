@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../../../geral/lib/api';
 import { PurchaseRequestBatch, PurchaseRequestBatchDetail, PurchaseRequestBatchItem } from '../../../geral/lib/types';
 import { 
@@ -12,6 +12,8 @@ import { ReportHeader, BotaoAcao, ReportTabs, FilterBar, FiltroSelect, StatusBad
 interface ListasAcompanhamentoTabProps {
   active?: boolean;
   mode?: string;
+  /** Lote recém-gerado: a tela abre esse lote, rola até ele e o destaca. */
+  destaqueLoteId?: string | null;
 }
 
 const MODULO_LABELS: Record<string, { label: string; icon: any; color: string }> = {
@@ -34,7 +36,7 @@ const COLUMN_METADATA: Record<string, { label: string; align: 'left' | 'center' 
   recommendedQty: { label: 'Qtd Recomendada', align: 'right' },
 };
 
-export function ListasAcompanhamentoTab({ active = true, mode = 'all' }: ListasAcompanhamentoTabProps) {
+export function ListasAcompanhamentoTab({ active = true, mode = 'all', destaqueLoteId = null }: ListasAcompanhamentoTabProps) {
   const [batches, setBatches] = useState<PurchaseRequestBatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -142,6 +144,45 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all' }: ListasA
       setLoadingDetail(null);
     }
   };
+
+  // Lote recém-gerado: mostra todos os status, sem busca, abre o lote, rola até ele e dá um anel de destaque.
+  const [destaqueId, setDestaqueId] = useState<string | null>(null);
+  const rolouPara = useRef<string | null>(null);
+  useEffect(() => {
+    if (!destaqueLoteId) {
+      setDestaqueId(null);
+      return;
+    }
+    setStatusFilter('ALL');
+    setSearch('');
+    setDestaqueId(destaqueLoteId);
+    rolouPara.current = null;
+    (async () => {
+      setLoading(true);
+      try {
+        setBatches(await api.getPurchaseLists({ modulo: moduleFilter === 'ALL' ? undefined : moduleFilter }));
+      } catch (e) {
+        console.error('Erro ao carregar lotes de listas de compras:', e);
+      } finally {
+        setLoading(false);
+      }
+      setExpandedBatchId(destaqueLoteId);
+      loadBatchDetail(destaqueLoteId);
+    })();
+  }, [destaqueLoteId]);
+
+  useEffect(() => {
+    if (!active || !destaqueId || loading || rolouPara.current === destaqueId) return;
+    if (!batches.some(b => b.id === destaqueId)) return;
+    const t = setTimeout(() => {
+      const el = document.getElementById(`lote-${destaqueId}`);
+      if (el && el.offsetParent !== null) {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        rolouPara.current = destaqueId;
+      }
+    }, 80);
+    return () => clearTimeout(t);
+  }, [active, destaqueId, loading, batches]);
 
   const handleToggleExpand = (id: string) => {
     if (expandedBatchId === id) {
@@ -527,7 +568,7 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all' }: ListasA
   return (
     <div className="flex flex-col gap-4 h-[calc(100vh-12.25rem)] animate-in fade-in duration-200">
       <ReportHeader
-        titulo="Acompanhamento de listas de compra"
+        titulo="Solicitações"
         subtitulo="Listas enviadas, status de atendimento e cruzamento com os pedidos de compra do ERP."
         acoes={
           <>
@@ -634,7 +675,11 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all' }: ListasA
                 const daysAgo = Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
 
                 return (
-                  <div key={batch.id} className="transition-colors hover:bg-zinc-50/40">
+                  <div
+                    key={batch.id}
+                    id={`lote-${batch.id}`}
+                    className={cn('transition-colors hover:bg-zinc-50/40', destaqueId === batch.id && 'ring-2 ring-inset ring-amber-300 bg-amber-50/30')}
+                  >
                     {/* Batch Row Header */}
                     <div className="p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                       {/* Left: Lote Info */}

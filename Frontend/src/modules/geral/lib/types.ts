@@ -848,3 +848,20 @@ export interface ProcGenerateResponse {
   processoTextoFormatado: string;
 }
 
+
+
+// Lista de Compra (no servidor, uma por módulo de Compras)
+export type ModuloListaCompra = 'materia_prima' | 'embalagens' | 'coloracao' | 'apoio';
+
+export interface ListaCompraItem {
+  itemCode: string;
+  quantidadeManual: number | null;
+  mediaManual: number | null;
+  adicionadoPor?: string | null;
+  adicionadoEm?: string | null;
+}
+
+export interface ListaCompraResposta {
+  modulo: ModuloListaCompra;
+  itens: ListaCompraItem[];
+}

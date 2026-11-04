@@ -407,6 +407,82 @@ async fn salvar_categoria_handler(
     }
 }
 
+// --- Lista de Compra (itens separados para o próximo lote, uma lista por módulo) ---
+
+#[derive(Deserialize)]
+struct ListaCompraQuery {
+    #[serde(default)]
+    modulo: String,
+}
+
+// GET /api/hub/compras/lista-compra?modulo=
+async fn lista_compra_handler(State(state): State<Arc<AppState>>, Query(q): Query<ListaCompraQuery>) -> impl IntoResponse {
+    match listar_lista_compra(state.db.pool(), &q.modulo).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct ListaCompraCodigosBody {
+    #[serde(default)]
+    modulo: String,
+    #[serde(default)]
+    codigos: Vec<String>,
+}
+
+// POST /api/hub/compras/lista-compra/adicionar (2 passos)
+async fn lista_compra_adicionar_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Query(c): Query<crate::core::acao::Confirmar>,
+    Json(body): Json<ListaCompraCodigosBody>,
+) -> impl IntoResponse {
+    match adicionar_itens_lista_compra(state.db.pool(), &ctx, &body.modulo, &body.codigos, c.confirmar).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+// POST /api/hub/compras/lista-compra/remover (2 passos)
+async fn lista_compra_remover_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Query(c): Query<crate::core::acao::Confirmar>,
+    Json(body): Json<ListaCompraCodigosBody>,
+) -> impl IntoResponse {
+    match remover_itens_lista_compra(state.db.pool(), &ctx, &body.modulo, &body.codigos, c.confirmar).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ListaCompraAjusteBody {
+    #[serde(default)]
+    modulo: String,
+    #[serde(default)]
+    codigo: String,
+    #[serde(default)]
+    quantidade_manual: Option<f64>,
+    #[serde(default)]
+    media_manual: Option<f64>,
+}
+
+// POST /api/hub/compras/lista-compra/ajustar (2 passos)
+async fn lista_compra_ajustar_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Query(c): Query<crate::core::acao::Confirmar>,
+    Json(body): Json<ListaCompraAjusteBody>,
+) -> impl IntoResponse {
+    match ajustar_item_lista_compra(state.db.pool(), &ctx, &body.modulo, &body.codigo, body.quantidade_manual, body.media_manual, c.confirmar).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
 async fn import_item_observations_handler(State(state): State<Arc<AppState>>, Json(body): Json<ImportObservationsBody>) -> impl IntoResponse {
     match with_pool(&state, |pool| import_item_observations_query(pool, &body.observations)).await {
         Ok(()) => ok_status().into_response(),
@@ -796,6 +872,11 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/hub/compras/listas", get(get_purchase_lists_handler).post(create_purchase_list_handler))
         .route("/api/hub/compras/listas/:id", get(get_purchase_list_detail_handler).patch(update_purchase_list_handler).delete(delete_purchase_list_handler))
         .route("/api/hub/compras/itens-solicitados", get(get_active_requested_items_handler))
+        // Lista de Compra (no servidor, uma por módulo)
+        .route("/api/hub/compras/lista-compra", get(lista_compra_handler))
+        .route("/api/hub/compras/lista-compra/adicionar", post(lista_compra_adicionar_handler))
+        .route("/api/hub/compras/lista-compra/remover", post(lista_compra_remover_handler))
+        .route("/api/hub/compras/lista-compra/ajustar", post(lista_compra_ajustar_handler))
         // Quotations
         .route("/api/hub/compras/quotations", get(get_quotations_handler).post(create_quotation_handler))
         .route("/api/hub/compras/quotations/:id", get(get_quotation_detail_handler).delete(delete_quotation_handler))
@@ -873,6 +954,54 @@ pub fn acoes() -> Vec<Acao> {
             vec![
                 param("code", "caminho", "texto", true, "Código do item (produto ou insumo)."),
                 param("categoryId", "corpo", "texto", true, "Id da categoria de destino."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
+        ),
+        Acao::leitura(
+            "listar_lista_compra",
+            MP,
+            "Lista os itens da Lista de Compra de um módulo do Hub de Compras (os separados para o próximo lote de solicitação): `itemCode`, `quantidadeManual`, `mediaManual`, quem adicionou e quando. O `modulo` decide a lista: materia_prima, embalagens, coloracao ou apoio.",
+            "/api/hub/compras/lista-compra",
+            vec![param("modulo", "query", "texto", true, "materia_prima, embalagens, coloracao ou apoio.")],
+        ),
+        Acao::gravacao(
+            "adicionar_itens_lista_compra",
+            MP,
+            "Põe itens na Lista de Compra de um módulo (`modulo`: materia_prima, embalagens, coloracao ou apoio). Sem `confirmar=true` só devolve a prévia (`adicionados`, `jaNaLista`) e não grava; com ele grava e audita. Itens que já estão são ignorados; código que não existe no cadastro é recusado (`invalido`). Exige editar o módulo de Compras correspondente à lista (`sem_permissao`).",
+            "POST",
+            "/api/hub/compras/lista-compra/adicionar",
+            true,
+            vec![
+                param("modulo", "corpo", "texto", true, "Lista de destino: materia_prima, embalagens, coloracao ou apoio."),
+                param("codigos", "corpo", "lista", true, "Códigos dos itens (insumos ou produtos de Apoio/Coloração)."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
+        ),
+        Acao::gravacao(
+            "remover_itens_lista_compra",
+            MP,
+            "Tira itens da Lista de Compra de um módulo (`modulo`: materia_prima, embalagens, coloracao ou apoio). Sem `confirmar=true` só devolve a prévia (`removidos`, `naoEstavam`) e não grava; com ele grava e audita. Exige editar o módulo de Compras correspondente à lista (`sem_permissao`).",
+            "POST",
+            "/api/hub/compras/lista-compra/remover",
+            true,
+            vec![
+                param("modulo", "corpo", "texto", true, "Lista de destino: materia_prima, embalagens, coloracao ou apoio."),
+                param("codigos", "corpo", "lista", true, "Códigos dos itens a tirar da lista."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
+        ),
+        Acao::gravacao(
+            "ajustar_item_lista_compra",
+            MP,
+            "Grava a quantidade e a média manuais de um item que já está na Lista de Compra de um módulo (`modulo`: materia_prima, embalagens, coloracao ou apoio); valor nulo ou ausente limpa o campo, negativo é recusado. Sem `confirmar=true` só devolve a prévia (`antes`, `depois`, `mudou`) e não grava; com ele grava e audita. Item fora da lista dá `nao_encontrado`. Exige editar o módulo de Compras correspondente (`sem_permissao`).",
+            "POST",
+            "/api/hub/compras/lista-compra/ajustar",
+            true,
+            vec![
+                param("modulo", "corpo", "texto", true, "Lista de destino: materia_prima, embalagens, coloracao ou apoio."),
+                param("codigo", "corpo", "texto", true, "Código do item na lista."),
+                param("quantidadeManual", "corpo", "numero", false, "Quantidade a comprar digitada; ausente ou nula limpa."),
+                param("mediaManual", "corpo", "numero", false, "Média mensal digitada; ausente ou nula limpa."),
                 param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
             ],
         ),

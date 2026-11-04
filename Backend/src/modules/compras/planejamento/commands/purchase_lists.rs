@@ -86,6 +86,15 @@ pub async fn create_purchase_request_batch_query(
         .map_err(|e| format!("Erro ao inserir item do lote: {e}"))?;
     }
 
+    // Os itens do lote saem da Lista de Compra do módulo (só eles; o resto da lista fica).
+    let chaves: Vec<String> = input.items.iter().map(|i| i.item_code.trim().replace('.', "")).collect();
+    sqlx::query("DELETE FROM compras_lista_itens WHERE modulo = $1 AND item_chave = ANY($2)")
+        .bind(&input.modulo)
+        .bind(&chaves)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Erro ao limpar a lista de compra: {e}"))?;
+
     tx.commit().await.map_err(|e| format!("Erro ao confirmar transação: {e}"))?;
 
     get_purchase_request_batch_detail_query(pool, &batch_id).await

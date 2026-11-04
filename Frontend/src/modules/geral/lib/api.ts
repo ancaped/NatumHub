@@ -7,7 +7,8 @@ import type {
   FiscoQuimicaPattern, FiscoQuimicaAgent, FiscoQuimicaAnalysis, LoteLookup,
   FiscoErpLoteItem, FiscoErpLoteInsumo,
   CustomPurchaseConfigRow,
-  PurchaseRequestBatch, PurchaseRequestBatchDetail, CreatePurchaseRequestBatchInput, ActiveRequestedItemSummary
+  PurchaseRequestBatch, PurchaseRequestBatchDetail, CreatePurchaseRequestBatchInput, ActiveRequestedItemSummary,
+  ModuloListaCompra, ListaCompraResposta
 } from './types';
 import type { FeedbackSubmitInput, FeedbackAdminUpdate, FeedbackNote, FeedbackDetail } from './types';
 
@@ -120,6 +121,20 @@ export const api = {
   },
   getActiveRequestedItems(): Promise<ActiveRequestedItemSummary[]> {
     return hubJson('compras/itens-solicitados');
+  },
+
+  // === COMPRAS: LISTA DE COMPRA (no servidor, uma por módulo) ===
+  getListaCompra(modulo: ModuloListaCompra): Promise<ListaCompraResposta> {
+    return hubJson(`compras/lista-compra${qs({ modulo })}`);
+  },
+  adicionarItensListaCompra(modulo: ModuloListaCompra, codigos: string[]): Promise<unknown> {
+    return hubJson('compras/lista-compra/adicionar?confirmar=true', { method: 'POST', body: JSON.stringify({ modulo, codigos }) });
+  },
+  removerItensListaCompra(modulo: ModuloListaCompra, codigos: string[]): Promise<unknown> {
+    return hubJson('compras/lista-compra/remover?confirmar=true', { method: 'POST', body: JSON.stringify({ modulo, codigos }) });
+  },
+  ajustarItemListaCompra(modulo: ModuloListaCompra, codigo: string, ajuste: { quantidadeManual: number | null; mediaManual: number | null }): Promise<unknown> {
+    return hubJson('compras/lista-compra/ajustar?confirmar=true', { method: 'POST', body: JSON.stringify({ modulo, codigo, ...ajuste }) });
   },
 
 

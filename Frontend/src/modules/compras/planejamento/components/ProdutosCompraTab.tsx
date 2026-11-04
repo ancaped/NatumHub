@@ -10,6 +10,7 @@ import { api } from '../../../geral/lib/api';
 import type { DemandResult, ActiveRequestedItemSummary } from '../../../geral/lib/types';
 import { getAuthUser, isSupervisor } from '../../../geral/lib/auth';
 import Drawer from '../../../geral/components/ui/Drawer';
+import { useListaCompra } from '../useListaCompra';
 
 interface ProductRow {
   codigo: string;
@@ -93,9 +94,11 @@ interface ProdutosCompraTabProps {
   title: string;
   active?: boolean;
   initialCategoryFilter?: string | null;
+  /** Lista de Compra a que os botões de adicionar/remover falam; sem ela, a do próprio `statusFilter`. */
+  moduloLista?: string;
 }
 
-export function ProdutosCompraTab({ statusFilter, title, active = false, initialCategoryFilter = null }: ProdutosCompraTabProps) {
+export function ProdutosCompraTab({ statusFilter, title, active = false, initialCategoryFilter = null, moduloLista }: ProdutosCompraTabProps) {
   const canConfig = isSupervisor(getAuthUser());
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -139,7 +142,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
   const [selectedForQuote, setSelectedForQuote] = useState<Set<string>>(new Set());
 
   // Print list & report options
-  const [printList, setPrintList] = useState<string[]>([]);
+  const lista = useListaCompra(moduloLista ?? statusFilter);
   const [activeRequests, setActiveRequests] = useState<Record<string, ActiveRequestedItemSummary>>({});
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [reportType, setReportType] = useState<'disponibilidade' | 'sugestao'>(statusFilter === 'coloracao' ? 'disponibilidade' : 'sugestao');
@@ -170,30 +173,12 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     return () => window.removeEventListener('compras_solicitacoes_updated', handleUpdate);
   }, []);
 
-  useEffect(() => {
-    const loadPrintList = () => {
-      const stored = localStorage.getItem('natum_hub_print_list');
-      if (stored) {
-        try { setPrintList(JSON.parse(stored)); } catch (e) { console.error(e); }
-      } else {
-        setPrintList([]);
-      }
-    };
-    loadPrintList();
-    window.addEventListener('storage', loadPrintList);
-    return () => window.removeEventListener('storage', loadPrintList);
-  }, []);
-
-  const isInPrintList = (code: string) => {
-    const cleanCode = code.replace(/\./g, '');
-    return printList.some(c => c.replace(/\./g, '') === cleanCode);
-  };
+  const isInPrintList = (code: string) => lista.temItem(code);
 
   const handleTogglePrintList = (code: string) => {
     const cleanCode = code.replace(/\./g, '');
-    let newList: string[];
-    if (printList.some(c => c.replace(/\./g, '') === cleanCode)) {
-      newList = printList.filter(c => c.replace(/\./g, '') !== cleanCode);
+    if (lista.temItem(code)) {
+      lista.remover([code]);
     } else {
       const activeReq = activeRequests[cleanCode] || activeRequests[code];
       if (activeReq && activeReq.status !== 'entregue') {
@@ -203,22 +188,14 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
           return;
         }
       }
-      newList = [...printList, code];
+      lista.adicionar([code]);
     }
-    setPrintList(newList);
-    localStorage.setItem('natum_hub_print_list', JSON.stringify(newList));
-    window.dispatchEvent(new Event('storage'));
   };
 
   const handleAddSelectedToPrintList = () => {
     if (selectedForQuote.size === 0) return;
-    const toAdd = Array.from(selectedForQuote);
-    const existing = new Set(printList.map(c => (c || '').replace(/\./g, '')));
-    const newItems = toAdd.filter(code => !existing.has((code || '').replace(/\./g, '')));
-    const newList = [...printList, ...newItems];
-    setPrintList(newList);
-    localStorage.setItem('natum_hub_print_list', JSON.stringify(newList));
-    window.dispatchEvent(new Event('storage'));
+    const newItems = Array.from(selectedForQuote).filter(code => !lista.temItem(code));
+    lista.adicionar(newItems);
     setSelectedForQuote(new Set());
   };
 
@@ -862,11 +839,11 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
       else if (printFilterType === 'disponiveis') filterLabel = 'Apenas Disponíveis (Saldo > 0)';
       else if (printFilterType === 'com_pedidos') filterLabel = 'Apenas com Pedidos de Venda / Faltas';
       else if (printFilterType === 'ruptura') filterLabel = 'Apenas em Ruptura / Falta (Saldo ≤ 0)';
-      else if (printFilterType === 'list') filterLabel = `Itens Marcados (${printList.length})`;
+      else if (printFilterType === 'list') filterLabel = `Itens Marcados (${lista.codigos.length})`;
     } else {
       if (printFilterType === 'selected') filterLabel = `Itens Selecionados (${selectedForQuote.size})`;
       else if (printFilterType === 'needed') filterLabel = 'Apenas Recomendados para Compra';
-      else if (printFilterType === 'list') filterLabel = `Itens Marcados (${printList.length})`;
+      else if (printFilterType === 'list') filterLabel = `Itens Marcados (${lista.codigos.length})`;
     }
 
     const rowsHtml = itemsToPrint.map(p => {
@@ -1300,7 +1277,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
               <button
                 onClick={handleAddSelectedToPrintList}
                 className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                title="Adicionar produtos selecionados à aba Lista"
+                title="Adicionar produtos selecionados à aba Lista de Compra"
               >
                 <PlusCircle className="h-3.5 w-3.5" />
                 Adicionar à Lista ({selectedForQuote.size})
@@ -1503,7 +1480,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                               ? "text-emerald-600 hover:bg-emerald-50" 
                               : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-650"
                           )}
-                          title={isInPrintList(p.codigo) ? "Remover da Lista de Impressão" : "Adicionar à Lista de Impressão"}
+                          title={isInPrintList(p.codigo) ? "Remover da Lista de Compra" : "Adicionar à Lista de Compra"}
                         >
                           {isInPrintList(p.codigo) ? (
                             <CheckCircle2 className="h-4.5 w-4.5" />

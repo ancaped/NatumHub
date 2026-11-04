@@ -8,6 +8,7 @@ import { cn } from '../../../geral/lib/utils';
 import { getAuthUser, isSupervisor } from '../../../geral/lib/auth';
 import { LoteDetailsDrawer } from '../../../producao/gerenciamento/components/LoteDetailsDrawer';
 import Drawer from '../../../geral/components/ui/Drawer';
+import { useListaCompra } from '../useListaCompra';
 
 interface InsumoDetalhes {
   code: string;
@@ -117,9 +118,11 @@ interface DemandTableProps {
   mode?: 'materia_prima' | 'embalagens' | 'all';
   initialCategoryFilter?: string | null;
   active?: boolean;
+  /** Lista de Compra a que os botões falam; sem ela, a do próprio `mode`. */
+  moduloLista?: string;
 }
 
-export function DemandTable({ mode = 'all', initialCategoryFilter = null, active = true }: DemandTableProps) {
+export function DemandTable({ mode = 'all', initialCategoryFilter = null, active = true, moduloLista }: DemandTableProps) {
   const canConfig = isSupervisor(getAuthUser());
   const defaultTab = mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : 'ALL';
   const [demands, setDemands] = useState<DemandResult[]>([]);
@@ -161,7 +164,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printFilterType, setPrintFilterType] = useState<'needed' | 'all'>('needed');
 
-  const [printList, setPrintList] = useState<string[]>([]);
+  const lista = useListaCompra(moduloLista ?? mode);
   const [activeRequests, setActiveRequests] = useState<Record<string, ActiveRequestedItemSummary>>({});
   const [lastErpStockSync, setLastErpStockSync] = useState<{ at: string; count: number } | null>(null);
   const [loteDetailsNumber, setLoteDetailsNumber] = useState<string | null>(null);
@@ -284,21 +287,6 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     }
   };
 
-  // Sync printList with localStorage on mount & changes
-  useEffect(() => {
-    const loadPrintList = () => {
-      const stored = localStorage.getItem('natum_hub_print_list');
-      if (stored) {
-        try { setPrintList(JSON.parse(stored)); } catch (e) { console.error(e); }
-      } else {
-        setPrintList([]);
-      }
-    };
-    loadPrintList();
-    window.addEventListener('storage', loadPrintList);
-    return () => window.removeEventListener('storage', loadPrintList);
-  }, []);
-
   useEffect(() => {
     loadActiveRequests();
     const handleUpdate = () => loadActiveRequests();
@@ -306,16 +294,12 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     return () => window.removeEventListener('compras_solicitacoes_updated', handleUpdate);
   }, []);
 
-  const isInPrintList = (code: string) => {
-    const clean = (code || '').replace(/\./g, '');
-    return printList.some(c => (c || '').replace(/\./g, '') === clean);
-  };
+  const isInPrintList = (code: string) => lista.temItem(code);
 
   const handleTogglePrintList = (code: string) => {
     const clean = (code || '').replace(/\./g, '');
-    let newList: string[];
-    if (printList.some(c => (c || '').replace(/\./g, '') === clean)) {
-      newList = printList.filter(c => (c || '').replace(/\./g, '') !== clean);
+    if (lista.temItem(code)) {
+      lista.remover([code]);
     } else {
       const activeReq = activeRequests[clean] || activeRequests[code];
       if (activeReq && activeReq.status !== 'entregue') {
@@ -325,14 +309,11 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
           return;
         }
       }
-      newList = [...printList, code];
+      lista.adicionar([code]);
     }
-    setPrintList(newList);
-    localStorage.setItem('natum_hub_print_list', JSON.stringify(newList));
-    window.dispatchEvent(new Event('storage'));
   };
 
-  // Solicitar = colocar na aba Lista (a que já existe), em 2 passos: prévia dos recomendados e confirmação.
+  // Solicitar = colocar na aba Lista de Compra, em 2 passos: prévia dos recomendados e confirmação.
   const [listaPrevia, setListaPrevia] = useState<DemandResult[] | null>(null);
   const [listaSel, setListaSel] = useState<Set<string>>(new Set());
   const abrirPreviaLista = () => {
@@ -341,24 +322,16 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     setListaSel(new Set(cand.filter((d) => !isInPrintList(d.itemCode)).map((d) => d.itemCode)));
   };
   const confirmarPreviaLista = () => {
-    const existing = new Set(printList.map((c) => (c || '').replace(/\./g, '')));
-    const novos = Array.from(listaSel).filter((c) => !existing.has((c || '').replace(/\./g, '')));
-    const novaLista = [...printList, ...novos];
-    setPrintList(novaLista);
-    localStorage.setItem('natum_hub_print_list', JSON.stringify(novaLista));
-    window.dispatchEvent(new Event('storage'));
+    const novos = Array.from(listaSel).filter((c) => !lista.temItem(c));
+    lista.adicionar(novos);
     setListaPrevia(null);
   };
 
   const handleAddSelectedToPrintList = () => {
     if (selectedItems.size === 0) return;
     const toAdd = Array.from(selectedItems);
-    const existing = new Set(printList.map(c => (c || '').replace(/\./g, '')));
-    const newItems = toAdd.filter(code => !existing.has((code || '').replace(/\./g, '')));
-    const newList = [...printList, ...newItems];
-    setPrintList(newList);
-    localStorage.setItem('natum_hub_print_list', JSON.stringify(newList));
-    window.dispatchEvent(new Event('storage'));
+    const newItems = toAdd.filter(code => !lista.temItem(code));
+    lista.adicionar(newItems);
     setSelectedItems(new Set());
   };
 
@@ -1106,7 +1079,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 <button 
                   onClick={handleAddSelectedToPrintList}
                   className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
-                  title="Adicionar itens selecionados à aba Lista"
+                  title="Adicionar itens selecionados à aba Lista de Compra"
                 >
                   <PlusCircle className="h-3.5 w-3.5" />
                   <span>Adicionar à Lista ({selectedItems.size})</span>
@@ -1115,7 +1088,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
               <button
                 onClick={abrirPreviaLista}
                 className="text-xs bg-zinc-900 hover:bg-zinc-800 text-white px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
-                title="Revise os itens recomendados e confirme para colocá-los na aba Lista"
+                title="Revise os itens recomendados e confirme para colocá-los na aba Lista de Compra"
               >
                 <PlusCircle className="h-3.5 w-3.5" />
                 <span>Recomendados → Lista</span>
@@ -1311,7 +1284,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                               ? "text-emerald-600 hover:bg-emerald-50" 
                               : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-650"
                           )}
-                          title={isInPrintList(demand.itemCode) ? "Remover da Lista de Impressão" : "Adicionar à Lista de Impressão"}
+                          title={isInPrintList(demand.itemCode) ? "Remover da Lista de Compra" : "Adicionar à Lista de Compra"}
                         >
                           {isInPrintList(demand.itemCode) ? (
                             <CheckCircle2 className="h-4.5 w-4.5" />

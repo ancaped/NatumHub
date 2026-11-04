@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../../../geral/lib/api';
+import { useListaCompra, chaveItem, EVENTO_LISTA_COMPRA } from '../useListaCompra';
 import { DemandResult } from '../../../geral/lib/types';
 import { Trash2, Printer, Search, Plus, FileText, RefreshCw, X, Package, Settings, Layers, Tag, CheckCircle2, ClipboardList, Check, Pencil } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
@@ -20,8 +21,9 @@ const COLUMN_METADATA: Record<string, { label: string; align: 'left' | 'center' 
   recommendedQty: { label: 'Qtd Recomendada', align: 'right' }
 };
 
-export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean; mode?: string }) {
-  const [printList, setPrintList] = useState<string[]>([]);
+export function PrintListTab({ active = true, mode = 'all', onLoteGerado }: { active?: boolean; mode?: string; onLoteGerado?: (loteId: string) => void }) {
+  const lista = useListaCompra(mode);
+  const printList = lista.codigos;
   const [demands, setDemands] = useState<DemandResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -31,29 +33,76 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
   const [editingStock, setEditingStock] = useState<string | null>(null);
   const [stockDraft, setStockDraft] = useState('');
   const [stockError, setStockError] = useState<string | null>(null);
-  const [manualQtys, setManualQtys] = useState<Record<string, number>>(() => {
-    const stored = localStorage.getItem('natum_hub_print_list_manual_qtys');
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch (e) {
-        return {};
-      }
-    }
-    return {};
-  });
+  // Quantidade e média digitadas à mão (chave = código sem pontos). Vêm do servidor; a digitação vale na hora
+  // e é gravada com atraso (debounce) por item.
+  const [manualQtys, setManualQtys] = useState<Record<string, number>>({});
+  const [manualAvgs, setManualAvgs] = useState<Record<string, number>>({});
+  const manualQtysRef = useRef(manualQtys);
+  const manualAvgsRef = useRef(manualAvgs);
+  manualQtysRef.current = manualQtys;
+  manualAvgsRef.current = manualAvgs;
+  const pendentes = useRef<Set<string>>(new Set());
+  const timers = useRef<Map<string, { t: ReturnType<typeof setTimeout>; code: string }>>(new Map());
 
-  const [manualAvgs, setManualAvgs] = useState<Record<string, number>>(() => {
-    const stored = localStorage.getItem('natum_hub_print_list_manual_avgs');
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch (e) {
-        return {};
-      }
+  const gravarAjuste = (k: string, code: string) => {
+    return lista.ajustar(code, {
+      quantidadeManual: manualQtysRef.current[k] ?? null,
+      mediaManual: manualAvgsRef.current[k] ?? null,
+    }).finally(() => {
+      if (!timers.current.has(k)) pendentes.current.delete(k);
+    });
+  };
+
+  const agendarAjuste = (code: string) => {
+    const k = chaveItem(code);
+    pendentes.current.add(k);
+    const atual = timers.current.get(k);
+    if (atual) clearTimeout(atual.t);
+    const t = setTimeout(() => {
+      timers.current.delete(k);
+      gravarAjuste(k, code);
+    }, 600);
+    timers.current.set(k, { t, code });
+  };
+
+  const cancelarAjustes = (chaves?: string[]) => {
+    for (const [k, v] of Array.from(timers.current.entries())) {
+      if (chaves && !chaves.includes(k)) continue;
+      clearTimeout(v.t);
+      timers.current.delete(k);
+      pendentes.current.delete(k);
     }
-    return {};
-  });
+  };
+
+  // Ao sair da tela, grava o que ainda estava esperando o atraso.
+  useEffect(() => () => {
+    for (const [k, v] of Array.from(timers.current.entries())) {
+      clearTimeout(v.t);
+      timers.current.delete(k);
+      gravarAjuste(k, v.code);
+    }
+  }, []);
+
+  // Recarregou do servidor: troca os valores, menos os que o usuário está digitando.
+  useEffect(() => {
+    const q: Record<string, number> = {};
+    const a: Record<string, number> = {};
+    for (const i of lista.itens) {
+      const k = chaveItem(i.itemCode);
+      if (i.quantidadeManual != null) q[k] = i.quantidadeManual;
+      if (i.mediaManual != null) a[k] = i.mediaManual;
+    }
+    const manter = (prev: Record<string, number>, novo: Record<string, number>) => {
+      const next = { ...novo };
+      pendentes.current.forEach((k) => {
+        if (k in prev) next[k] = prev[k];
+        else delete next[k];
+      });
+      return next;
+    };
+    setManualQtys((prev) => manter(prev, q));
+    setManualAvgs((prev) => manter(prev, a));
+  }, [lista.itens]);
 
   const [columns, setColumns] = useState<Record<string, boolean>>({
     itemCode: true,
@@ -156,25 +205,21 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
   };
 
   const handleUpdateManualQty = (code: string, qty: number | '') => {
-    const newQtys = { ...manualQtys };
-    if (qty === '') {
-      delete newQtys[code];
-    } else {
-      newQtys[code] = qty;
-    }
-    setManualQtys(newQtys);
-    localStorage.setItem('natum_hub_print_list_manual_qtys', JSON.stringify(newQtys));
+    const k = chaveItem(code);
+    const novo = { ...manualQtysRef.current };
+    if (qty === '') delete novo[k]; else novo[k] = qty;
+    manualQtysRef.current = novo;
+    setManualQtys(novo);
+    agendarAjuste(code);
   };
 
   const handleUpdateManualAvg = (code: string, avg: number | '') => {
-    const newAvgs = { ...manualAvgs };
-    if (avg === '') {
-      delete newAvgs[code];
-    } else {
-      newAvgs[code] = avg;
-    }
-    setManualAvgs(newAvgs);
-    localStorage.setItem('natum_hub_print_list_manual_avgs', JSON.stringify(newAvgs));
+    const k = chaveItem(code);
+    const novo = { ...manualAvgsRef.current };
+    if (avg === '') delete novo[k]; else novo[k] = avg;
+    manualAvgsRef.current = novo;
+    setManualAvgs(novo);
+    agendarAjuste(code);
   };
 
   const resolveRootCategory = (catId: string | null) => {
@@ -198,19 +243,6 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [addItemSearch, setAddItemSearch] = useState('');
 
-  const syncPrintListFromStorage = () => {
-    const stored = localStorage.getItem('natum_hub_print_list');
-    if (stored) {
-      try {
-        setPrintList(JSON.parse(stored));
-      } catch (e) {
-        console.error("Error parsing print list:", e);
-      }
-    } else {
-      setPrintList([]);
-    }
-  };
-
   // Load all demands respecting individual category/subcategory target days
   const loadDemands = async () => {
     setLoading(true);
@@ -226,7 +258,6 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
   };
 
   useEffect(() => {
-    syncPrintListFromStorage();
     api.getCategories().then(setCategories).catch(console.error);
     if (active) {
       loadDemands();
@@ -236,62 +267,115 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
 
   // Sync with external events and storage updates
   useEffect(() => {
-    const handleStorageChange = () => {
-      syncPrintListFromStorage();
-    };
     const handleConfigUpdate = () => {
       loadDemands();
       api.getCategories().then(setCategories).catch(console.error);
     };
-    window.addEventListener('storage', handleStorageChange);
     window.addEventListener('compras_config_updated', handleConfigUpdate);
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('compras_config_updated', handleConfigUpdate);
     };
   }, []);
 
-  // Save print list to localStorage on changes
-  const savePrintList = (newList: string[]) => {
-    setPrintList(newList);
-    localStorage.setItem('natum_hub_print_list', JSON.stringify(newList));
-    window.dispatchEvent(new Event('storage'));
+  // O item pertence ao módulo desta aba? (isolamento por categoria)
+  const passaNoModulo = (d: DemandResult) => {
+    if (mode === 'materia_prima') {
+      return resolveRootCategory(d.categoryId) === 'cat_mp' || !!(d.itemCode && d.itemCode.startsWith('9.15.'));
+    }
+    if (mode === 'embalagens') {
+      const root = resolveRootCategory(d.categoryId);
+      return root === 'cat_emb' || root === 'cat_mat' || !!(d.itemCode && (d.itemCode.startsWith('08.') || (!d.itemCode.startsWith('9.15.') && d.itemCode.startsWith('9.'))));
+    }
+    if (mode === 'coloracao') {
+      return resolveRootCategory(d.categoryId) === 'cat_coloracao' || !!(d.itemCode && d.itemCode.replace(/\./g, '').startsWith('134'));
+    }
+    if (mode === 'apoio') {
+      return resolveRootCategory(d.categoryId) === 'cat_apoio' || !!(d.itemCode && d.itemCode.replace(/\./g, '').startsWith('130'));
+    }
+    return true;
   };
 
-  // Filter print list items currently listed
+  // Itens da lista deste módulo (sem a busca da tela): é o que se imprime e vira lote.
   const selectedDemands = useMemo(() => {
     const lookup = new Set(printList.map(c => c.replace(/\./g, '')));
-    let result = demands.filter(d => lookup.has((d.itemCode || '').replace(/\./g, '')));
-    
-    // Mode-specific category isolation
-    if (mode === 'materia_prima') {
-      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_mp' || (d.itemCode && d.itemCode.startsWith('9.15.')));
-    } else if (mode === 'embalagens') {
-      result = result.filter(d => {
-        const root = resolveRootCategory(d.categoryId);
-        return root === 'cat_emb' || root === 'cat_mat' || (d.itemCode && (d.itemCode.startsWith('08.') || (!d.itemCode.startsWith('9.15.') && d.itemCode.startsWith('9.'))));
-      });
-    } else if (mode === 'coloracao') {
-      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_coloracao' || (d.itemCode && d.itemCode.replace(/\./g, '').startsWith('134')));
-    } else if (mode === 'apoio') {
-      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_apoio' || (d.itemCode && d.itemCode.replace(/\./g, '').startsWith('130')));
-    }
+    const result = demands.filter(d => lookup.has((d.itemCode || '').replace(/\./g, '')) && passaNoModulo(d));
 
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(d => 
-        (d.itemCode || '').toLowerCase().includes(q) || 
-        (d.description || '').toLowerCase().includes(q)
-      );
-    }
-    
     return result.map((d) => {
       const next = stockOverrides[d.itemCode];
       if (next == null) return d;
       const delta = next - (d.currentStock || 0);
       return { ...d, currentStock: next, futureStockForecast: (d.futureStockForecast || 0) + delta };
     });
-  }, [demands, printList, search, mode, categories, stockOverrides]);
+  }, [demands, printList, mode, categories, stockOverrides]);
+
+  // O que a tabela mostra: a lista acima filtrada pela busca.
+  const exibidos = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return selectedDemands;
+    return selectedDemands.filter(d =>
+      (d.itemCode || '').toLowerCase().includes(q) ||
+      (d.description || '').toLowerCase().includes(q)
+    );
+  }, [selectedDemands, search]);
+
+  // Importação única: a lista que antes ficava só neste navegador sobe para o servidor, módulo a módulo.
+  const importou = useRef(false);
+  useEffect(() => {
+    if (importou.current || !active || loading || demands.length === 0 || categories.length === 0) return;
+    if (!['materia_prima', 'embalagens', 'coloracao', 'apoio'].includes(mode)) return;
+    let locais: string[] = [];
+    try {
+      const bruto = JSON.parse(localStorage.getItem('natum_hub_print_list') || '[]');
+      locais = Array.isArray(bruto) ? bruto.filter((c) => typeof c === 'string') : [];
+    } catch { locais = []; }
+    if (locais.length === 0) {
+      importou.current = true;
+      return;
+    }
+    const doModulo = new Set(demands.filter(passaNoModulo).map((d) => chaveItem(d.itemCode)));
+    const enviar = locais.filter((c) => doModulo.has(chaveItem(c)));
+    importou.current = true;
+    if (enviar.length === 0) return;
+    const lerMapa = (chave: string): Record<string, number> => {
+      try { return JSON.parse(localStorage.getItem(chave) || '{}') || {}; } catch { return {}; }
+    };
+    const qtds = lerMapa('natum_hub_print_list_manual_qtys');
+    const medias = lerMapa('natum_hub_print_list_manual_avgs');
+    const valor = (m: Record<string, number>, code: string) => {
+      const v = m[code] ?? m[chaveItem(code)];
+      return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+    };
+    (async () => {
+      try {
+        const r = (await api.adicionarItensListaCompra(mode as any, enviar)) as { resultado?: { adicionados?: string[] } };
+        const adicionados = new Set((r?.resultado?.adicionados || []).map(chaveItem));
+        for (const code of enviar) {
+          if (!adicionados.has(chaveItem(code))) continue;
+          const quantidadeManual = valor(qtds, code);
+          const mediaManual = valor(medias, code);
+          if (quantidadeManual !== null || mediaManual !== null) {
+            await api.ajustarItemListaCompra(mode as any, code, { quantidadeManual, mediaManual });
+          }
+        }
+        const saiu = new Set(enviar.map(chaveItem));
+        const resto = locais.filter((c) => !saiu.has(chaveItem(c)));
+        const limpar = (m: Record<string, number>) => {
+          for (const c of enviar) { delete m[c]; delete m[chaveItem(c)]; }
+          return m;
+        };
+        if (resto.length === 0) {
+          ['natum_hub_print_list', 'natum_hub_print_list_manual_qtys', 'natum_hub_print_list_manual_avgs'].forEach((k) => localStorage.removeItem(k));
+        } else {
+          localStorage.setItem('natum_hub_print_list', JSON.stringify(resto));
+          localStorage.setItem('natum_hub_print_list_manual_qtys', JSON.stringify(limpar(qtds)));
+          localStorage.setItem('natum_hub_print_list_manual_avgs', JSON.stringify(limpar(medias)));
+        }
+        window.dispatchEvent(new Event(EVENTO_LISTA_COMPRA));
+      } catch (e) {
+        console.error('Não foi possível importar a lista antiga deste navegador:', e);
+      }
+    })();
+  }, [active, loading, demands, categories, mode]);
 
   const commitStock = async (code: string) => {
     if (editingStock !== code) return;
@@ -326,21 +410,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     const lookup = new Set(printList.map(c => c.replace(/\./g, '')));
     const q = addItemSearch.toLowerCase();
     
-    let result = demands.filter(d => !lookup.has((d.itemCode || '').replace(/\./g, '')));
-
-    // Mode-specific category isolation
-    if (mode === 'materia_prima') {
-      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_mp' || (d.itemCode && d.itemCode.startsWith('9.15.')));
-    } else if (mode === 'embalagens') {
-      result = result.filter(d => {
-        const root = resolveRootCategory(d.categoryId);
-        return root === 'cat_emb' || root === 'cat_mat' || (d.itemCode && (d.itemCode.startsWith('08.') || (!d.itemCode.startsWith('9.15.') && d.itemCode.startsWith('9.'))));
-      });
-    } else if (mode === 'coloracao') {
-      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_coloracao' || (d.itemCode && d.itemCode.replace(/\./g, '').startsWith('134')));
-    } else if (mode === 'apoio') {
-      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_apoio' || (d.itemCode && d.itemCode.replace(/\./g, '').startsWith('130')));
-    }
+    const result = demands.filter(d => !lookup.has((d.itemCode || '').replace(/\./g, '')) && passaNoModulo(d));
 
     return result
       .filter(d => 
@@ -351,23 +421,22 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
   }, [demands, printList, addItemSearch, mode, categories]);
 
   const handleAddItem = (code: string) => {
-    const cleanCode = code.replace(/\./g, '');
-    if (printList.some(c => c.replace(/\./g, '') === cleanCode)) return;
-    const newList = [...printList, code];
-    savePrintList(newList);
+    if (lista.temItem(code)) return;
+    lista.adicionar([code]);
     setAddItemSearch('');
     setShowAddMenu(false);
   };
 
   const handleRemoveItem = (code: string) => {
-    const cleanCode = code.replace(/\./g, '');
-    const newList = printList.filter(c => c.replace(/\./g, '') !== cleanCode);
-    savePrintList(newList);
+    cancelarAjustes([chaveItem(code)]);
+    lista.remover([code]);
   };
 
   const handleClearList = () => {
-    if (confirm("Tem certeza que deseja limpar toda a lista de impressão?")) {
-      savePrintList([]);
+    const nome = mode === 'materia_prima' ? 'Matéria-Prima' : mode === 'embalagens' ? 'Embalagens' : mode === 'coloracao' ? 'Coloração' : mode === 'apoio' ? 'Material de Apoio' : 'este módulo';
+    if (confirm(`Tem certeza que deseja limpar a Lista de Compra de ${nome}? Só os itens deste módulo saem.`)) {
+      cancelarAjustes();
+      lista.remover(lista.codigos);
     }
   };
 
@@ -419,13 +488,13 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     });
     
     const rowsHtml = selectedDemands.map(item => {
-      const currentAvg = manualAvgs[item.itemCode] !== undefined ? manualAvgs[item.itemCode] : item.overallAvg;
+      const currentAvg = manualAvgs[chaveItem(item.itemCode)] !== undefined ? manualAvgs[chaveItem(item.itemCode)] : item.overallAvg;
       const daily = currentAvg / 30.0;
       const itemTargetDays = item.targetDays || 90;
       const calcTargetStock = itemTargetDays * daily;
       const futureStock = item.futureStockForecast || 0;
       const autoRec = Math.max(0, Math.round(calcTargetStock - futureStock));
-      const qty = manualQtys[item.itemCode] !== undefined ? manualQtys[item.itemCode] : (item.recommendedQty !== undefined ? Math.round(item.recommendedQty) : autoRec);
+      const qty = manualQtys[chaveItem(item.itemCode)] !== undefined ? manualQtys[chaveItem(item.itemCode)] : (item.recommendedQty !== undefined ? Math.round(item.recommendedQty) : autoRec);
       const postStock = Math.max(0, futureStock + qty);
       const postDuration = daily > 0 ? Math.round(postStock / daily) : 9999;
       const currentDuration = daily > 0 ? Math.round(futureStock / daily) : 9999;
@@ -694,14 +763,14 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     try {
       const authUser = getAuthUser();
       const items = selectedDemands.map(item => {
-        const currentAvg = manualAvgs[item.itemCode] !== undefined ? manualAvgs[item.itemCode] : item.overallAvg;
+        const currentAvg = manualAvgs[chaveItem(item.itemCode)] !== undefined ? manualAvgs[chaveItem(item.itemCode)] : item.overallAvg;
         const daily = currentAvg / 30.0;
         const itemTargetDays = item.targetDays || 90;
         const itemTriggerDays = item.triggerDays || 30;
         const calcTargetStock = itemTargetDays * daily;
         const futureStock = item.futureStockForecast || 0;
         const autoRec = Math.max(0, Math.round(calcTargetStock - futureStock));
-        const qty = manualQtys[item.itemCode] !== undefined ? manualQtys[item.itemCode] : (item.recommendedQty !== undefined ? Math.round(item.recommendedQty) : autoRec);
+        const qty = manualQtys[chaveItem(item.itemCode)] !== undefined ? manualQtys[chaveItem(item.itemCode)] : (item.recommendedQty !== undefined ? Math.round(item.recommendedQty) : autoRec);
         
         return {
           itemCode: item.itemCode,
@@ -730,15 +799,16 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
       // Imprime a via oficial com o LOTE
       handlePrint(res.batch.loteNumero, res.batch.titulo || undefined);
 
-      // Limpa lista de rascunho
-      savePrintList([]);
+      // O servidor já tirou da lista os itens do lote.
+      cancelarAjustes();
       setShowBatchModal(false);
       setBatchTitle('');
       setBatchNotes('');
       setLastGeneratedLote(res.batch.loteNumero);
 
       window.dispatchEvent(new Event('compras_solicitacoes_updated'));
-      window.dispatchEvent(new Event('storage'));
+      window.dispatchEvent(new Event(EVENTO_LISTA_COMPRA));
+      onLoteGerado?.(res.batch.id);
     } catch (e: any) {
       console.error('Erro ao gerar lote de solicitação:', e);
       alert(e?.message || 'Erro ao gerar lote de solicitação.');
@@ -754,7 +824,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
         <div className="text-left">
           <h3 className="font-extrabold text-zinc-900 text-lg flex items-center gap-2">
             <FileText className="h-5 w-5 text-zinc-800" />
-            Lista de Impressão — {mode === 'materia_prima' ? 'Matéria-Prima' : mode === 'embalagens' ? 'Embalagens' : mode === 'coloracao' ? 'Coloração' : mode === 'apoio' ? 'Material de Apoio' : 'Geral'}
+            Lista de Compra — {mode === 'materia_prima' ? 'Matéria-Prima' : mode === 'embalagens' ? 'Embalagens' : mode === 'coloracao' ? 'Coloração' : mode === 'apoio' ? 'Material de Apoio' : 'Geral'}
           </h3>
           <p className="text-xs text-zinc-500 mt-0.5">
             Gere lotes identificados de compra (ex: LOTE #001) para acompanhamento automático com os pedidos lançados no ERP.
@@ -792,7 +862,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
             <span>
-              Lote <strong>{lastGeneratedLote}</strong> gerado com sucesso! Acompanhe o lançamento dos pedidos pelo setor na aba <strong>Acompanhamento</strong>.
+              Lote <strong>{lastGeneratedLote}</strong> gerado com sucesso! Acompanhe o lançamento dos pedidos pelo setor na aba <strong>Solicitações</strong>.
             </span>
           </div>
           <button onClick={() => setLastGeneratedLote(null)} className="text-emerald-700 hover:text-emerald-900 cursor-pointer">
@@ -939,7 +1009,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                   className="w-full pl-9 pr-4 py-1.5 bg-white border border-zinc-300 rounded-lg text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none"
                 />
               </div>
-              <span className="text-xs text-zinc-500 font-semibold">{selectedDemands.length} itens listados</span>
+              <span className="text-xs text-zinc-500 font-semibold">{exibidos.length} itens listados</span>
             </div>
 
             <div className="relative">
@@ -1005,10 +1075,10 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
           <div className="flex-1 overflow-auto min-h-0">
             {loading ? (
               <div className="flex items-center justify-center h-full text-zinc-400 text-xs">Carregando itens...</div>
-            ) : selectedDemands.length === 0 ? (
+            ) : exibidos.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-zinc-400 gap-3 py-12">
                 <Package className="h-10 w-10 text-zinc-300" />
-                <p className="text-sm font-semibold">Nenhum insumo na Lista de Impressão</p>
+                <p className="text-sm font-semibold">Nenhum item na Lista de Compra</p>
                 <p className="text-xs max-w-sm text-center text-zinc-400">
                   Adicione insumos a partir da tabela principal do módulo clicando em "Adicionar à Lista" ou use o botão "+ Adicionar Insumo" acima.
                 </p>
@@ -1030,15 +1100,15 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-150">
-                  {selectedDemands.map(d => {
-                    const currentAvg = manualAvgs[d.itemCode] !== undefined ? manualAvgs[d.itemCode] : d.overallAvg;
+                  {exibidos.map(d => {
+                    const currentAvg = manualAvgs[chaveItem(d.itemCode)] !== undefined ? manualAvgs[chaveItem(d.itemCode)] : d.overallAvg;
                     const daily = currentAvg / 30.0;
                     const itemTargetDays = d.targetDays || 90;
                     const itemTriggerDays = d.triggerDays || 30;
                     const calcTargetStock = itemTargetDays * daily;
                     const futureStock = d.futureStockForecast || 0;
                     const autoRec = Math.max(0, Math.round(calcTargetStock - futureStock));
-                    const qty = manualQtys[d.itemCode] !== undefined ? manualQtys[d.itemCode] : (d.recommendedQty !== undefined ? Math.round(d.recommendedQty) : autoRec);
+                    const qty = manualQtys[chaveItem(d.itemCode)] !== undefined ? manualQtys[chaveItem(d.itemCode)] : (d.recommendedQty !== undefined ? Math.round(d.recommendedQty) : autoRec);
                     const postStock = Math.max(0, futureStock + qty);
                     const postDuration = daily > 0 ? Math.round(postStock / daily) : 9999;
                     const currentDuration = daily > 0 ? Math.round(futureStock / daily) : 9999;
@@ -1118,13 +1188,13 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                               <td key={colKey} className="py-2.5 px-3 text-right">
                                 <input
                                   type="number"
-                                  value={manualAvgs[d.itemCode] !== undefined ? manualAvgs[d.itemCode] : Math.round(d.overallAvg)}
+                                  value={manualAvgs[chaveItem(d.itemCode)] !== undefined ? manualAvgs[chaveItem(d.itemCode)] : Math.round(d.overallAvg)}
                                   onChange={e => handleUpdateManualAvg(d.itemCode, e.target.value === '' ? '' : Number(e.target.value))}
                                   className={cn(
                                     "w-16 text-right text-xs font-mono font-semibold border rounded px-1.5 py-0.5 focus:ring-1 focus:ring-zinc-900 focus:outline-none",
-                                    manualAvgs[d.itemCode] !== undefined ? "border-amber-400 bg-amber-50/50 text-amber-900" : "border-zinc-200 bg-white text-zinc-800"
+                                    manualAvgs[chaveItem(d.itemCode)] !== undefined ? "border-amber-400 bg-amber-50/50 text-amber-900" : "border-zinc-200 bg-white text-zinc-800"
                                   )}
-                                  title={manualAvgs[d.itemCode] !== undefined ? "Média editada manualmente para esta lista" : "Média mensal projetada pelo sistema"}
+                                  title={manualAvgs[chaveItem(d.itemCode)] !== undefined ? "Média editada manualmente para esta lista" : "Média mensal projetada pelo sistema"}
                                 />
                               </td>
                             );
@@ -1180,9 +1250,9 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                                     onChange={e => handleUpdateManualQty(d.itemCode, e.target.value === '' ? '' : Number(e.target.value))}
                                     className={cn(
                                       "w-20 text-right font-mono font-bold text-xs border rounded px-2 py-1 focus:ring-1 focus:ring-zinc-900 focus:outline-none",
-                                      manualQtys[d.itemCode] !== undefined ? "border-amber-400 bg-amber-50 text-amber-900" : "border-zinc-300 bg-white text-zinc-900"
+                                      manualQtys[chaveItem(d.itemCode)] !== undefined ? "border-amber-400 bg-amber-50 text-amber-900" : "border-zinc-300 bg-white text-zinc-900"
                                     )}
-                                    title={manualQtys[d.itemCode] !== undefined ? "Quantidade alterada manualmente" : `Calculada automaticamente para atingir a meta de ${itemTargetDays} dias`}
+                                    title={manualQtys[chaveItem(d.itemCode)] !== undefined ? "Quantidade alterada manualmente" : `Calculada automaticamente para atingir a meta de ${itemTargetDays} dias`}
                                   />
                                   <span className="text-[10px] text-zinc-400 font-sans">{d.unit}</span>
                                 </div>

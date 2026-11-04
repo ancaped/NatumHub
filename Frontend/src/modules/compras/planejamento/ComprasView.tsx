@@ -17,6 +17,7 @@ import { Category } from '../../geral/lib/types';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { COMPRAS_MODE_VIEW, syncCurrentPageForView } from '../../geral/lib/viewLabels';
 import { getAuthUser, isSupervisor } from '../../geral/lib/auth';
+import { useListaCompra } from './useListaCompra';
 
 interface ComprasViewProps {
   onBackToHub: () => void;
@@ -27,6 +28,8 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
   const canConfig = isSupervisor(getAuthUser());
   const [categories, setCategories] = useState<Category[]>([]);
   const [pinnedSubs, setPinnedSubs] = useState<string[]>([]);
+  const totalLista = useListaCompra(mode).codigos.length;
+  const [loteDestaque, setLoteDestaque] = useState<string | null>(null);
 
   const loadPinnedAndCategories = async () => {
     try {
@@ -83,8 +86,8 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
-          { id: 'print_list', label: 'Lista', icon: Printer },
-          { id: 'listas_acompanhamento', label: 'Acompanhamento', icon: ClipboardCheck },
+          { id: 'print_list', label: 'Lista de Compra', icon: Printer, badge: totalLista },
+          { id: 'listas_acompanhamento', label: 'Solicitações', icon: ClipboardCheck },
           ...settingsItem,
         ];
         break;
@@ -95,8 +98,8 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
-          { id: 'print_list', label: 'Lista', icon: Printer },
-          { id: 'listas_acompanhamento', label: 'Acompanhamento', icon: ClipboardCheck },
+          { id: 'print_list', label: 'Lista de Compra', icon: Printer, badge: totalLista },
+          { id: 'listas_acompanhamento', label: 'Solicitações', icon: ClipboardCheck },
           ...settingsItem,
         ];
         break;
@@ -107,8 +110,8 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
-          { id: 'print_list', label: 'Lista', icon: Printer },
-          { id: 'listas_acompanhamento', label: 'Acompanhamento', icon: ClipboardCheck },
+          { id: 'print_list', label: 'Lista de Compra', icon: Printer, badge: totalLista },
+          { id: 'listas_acompanhamento', label: 'Solicitações', icon: ClipboardCheck },
           ...settingsItem,
         ];
         break;
@@ -119,8 +122,8 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
-          { id: 'print_list', label: 'Lista', icon: Printer },
-          { id: 'listas_acompanhamento', label: 'Acompanhamento', icon: ClipboardCheck },
+          { id: 'print_list', label: 'Lista de Compra', icon: Printer, badge: totalLista },
+          { id: 'listas_acompanhamento', label: 'Solicitações', icon: ClipboardCheck },
           ...settingsItem,
         ];
         break;
@@ -142,14 +145,14 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
-          { id: 'print_list', label: 'Lista', icon: Printer },
-          { id: 'listas_acompanhamento', label: 'Acompanhamento', icon: ClipboardCheck },
+          { id: 'print_list', label: 'Lista de Compra', icon: Printer, badge: totalLista },
+          { id: 'listas_acompanhamento', label: 'Solicitações', icon: ClipboardCheck },
           ...settingsItem,
         ];
         break;
     }
     return items;
-  }, [mode, categories, pinnedSubs, canConfig]);
+  }, [mode, categories, pinnedSubs, canConfig, totalLista]);
 
   const initialTab = React.useMemo(() => {
     if (mode === 'materia_prima') return 'materia_prima';
@@ -196,7 +199,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
       <div className="w-full max-w-none">
         {navItems.some(i => i.id === 'demands') && (
           <div className={activeTab !== 'demands' ? 'hidden' : ''}>
-            <DemandTable active={activeTab === 'demands'} mode={mode === 'materia_prima' ? 'materia_prima' : mode === 'embalagens' ? 'embalagens' : 'all'} />
+            <DemandTable active={activeTab === 'demands'} mode={mode === 'materia_prima' ? 'materia_prima' : mode === 'embalagens' ? 'embalagens' : 'all'} moduloLista={mode} />
           </div>
         )}
 
@@ -206,13 +209,17 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         
         {navItems.some(i => i.id === 'print_list') && (
           <div className={activeTab !== 'print_list' ? 'hidden' : ''}>
-            <PrintListTab active={activeTab === 'print_list'} mode={mode} />
+            <PrintListTab
+              active={activeTab === 'print_list'}
+              mode={mode}
+              onLoteGerado={(id) => { setLoteDestaque(id); setActiveTab('listas_acompanhamento'); }}
+            />
           </div>
         )}
 
         {navItems.some(i => i.id === 'listas_acompanhamento') && (
           <div className={activeTab !== 'listas_acompanhamento' ? 'hidden' : ''}>
-            <ListasAcompanhamentoTab active={activeTab === 'listas_acompanhamento'} mode={mode} />
+            <ListasAcompanhamentoTab active={activeTab === 'listas_acompanhamento'} mode={mode} destaqueLoteId={loteDestaque} />
           </div>
         )}
 
@@ -225,7 +232,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         {navItems.some(i => i.id === 'materia_prima') && (
           <div className={activeTab !== 'materia_prima' ? 'hidden' : ''}>
             {mode === 'materia_prima' ? (
-              <DemandTable active={activeTab === 'materia_prima'} mode="materia_prima" />
+              <DemandTable active={activeTab === 'materia_prima'} mode="materia_prima" moduloLista={mode} />
             ) : (
               <InsumosDetalhesTab active={activeTab === 'materia_prima'} parentCategoryFilter="cat_mp" />
             )}
@@ -235,7 +242,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         {navItems.some(i => i.id === 'embalagens') && (
           <div className={activeTab !== 'embalagens' ? 'hidden' : ''}>
             {mode === 'embalagens' ? (
-              <DemandTable active={activeTab === 'embalagens'} mode="embalagens" />
+              <DemandTable active={activeTab === 'embalagens'} mode="embalagens" moduloLista={mode} />
             ) : (
               <InsumosDetalhesTab active={activeTab === 'embalagens'} parentCategoryFilter="cat_emb" />
             )}
@@ -244,13 +251,13 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
 
         {navItems.some(i => i.id === 'coloracao') && (
           <div className={activeTab !== 'coloracao' ? 'hidden' : ''}>
-            <ProdutosCompraTab active={activeTab === 'coloracao'} statusFilter="coloracao" title="Coloração" />
+            <ProdutosCompraTab active={activeTab === 'coloracao'} statusFilter="coloracao" title="Coloração" moduloLista={mode} />
           </div>
         )}
 
         {navItems.some(i => i.id === 'apoio') && (
           <div className={activeTab !== 'apoio' ? 'hidden' : ''}>
-            <ProdutosCompraTab active={activeTab === 'apoio'} statusFilter="apoio" title="Material de Apoio" />
+            <ProdutosCompraTab active={activeTab === 'apoio'} statusFilter="apoio" title="Material de Apoio" moduloLista={mode} />
           </div>
         )}
 
@@ -296,6 +303,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
                   statusFilter={isColoracao ? 'coloracao' : 'apoio'}
                   title={c.name}
                   initialCategoryFilter={c.id}
+                  moduloLista={mode}
                 />
               </div>
             );
@@ -307,6 +315,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
                 active={activeTab === `sub_${c.id}`}
                 mode={(c.parentId === 'cat_emb' || c.parentId === 'cat_mat') ? 'embalagens' : c.parentId === 'cat_mp' ? 'materia_prima' : 'all'} 
                 initialCategoryFilter={c.id} 
+                moduloLista={mode}
               />
             </div>
           );
