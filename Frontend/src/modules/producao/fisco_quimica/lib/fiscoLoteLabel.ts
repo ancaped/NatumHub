@@ -71,6 +71,19 @@ function bulkUnit(productName: string, pattern: FiscoQuimicaPattern | null): 'L'
   return 'L';
 }
 
+/** Unidades do lote pela embalagem (kg do lote ÷ conteúdo da unidade); 0 se não der para saber. */
+function unidadesPelaEmbalagem(productName: string, pattern: FiscoQuimicaPattern | null, qtyKg: number): number {
+  if (qtyKg <= 0) return 0;
+  const patVol = Number(pattern?.packageVolume) || 0;
+  const pkg = patVol > 0 && pattern?.packageUnit
+    ? { volume: patVol, unit: String(pattern.packageUnit) }
+    : parsePackageFromProductName(productName);
+  if (!pkg) return 0;
+  const u = pkg.unit.toLowerCase();
+  const kgPorUnidade = u === 'ml' || u === 'g' ? pkg.volume / 1000 : u === 'l' || u === 'kg' ? pkg.volume : 0;
+  return kgPorUnidade > 0 ? Math.round(qtyKg / kgPorUnidade) : 0;
+}
+
 /** Volume do lote no formato do ERP: "200,00 L (Aproximadamente 200 unidades ou 33 caixas)". */
 export function buildFiscoVolumeLine(
   productName: string,
@@ -78,7 +91,9 @@ export function buildFiscoVolumeLine(
   bulk?: FiscoLoteBulk | null,
 ): string {
   const qty = Number(bulk?.qtyKg) || 0;
-  const unidades = Math.round(Number(bulk?.unidades) || 0);
+  let unidades = Math.round(Number(bulk?.unidades) || 0);
+  // o ERP deixa 1 (ou 0) em "unidades" até lançar as reais: nesse caso estima pela embalagem
+  if (unidades <= 1) unidades = Math.max(unidades, unidadesPelaEmbalagem(productName, pattern, qty));
   const perBox = Math.round(Number(bulk?.qtdeCx) || 0);
   if (qty <= 0 && unidades <= 0) return '';
 
