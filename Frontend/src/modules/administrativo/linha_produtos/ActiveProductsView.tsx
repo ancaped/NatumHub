@@ -979,9 +979,26 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
   const configsFiltradas = useMemo(() => {
     const q = linhaSearch.trim().toLowerCase();
-    if (!q) return configs;
-    return configs.filter(c => c.linha_prefix.toLowerCase().includes(q) || (c.nome_linha || '').toLowerCase().includes(q));
+    const lista = q
+      ? configs.filter(c => c.linha_prefix.toLowerCase().includes(q) || (c.nome_linha || '').toLowerCase().includes(q))
+      : configs;
+    // Prefixo em ordem numérica (9.15 depois de 9, antes de 10); DEFAULT por último.
+    const chave = (prefixo: string) => (prefixo === 'DEFAULT' ? Infinity : parseFloat(prefixo));
+    return [...lista].sort((a, b) => {
+      const ka = chave(a.linha_prefix);
+      const kb = chave(b.linha_prefix);
+      return ka === kb ? a.linha_prefix.localeCompare(b.linha_prefix) : (Number.isNaN(ka) ? Infinity : ka) - (Number.isNaN(kb) ? Infinity : kb);
+    });
   }, [configs, linhaSearch]);
+
+  const produtosPorLinha = useMemo(() => {
+    const mapa = new Map<string, number>();
+    for (const p of products) {
+      const linha = p.linha_prefix_manual || p.linha_prefix || 'DEFAULT';
+      mapa.set(linha, (mapa.get(linha) || 0) + 1);
+    }
+    return mapa;
+  }, [products]);
 
   const overridesFiltrados = useMemo(() => {
     const q = auditSearch.trim().toLowerCase();
@@ -1553,51 +1570,57 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                 <table className="w-full text-left text-xs border-collapse">
                   <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500">
                     <tr>
-                      <th className="px-6 py-3.5 w-28">Prefixo</th>
-                      <th className="px-6 py-3.5">Nome da Linha</th>
-                      <th className="px-6 py-3.5 text-right">Mult. Estoque Ideal</th>
-                      <th className="px-6 py-3.5 text-right">Mult. Ordem</th>
-                      <th className="px-6 py-3.5 text-right">Mult. Produção</th>
-                      <th className="px-6 py-3.5 text-right">Fator Z (Segurança)</th>
-                      <th className="px-6 py-3.5 text-center">Status</th>
-                      <th className="px-6 py-3.5 text-right">Ações</th>
+                      <th className="px-6 py-3 w-28 text-[10px] uppercase tracking-wider">Prefixo</th>
+                      <th className="px-6 py-3 text-[10px] uppercase tracking-wider">Linha</th>
+                      <th className="px-6 py-3 text-right text-[10px] uppercase tracking-wider">Produtos</th>
+                      <th className="px-6 py-3 text-right text-[10px] uppercase tracking-wider">Estoque ideal</th>
+                      <th className="px-6 py-3 text-right text-[10px] uppercase tracking-wider">Abrir ordem</th>
+                      <th className="px-6 py-3 text-right text-[10px] uppercase tracking-wider">Abrir produção</th>
+                      <th className="px-6 py-3 text-right text-[10px] uppercase tracking-wider">Fator Z</th>
+                      <th className="px-6 py-3 text-center text-[10px] uppercase tracking-wider">Painel</th>
+                      <th className="px-6 py-3 w-24"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100">
                     {configsFiltradas.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="p-8 text-center text-zinc-400">Nenhuma configuração de linha encontrada.</td>
+                        <td colSpan={9} className="p-8 text-center text-zinc-400">Nenhuma configuração de linha encontrada.</td>
                       </tr>
                     ) : (
                       configsFiltradas.map(cfg => (
-                        <tr key={cfg.linha_prefix} className="hover:bg-zinc-50/50 transition-colors">
-                          <td className="px-6 py-3 font-mono font-bold text-zinc-500">{cfg.linha_prefix}</td>
-                          <td className="px-6 py-3 font-bold text-zinc-800">{cfg.nome_linha}</td>
-                          <td className="px-6 py-3 text-right font-medium text-zinc-700">{cfg.estoque_ideal_mult.toFixed(1)} meses</td>
-                          <td className="px-6 py-3 text-right text-zinc-600">{cfg.abrir_ordem_mult.toFixed(1)}x</td>
-                          <td className="px-6 py-3 text-right text-zinc-600">{cfg.abrir_prod_mult.toFixed(1)}x</td>
-                          <td className="px-6 py-3 text-right text-zinc-600">{cfg.fator_seguranca_z.toFixed(2)}</td>
-                          <td className="px-6 py-3 text-center">
-                            <span className={cn(
-                              "px-2 py-0.5 rounded-full text-[10px] font-bold border",
-                              cfg.visivel === 0 ? "bg-zinc-100 text-zinc-500 border-zinc-200" : "bg-zinc-900 text-white border-zinc-900"
-                            )}>
-                              {cfg.visivel === 0 ? "Oculto" : "Ativo"}
+                        <tr
+                          key={cfg.linha_prefix}
+                          onClick={() => handleOpenLineModal(cfg)}
+                          className="hover:bg-zinc-50/70 transition-colors cursor-pointer"
+                        >
+                          <td className="px-6 py-2.5 font-mono font-bold text-zinc-500">{cfg.linha_prefix}</td>
+                          <td className="px-6 py-2.5 font-bold text-zinc-800">{cfg.nome_linha}</td>
+                          <td className="px-6 py-2.5 text-right tabular-nums text-zinc-700">{produtosPorLinha.get(cfg.linha_prefix) || 0}</td>
+                          <td className="px-6 py-2.5 text-right tabular-nums text-zinc-700">{cfg.estoque_ideal_mult.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} meses</td>
+                          <td className="px-6 py-2.5 text-right tabular-nums text-zinc-600">{cfg.abrir_ordem_mult.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}x</td>
+                          <td className="px-6 py-2.5 text-right tabular-nums text-zinc-600">{cfg.abrir_prod_mult.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}x</td>
+                          <td className="px-6 py-2.5 text-right tabular-nums text-zinc-600">{cfg.fator_seguranca_z.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-6 py-2.5 text-center">
+                            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-zinc-600">
+                              <span className={cn("h-1.5 w-1.5 rounded-full", cfg.visivel === 0 ? "bg-zinc-300" : "bg-zinc-900")} />
+                              {cfg.visivel === 0 ? "Oculta" : "Visível"}
                             </span>
                           </td>
-                          <td className="px-6 py-3 text-right space-x-2">
+                          <td className="px-6 py-2.5 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                             <button
                               onClick={() => handleOpenLineModal(cfg)}
-                              className="px-2.5 py-1 bg-zinc-100 hover:bg-zinc-200 rounded-lg font-bold text-zinc-700 transition-colors cursor-pointer border border-zinc-250/30"
+                              className="p-1.5 hover:bg-zinc-100 text-zinc-400 hover:text-zinc-800 rounded-lg transition-colors cursor-pointer"
+                              title="Editar linha"
                             >
-                              Editar
+                              <Edit className="w-4 h-4" />
                             </button>
                             {cfg.linha_prefix !== 'DEFAULT' && (
                               <button
                                 onClick={() => handleDeleteLineConfig(cfg.linha_prefix)}
-                                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg font-bold transition-colors cursor-pointer border border-rose-100"
+                                className="p-1.5 hover:bg-zinc-100 text-zinc-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
+                                title="Excluir linha"
                               >
-                                Excluir
+                                <Trash2 className="w-4 h-4" />
                               </button>
                             )}
                           </td>
