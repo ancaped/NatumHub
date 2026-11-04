@@ -101,7 +101,7 @@ export default function KitsTab({ products, categories, kitComposicao, onAbrirCo
     <>
             <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
               {/* Busca, filtro e ações */}
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shrink-0">
+              <div className="bg-white border border-zinc-200 rounded-2xl p-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shrink-0">
                 <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
                   <div className="relative w-full max-w-sm">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />

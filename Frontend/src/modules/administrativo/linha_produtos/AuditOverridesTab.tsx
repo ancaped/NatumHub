@@ -125,7 +125,17 @@ export default function AuditOverridesTab({ allOverrides, products, configs, cat
 
   return (
             <div className="flex-1 flex flex-col space-y-4">
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <div className="bg-white border border-zinc-200 rounded-2xl p-3 flex flex-wrap items-center gap-2 shrink-0">
+              <div className="relative w-full max-w-xs">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar por código, descrição ou observação..."
+                  value={auditSearch}
+                  onChange={(e) => { setAuditSearch(e.target.value); setAuditPage(1); }}
+                  className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm font-medium"
+                />
+              </div>
                 {[{ id: 'ALL', rotulo: 'Todos', n: allOverrides.length }, { id: 'status_redundante', rotulo: 'Status redundante', n: contagemPorTipoAjuste['status_redundante'] || 0 }, ...TIPOS_AJUSTE.filter(t => contagemPorTipoAjuste[t.id]).map(t => ({ ...t, n: contagemPorTipoAjuste[t.id] }))].filter(t => t.id !== 'status_redundante' || t.n > 0).map(t => (
                   <button
                     key={t.id}
@@ -151,17 +161,6 @@ export default function AuditOverridesTab({ allOverrides, products, configs, cat
                   </button>
                 </div>
               )}
-              <div className="relative w-full max-w-sm shrink-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-                <input
-                  type="text"
-                  placeholder="Buscar por código, descrição ou observação..."
-                  value={auditSearch}
-                  onChange={(e) => { setAuditSearch(e.target.value); setAuditPage(1); }}
-                  className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm font-medium"
-                />
-              </div>
-
               {/* Overrides Table Card */}
               <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
                 <table className="w-full text-left text-xs border-collapse">
