@@ -27,25 +27,30 @@ export type AvariaFicha = {
   fqNecessaria?: boolean;
   fqResultado?: string | null;
   fqObservacao?: string | null;
+  tipo?: string;
+  fornecedor?: string | null;
+  nfEntrada?: string | null;
 };
 
 const DESTINOS = [
   { id: 'retorno_estoque', label: 'Retorno ao estoque', tone: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
   { id: 'reparo', label: 'Reparo de embalagem', tone: 'bg-blue-50 border-blue-200 text-blue-800' },
   { id: 'descarte', label: 'Descarte', tone: 'bg-rose-50 border-rose-200 text-rose-800' },
+  { id: 'devolucao_fornecedor', label: 'Devolução ao fornecedor', tone: 'bg-blue-50 border-blue-200 text-blue-800' },
 ] as const;
 
 function statusLabel(row: AvariaFicha) {
   if (row.status === 'retorno_estoque') return 'Retorno ao estoque';
   if (row.status === 'reparo' || row.status === 'embalagem') return 'Reparo de embalagem';
   if (row.status === 'descarte') return 'Descarte';
+  if (row.status === 'devolucao_fornecedor') return 'Devolução ao fornecedor';
   if (row.status === 'em_analise') return 'Em análise';
   return row.status;
 }
 
 function statusBadge(status: string) {
   if (status === 'retorno_estoque') return 'saudavel';
-  if (status === 'reparo' || status === 'embalagem') return 'ordem';
+  if (status === 'reparo' || status === 'embalagem' || status === 'devolucao_fornecedor') return 'ordem';
   if (status === 'descarte') return 'critico';
   return 'aguardando';
 }
@@ -185,6 +190,12 @@ export default function AvariasFicha({
               <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Local</div>
               <div className="text-sm mt-1">{row.location || '—'}</div>
             </div>
+            {row.tipo && row.tipo !== 'produto_acabado' && (
+              <div className="col-span-2 text-sm">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Fornecedor / NF de entrada</span>
+                <div className="mt-1">{row.fornecedor || '—'} · <span className="font-mono">{row.nfEntrada || 'sem NF'}</span></div>
+              </div>
+            )}
             <div className="col-span-2 flex flex-wrap items-center gap-2">
               <span className={cn('status-badge', statusBadge(row.status))}>{statusLabel(row)}</span>
               {row.sheetNumber && (
@@ -267,7 +278,7 @@ export default function AvariasFicha({
             <div className="space-y-2">
               <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Concluir como</div>
               <div className="flex flex-wrap gap-2">
-                {DESTINOS.map((dest) => (
+                {DESTINOS.filter((d) => d.id !== 'devolucao_fornecedor' || (row.tipo ?? 'produto_acabado') !== 'produto_acabado').map((dest) => (
                   <button
                     key={dest.id}
                     type="button"

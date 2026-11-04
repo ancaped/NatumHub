@@ -8,7 +8,7 @@ import { cn } from '../../geral/lib/utils';
 import AvariasFolhas from './AvariasFolhas';
 import AvariasFicha from './AvariasFicha';
 
-type Status = 'em_analise' | 'retorno_estoque' | 'reparo' | 'embalagem' | 'descarte' | 'outro';
+type Status = 'em_analise' | 'retorno_estoque' | 'reparo' | 'embalagem' | 'descarte' | 'devolucao_fornecedor' | 'outro';
 type TabId = 'lista' | 'cadastro' | 'retorno' | 'controles';
 type Filtro = Status | 'all';
 type Tipo = 'produto_acabado' | 'materia_prima' | 'embalagem' | 'material_processo';
@@ -39,6 +39,8 @@ type Avaria = {
   fqResultado?: string | null;
   fqObservacao?: string | null;
   tipo?: Tipo;
+  fornecedor?: string | null;
+  nfEntrada?: string | null;
 };
 
 type ItemHit = {
@@ -60,6 +62,7 @@ const STATUSES: { id: Status; label: string; short: string; subtitle: string; ba
   { id: 'retorno_estoque', label: 'Retorno ao estoque', short: 'Retorno estoque', subtitle: 'Liberar / Troca de lote', badge: 'saudavel', tone: 'emerald' },
   { id: 'reparo', label: 'Reparo de embalagem', short: 'Reparo', subtitle: 'Troca de frasco / rótulo', badge: 'ordem', tone: 'blue' },
   { id: 'descarte', label: 'Descarte', short: 'Descarte', subtitle: 'Inutilização / Perda', badge: 'critico', tone: 'rose' },
+  { id: 'devolucao_fornecedor', label: 'Devolução ao fornecedor', short: 'Devolução forn.', subtitle: 'Volta ao fornecedor', badge: 'ordem', tone: 'blue' },
 ];
 
 const COLETA: { id: Status; label: string; short: string; hint: string }[] = [
@@ -67,7 +70,11 @@ const COLETA: { id: Status; label: string; short: string; hint: string }[] = [
   { id: 'reparo', label: 'Reparo de embalagem', short: 'Reparo', hint: 'Produto bom, trocar frasco ou rótulo' },
   { id: 'em_analise', label: 'Em análise CQ', short: 'Em análise', hint: 'Pendente de análise técnica ou decisão' },
   { id: 'descarte', label: 'Descarte', short: 'Descarte', hint: 'Inutilização física / Baixa de estoque' },
+  { id: 'devolucao_fornecedor', label: 'Devolução ao fornecedor', short: 'Devolução forn.', hint: 'Matéria-prima ou embalagem que volta ao fornecedor' },
 ];
+
+/** Devolução ao fornecedor só existe para o que não é produto acabado. */
+const coletaPara = (t?: Tipo) => COLETA.filter((c) => c.id !== 'devolucao_fornecedor' || (t ?? 'produto_acabado') !== 'produto_acabado');
 
 const LOCATIONS_CATALOG_KEY = 'avarias_catalog_locations';
 const MOTIVOS_CATALOG_KEY = 'avarias_catalog_motivos';
@@ -251,6 +258,8 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
   const [filtroLocal, setFiltroLocal] = useState<string>('all');
   const [filtroTipo, setFiltroTipo] = useState<Tipo | 'all'>('all');
   const [tipo, setTipo] = useState<Tipo>('produto_acabado');
+  const [fornecedor, setFornecedor] = useState('');
+  const [nfEntrada, setNfEntrada] = useState('');
   const [busca, setBusca] = useState('');
   const [editingId, setEditingId] = useState<number | null>(null);
   const [registerNumber, setRegisterNumber] = useState('');
@@ -357,6 +366,8 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
     setDecidedBy('');
     setItemQuery('');
     setItemHits([]);
+    setFornecedor('');
+    setNfEntrada('');
     setPhotoFile(null);
     setError('');
   };
@@ -493,6 +504,8 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
       qty: Number(qty.replace(',', '.')),
       location: location.trim(),
       tipo,
+      fornecedor: tipo === 'produto_acabado' ? null : fornecedor.trim() || null,
+      nfEntrada: tipo === 'produto_acabado' ? null : nfEntrada.trim() || null,
       status,
       notes: notes.trim() || null,
       repairType: status === 'reparo' ? 'embalagem' : null,
@@ -1026,7 +1039,7 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
                       </div>
                       {canEdit && (
                         <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                          {COLETA.map((item) => (
+                          {coletaPara(row.tipo).map((item) => (
                             <button
                               key={item.id}
                               type="button"
@@ -1068,7 +1081,7 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
                       key={t.id}
                       type="button"
                       disabled={!canEdit || !!editingId}
-                      onClick={() => { setTipo(t.id); setItemQuery(''); setItemHits([]); }}
+                      onClick={() => { setTipo(t.id); setItemQuery(''); setItemHits([]); if (t.id === 'produto_acabado' && status === 'devolucao_fornecedor') setStatus('em_analise'); }}
                       className={cn(
                         'h-9 px-3 rounded-xl border text-xs font-semibold transition-colors disabled:opacity-60',
                         tipo === t.id ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white border-zinc-200 text-zinc-700 hover:border-zinc-300',
@@ -1144,10 +1157,22 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
                   placeholder="Novo local (ex.: Quarentena, Doca 2)"
                   disabled={!canEdit}
                 />
+                {tipo !== 'produto_acabado' && (
+                  <>
+                    <label className="space-y-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Fornecedor</span>
+                      <input className={inputCls} value={fornecedor} disabled={!canEdit} onChange={(e) => setFornecedor(e.target.value)} />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">NF de entrada</span>
+                      <input className={cn(inputCls, 'font-mono')} value={nfEntrada} disabled={!canEdit} onChange={(e) => setNfEntrada(e.target.value)} />
+                    </label>
+                  </>
+                )}
                 <div className="space-y-2 md:col-span-2">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Decisão inicial</span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                    {COLETA.map((item) => (
+                    {coletaPara(tipo).map((item) => (
                       <button
                         key={item.id}
                         type="button"

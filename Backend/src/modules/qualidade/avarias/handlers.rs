@@ -23,6 +23,7 @@ const STATUSES: &[&str] = &[
     "reparo",
     "embalagem",
     "descarte",
+    "devolucao_fornecedor",
     "outro",
 ];
 
@@ -44,7 +45,7 @@ pub(super) const SELECT_COLS: &str = r#"
     a.notes, a.foto_path, a.created_by, a.decided_by, a.decided_at, a.created_at, a.updated_at,
     folha.sheet_number, folha.sheet_status,
     a.repair_type, a.problema, a.encaminhamento, a.fq_necessaria, a.fq_resultado, a.fq_observacao,
-    a.tipo
+    a.tipo, a.fornecedor, a.nf_entrada
 "#;
 
 pub(super) const AVARIA_FROM: &str = r#"
@@ -72,7 +73,7 @@ pub async fn ensure_tables(pool: &PgPool) -> Result<(), String> {
             location TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL DEFAULT 'em_analise'
                 CHECK (status IN (
-                    'em_analise', 'retorno_estoque', 'reparo', 'embalagem', 'descarte', 'outro'
+                    'em_analise', 'retorno_estoque', 'reparo', 'embalagem', 'descarte', 'devolucao_fornecedor', 'outro'
                 )),
             notes TEXT,
             foto_path TEXT,
@@ -134,6 +135,8 @@ pub async fn ensure_tables(pool: &PgPool) -> Result<(), String> {
         "ALTER TABLE qualidade_avarias ADD COLUMN IF NOT EXISTS fq_necessaria BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE qualidade_avarias ADD COLUMN IF NOT EXISTS fq_resultado TEXT",
         "ALTER TABLE qualidade_avarias ADD COLUMN IF NOT EXISTS fq_observacao TEXT",
+        "ALTER TABLE qualidade_avarias ADD COLUMN IF NOT EXISTS fornecedor TEXT",
+        "ALTER TABLE qualidade_avarias ADD COLUMN IF NOT EXISTS nf_entrada TEXT",
         "ALTER TABLE qualidade_avarias ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'produto_acabado'",
         "ALTER TABLE qualidade_avaria_folhas ADD COLUMN IF NOT EXISTS box_count INTEGER NOT NULL DEFAULT 1",
     ] {
@@ -208,6 +211,8 @@ pub(super) fn map_avaria(r: &sqlx::postgres::PgRow) -> AvariaOut {
         fq_resultado: r.get(21),
         fq_observacao: r.get(22),
         tipo: r.get(23),
+        fornecedor: r.get(24),
+        nf_entrada: r.get(25),
     }
 }
 
@@ -267,6 +272,9 @@ struct CleanInput {
     fq_observacao: Option<String>,
     /// None = o corpo não trouxe tipo: grava produto acabado ao criar e mantém o atual ao editar.
     tipo: Option<&'static str>,
+    /// None = não veio no corpo: ao editar, mantém o atual.
+    fornecedor: Option<String>,
+    nf_entrada: Option<String>,
 }
 
 fn clean_input(payload: &UpsertAvariaRequest) -> Result<CleanInput, String> {
@@ -286,6 +294,9 @@ fn clean_input(payload: &UpsertAvariaRequest) -> Result<CleanInput, String> {
         Some(t) => Some(normalize_tipo(t)?),
         None => None,
     };
+    if status == "devolucao_fornecedor" && tipo == Some("produto_acabado") {
+        return Err("Devolução ao fornecedor vale só para matéria-prima, embalagem e material de processo".into());
+    }
     let notes = payload
         .notes
         .as_deref()
@@ -343,6 +354,8 @@ fn clean_input(payload: &UpsertAvariaRequest) -> Result<CleanInput, String> {
         fq_resultado,
         fq_observacao: text(&payload.fq_observacao),
         tipo,
+        fornecedor: payload.fornecedor.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string),
+        nf_entrada: payload.nf_entrada.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string),
     })
 }
 
@@ -493,12 +506,12 @@ pub async fn create_avaria(
         INSERT INTO qualidade_avarias (
             register_number, item_code, description, lote, qty, location, status, notes,
             created_by, decided_by, decided_at,
-            repair_type, problema, encaminhamento, fq_necessaria, fq_resultado, fq_observacao, tipo
+            repair_type, problema, encaminhamento, fq_necessaria, fq_resultado, fq_observacao, tipo, fornecedor, nf_entrada
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9,
             CASE WHEN $7 = 'em_analise' THEN NULL ELSE $9 END,
             CASE WHEN $7 = 'em_analise' THEN NULL ELSE NOW() END,
-            $10, $11, $12, $13, $14, $15, COALESCE($16, 'produto_acabado')
+            $10, $11, $12, $13, $14, $15, COALESCE($16, 'produto_acabado'), $17, $18
         )
         RETURNING id
         "#,
@@ -519,6 +532,8 @@ pub async fn create_avaria(
     .bind(&input.fq_resultado)
     .bind(&input.fq_observacao)
     .bind(input.tipo)
+    .bind(&input.fornecedor)
+    .bind(&input.nf_entrada)
     .fetch_one(pool)
     .await;
 
@@ -589,6 +604,8 @@ pub async fn update_avaria(
             fq_resultado = $14,
             fq_observacao = $15,
             tipo = COALESCE($16, tipo),
+            fornecedor = COALESCE($17, fornecedor),
+            nf_entrada = COALESCE($18, nf_entrada),
             decided_by = CASE
                 WHEN $6 = 'em_analise' THEN NULL
                 WHEN status = $6 THEN decided_by
@@ -619,6 +636,8 @@ pub async fn update_avaria(
     .bind(&input.fq_resultado)
     .bind(&input.fq_observacao)
     .bind(input.tipo)
+    .bind(&input.fornecedor)
+    .bind(&input.nf_entrada)
     .execute(pool)
     .await;
 

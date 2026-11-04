@@ -27,6 +27,8 @@ pub struct AvariaOut {
     pub fq_resultado: Option<String>,
     pub fq_observacao: Option<String>,
     pub tipo: String,
+    pub fornecedor: Option<String>,
+    pub nf_entrada: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -46,6 +48,8 @@ pub struct UpsertAvariaRequest {
     pub fq_resultado: Option<String>,
     pub fq_observacao: Option<String>,
     pub tipo: Option<String>,
+    pub fornecedor: Option<String>,
+    pub nf_entrada: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
