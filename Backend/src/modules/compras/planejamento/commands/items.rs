@@ -662,7 +662,7 @@ pub fn checar_produto_do_agente(ctx: &AuthContext, tipo: &str, raiz_origem: Opti
 }
 
 /// Raiz da árvore de categorias (sobe por `parent_id`, com trava contra ciclo).
-async fn raiz_da_categoria(conn: &mut sqlx::PgConnection, id: &str) -> Result<Option<String>, ErroApi> {
+pub(super) async fn raiz_da_categoria(conn: &mut sqlx::PgConnection, id: &str) -> Result<Option<String>, ErroApi> {
     Ok(sqlx::query_scalar(
         "WITH RECURSIVE sobe AS (
              SELECT id, parent_id, 0 AS n FROM categories WHERE id = $1

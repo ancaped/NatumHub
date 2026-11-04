@@ -852,7 +852,7 @@ pub fn acoes() -> Vec<Acao> {
         Acao::gravacao(
             "salvar_categoria_compras",
             "compras_categorias",
-            "Cria ou renomeia uma subcategoria do Hub de Compras. Sem `confirmar=true` devolve a prévia (`antes`, `depois`, `mudou`) e não grava; com ele grava e audita. `parentId` é obrigatório e precisa existir; `name` não pode ser vazio; sem `id` gera um (a prévia devolve `id` nulo). Recusa alterar categorias raiz e criar ciclo; `parentId` diferente do atual move a subcategoria. Não exclui. Os ids vêm de `listar_categorias_compras`.",
+            "Cria ou renomeia uma subcategoria do Hub de Compras. Sem `confirmar=true` devolve a prévia (`antes`, `depois`, `mudou`) e não grava; com ele grava e audita. `parentId` é obrigatório e precisa existir; `name` não pode ser vazio; sem `id` gera um (a prévia devolve `id` nulo). Recusa alterar categorias raiz e criar ciclo; `parentId` diferente do atual move a subcategoria dentro da mesma família; mover para outra família é só do supervisor (recusa `sem_permissao`). Não exclui. Os ids vêm de `listar_categorias_compras`.",
             "POST",
             "/api/hub/compras/categorias",
             true,

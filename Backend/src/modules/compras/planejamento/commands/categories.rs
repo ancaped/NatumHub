@@ -82,6 +82,7 @@ pub async fn salvar_categoria_compras(
     }
     let id_informado = id.map(str::trim).filter(|s| !s.is_empty()).map(String::from);
     let (nome_tx, mae_tx, id_tx) = (nome.clone(), mae.clone(), id_informado.clone());
+    let ctx_tx = ctx.clone();
     let resposta = executar_em_2_passos(pool, "salvar_categoria_compras", confirmar, move |tx| {
         Box::pin(async move {
             // a checagem de ciclo só vale se a árvore não mudar até o commit
@@ -116,6 +117,22 @@ pub async fn salvar_categoria_compras(
                     .await?;
                 if em_ciclo {
                     return Err(ErroApi::invalido(format!("A categoria '{id}' não pode ficar dentro de '{mae_tx}' (criaria um ciclo).")));
+                }
+                // mover para outra família (raiz diferente) é só do supervisor humano
+                if let Some((_, Some(mae_atual))) = &antes {
+                    if *mae_atual != mae_tx {
+                        let familia_atual = super::items::raiz_da_categoria(&mut **tx, mae_atual).await?;
+                        let familia_nova = super::items::raiz_da_categoria(&mut **tx, &mae_tx).await?;
+                        if familia_atual != familia_nova && (ctx_tx.is_agente() || !ctx_tx.role.is_supervisor()) {
+                            let fmt = |f: &Option<String>| f.clone().unwrap_or_else(|| "?".to_string());
+                            return Err(ErroApi::sem_permissao(format!(
+                                "Mover a categoria '{id}' para outra família (de {} para {}) é só do supervisor.",
+                                fmt(&familia_atual),
+                                fmt(&familia_nova)
+                            ))
+                            .com_detalhes(json!({ "familiaAtual": familia_atual, "familiaNova": familia_nova })));
+                        }
+                    }
                 }
             }
             let criada = antes.is_none();
@@ -281,6 +298,32 @@ mod tests {
         // rota antiga continua aceitando raiz (parent_id None)
         save_category_query(pool.clone(), &Category { id: "zz_cat_raiz2".into(), name: "ZZ raiz 2".into(), parent_id: None }).await.unwrap();
         assert!(existe("zz_cat_raiz2").await);
+
+        // mover para outra família é só do supervisor humano
+        let pai_de = |id: &'static str| {
+            let pool = pool.clone();
+            async move { sqlx::query_scalar::<_, Option<String>>("SELECT parent_id FROM categories WHERE id = $1").bind(id).fetch_one(&pool).await.unwrap() }
+        };
+        let recusa = salvar_categoria_compras(&pool, &ag, Some("zz_cat_b"), "ZZ b", "zz_cat_raiz2", true).await.unwrap_err();
+        assert_eq!(codigo(recusa), "sem_permissao");
+        assert_eq!(pai_de("zz_cat_b").await.as_deref(), Some("zz_cat_a"));
+        // dentro da mesma família segue liberado
+        let mesma = salvar_categoria_compras(&pool, &ag, Some("zz_cat_b"), "ZZ b", "zz_cat_raiz", true).await.unwrap();
+        assert_eq!(mesma.resultado["mudou"], json!(true));
+        // criar sob outra família segue liberado
+        salvar_categoria_compras(&pool, &ag, Some("zz_cat_n"), "ZZ n", "zz_cat_raiz2", true).await.unwrap();
+        // supervisor pela tela move para outra família
+        let mut sup = ctx_agente();
+        sup.role = OperatorRole::Supervisor;
+        sup.origem = Origem::Tela;
+        let mv = salvar_categoria_compras(&pool, &sup, Some("zz_cat_b"), "ZZ b", "zz_cat_raiz2", true).await.unwrap();
+        assert_eq!(mv.resultado["mudou"], json!(true));
+        assert_eq!(pai_de("zz_cat_b").await.as_deref(), Some("zz_cat_raiz2"));
+        // supervisor via agente continua recusado
+        sup.origem = Origem::Agente;
+        let recusa = salvar_categoria_compras(&pool, &sup, Some("zz_cat_n"), "ZZ n", "zz_cat_raiz", true).await.unwrap_err();
+        assert_eq!(codigo(recusa), "sem_permissao");
+        assert_eq!(pai_de("zz_cat_n").await.as_deref(), Some("zz_cat_raiz2"));
 
         limpar(&pool).await;
         sqlx::query("DELETE FROM hub_audit_events WHERE action = 'salvar_categoria_compras' AND entity_id LIKE 'zz_cat_%'").execute(&pool).await.unwrap();
