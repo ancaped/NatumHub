@@ -1320,4 +1320,32 @@ mod tests {
         sqlx::query("DELETE FROM produtos WHERE codigo LIKE 'TESTE.HIST.%'").execute(&pool).await.unwrap();
         sqlx::query("DELETE FROM config_linhas WHERE linha_prefix = 'ZZHIST'").execute(&pool).await.ok();
     }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn limpar_overrides_em_lote_preserva_regras_pcp_e_recusa_acao_desconhecida() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        sqlx::query("INSERT INTO produtos (codigo, descricao, linha_prefix) VALUES ('TESTE.OVR.A', 'TESTE OVERRIDE', 'DEFAULT') ON CONFLICT (codigo) DO NOTHING")
+            .execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM overrides_produtos WHERE codigo = 'TESTE.OVR.A'").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO overrides_produtos (codigo, estoque_ideal_manual, observacao, is_producao_programada, producao_programada_objetivo) VALUES ('TESTE.OVR.A', 5, 'manual', 1, 100)")
+            .execute(&pool).await.unwrap();
+        let db = Db::new(pool.clone());
+        let req = |action: &str| BulkOverrideRequest { codigos: vec!["TESTE.OVR.A".into()], action: action.into(), value_str: None };
+
+        assert!(db.save_override_bulk(&req("acao_que_nao_existe")).await.is_err());
+
+        db.save_override_bulk(&req("clear")).await.unwrap();
+        let (ideal, obs, programada, objetivo): (Option<f64>, Option<String>, Option<i32>, Option<f64>) = sqlx::query_as(
+            "SELECT estoque_ideal_manual::float8, observacao, is_producao_programada, producao_programada_objetivo::float8 FROM overrides_produtos WHERE codigo = 'TESTE.OVR.A'",
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(ideal, None, "ajuste manual some");
+        assert_eq!(obs, None);
+        assert_eq!(programada, Some(1), "produção programada fica");
+        assert_eq!(objetivo, Some(100.0));
+
+        sqlx::query("DELETE FROM overrides_produtos WHERE codigo = 'TESTE.OVR.A'").execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM produtos WHERE codigo = 'TESTE.OVR.A'").execute(&pool).await.unwrap();
+    }
 }
