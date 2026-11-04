@@ -59,6 +59,8 @@ fn arredonda(v: f64) -> f64 {
 /// Cadastro, estoque e vendas do produto a partir do cálculo do Gerenciamento.
 fn dados_do_calculo(p: &ProductCalculationResult, vendas: &[i64], peso: Option<f64>) -> (Value, Value, Value) {
     let fixa = p.is_lancamento || p.lancamento_gatilho.is_some() || p.lancamento_estoque_maximo.is_some();
+    // Oculto (produto ou linha oculta, ou status ignorado) não se produz: o cálculo cru ainda o marca como "Produzir Urgente".
+    let oculto = p.visivel == Some(0);
     let cadastro = json!({
         "codigo": p.codigo,
         "descricao": p.descricao,
@@ -66,7 +68,8 @@ fn dados_do_calculo(p: &ProductCalculationResult, vendas: &[i64], peso: Option<f
         "linha": { "prefixo": p.linha_prefix, "nome": p.nome_linha },
         "base": { "codigo": p.base_codigo, "nome": p.base },
         "pesoUnitarioKg": peso,
-        "producaoRecomendada": p.producao_recomendada,
+        "oculto": oculto,
+        "producaoRecomendada": if oculto { 0 } else { p.producao_recomendada },
         "estoqueIdeal": arredonda(p.estoque_ideal_qtd),
         "loteMinimoKg": p.producao_minima_kg,
         "programada": {
@@ -88,7 +91,7 @@ fn dados_do_calculo(p: &ProductCalculationResult, vendas: &[i64], peso: Option<f
         "pedidosEmAberto": p.pedidos_aberto,
         "efp": p.estoque_futuro_com_producao,
         "diasCobertura": arredonda(p.duracao_dias),
-        "situacao": p.status_label,
+        "situacao": if oculto { "Oculto" } else { p.status_label.as_str() },
     });
     let vendas = json!({
         "mediaMensal": arredonda(p.media_vendas),
@@ -303,6 +306,13 @@ mod tests {
         let regras = v["regras"].as_array().unwrap();
         assert!(regras.iter().any(|r| r["texto"] == format!("{marca} nota") && r["escopo"] == "produto"));
         assert_eq!(regras[0]["escopo"], "geral", "as gerais vêm primeiro");
+
+        sqlx::query("INSERT INTO overrides_produtos (codigo, visivel) VALUES ($1, 0)").bind(&cod).execute(&pool).await.unwrap();
+        let oculto = contexto_produto(&db, &cod).await.unwrap();
+        assert_eq!(oculto["cadastro"]["oculto"], true);
+        assert_eq!(oculto["cadastro"]["producaoRecomendada"], 0, "oculto não se produz");
+        assert_eq!(oculto["estoque"]["situacao"], "Oculto");
+        sqlx::query("DELETE FROM overrides_produtos WHERE codigo = $1").bind(&cod).execute(&pool).await.unwrap();
 
         assert_eq!(contexto_produto(&db, &format!("{marca}.NAO")).await.unwrap_err().codigo, "nao_encontrado");
 
