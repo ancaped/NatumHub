@@ -40,7 +40,7 @@ fn evento_do_destino_nomeia_a_acao() {
 }
 
 fn col(label: &str, kind: &str) -> Campo {
-    Campo { label: label.into(), kind: kind.into(), limit: None }
+    Campo { label: label.into(), kind: kind.into(), limit: None, width: None }
 }
 
 #[test]
@@ -108,7 +108,7 @@ async fn formulario_do_rascunho_ao_obsoleto_com_historico_e_trilha() {
     // editar: POP inexistente é recusado; colunas e linhas por folha entram
     let edicao = |pop_code: Option<String>, colunas: Vec<Campo>| EditarFormulario {
         title: None, pop_code, periodicity: None, orientation: None, areas: Some(vec!["A".into(), " ".into(), "B".into()]),
-        limits: Some("pH 5 a 7".into()), specifications: Some(" Limpeza comum: álcool 70%\nTroca semanal ".into()), columns: Some(colunas), rows_per_sheet: Some(27),
+        limits: Some("pH 5 a 7".into()), specifications: Some(" Limpeza comum: álcool 70%\nTroca semanal ".into()), columns: Some(colunas), rows_per_sheet: Some(27), layout: None,
     };
     let tres = vec![col("Data", "data"), col("Valor", "numero"), col("Rubrica", "rubrica")];
     assert!(formularios::editar(&pool, &code, edicao(Some("POP-NAO-EXISTE-999".into()), tres.clone()), quem, true).await.is_err());
@@ -119,7 +119,7 @@ async fn formulario_do_rascunho_ao_obsoleto_com_historico_e_trilha() {
 
     // aprovação: motivo obrigatório; em aprovação não edita; publicar só de em aprovação
     assert!(formularios::mover_status(&pool, &code, "in_review", " ", quem, true).await.is_err());
-    assert!(formularios::publicar(&pool, &code, "ok", quem, true).await.is_err(), "rascunho não publica");
+    assert!(formularios::publicar(&pool, &code, " ", quem, true).await.is_err(), "publicar também exige motivo");
     formularios::mover_status(&pool, &code, "in_review", "Pronto para aprovar", quem, true).await.unwrap();
     assert!(formularios::editar(&pool, &code, edicao(None, tres.clone()), quem, true).await.is_err());
 
@@ -470,4 +470,13 @@ fn status_do_formulario_aceita_status_ou_destino() {
     assert_eq!(i(Some("draft"), Some("draft")).status_final().unwrap(), "draft");
     assert_eq!(i(Some("draft"), Some("obsolete")).status_final().unwrap_err().codigo, "invalido");
     assert!(i(None, None).status_final().is_err());
+}
+
+#[test]
+fn largura_da_coluna_aceita_5_a_80_e_arredonda() {
+    let com = |w: Option<f32>| vec![Campo { width: w, ..col("Data", "data") }];
+    assert_eq!(formularios::validar_colunas(com(Some(12.34))).unwrap()[0].width, Some(12.3));
+    assert_eq!(formularios::validar_colunas(com(None)).unwrap()[0].width, None);
+    assert!(formularios::validar_colunas(com(Some(4.0))).is_err());
+    assert!(formularios::validar_colunas(com(Some(81.0))).is_err());
 }

@@ -45,6 +45,7 @@ pub struct Formulario {
     pub rows_per_sheet: Option<i32>,
     /// Entra na «pasta do mês» do setor: é um dos formulários que a fábrica preenche todo mês.
     pub pasta_do_mes: bool,
+    pub layout: Layout,
     pub effective_date: Option<String>,
     pub next_review_date: Option<String>,
     pub days_to_review: Option<i64>,
@@ -61,6 +62,29 @@ pub struct Campo {
     pub kind: String,
     #[serde(default)]
     pub limit: Option<String>,
+    /// Largura da coluna em % da folha; vazio = proporcional ao tipo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f32>,
+}
+
+/// O que aparece no cabeçalho da folha, além do Mês/Ano (sempre). Padrão: tudo.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Layout {
+    #[serde(default = "verdadeiro")]
+    pub show_area: bool,
+    #[serde(default = "verdadeiro")]
+    pub show_equip: bool,
+}
+
+fn verdadeiro() -> bool {
+    true
+}
+
+impl Default for Layout {
+    fn default() -> Self {
+        Layout { show_area: true, show_equip: true }
+    }
 }
 
 struct Seed {
@@ -162,6 +186,8 @@ fn campos_json(seed: &Seed) -> Value {
 
 pub const TIPOS_COLUNA: &[&str] = &["data", "hora", "numero", "texto", "sim_nao", "rubrica"];
 const MAX_COLUNAS: usize = 14;
+const LARGURA_MIN: f32 = 5.0;
+const LARGURA_MAX: f32 = 80.0;
 const MAX_LINHAS_POR_FOLHA: i32 = 60;
 
 /// Os tipos antigos do seed ("número", "S/N") passam aos nomes do editor.
@@ -219,7 +245,11 @@ pub fn validar_colunas(colunas: Vec<Campo>) -> Result<Vec<Campo>, String> {
             return Err(format!("Tipo de coluna inválido: {}.", c.kind));
         }
         let limit = c.limit.map(|l| l.trim().to_string()).filter(|l| !l.is_empty());
-        out.push(Campo { label, kind, limit });
+        if c.width.is_some_and(|w| !(LARGURA_MIN..=LARGURA_MAX).contains(&w)) {
+            return Err(format!("Largura da coluna «{label}»: de {LARGURA_MIN} a {LARGURA_MAX} %."));
+        }
+        let width = c.width.map(|w| (w * 10.0).round() / 10.0);
+        out.push(Campo { label, kind, limit, width });
     }
     Ok(out)
 }
@@ -260,6 +290,11 @@ pub(super) async fn ensure(pool: &PgPool) -> Result<(), String> {
     eventos::garantir(pool).await?;
     // Coluna da migração 077; aqui cobre bancos de teste e a corrida de boot.
     sqlx::query("ALTER TABLE pop_formularios ADD COLUMN IF NOT EXISTS specifications TEXT")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    // Coluna da migração 088.
+    sqlx::query("ALTER TABLE pop_formularios ADD COLUMN IF NOT EXISTS layout JSONB NOT NULL DEFAULT '{}'")
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
@@ -329,6 +364,7 @@ fn map_row(row: &sqlx::postgres::PgRow) -> Formulario {
                 label: v.get("label").and_then(|x| x.as_str()).unwrap_or("").to_string(),
                 kind: normalizar_tipo(v.get("kind").and_then(|x| x.as_str()).unwrap_or("texto")),
                 limit: v.get("limit").and_then(|x| x.as_str()).map(str::to_string),
+                width: v.get("width").and_then(|x| x.as_f64()).map(|w| w as f32),
             }).collect()
         }).unwrap_or_default(),
         limits: row.try_get("limits").unwrap_or(None),
@@ -342,6 +378,7 @@ fn map_row(row: &sqlx::postgres::PgRow) -> Formulario {
         orientation: row.try_get("orientation").unwrap_or_else(|_| "portrait".into()),
         rows_per_sheet: row.try_get("rows_per_sheet").unwrap_or(None),
         pasta_do_mes: row.try_get("monthly_pack").unwrap_or(false),
+        layout: row.try_get::<Value, _>("layout").ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
         effective_date: data_iso(row.try_get("effective_date").unwrap_or(None)),
         next_review_date: data_iso(proxima),
         days_to_review: proxima.map(|d| (d - store::today()).num_days()),
@@ -508,6 +545,8 @@ pub struct EditarFormulario {
     pub columns: Option<Vec<Campo>>,
     /// 0 volta ao padrão da orientação.
     pub rows_per_sheet: Option<i32>,
+    /// Cabeçalho da folha (Setor/Área, Equipamento/ID).
+    pub layout: Option<Layout>,
 }
 
 /// Edita o rascunho (formulário vigente só muda por "Nova revisão"). Evento `editado`.
@@ -541,6 +580,7 @@ pub async fn editar(pool: &PgPool, code: &str, input: EditarFormulario, autor: &
     let limites = input.limits.map(|l| l.trim().to_string());
     let especificacoes = input.specifications.map(|e| e.trim().to_string());
     let reescrever_linhas = input.rows_per_sheet.is_some();
+    let layout = input.layout;
     let entrada = json!({ "code": code, "title": titulo, "popCode": pop, "orientation": orientacao, "linhasPorFolha": linhas });
     let quem = autor.to_string();
     let alvo = code.clone();
@@ -575,6 +615,7 @@ pub async fn editar(pool: &PgPool, code: &str, input: EditarFormulario, autor: &
                     limits = CASE WHEN $8::text IS NULL THEN limits ELSE NULLIF($8, '') END,
                     rows_per_sheet = CASE WHEN $9 THEN $10 ELSE rows_per_sheet END,
                     specifications = CASE WHEN $11::text IS NULL THEN specifications ELSE NULLIF($11, '') END,
+                    layout = COALESCE($12, layout),
                     updated_at = NOW()
                 WHERE code = $1
                 "#,
@@ -590,6 +631,7 @@ pub async fn editar(pool: &PgPool, code: &str, input: EditarFormulario, autor: &
             .bind(reescrever_linhas)
             .bind(linhas)
             .bind(&especificacoes)
+            .bind(layout.as_ref().map(|l| json!(l)))
             .execute(&mut *c)
             .await?;
             eventos::registrar(&mut *c, "formulario", &code, "editado", Some("draft"), Some("draft"), None, &quem).await?;
