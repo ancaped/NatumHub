@@ -383,6 +383,30 @@ async fn trocar_categoria_item_handler(
     }
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SalvarCategoriaBody {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    parent_id: String,
+}
+
+// POST /api/hub/compras/categorias (2 passos: sem confirmar=true só devolve a prévia)
+async fn salvar_categoria_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Query(c): Query<crate::core::acao::Confirmar>,
+    Json(body): Json<SalvarCategoriaBody>,
+) -> impl IntoResponse {
+    match salvar_categoria_compras(state.db.pool(), &ctx, body.id.as_deref(), &body.name, &body.parent_id, c.confirmar).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
 async fn import_item_observations_handler(State(state): State<Arc<AppState>>, Json(body): Json<ImportObservationsBody>) -> impl IntoResponse {
     match with_pool(&state, |pool| import_item_observations_query(pool, &body.observations)).await {
         Ok(()) => ok_status().into_response(),
@@ -750,6 +774,7 @@ pub fn router() -> Router<Arc<AppState>> {
         // Categories
         .route("/api/hub/compras/categories", get(get_categories_handler).post(save_category_handler))
         .route("/api/hub/compras/categories/:id", delete(delete_category_handler))
+        .route("/api/hub/compras/categorias", post(salvar_categoria_handler))
         // Items
         .route("/api/hub/compras/items", get(get_items_handler))
         .route("/api/hub/compras/items/details", post(update_item_details_handler))
@@ -822,6 +847,20 @@ pub fn acoes() -> Vec<Acao> {
                 param("categoryId", "query", "texto", false, "Id ou nome exato (sem diferenciar maiúsculas) da categoria; inclui as subcategorias (ex.: cat_mp, cat_emb, cat_apoio, cat_coloracao). Ids em `listar_categorias_compras`."),
                 param("search", "query", "texto", false, "Parte do código ou da descrição."),
                 param("incluirProdutos", "query", "booleano", false, "true junta os produtos de Apoio/Coloração mesmo sem outro filtro (padrão false)."),
+            ],
+        ),
+        Acao::gravacao(
+            "salvar_categoria_compras",
+            "compras_categorias",
+            "Cria ou renomeia uma subcategoria do Hub de Compras. Sem `confirmar=true` devolve a prévia (`antes`, `depois`, `mudou`) e não grava; com ele grava e audita. `parentId` é obrigatório e precisa existir; `name` não pode ser vazio; sem `id` gera um (a prévia devolve `id` nulo). Recusa alterar categorias raiz e criar ciclo; `parentId` diferente do atual move a subcategoria. Não exclui. Os ids vêm de `listar_categorias_compras`.",
+            "POST",
+            "/api/hub/compras/categorias",
+            true,
+            vec![
+                param("id", "corpo", "texto", false, "Id da categoria a renomear/mover; ausente cria uma nova."),
+                param("name", "corpo", "texto", true, "Nome da categoria."),
+                param("parentId", "corpo", "texto", true, "Id da categoria-mãe."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
             ],
         ),
         Acao::gravacao(

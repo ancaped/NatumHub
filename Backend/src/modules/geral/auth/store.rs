@@ -1481,6 +1481,7 @@ pub fn modulos_da_rota(path: &str) -> Option<&'static [&'static str]> {
         ("/api/vendas", &[MODULE_VENDAS, MODULE_VENDAS_ONLINE]),
         ("/api/expedicao", &[MODULE_EXPEDICAO, MODULE_EXPEDICAO_ECOMMERCE, MODULE_EXPEDICAO_SEPARACAO]),
         ("/api/financeiro", &[MODULE_FINANCEIRO]),
+        ("/api/hub/compras/categorias", &[MODULE_COMPRAS_CATEGORIAS]),
         ("/api/hub/compras/categories", COMPRAS_E_CATEGORIAS),
         ("/api/hub/compras/items", COMPRAS_E_CATEGORIAS),
         ("/api/hub/compras", COMPRAS),
