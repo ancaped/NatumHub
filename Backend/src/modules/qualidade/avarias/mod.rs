@@ -1,3 +1,4 @@
+pub mod catalogos;
 pub mod folhas;
 pub mod handlers;
 pub mod models;
@@ -20,6 +21,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/api/qualidade/avarias/lookup-item",
             get(handlers::lookup_item),
+        )
+        .route(
+            "/api/qualidade/avarias/catalogos",
+            get(catalogos::get_catalogos).post(catalogos::post_catalogo),
         )
         .route(
             "/api/qualidade/avarias/folhas",
@@ -84,6 +89,26 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
             "/api/qualidade/avarias/lookup-item",
             vec![
                 param("q", "query", "texto", true, "Código ou descrição."),
+            ],
+        ),
+        Acao::leitura(
+            "listar_catalogos_avaria",
+            "qualidade_avarias",
+            "Lista os locais e os motivos usados no cadastro de avarias (`locais` e `motivos`), na ordem do catálogo. É a lista única do Nexus, igual para todos.",
+            "/api/qualidade/avarias/catalogos",
+            vec![],
+        ),
+        Acao::gravacao(
+            "adicionar_catalogo_avaria",
+            "qualidade_avarias",
+            "Acrescenta um local ou um motivo ao catálogo das avarias (ou reativa o que já existe, sem diferenciar maiúsculas). Sem `confirmar=true` mostra só a prévia.",
+            "POST",
+            "/api/qualidade/avarias/catalogos",
+            true,
+            vec![
+                param("tipo", "corpo", "texto", true, "local ou motivo."),
+                param("nome", "corpo", "texto", true, "Nome (até 80 caracteres)."),
+                param("confirmar", "query", "booleano", false, "true grava; sem ele só a prévia."),
             ],
         ),
         Acao::leitura(

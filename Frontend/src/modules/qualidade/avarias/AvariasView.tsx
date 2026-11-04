@@ -62,55 +62,21 @@ const COLETA: { id: Status; label: string; short: string; hint: string }[] = [
 const LOCATIONS_CATALOG_KEY = 'avarias_catalog_locations';
 const MOTIVOS_CATALOG_KEY = 'avarias_catalog_motivos';
 
-const DEFAULT_LOCATIONS = [
-  'Corredor da produção',
-  'Doca expedição',
-  'Bancada CQ',
-  'Quarentena',
-  'Armazém geral',
-  'Triagem devolução',
-  'Estoque produtos acabados',
-];
+const nomeIgual = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
-const DEFAULT_MOTIVOS = [
-  'Troca de lote',
-  'Remarcar lote',
-  'Troca de embalagem / frasco',
-  'Troca de tampa / lacre',
-  'Rótulo danificado',
-  'Vazamento',
-  'Devolução de cliente',
-  'Pendente de análise CQ',
-  'Produto vencido / validade',
-  'Sobra de processo',
-];
-
-function loadCatalogList(key: string, defaults: string[]): string[] {
+/** Lista que esta máquina guardava no navegador (antes do catálogo ir para o banco). */
+function lerListaAntiga(key: string): string[] {
   try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return defaults;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return defaults;
-    const set = new Set<string>();
-    const out: string[] = [];
-    for (const item of [...defaults, ...parsed]) {
-      const clean = String(item || '').trim();
-      if (!clean) continue;
-      const lower = clean.toLowerCase();
-      if (!set.has(lower)) {
-        set.add(lower);
-        out.push(clean);
-      }
-    }
-    return out;
+    const parsed = JSON.parse(localStorage.getItem(key) ?? '[]');
+    return Array.isArray(parsed) ? parsed.map((x) => String(x ?? '').trim()).filter(Boolean) : [];
   } catch {
-    return defaults;
+    return [];
   }
 }
 
-function saveCatalogList(key: string, list: string[]) {
+function apagarListaAntiga(key: string) {
   try {
-    localStorage.setItem(key, JSON.stringify(list));
+    localStorage.removeItem(key);
   } catch {
     /* ignore */
   }
@@ -284,8 +250,8 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
   const [status, setStatus] = useState<Status>('retorno_estoque');
   const [notes, setNotes] = useState('');
   const [motivoRapido, setMotivoRapido] = useState('');
-  const [locationsCatalog, setLocationsCatalog] = useState<string[]>(() => loadCatalogList(LOCATIONS_CATALOG_KEY, DEFAULT_LOCATIONS));
-  const [motivosCatalog, setMotivosCatalog] = useState<string[]>(() => loadCatalogList(MOTIVOS_CATALOG_KEY, DEFAULT_MOTIVOS));
+  const [locationsCatalog, setLocationsCatalog] = useState<string[]>([]);
+  const [motivosCatalog, setMotivosCatalog] = useState<string[]>([]);
   const [hasPhoto, setHasPhoto] = useState(false);
   const [createdBy, setCreatedBy] = useState('');
   const [decidedBy, setDecidedBy] = useState('');
@@ -383,17 +349,59 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
     setError('');
   };
 
+  /** Acrescenta ao catálogo único do servidor; a lista na tela já mostra o nome. */
+  const guardarNoCatalogo = async (tipo: 'local' | 'motivo', nome: string) => {
+    const acrescentar = (prev: string[]) => (prev.some((x) => nomeIgual(x, nome)) ? prev : [...prev, nome]);
+    if (tipo === 'local') setLocationsCatalog(acrescentar);
+    else setMotivosCatalog(acrescentar);
+    try {
+      await apiJson('/qualidade/avarias/catalogos?confirmar=true', { method: 'POST', body: JSON.stringify({ tipo, nome }) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Não foi possível guardar no catálogo.');
+    }
+  };
+
+  // Catálogos únicos (banco). O que esta máquina tinha guardado no navegador é enviado uma vez e depois apagado daqui.
+  useEffect(() => {
+    let vivo = true;
+    void (async () => {
+      try {
+        const cat = await apiJson<{ locais: string[]; motivos: string[] }>('/qualidade/avarias/catalogos');
+        let locais = cat.locais ?? [];
+        let motivos = cat.motivos ?? [];
+        for (const [tipo, key] of [['local', LOCATIONS_CATALOG_KEY], ['motivo', MOTIVOS_CATALOG_KEY]] as const) {
+          const lista = tipo === 'local' ? locais : motivos;
+          const extras = lerListaAntiga(key).filter((n) => !lista.some((x) => nomeIgual(x, n)));
+          let falhou = false;
+          for (const nome of extras) {
+            try {
+              await apiJson('/qualidade/avarias/catalogos?confirmar=true', { method: 'POST', body: JSON.stringify({ tipo, nome }) });
+              if (tipo === 'local') locais = [...locais, nome];
+              else motivos = [...motivos, nome];
+            } catch {
+              falhou = true;
+            }
+          }
+          if (!falhou) apagarListaAntiga(key);
+        }
+        if (vivo) {
+          setLocationsCatalog(locais);
+          setMotivosCatalog(motivos);
+        }
+      } catch {
+        /* sem catálogo: os campos continuam aceitando nome novo */
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
   const handleCreateLocation = (raw: string) => {
     const clean = raw.trim();
     if (!clean) return;
     setLocation(clean);
-    setLocationsCatalog((prev) => {
-      const exists = prev.some((x) => x.toLowerCase() === clean.toLowerCase());
-      if (exists) return prev;
-      const next = [...prev, clean];
-      saveCatalogList(LOCATIONS_CATALOG_KEY, next);
-      return next;
-    });
+    void guardarNoCatalogo('local', clean);
   };
 
   const locationOptions = useMemo(() => {
@@ -424,13 +432,7 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
       if (prev.toLowerCase().includes(clean.toLowerCase())) return prev;
       return `${clean}. ${prev}`.trim();
     });
-    setMotivosCatalog((prev) => {
-      const exists = prev.some((x) => x.toLowerCase() === clean.toLowerCase());
-      if (exists) return prev;
-      const next = [...prev, clean];
-      saveCatalogList(MOTIVOS_CATALOG_KEY, next);
-      return next;
-    });
+    void guardarNoCatalogo('motivo', clean);
   };
 
   const motivoOptions = useMemo(() => {
