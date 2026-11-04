@@ -171,6 +171,7 @@ pub struct PrefixoSemLinha {
     pub produtos: i64,
     pub exemplo_codigo: String,
     pub exemplo_descricao: String,
+    pub codigos: Vec<String>,
 }
 
 /// Prefixos (primeiro segmento do código) com produtos ativos que ficaram na linha DEFAULT
@@ -222,12 +223,16 @@ pub async fn prefixos_sem_linha(
         let codigo: String = row.get(0);
         let prefixo = codigo.split('.').next().unwrap_or("").trim().to_string();
         match grupos.iter_mut().find(|g| g.prefixo == prefixo) {
-            Some(g) => g.produtos += 1,
+            Some(g) => {
+                g.produtos += 1;
+                g.codigos.push(codigo);
+            }
             None => grupos.push(PrefixoSemLinha {
                 prefixo,
                 produtos: 1,
-                exemplo_codigo: codigo,
+                exemplo_codigo: codigo.clone(),
                 exemplo_descricao: row.get(1),
+                codigos: vec![codigo],
             }),
         }
     }

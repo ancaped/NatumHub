@@ -203,6 +203,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [prodMultForm, setProdMultForm] = useState('1.0');
   const [fatorZForm, setFatorZForm] = useState('1.65');
   const [visibleLineForm, setVisibleLineForm] = useState('1');
+  const [semLinhaVersao, setSemLinhaVersao] = useState(0);
 
   // Prefixos com produto ativo em Outros/Geral (sem linha cadastrada); recarrega ao abrir a aba e ao fechar o painel da linha.
   useEffect(() => {
@@ -219,14 +220,14 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       }
     })();
     return () => { cancelado = true; };
-  }, [activeAtivosTab, isLineModalOpen]);
+  }, [activeAtivosTab, isLineModalOpen, semLinhaVersao]);
   const [lineFormError, setLineFormError] = useState<string | null>(null);
   const [lineSaving, setLineSaving] = useState(false);
 
   // Overrides Audit states
   const [allOverrides, setAllOverrides] = useState<ProductOverride[]>([]);
   const [linhaSearch, setLinhaSearch] = useState('');
-  const [semLinha, setSemLinha] = useState<{ prefixo: string; produtos: number; exemploCodigo: string; exemploDescricao: string }[]>([]);
+  const [semLinha, setSemLinha] = useState<{ prefixo: string; produtos: number; exemploCodigo: string; exemploDescricao: string; codigos: string[] }[]>([]);
   const [auditSearch, setAuditSearch] = useState('');
   const [auditPage, setAuditPage] = useState(1);
   const AUDIT_POR_PAGINA = 50;
@@ -713,6 +714,21 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       aoCancelar: () => {
         setBulkStatus('');
         setBulkLine('');
+      },
+    });
+  };
+
+  // Produtos ativos do prefixo que estão em Outros/Geral viram terceirizados (2 passos: prévia e OK).
+  const marcarPrefixoTerceirizado = async (prefixo: string, codigos: string[]) => {
+    await pedirBulk({
+      titulo: `Marcar ${codigos.length} produto(s) do prefixo ${prefixo} como terceirizado`,
+      codigos,
+      action: 'set_status',
+      value: 'terceirizado',
+      confirmarRotulo: 'Marcar terceirizado',
+      aoConcluir: async () => {
+        await loadData();
+        setSemLinhaVersao(v => v + 1);
       },
     });
   };
@@ -1456,6 +1472,12 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                           </td>
                           <td className="px-6 py-2.5 text-right text-zinc-600 whitespace-nowrap">{g.produtos} {g.produtos === 1 ? 'produto' : 'produtos'}</td>
                           <td className="px-6 py-2.5 text-right">
+                            <button
+                              onClick={() => void marcarPrefixoTerceirizado(g.prefixo, g.codigos)}
+                              className="mr-2 px-2.5 py-1 bg-white hover:bg-zinc-50 rounded-lg font-bold text-zinc-700 transition-colors cursor-pointer border border-zinc-200"
+                            >
+                              Marcar terceirizado
+                            </button>
                             <button
                               onClick={() => { handleOpenLineModal(null); setLinePrefixForm(g.prefixo); }}
                               className="px-2.5 py-1 bg-zinc-100 hover:bg-zinc-200 rounded-lg font-bold text-zinc-700 transition-colors cursor-pointer border border-zinc-200"
