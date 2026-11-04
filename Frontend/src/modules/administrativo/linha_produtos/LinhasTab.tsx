@@ -4,11 +4,11 @@ import { apiFetch } from '../../geral/lib/http';
 import { cn } from '../../geral/lib/utils';
 import Drawer from '../../geral/components/ui/Drawer';
 import type { PreviaAcao } from '../../producao/gerenciamento/components/PreviaAcaoDrawer';
-import type { LineConfig, PedirBulkOpts } from './tipos';
+import type { LineConfig, PedirBulkOpts, ProductResult } from './tipos';
 
 interface Props {
-  /** Só a linha de cada produto é usada (contagem de produtos por linha). */
-  products: { linha_prefix_manual: string | null; linha_prefix: string }[];
+  /** Contagem de produtos por linha e lista dos produtos da linha aberta. */
+  products: ProductResult[];
   configs: LineConfig[];
   /** Ação em lote em 2 passos (usada ao marcar um prefixo como terceirizado). */
   pedirBulk: (opts: PedirBulkOpts) => Promise<void>;
@@ -22,6 +22,9 @@ interface Props {
 export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, avisar, onReload }: Props) {
   const [editingLineConfig, setEditingLineConfig] = useState<LineConfig | null>(null);
   const [isLineModalOpen, setIsLineModalOpen] = useState(false);
+  const [abaLinha, setAbaLinha] = useState<'produtos' | 'parametros'>('produtos');
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  const [buscaProd, setBuscaProd] = useState('');
   const [linePrefixForm, setLinePrefixForm] = useState('');
   const [lineNameForm, setLineNameForm] = useState('');
   const [idealMultForm, setIdealMultForm] = useState('3.0');
@@ -91,9 +94,54 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
     });
   };
 
+  const LIMITE_LISTA = 300;
+  const produtosDaLinha = useMemo(() => {
+    if (!editingLineConfig) return [] as ProductResult[];
+    const q = buscaProd.trim().toLowerCase();
+    return products
+      .filter(p => (p.linha_prefix_manual || p.linha_prefix || 'DEFAULT') === editingLineConfig.linha_prefix)
+      .filter(p => !q || p.codigo.toLowerCase().includes(q) || (p.descricao || '').toLowerCase().includes(q));
+  }, [products, editingLineConfig, buscaProd]);
+  const todosMarcados = produtosDaLinha.length > 0 && produtosDaLinha.every(p => marcados.has(p.codigo));
+  const alternarProduto = (codigo: string) => {
+    const n = new Set(marcados);
+    if (n.has(codigo)) n.delete(codigo);
+    else n.add(codigo);
+    setMarcados(n);
+  };
+
+  // Mover produtos de linha ou mudar o status dos selecionados: prévia do servidor e só grava no OK.
+  const pedirMudancaEmLote = async (action: 'set_line' | 'set_status', value: string) => {
+    if (!value || marcados.size === 0) return;
+    const rotuloLinha = value === 'AUTO' ? 'a linha do prefixo' : configs.find(c => c.linha_prefix === value)?.nome_linha || value;
+    await pedirBulk({
+      titulo: action === 'set_line' ? `Mover ${marcados.size} produto(s) para ${rotuloLinha}` : `Mudar o status de ${marcados.size} produto(s)`,
+      codigos: Array.from(marcados),
+      action,
+      value,
+      confirmarRotulo: action === 'set_line' ? 'Mover produtos' : 'Aplicar',
+      aoConcluir: async () => {
+        setMarcados(new Set());
+        await onReload();
+      },
+    });
+  };
+
+  const STATUS_BADGE: Record<string, string> = {
+    ativo: 'bg-zinc-100 text-zinc-700 border-zinc-200',
+    lancamento: 'bg-zinc-900 text-white border-zinc-900',
+    saindo_de_linha: 'bg-amber-50 text-amber-700 border-amber-200',
+    descontinuado: 'bg-red-50 text-red-700 border-red-200',
+    terceirizado: 'bg-white text-zinc-600 border-zinc-300',
+  };
+  const STATUS_ROTULO: Record<string, string> = { ativo: 'Ativa', lancamento: 'Lançamento', saindo_de_linha: 'Saindo de Linha', descontinuado: 'Saiu de Linha', terceirizado: 'Terceirizado' };
+
   const handleOpenLineModal = (cfg: LineConfig | null = null) => {
     setEditingLineConfig(cfg);
     setLineFormError(null);
+    setAbaLinha(cfg ? 'produtos' : 'parametros');
+    setMarcados(new Set());
+    setBuscaProd('');
     if (cfg) {
       setLinePrefixForm(cfg.linha_prefix);
       setLineNameForm(cfg.nome_linha);
@@ -367,9 +415,26 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
       {isLineModalOpen && (
         <Drawer
           onClose={() => setIsLineModalOpen(false)}
-          size="sm"
-          title={editingLineConfig ? 'Editar Configuração de Linha' : 'Nova Configuração de Linha'}
+          size="xl"
+          badge="Linha de produto"
+          title={editingLineConfig ? editingLineConfig.nome_linha : 'Nova linha'}
+          subtitle={editingLineConfig ? `Prefixo ${editingLineConfig.linha_prefix}` : undefined}
+          tabs={editingLineConfig ? [
+            { id: 'produtos', label: 'Produtos', badge: produtosDaLinha.length },
+            { id: 'parametros', label: 'Parâmetros' },
+          ] : undefined}
+          activeTab={abaLinha}
+          onTabChange={(id) => setAbaLinha(id as 'produtos' | 'parametros')}
           footer={
+            abaLinha === 'produtos' ? (
+              <button
+                type="button"
+                onClick={() => setIsLineModalOpen(false)}
+                className="px-4 py-2 bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-700 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+              >
+                Fechar
+              </button>
+            ) : (
             <>
               <button
                 type="button"
@@ -397,8 +462,100 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                 )}
               </button>
             </>
+            )
           }
         >
+          {abaLinha === 'produtos' && editingLineConfig && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative flex-1 min-w-[220px]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar produto nesta linha"
+                    value={buscaProd}
+                    onChange={(e) => setBuscaProd(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-sm"
+                  />
+                </div>
+                <span className="text-xs text-zinc-500">
+                  {produtosDaLinha.length > LIMITE_LISTA ? `Mostrando ${LIMITE_LISTA} de ${produtosDaLinha.length} produtos; use a busca para achar os demais` : `${produtosDaLinha.length} produtos`}
+                </span>
+              </div>
+
+              {marcados.size > 0 && (
+                <div className="bg-zinc-900 text-white rounded-2xl px-4 py-2.5 flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-bold bg-zinc-800 rounded px-2 py-0.5">{marcados.size}</span>
+                  <span className="text-xs text-zinc-300 flex-1 min-w-[80px]">selecionados</span>
+                  <select
+                    aria-label="Mover para linha"
+                    value=""
+                    onChange={(e) => void pedirMudancaEmLote('set_line', e.target.value)}
+                    className="h-8 rounded-xl border border-zinc-700 bg-zinc-800 text-white text-xs font-bold px-2 max-w-[220px] cursor-pointer"
+                  >
+                    <option value="">Mover para linha…</option>
+                    <option value="AUTO">Automática (pelo prefixo)</option>
+                    {configs.filter(c => c.linha_prefix !== editingLineConfig.linha_prefix).map(c => (
+                      <option key={c.linha_prefix} value={c.linha_prefix}>{c.nome_linha}</option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Mudar status"
+                    value=""
+                    onChange={(e) => void pedirMudancaEmLote('set_status', e.target.value)}
+                    className="h-8 rounded-xl border border-zinc-700 bg-zinc-800 text-white text-xs font-bold px-2 cursor-pointer"
+                  >
+                    <option value="">Mudar status…</option>
+                    <option value="ativo">Ativa</option>
+                    <option value="lancamento">Lançamento</option>
+                    <option value="saindo_de_linha">Saindo de Linha</option>
+                    <option value="descontinuado">Saiu de Linha</option>
+                    <option value="terceirizado">Terceirizado</option>
+                  </select>
+                  <button type="button" onClick={() => setMarcados(new Set())} className="text-xs text-zinc-400 hover:text-white px-2 cursor-pointer">Limpar</button>
+                </div>
+              )}
+
+              <div className="border border-zinc-200 rounded-2xl overflow-hidden">
+                <div className="grid grid-cols-[36px_minmax(0,1fr)_130px] gap-3 items-center px-4 py-2 bg-zinc-50 border-b border-zinc-200 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                  <span className="flex justify-center">
+                    <input
+                      type="checkbox"
+                      aria-label="Selecionar todos da linha"
+                      checked={todosMarcados}
+                      onChange={() => setMarcados(todosMarcados ? new Set() : new Set(produtosDaLinha.slice(0, LIMITE_LISTA).map(p => p.codigo)))}
+                      className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 cursor-pointer"
+                    />
+                  </span>
+                  <span>Produto</span>
+                  <span>Status</span>
+                </div>
+                {produtosDaLinha.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-zinc-400">Nenhum produto nesta linha.</div>
+                ) : (
+                  produtosDaLinha.slice(0, LIMITE_LISTA).map(p => {
+                    const st = p.status_produto || 'ativo';
+                    return (
+                      <div key={p.codigo} className="grid grid-cols-[36px_minmax(0,1fr)_130px] gap-3 items-center px-4 py-2.5 border-b border-zinc-100 last:border-0 hover:bg-zinc-50/70">
+                        <span className="flex justify-center">
+                          <input type="checkbox" aria-label="Selecionar produto" checked={marcados.has(p.codigo)} onChange={() => alternarProduto(p.codigo)} className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 cursor-pointer" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-[13px] font-bold text-zinc-800 truncate">{p.descricao}</span>
+                          <span className="block font-mono text-[11px] text-zinc-500 mt-0.5">{p.codigo}{p.linha_prefix_manual ? ' · linha manual' : ''}</span>
+                        </span>
+                        <span>
+                          <span className={cn('px-2.5 py-1 border text-[11px] font-bold rounded-full whitespace-nowrap', STATUS_BADGE[st] || STATUS_BADGE.ativo)}>{STATUS_ROTULO[st] || st}</span>
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {abaLinha === 'parametros' && (
           <form id="form-config-linha" onSubmit={handleSaveLineConfig} className="space-y-4 text-left">
             {lineFormError && (
               <div className="bg-rose-50 border border-rose-100 text-rose-800 p-3 rounded-xl text-xs flex gap-2 font-medium">
@@ -497,6 +654,7 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
               </div>
             </div>
           </form>
+          )}
         </Drawer>
       )}
     </>

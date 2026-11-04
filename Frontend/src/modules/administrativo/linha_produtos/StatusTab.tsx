@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, RefreshCw, Edit, Check, Filter, Layers, ListFilter, GraduationCap } from 'lucide-react';
+import { Search, RefreshCw, Edit, Check, Layers, GraduationCap } from 'lucide-react';
 import { apiFetch } from '../../geral/lib/http';
 import { cn } from '../../geral/lib/utils';
 import Drawer from '../../geral/components/ui/Drawer';
 import { Category, GraduationCandidate, PRODUCT_LINE_STATUSES } from '../../geral/lib/types';
-import { eBase } from '../../geral/lib/regrasProduto';
+import { eBase, STATUS_IGNORADOS_PADRAO } from '../../geral/lib/regrasProduto';
 import type { LineConfig, PedirBulkOpts, ProductOverride, ProductResult } from './tipos';
 
 interface Props {
@@ -22,15 +22,29 @@ interface Props {
   onReload: () => Promise<void> | void;
   /** Abre o painel de composição do kit (mora no arquivo principal). */
   onAbrirComposicao: (codigo: string, descricao: string) => void;
+  /** Códigos dos produtos que têm ajuste manual (visão "Ajuste manual"). */
+  codigosComAjuste: Set<string>;
 }
 
-/** Aba Status dos Produtos da Linha de Produtos: tabela com filtros, paginação, ações em lote e painel de edição do produto. */
-export default function StatusTab({ products, categories, configs, kitComposicao, graduationCandidates, loading, pedirBulk, avisar, onReload, onAbrirComposicao }: Props) {
+type Vista = 'todos' | 'ativos' | 'kits' | 'bases' | 'terceirizados' | 'semlinha' | 'ajuste';
+
+const VISTAS: { id: Vista; label: string }[] = [
+  { id: 'todos', label: 'Todos' },
+  { id: 'ativos', label: 'Ativos' },
+  { id: 'kits', label: 'Kits' },
+  { id: 'bases', label: 'Bases' },
+  { id: 'terceirizados', label: 'Terceirizados' },
+  { id: 'semlinha', label: 'Sem linha' },
+  { id: 'ajuste', label: 'Ajuste manual' },
+];
+
+/** Aba Produtos da Linha de Produtos: tabela com filtros, paginação, ações em lote e painel de edição do produto. */
+export default function StatusTab({ products, categories, configs, kitComposicao, graduationCandidates, loading, pedirBulk, avisar, onReload, onAbrirComposicao, codigosComAjuste }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [lineFilter, setLineFilter] = useState('ALL');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
-  const [productTypeFilter, setProductTypeFilter] = useState<'ALL' | 'PRODUCTS' | 'KITS' | 'BASES'>('ALL');
+  const [vista, setVista] = useState<Vista>('todos');
   const POR_PAGINA = 100;
   const [pagina, setPagina] = useState(1);
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
@@ -79,37 +93,50 @@ export default function StatusTab({ products, categories, configs, kitComposicao
       .map(c => c.id);
   }, [categories]);
 
+  const ehKit = (p: ProductResult) =>
+    Boolean(
+      p.is_kit ||
+      p.categoria_produto === 'kit' ||
+      (p.categoria_produto && kitCategoryIds.includes(p.categoria_produto)) ||
+      kitComposicao.some(kc => kc.kit_codigo === p.codigo)
+    );
+  const pertenceVista = (p: ProductResult, v: Vista): boolean => {
+    const status = p.status_produto || 'ativo';
+    switch (v) {
+      case 'todos': return true;
+      case 'ativos': return !STATUS_IGNORADOS_PADRAO.includes(status) && p.visivel !== 0;
+      case 'kits': return ehKit(p);
+      case 'bases': return eBase(p.codigo, p.categoria_produto, p.status_produto);
+      case 'terceirizados': return status === 'terceirizado';
+      case 'semlinha': return (p.linha_prefix_manual || p.linha_prefix || 'DEFAULT') === 'DEFAULT';
+      case 'ajuste': return codigosComAjuste.has(p.codigo);
+    }
+  };
+  const contagemVistas = useMemo(() => {
+    const cont: Record<string, number> = {};
+    for (const v of VISTAS) cont[v.id] = products.filter(p => pertenceVista(p, v.id)).length;
+    return cont;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, categories, kitComposicao, codigosComAjuste]);
+
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
-      const matchesSearch = 
+      const matchesSearch =
         (p.descricao || '').toLowerCase().includes(search.toLowerCase()) ||
         (p.codigo || '').toLowerCase().includes(search.toLowerCase());
-      
+
       const resolvedStatus = p.status_produto || 'ativo';
       const matchesStatus = statusFilter === 'ALL' || resolvedStatus === statusFilter;
-      
+
       const resolvedLine = p.linha_prefix_manual || p.linha_prefix;
       const matchesLine = lineFilter === 'ALL' || resolvedLine === lineFilter;
 
       const matchesCategory = isCategoryMatch(p.categoria_produto, categoryFilter);
 
-      const isKit = Boolean(
-        p.is_kit || 
-        p.categoria_produto === 'kit' || 
-        (p.categoria_produto && kitCategoryIds.includes(p.categoria_produto)) || 
-        kitComposicao.some(kc => kc.kit_codigo === p.codigo)
-      );
-
-      const isBaseProduto = eBase(p.codigo, p.categoria_produto, p.status_produto);
-      const matchesType = 
-        productTypeFilter === 'ALL' ||
-        (productTypeFilter === 'PRODUCTS' && !isKit && !isBaseProduto) ||
-        (productTypeFilter === 'KITS' && isKit) ||
-        (productTypeFilter === 'BASES' && isBaseProduto);
-
-      return matchesSearch && matchesStatus && matchesLine && matchesCategory && matchesType;
+      return matchesSearch && matchesStatus && matchesLine && matchesCategory && pertenceVista(p, vista);
     });
-  }, [products, search, statusFilter, lineFilter, categoryFilter, productTypeFilter, categories, kitCategoryIds, kitComposicao]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, search, statusFilter, lineFilter, categoryFilter, vista, categories, kitCategoryIds, kitComposicao, codigosComAjuste]);
 
   // Group categories by parent category
   const groupedCategories = useMemo(() => {
@@ -131,20 +158,20 @@ export default function StatusTab({ products, categories, configs, kitComposicao
   // Paginação no cliente: volta à primeira página quando qualquer filtro muda.
   useEffect(() => {
     setPagina(1);
-  }, [search, statusFilter, lineFilter, categoryFilter, productTypeFilter]);
+  }, [search, statusFilter, lineFilter, categoryFilter, vista]);
   const totalPaginas = Math.max(1, Math.ceil(filteredProducts.length / POR_PAGINA));
   const paginaAtual = Math.min(pagina, totalPaginas);
   const produtosDaPagina = useMemo(
     () => filteredProducts.slice((paginaAtual - 1) * POR_PAGINA, paginaAtual * POR_PAGINA),
     [filteredProducts, paginaAtual],
   );
-  const temFiltro = search !== '' || statusFilter !== 'ALL' || lineFilter !== 'ALL' || categoryFilter !== 'ALL' || productTypeFilter !== 'ALL';
+  const temFiltro = search !== '' || statusFilter !== 'ALL' || lineFilter !== 'ALL' || categoryFilter !== 'ALL' || vista !== 'todos';
   const limparFiltros = () => {
     setSearch('');
     setStatusFilter('ALL');
     setLineFilter('ALL');
     setCategoryFilter('ALL');
-    setProductTypeFilter('ALL');
+    setVista('todos');
   };
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -290,6 +317,7 @@ export default function StatusTab({ products, categories, configs, kitComposicao
       aoCancelar: () => {
         setBulkStatus('');
         setBulkLine('');
+        setBulkCategory('');
       },
     });
   };
@@ -370,97 +398,82 @@ export default function StatusTab({ products, categories, configs, kitComposicao
                   </div>
                 </div>
               )}
-              {/* Filtering and Search Header */}
-              <div className="toolbar-section !rounded-2xl !mb-0 shrink-0">
-                <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                  {/* Search Bar */}
-                  <div className="relative lg:col-span-2">
+              {/* Busca, filtros e visões */}
+              <div className="bg-white border border-zinc-200 rounded-2xl p-3 shrink-0 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 min-w-[260px] max-w-md">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                     <input
                       type="text"
-                      placeholder="Buscar por código ou descrição (ex: 10.13.003)..."
+                      placeholder="Buscar por código ou descrição (ex: 10.13.003)"
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                       className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm font-medium"
                     />
                   </div>
-
-                  {/* Type Filter */}
-                  <div className="relative">
-                    <select
-                      value={productTypeFilter}
-                      onChange={(e) => setProductTypeFilter(e.target.value as any)}
-                      className="w-full pl-3 pr-8 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm appearance-none cursor-pointer font-semibold text-zinc-700"
-                    >
-                      <option value="ALL">Todos os Tipos</option>
-                      <option value="PRODUCTS">Produtos Acabados</option>
-                      <option value="KITS">Kits Comerciais</option>
-                      <option value="BASES">Bases de Produção</option>
-                    </select>
-                    <Layers className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
-                  </div>
-
-                  {/* Status Filter */}
-                  <div className="relative">
-                    <select
-                      value={statusFilter}
-                      onChange={(e) => setStatusFilter(e.target.value)}
-                      className="w-full pl-3 pr-8 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm appearance-none cursor-pointer"
-                    >
-                      <option value="ALL">Todos os Status</option>
-                      <option value="ativo">Ativa</option>
-                      <option value="lancamento">Lançamento</option>
-                      <option value="saindo_de_linha">Saindo de Linha</option>
-                      <option value="descontinuado">Saiu de Linha</option>
-                      <option value="terceirizado">Terceirizado</option>
-                    </select>
-                    <Filter className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
-                  </div>
-
-                  {/* Line Filter */}
-                  <div className="relative">
-                    <select
-                      value={lineFilter}
-                      onChange={(e) => setLineFilter(e.target.value)}
-                      className="w-full pl-3 pr-8 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm appearance-none cursor-pointer"
-                    >
-                      <option value="ALL">Todas as Linhas</option>
-                      {configs.map(c => (
-                        <option key={c.linha_prefix} value={c.linha_prefix}>{c.nome_linha}</option>
-                      ))}
-                    </select>
-                    <ListFilter className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
-                  </div>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    aria-label="Filtrar por status"
+                    className="h-9 pl-3 pr-8 bg-white border border-zinc-200 rounded-xl text-[13px] text-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-900 cursor-pointer"
+                  >
+                    <option value="ALL">Todos os status</option>
+                    <option value="ativo">Ativa</option>
+                    <option value="lancamento">Lançamento</option>
+                    <option value="saindo_de_linha">Saindo de Linha</option>
+                    <option value="descontinuado">Saiu de Linha</option>
+                    <option value="terceirizado">Terceirizado</option>
+                  </select>
+                  <select
+                    value={lineFilter}
+                    onChange={(e) => setLineFilter(e.target.value)}
+                    aria-label="Filtrar por linha"
+                    className="h-9 pl-3 pr-8 bg-white border border-zinc-200 rounded-xl text-[13px] text-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-900 cursor-pointer max-w-[200px]"
+                  >
+                    <option value="ALL">Todas as linhas</option>
+                    {configs.map(c => (
+                      <option key={c.linha_prefix} value={c.linha_prefix}>{c.nome_linha}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    aria-label="Filtrar por categoria"
+                    className="h-9 pl-3 pr-8 bg-white border border-zinc-200 rounded-xl text-[13px] text-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-900 cursor-pointer max-w-[220px]"
+                  >
+                    <option value="ALL">Todas as categorias</option>
+                    <option value="Sem Categoria">Sem categoria</option>
+                    {groupedCategories.map(group => (
+                      <optgroup key={group.root.id} label={group.root.name}>
+                        <option value={group.root.id}>{group.root.name} (Geral)</option>
+                        {group.subs.map(sub => (
+                          <option key={sub.id} value={sub.id}>{sub.name}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  {temFiltro && (
+                    <button onClick={limparFiltros} className="text-xs font-semibold text-zinc-500 hover:text-zinc-900 underline underline-offset-2 cursor-pointer px-1">
+                      Limpar filtros
+                    </button>
+                  )}
                 </div>
-
-                <div className="w-full flex items-center justify-between text-xs text-zinc-500 font-semibold pt-1 border-t border-zinc-100 mt-1">
-                  <span className="flex items-center gap-3">
-                    {filteredProducts.length} de {products.length} produtos
-                    {temFiltro && (
-                      <button onClick={limparFiltros} className="text-zinc-500 hover:text-zinc-900 underline underline-offset-2 cursor-pointer">
-                        Limpar filtros
-                      </button>
-                    )}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Categoria</span>
-                    <select
-                      value={categoryFilter}
-                      onChange={(e) => setCategoryFilter(e.target.value)}
-                      className="bg-white border border-zinc-200 rounded-lg px-2 py-1 text-zinc-700 hover:text-zinc-900 cursor-pointer font-bold focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {VISTAS.map(v => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => setVista(v.id)}
+                      className={cn(
+                        'px-3 py-1.5 rounded-full border text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1.5',
+                        vista === v.id ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
+                      )}
                     >
-                      <option value="ALL">Todas</option>
-                      <option value="Sem Categoria">Sem Categoria</option>
-                      {groupedCategories.map(group => (
-                        <optgroup key={group.root.id} label={group.root.name}>
-                          <option value={group.root.id}>{group.root.name} (Geral)</option>
-                          {group.subs.map(sub => (
-                            <option key={sub.id} value={sub.id}>{sub.name}</option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
-                  </div>
+                      {v.label}
+                      <span className={cn('font-mono text-[10px]', vista === v.id ? 'text-zinc-300' : 'text-zinc-400')}>{contagemVistas[v.id] ?? 0}</span>
+                    </button>
+                  ))}
+                  <span className="ml-auto text-xs text-zinc-500">{filteredProducts.length} de {products.length} produtos</span>
                 </div>
               </div>
 
@@ -478,27 +491,25 @@ export default function StatusTab({ products, categories, configs, kitComposicao
                             className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 cursor-pointer"
                           />
                         </th>
-                        <th className="px-4 py-3 w-24 text-[10px] uppercase tracking-wider">Código</th>
-                        <th className="px-4 py-3 text-[10px] uppercase tracking-wider">Descrição</th>
+                        <th className="px-4 py-3 text-[10px] uppercase tracking-wider">Produto</th>
                         <th className="px-4 py-3 w-24 text-[10px] uppercase tracking-wider">Tipo</th>
                         <th className="px-4 py-3 w-48 text-[10px] uppercase tracking-wider">Linha de Venda</th>
                         <th className="px-4 py-3 min-w-[9.5rem] text-[10px] uppercase tracking-wider">Status</th>
-                        <th className="px-4 py-3 w-40 text-[10px] uppercase tracking-wider">Categoria</th>
-                        <th className="px-4 py-3 text-[10px] uppercase tracking-wider">Obs.</th>
+                        <th className="px-4 py-3 w-56 text-[10px] uppercase tracking-wider">Categoria</th>
                         <th className="px-4 py-3 w-16 text-center text-[10px] uppercase tracking-wider">Editar</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100">
                       {loading ? (
                         <tr>
-                          <td colSpan={9} className="p-8 text-center text-zinc-400 font-medium">
+                          <td colSpan={7} className="p-8 text-center text-zinc-400 font-medium">
                             <RefreshCw className="h-5 w-5 animate-spin text-zinc-500 mx-auto mb-2" />
                             Carregando produtos...
                           </td>
                         </tr>
                       ) : filteredProducts.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="p-8 text-center text-zinc-400">Nenhum produto corresponde aos filtros aplicados.</td>
+                          <td colSpan={7} className="p-8 text-center text-zinc-400">Nenhum produto corresponde aos filtros aplicados.</td>
                         </tr>
                       ) : (
                         produtosDaPagina.map((p) => {
@@ -526,10 +537,9 @@ export default function StatusTab({ products, categories, configs, kitComposicao
                                   className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 cursor-pointer"
                                 />
                               </td>
-                              <td className="px-4 py-2.5 font-mono font-bold text-zinc-500">{p.codigo}</td>
                               <td className="px-4 py-2.5 font-bold text-zinc-800">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span>{p.descricao}</span>
+                                  <span className="text-[13px]">{p.descricao}</span>
                                   {p.produzir_apenas_kit === 1 && (
                                     <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-250 rounded" title={p.parent_kits?.length ? `Usado nos kits: ${p.parent_kits.join(', ')}` : 'Produzido apenas para kits'}>
                                       Apenas Kit
@@ -541,6 +551,7 @@ export default function StatusTab({ products, categories, configs, kitComposicao
                                     </span>
                                   )}
                                 </div>
+                                <div className="font-mono text-[11px] font-medium text-zinc-500 mt-0.5">{p.codigo}</div>
                               </td>
                               <td className="px-4 py-2.5">
                                 <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-zinc-100 text-zinc-600 border border-zinc-200 rounded">
@@ -564,16 +575,18 @@ export default function StatusTab({ products, categories, configs, kitComposicao
                               </td>
                               <td className="px-4 py-3 align-middle">{renderStatusBadge(p.status_produto, p.categoria_produto, p.codigo)}</td>
                               <td className="px-4 py-2.5">
-                                {p.categoria_produto ? (
-                                  <span className="px-2 py-0.5 bg-zinc-100 text-zinc-650 border border-zinc-200 rounded text-[10px] font-bold">
-                                    {getCategoryName(p.categoria_produto)}
-                                  </span>
-                                ) : (
-                                  <span className="text-zinc-350 italic scale-95 font-medium">Nenhuma</span>
-                                )}
-                              </td>
-                              <td className="px-4 py-2.5 max-w-[200px] truncate text-zinc-500 font-medium" title={p.observacao || undefined}>
-                                {p.observacao || '-'}
+                                <span className="flex items-center gap-2">
+                                  {p.categoria_produto ? (
+                                    <span className="px-2 py-0.5 bg-zinc-100 text-zinc-700 border border-zinc-200 rounded text-[10px] font-bold">
+                                      {getCategoryName(p.categoria_produto)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-zinc-400 italic font-medium">Nenhuma</span>
+                                  )}
+                                  {codigosComAjuste.has(p.codigo) && (
+                                    <span title="Tem ajuste manual" className="text-[10px] font-bold text-zinc-600 bg-zinc-100 border border-zinc-200 rounded px-1.5 py-0.5">manual</span>
+                                  )}
+                                </span>
                               </td>
                               <td className="px-4 py-2.5 text-center flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
                                 <button
@@ -628,94 +641,60 @@ export default function StatusTab({ products, categories, configs, kitComposicao
                   </div>
                 )}
 
-                {/* Bulk Actions Bar */}
-                {selectedCodes.size > 0 && (
-                  <div className="bg-zinc-900 text-white px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4 border-t border-zinc-800 shadow-2xl shrink-0">
-                    <div className="flex items-center gap-2">
-                      <span className="bg-zinc-800 text-white font-bold px-2 py-0.5 rounded text-sm">
-                        {selectedCodes.size}
-                      </span>
-                      <span className="text-xs font-medium text-zinc-300">produtos selecionados para edição em lote</span>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-3">
-                      {/* Status Bulk Select */}
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-bold text-zinc-400 uppercase">Status:</span>
-                        <select
-                          value={bulkStatus}
-                          onChange={(e) => {
-                            setBulkStatus(e.target.value);
-                            handleBulkAction('set_status', e.target.value);
-                          }}
-                          className="bg-zinc-800 text-white border border-zinc-700 rounded-lg text-xs font-semibold py-1.5 px-2.5 focus:outline-none"
-                        >
-                          <option value="">Alterar para...</option>
-                          <option value="ativo">Ativa</option>
-                          <option value="lancamento">Lançamento</option>
-                          <option value="saindo_de_linha">Saindo de Linha</option>
-                          <option value="descontinuado">Saiu de Linha</option>
-                          <option value="terceirizado">Terceirizado</option>
-                        </select>
-                      </div>
-
-                      {/* Line Bulk Select */}
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-bold text-zinc-400 uppercase">Linha:</span>
-                        <select
-                          value={bulkLine}
-                          onChange={(e) => {
-                            setBulkLine(e.target.value);
-                            handleBulkAction('set_line', e.target.value);
-                          }}
-                          className="bg-zinc-800 text-white border border-zinc-700 rounded-lg text-xs font-semibold py-1.5 px-2.5 focus:outline-none"
-                        >
-                          <option value="">Alterar para...</option>
-                          <option value="AUTO">Automático (Padrão)</option>
-                          {configs.map(c => (
-                            <option key={c.linha_prefix} value={c.linha_prefix}>{c.nome_linha}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Category Bulk Input */}
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-bold text-zinc-400 uppercase">Categoria:</span>
-                        <select
-                          value={bulkCategory}
-                          onChange={(e) => setBulkCategory(e.target.value)}
-                          className="bg-zinc-800 text-white border border-zinc-700 rounded-lg text-xs font-semibold py-1.5 px-2 w-36 focus:outline-none"
-                        >
-                          <option value="">Alterar para...</option>
-                          <option value="AUTO">Automático (Padrão)</option>
-                          {groupedCategories.map(group => (
-                            <optgroup key={group.root.id} label={group.root.name}>
-                              <option value={group.root.id}>{group.root.name} (Geral)</option>
-                              {group.subs.map(sub => (
-                                <option key={sub.id} value={sub.id}>{sub.name}</option>
-                              ))}
-                            </optgroup>
-                          ))}
-                        </select>
-                        <button 
-                          onClick={() => handleBulkAction('set_category', bulkCategory)}
-                          className="px-2 py-1.5 bg-white text-zinc-900 rounded-lg text-xs font-bold hover:bg-zinc-200 transition-colors cursor-pointer"
-                        >
-                          Aplicar
-                        </button>
-                      </div>
-
-                      {/* Clear Selection */}
-                      <button 
-                        onClick={() => setSelectedCodes(new Set())}
-                        className="text-xs text-zinc-400 hover:text-white px-2 py-1.5 font-medium transition-colors cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
+              {selectedCodes.size > 0 && (
+                <div role="region" aria-label="Edição em lote" className="shrink-0 bg-zinc-900 text-white rounded-2xl px-4 py-3 flex flex-wrap items-center gap-2.5 shadow-xl">
+                  <span className="bg-zinc-800 text-white font-bold px-2 py-0.5 rounded text-xs">{selectedCodes.size}</span>
+                  <span className="text-xs text-zinc-300 flex-1 min-w-[160px]">
+                    {selectedCodes.size === 1 ? 'produto selecionado' : 'produtos selecionados'}. Escolha o que mudar; uma prévia mostra o antes e o depois.
+                  </span>
+                  <select
+                    aria-label="Mudar status"
+                    value={bulkStatus}
+                    onChange={(e) => { setBulkStatus(e.target.value); if (e.target.value) handleBulkAction('set_status', e.target.value); }}
+                    className="h-8 bg-zinc-800 text-white border border-zinc-700 rounded-xl text-xs font-bold px-2 focus:outline-none cursor-pointer"
+                  >
+                    <option value="">Mudar status…</option>
+                    <option value="ativo">Ativa</option>
+                    <option value="lancamento">Lançamento</option>
+                    <option value="saindo_de_linha">Saindo de Linha</option>
+                    <option value="descontinuado">Saiu de Linha</option>
+                    <option value="terceirizado">Terceirizado</option>
+                  </select>
+                  <select
+                    aria-label="Mudar linha"
+                    value={bulkLine}
+                    onChange={(e) => { setBulkLine(e.target.value); if (e.target.value) handleBulkAction('set_line', e.target.value); }}
+                    className="h-8 bg-zinc-800 text-white border border-zinc-700 rounded-xl text-xs font-bold px-2 max-w-[220px] focus:outline-none cursor-pointer"
+                  >
+                    <option value="">Mudar linha…</option>
+                    <option value="AUTO">Automática (pelo prefixo)</option>
+                    {configs.map(c => (
+                      <option key={c.linha_prefix} value={c.linha_prefix}>{c.nome_linha}</option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Mudar categoria ou subcategoria"
+                    value={bulkCategory}
+                    onChange={(e) => { setBulkCategory(e.target.value); if (e.target.value) handleBulkAction('set_category', e.target.value); }}
+                    className="h-8 bg-zinc-800 text-white border border-zinc-700 rounded-xl text-xs font-bold px-2 max-w-[240px] focus:outline-none cursor-pointer"
+                  >
+                    <option value="">Mudar categoria…</option>
+                    <option value="AUTO">Automática</option>
+                    {groupedCategories.map(group => (
+                      <optgroup key={group.root.id} label={group.root.name}>
+                        <option value={group.root.id}>{group.root.name} (Geral)</option>
+                        {group.subs.map(sub => (
+                          <option key={sub.id} value={sub.id}>{sub.name}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  <button onClick={() => setSelectedCodes(new Set())} className="text-xs text-zinc-400 hover:text-white px-2 py-1.5 font-medium transition-colors cursor-pointer">
+                    Limpar seleção
+                  </button>
+                </div>
+              )}
             </div>
 
       {/* Edit Drawer (Side panel) */}

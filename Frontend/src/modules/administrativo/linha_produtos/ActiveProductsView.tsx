@@ -129,7 +129,12 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   };
 
   const formatarValorPrevia = (campo: string, v: string | null) => {
-    if (v === null || v === undefined || v === '') return '(vazio)';
+    if (v === null || v === undefined || v === '') {
+      if (campo === 'status_produto') return 'Ativa (padrão)';
+      if (campo === 'linha_prefix_manual') return 'Automática (pelo prefixo)';
+      if (campo === 'categoria_produto') return 'Nenhuma';
+      return '(vazio)';
+    }
     if (campo === 'visivel') return v === '0' ? 'oculto' : 'visível';
     if (campo === 'is_lancamento_manual') return v === '1' ? 'sim' : 'não';
     if (campo === 'status_produto') return PRODUCT_LINE_STATUSES.find(s => s.value === v)?.label || v;
@@ -355,6 +360,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
               configs={configs}
               kitComposicao={kitComposicao}
               graduationCandidates={graduationCandidates}
+              codigosComAjuste={new Set(allOverrides.map(o => o.codigo))}
               loading={loading}
               pedirBulk={pedirBulk}
               avisar={avisar}
