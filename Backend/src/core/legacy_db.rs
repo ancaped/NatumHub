@@ -927,7 +927,9 @@ LEFT JOIN (
         SUM(CASE WHEN MONTH(dVenda) = 11 THEN nQtde ELSE 0 END) as M11,
         SUM(CASE WHEN MONTH(dVenda) = 12 THEN nQtde ELSE 0 END) as M12
     FROM VENDAS2 WITH (NOLOCK)
-    WHERE YEAR(dVenda) = YEAR(GETDATE())
+    -- 12 meses fechados (nov/25 a out/26 em novembro): cada mês do ano aparece uma vez
+    WHERE dVenda >= DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()) - 12, 0)
+      AND dVenda < DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()), 0)
     GROUP BY cCodProd
 ) v ON p.cCodProd = v.cCodProd
 WHERE p.cInativo = 'N' OR p.cInativo IS NULL;
