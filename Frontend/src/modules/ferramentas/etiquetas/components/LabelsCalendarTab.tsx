@@ -324,7 +324,7 @@ export default function LabelsCalendarTab({
                   onClick={() => setSelectedDateIso(day.dateIso)}
                   className={`min-h-[85px] p-2 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
                     isSelected
-                      ? 'bg-blue-50/70 border-blue-500 ring-2 ring-blue-500/20'
+                      ? 'bg-zinc-50/70 border-zinc-500 ring-2 ring-zinc-500/20'
                       : day.isCurrentMonth
                       ? 'bg-white border-zinc-200/80 hover:border-zinc-300 hover:bg-zinc-50/60'
                       : 'bg-zinc-50/50 border-zinc-100 text-zinc-400'
@@ -336,7 +336,7 @@ export default function LabelsCalendarTab({
                         day.isToday
                           ? 'bg-zinc-900 text-white h-5 w-5 rounded-full flex items-center justify-center'
                           : isSelected
-                          ? 'text-blue-900 font-black'
+                          ? 'text-zinc-900 font-black'
                           : day.isCurrentMonth
                           ? 'text-zinc-800'
                           : 'text-zinc-400'
@@ -346,7 +346,7 @@ export default function LabelsCalendarTab({
                     </span>
 
                     {hasPrints && (
-                      <span className="h-2 w-2 rounded-full bg-blue-600 animate-pulse" />
+                      <span className="h-2 w-2 rounded-full bg-zinc-600 animate-pulse" />
                     )}
                   </div>
 
@@ -354,7 +354,7 @@ export default function LabelsCalendarTab({
                   <div className="space-y-1 mt-1 w-full">
                     {hasPrints ? (
                       <div className="space-y-0.5">
-                        <span className="block text-[10px] font-mono font-bold bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded truncate">
+                        <span className="block text-[10px] font-mono font-bold bg-zinc-100 text-zinc-800 px-1.5 py-0.2 rounded truncate">
                           🏷️ {day.totalPrints} {day.totalPrints === 1 ? 'lote' : 'lotes'}
                         </span>
                         <span className="block text-[9px] text-zinc-500 font-mono truncate">
@@ -375,7 +375,7 @@ export default function LabelsCalendarTab({
         <div className="lg:col-span-4 bg-white rounded-2xl border border-zinc-200/80 shadow-xs p-5 flex flex-col max-h-[620px]">
           <div className="border-b border-zinc-100 pb-3 mb-3 shrink-0">
             <div className="flex items-center gap-2 text-zinc-900">
-              <CalendarIcon className="h-4 w-4 text-blue-600" />
+              <CalendarIcon className="h-4 w-4 text-zinc-600" />
               <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-500">
                 Lotes do Dia
               </h3>
@@ -399,7 +399,7 @@ export default function LabelsCalendarTab({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <span className="text-[10px] font-mono font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                      <span className="text-[10px] font-mono font-bold text-zinc-600 bg-zinc-50 px-1.5 py-0.5 rounded border border-zinc-200">
                         {item.product_code || 'Etiqueta'}
                       </span>
                       <h4 className="text-xs font-bold text-zinc-900 mt-1 line-clamp-1">
@@ -413,7 +413,7 @@ export default function LabelsCalendarTab({
                       className="px-2 py-1 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-300 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors shrink-0 shadow-2xs"
                       title="Reimprimir com os mesmos parâmetros"
                     >
-                      <RotateCcw className="h-3 w-3 text-blue-600" />
+                      <RotateCcw className="h-3 w-3 text-zinc-600" />
                       <span>Reimprimir</span>
                     </button>
                   </div>

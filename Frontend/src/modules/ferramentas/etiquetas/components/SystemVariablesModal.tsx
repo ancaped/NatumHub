@@ -2,12 +2,10 @@ import React, { useState, useMemo } from 'react';
 import {
   Database,
   Search,
-  X,
   Plus,
   Trash2,
   Copy,
   Check,
-  Tag,
   Package,
   Factory,
   Box,
@@ -16,7 +14,6 @@ import {
   Sparkles,
   Barcode,
   Type,
-  HelpCircle,
 } from 'lucide-react';
 import {
   getAllSystemVariables,
@@ -24,6 +21,7 @@ import {
   deleteCustomVariable,
   type SystemVariable,
 } from '../lib/systemVariables';
+import Drawer from '../../../geral/components/ui/Drawer';
 
 interface SystemVariablesModalProps {
   isOpen: boolean;
@@ -33,6 +31,12 @@ interface SystemVariablesModalProps {
   onInsertIntoActiveElement?: (token: string) => void;
   hasActiveElement?: boolean;
 }
+
+const BTN_SECUNDARIO =
+  'inline-flex items-center gap-1.5 border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 rounded-lg text-xs h-8 px-2.5 cursor-pointer transition-colors';
+const BTN_PRIMARIO =
+  'inline-flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-xs h-8 px-2.5 cursor-pointer transition-colors';
+const INPUT = 'w-full h-8 px-2.5 border border-zinc-200 rounded-lg text-xs bg-white focus:outline-none focus:border-zinc-900';
 
 export default function SystemVariablesModal({
   isOpen,
@@ -119,318 +123,242 @@ export default function SystemVariablesModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-      <div className="bg-white rounded-2xl shadow-2xl border border-zinc-200 w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col font-sans">
-        {/* Modal Header */}
-        <div className="p-5 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/80 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-600 text-white rounded-xl shadow-xs">
-              <Database className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-black text-zinc-900 tracking-tight">
-                Biblioteca de Dados e Variáveis do Nexus
-              </h2>
-              <p className="text-xs text-zinc-500">
-                Selecione qualquer dado do banco ou crie seus próprios campos para alimentar suas etiquetas térmicas
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-lg cursor-pointer"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Search & Top Action */}
-        <div className="p-4 border-b border-zinc-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
-          <div className="relative w-full sm:w-96">
-            <Search className="h-4 w-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+    <Drawer
+      onClose={onClose}
+      title="Biblioteca de Dados e Variáveis do Nexus"
+      subtitle="Selecione qualquer dado do banco ou crie seus próprios campos para as etiquetas"
+      size="lg"
+      tabs={categories.map((cat) => ({
+        id: cat.id,
+        label: cat.label,
+        icon: cat.icon,
+        badge: allVariables.filter((v) => cat.id === 'all' || v.category === cat.id).length,
+      }))}
+      activeTab={activeCategory}
+      onTabChange={(id) => {
+        setActiveCategory(id);
+        setIsCreatingCustom(false);
+      }}
+    >
+      <div className="space-y-3 -mt-2">
+        {/* Busca e ação principal */}
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="h-3.5 w-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               autoFocus
               placeholder="Buscar dado (ex: validade, lote, dun-14, cnpj, peso, cliente)..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-xs bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:border-zinc-900"
+              className="w-full h-8 pl-8 pr-3 border border-zinc-200 rounded-lg text-xs bg-white focus:outline-none focus:border-zinc-900"
             />
           </div>
 
           <button
             type="button"
             onClick={() => setIsCreatingCustom(!isCreatingCustom)}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs ${
-              isCreatingCustom
-                ? 'bg-zinc-200 text-zinc-800'
-                : 'bg-zinc-900 hover:bg-zinc-800 text-white'
-            }`}
+            className={isCreatingCustom ? BTN_SECUNDARIO : BTN_PRIMARIO}
           >
             <Plus className="h-3.5 w-3.5" />
             <span>{isCreatingCustom ? 'Voltar para Lista' : 'Criar Campo Personalizado'}</span>
           </button>
         </div>
 
-        {/* Modal Body: Categories (Left) + Variables Grid (Right) */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Categories Sidebar */}
-          <div className="w-56 border-r border-zinc-100 bg-zinc-50/50 p-3 space-y-1 overflow-y-auto shrink-0 select-none">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 px-3 block mb-1">
-              Categorias de Dados
-            </span>
-            {categories.map((cat) => {
-              const Icon = cat.icon;
-              const isSelected = activeCategory === cat.id;
-              const count = allVariables.filter(
-                (v) => cat.id === 'all' || v.category === cat.id
-              ).length;
+        {isCreatingCustom ? (
+          /* Formulário de nova variável */
+          <div className="border border-zinc-200 rounded-lg p-4 space-y-3">
+            <div>
+              <h3 className="text-xs font-semibold text-zinc-900">Novo Campo Personalizado</h3>
+              <p className="text-xs text-zinc-500">Crie um dado dinâmico para usar em suas etiquetas</p>
+            </div>
 
-              return (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveCategory(cat.id);
-                    setIsCreatingCustom(false);
+            <form onSubmit={handleSaveCustom} className="space-y-3 text-xs">
+              <div>
+                <label className="font-medium text-zinc-700 block mb-1">Nome Amigável do Campo:</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Inspetor de Qualidade, Temperatura de Estufa, pH"
+                  value={newLabel}
+                  onChange={(e) => {
+                    setNewLabel(e.target.value);
+                    if (!newToken) {
+                      // Auto generate token
+                      const slug = e.target.value
+                        .toLowerCase()
+                        .normalize('NFD')
+                        .replace(/[̀-ͯ]/g, '')
+                        .replace(/[^a-z0-9]/g, '_');
+                      setNewToken(`{${slug}}`);
+                    }
                   }}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-zinc-900 text-white shadow-xs'
-                      : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Icon className={`h-3.5 w-3.5 ${isSelected ? 'text-white' : 'text-zinc-500'}`} />
-                    <span className="truncate">{cat.label}</span>
-                  </div>
-                  <span
-                    className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
-                      isSelected ? 'bg-zinc-800 text-zinc-200' : 'bg-zinc-200/80 text-zinc-600'
-                    }`}
-                  >
-                    {count}
-                  </span>
+                  className={INPUT}
+                />
+              </div>
+
+              <div>
+                <label className="font-medium text-zinc-700 block mb-1">Tag / Código da Variável:</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: {inspetor_qualidade}"
+                  value={newToken}
+                  onChange={(e) => setNewToken(e.target.value)}
+                  className={`${INPUT} font-mono`}
+                />
+              </div>
+
+              <div>
+                <label className="font-medium text-zinc-700 block mb-1">Valor de Exemplo / Teste:</label>
+                <input
+                  type="text"
+                  placeholder="Ex: APROVADO CQ - CRQ 0412"
+                  value={newSample}
+                  onChange={(e) => setNewSample(e.target.value)}
+                  className={INPUT}
+                />
+              </div>
+
+              <div>
+                <label className="font-medium text-zinc-700 block mb-1">Descrição / Instrução:</label>
+                <textarea
+                  rows={2}
+                  placeholder="Para que serve este campo..."
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
+                  className="w-full p-2 border border-zinc-200 rounded-lg text-xs bg-white focus:outline-none focus:border-zinc-900"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setIsCreatingCustom(false)} className={BTN_SECUNDARIO}>
+                  Cancelar
                 </button>
-              );
-            })}
-          </div>
-
-          {/* Main Content Area */}
-          <div className="flex-1 p-5 overflow-y-auto bg-zinc-50/30">
-            {isCreatingCustom ? (
-              /* CREATE CUSTOM VARIABLE FORM */
-              <div className="max-w-lg mx-auto bg-white p-6 rounded-2xl border border-zinc-200 shadow-xs space-y-4">
-                <div className="flex items-center gap-2 pb-2 border-b border-zinc-100">
-                  <Sparkles className="h-4 w-4 text-zinc-700" />
-                  <div>
-                    <h3 className="text-sm font-bold text-zinc-900">Novo Campo Personalizado</h3>
-                    <p className="text-xs text-zinc-500">
-                      Crie um dado dinâmico para usar em suas etiquetas
-                    </p>
-                  </div>
-                </div>
-
-                <form onSubmit={handleSaveCustom} className="space-y-4 text-xs">
-                  <div>
-                    <label className="font-bold text-zinc-800 block mb-1">Nome Amigável do Campo:</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ex: Inspetor de Qualidade, Temperatura de Estufa, pH"
-                      value={newLabel}
-                      onChange={(e) => {
-                        setNewLabel(e.target.value);
-                        if (!newToken) {
-                          // Auto generate token
-                          const slug = e.target.value
-                            .toLowerCase()
-                            .normalize('NFD')
-                            .replace(/[\u0300-\u036f]/g, '')
-                            .replace(/[^a-z0-9]/g, '_');
-                          setNewToken(`{${slug}}`);
-                        }
-                      }}
-                      className="w-full p-2.5 border border-zinc-300 rounded-xl bg-zinc-50 font-bold focus:bg-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="font-bold text-zinc-800 block mb-1">Tag / Código da Variável:</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ex: {inspetor_qualidade}"
-                      value={newToken}
-                      onChange={(e) => setNewToken(e.target.value)}
-                      className="w-full p-2.5 border border-zinc-300 rounded-xl font-mono text-zinc-800 bg-zinc-50"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="font-bold text-zinc-800 block mb-1">Valor de Exemplo / Teste:</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: APROVADO CQ - CRQ 0412"
-                      value={newSample}
-                      onChange={(e) => setNewSample(e.target.value)}
-                      className="w-full p-2.5 border border-zinc-300 rounded-xl bg-zinc-50"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="font-bold text-zinc-800 block mb-1">Descrição / Instrução:</label>
-                    <textarea
-                      rows={2}
-                      placeholder="Para que serve este campo..."
-                      value={newDescription}
-                      onChange={(e) => setNewDescription(e.target.value)}
-                      className="w-full p-2 border border-zinc-300 rounded-xl bg-zinc-50"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-end gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsCreatingCustom(false)}
-                      className="px-4 py-2 text-zinc-600 hover:text-zinc-900 rounded-xl cursor-pointer"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white font-bold rounded-xl cursor-pointer"
-                    >
-                      Salvar Variável
-                    </button>
-                  </div>
-                </form>
+                <button type="submit" className={BTN_PRIMARIO}>
+                  Salvar Variável
+                </button>
               </div>
-            ) : (
-              /* VARIABLES LIST TABLE */
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-xs text-zinc-500 font-mono">
-                  <span>{filteredVariables.length} campos disponíveis</span>
-                  {hasActiveElement && (
-                    <span className="text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
-                      Elemento selecionado no Canvas ativo
-                    </span>
-                  )}
-                </div>
+            </form>
+          </div>
+        ) : (
+          /* Lista de variáveis */
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs text-zinc-500">
+              <span>{filteredVariables.length} campos disponíveis</span>
+              {hasActiveElement && (
+                <span className="text-zinc-700 font-medium bg-zinc-100 px-2 py-0.5 rounded border border-zinc-200">
+                  Elemento selecionado no Canvas ativo
+                </span>
+              )}
+            </div>
 
-                <div className="space-y-2">
-                  {filteredVariables.map((v) => {
-                    const isCopied = copiedToken === v.token;
+            <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-lg overflow-hidden">
+              {filteredVariables.map((v) => {
+                const isCopied = copiedToken === v.token;
 
-                    return (
-                      <div
-                        key={v.token}
-                        className="bg-white p-3.5 rounded-2xl border border-zinc-200/80 shadow-2xs hover:border-zinc-300 transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
-                      >
-                        {/* Info & Sample */}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-xs text-zinc-900">{v.label}</span>
-                            <span className="font-mono text-[11px] font-black text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.2 rounded">
-                              {v.token}
-                            </span>
-                            {v.isCustom && (
-                              <span className="text-[9px] font-bold text-zinc-700 bg-zinc-100 border border-zinc-200 px-1.5 py-0.2 rounded">
-                                Personalizado
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-zinc-500 mt-0.5">{v.description}</p>
-                          <div className="text-[11px] font-mono text-zinc-600 mt-1 bg-zinc-50 px-2 py-0.5 rounded border border-zinc-100 inline-block">
-                            Exemplo real: <strong className="text-zinc-900">{v.sample}</strong>
-                          </div>
-                        </div>
-
-                        {/* Action Buttons */}
-                        <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
-                          {/* Inject into selected element */}
-                          {hasActiveElement && onInsertIntoActiveElement && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onInsertIntoActiveElement(v.token);
-                                onClose();
-                              }}
-                              className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                              title="Inserir no elemento selecionado atualmente no Canvas"
-                            >
-                              <Check className="h-3 w-3" />
-                              <span>Inserir no Item</span>
-                            </button>
-                          )}
-
-                          {/* Add as new text */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onInsertAsText(v);
-                              onClose();
-                            }}
-                            className="flex items-center gap-1 bg-zinc-900 hover:bg-zinc-800 text-white px-2.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                            title="Criar novo elemento de texto na etiqueta com este dado"
-                          >
-                            <Type className="h-3 w-3" />
-                            <span>+ Texto</span>
-                          </button>
-
-                          {/* Add as barcode if supported */}
-                          {(v.recommendedType === 'barcode' || v.category === 'produto' || v.category === 'lote') && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onInsertAsBarcode(v);
-                                onClose();
-                              }}
-                              className="flex items-center gap-1 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-300 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-                              title="Criar código de barras vinculado a este dado"
-                            >
-                              <Barcode className="h-3 w-3" />
-                              <span>+ Barras</span>
-                            </button>
-                          )}
-
-                          {/* Copy Token */}
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(v.token)}
-                            className={`p-1.5 rounded-xl border transition-colors cursor-pointer ${
-                              isCopied
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                                : 'bg-white text-zinc-600 hover:text-zinc-900 border-zinc-200 hover:bg-zinc-50'
-                            }`}
-                            title="Copiar tag {var}"
-                          >
-                            {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                          </button>
-
-                          {/* Delete custom */}
-                          {v.isCustom && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteCustom(v.token)}
-                              className="p-1.5 bg-white hover:bg-red-50 text-zinc-400 hover:text-red-600 border border-zinc-200 rounded-xl cursor-pointer"
-                              title="Remover campo"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </div>
+                return (
+                  <div
+                    key={v.token}
+                    className="px-3 py-2.5 hover:bg-zinc-50 transition-colors flex flex-col gap-2"
+                  >
+                    {/* Info e exemplo */}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-xs text-zinc-900">{v.label}</span>
+                        <span className="font-mono text-[11px] text-zinc-700 bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded">
+                          {v.token}
+                        </span>
+                        {v.isCustom && (
+                          <span className="text-[10px] font-medium text-zinc-600 bg-white border border-zinc-200 px-1.5 py-0.5 rounded">
+                            Personalizado
+                          </span>
+                        )}
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+                      <p className="text-xs text-zinc-500 mt-0.5">{v.description}</p>
+                      <div className="text-[11px] font-mono text-zinc-500 mt-1">
+                        Exemplo real: <strong className="text-zinc-900">{v.sample}</strong>
+                      </div>
+                    </div>
+
+                    {/* Ações */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {/* Inserir no elemento selecionado */}
+                      {hasActiveElement && onInsertIntoActiveElement && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onInsertIntoActiveElement(v.token);
+                            onClose();
+                          }}
+                          className={BTN_PRIMARIO}
+                          title="Inserir no elemento selecionado atualmente no Canvas"
+                        >
+                          <Check className="h-3 w-3" />
+                          <span>Inserir no Item</span>
+                        </button>
+                      )}
+
+                      {/* Novo texto */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onInsertAsText(v);
+                          onClose();
+                        }}
+                        className={hasActiveElement && onInsertIntoActiveElement ? BTN_SECUNDARIO : BTN_PRIMARIO}
+                        title="Criar novo elemento de texto na etiqueta com este dado"
+                      >
+                        <Type className="h-3 w-3" />
+                        <span>+ Texto</span>
+                      </button>
+
+                      {/* Código de barras, se suportado */}
+                      {(v.recommendedType === 'barcode' || v.category === 'produto' || v.category === 'lote') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onInsertAsBarcode(v);
+                            onClose();
+                          }}
+                          className={BTN_SECUNDARIO}
+                          title="Criar código de barras vinculado a este dado"
+                        >
+                          <Barcode className="h-3 w-3" />
+                          <span>+ Barras</span>
+                        </button>
+                      )}
+
+                      {/* Copiar token */}
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(v.token)}
+                        className={BTN_SECUNDARIO}
+                        title="Copiar tag {var}"
+                      >
+                        {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                        {isCopied && <span>Copiado</span>}
+                      </button>
+
+                      {/* Excluir personalizado */}
+                      {v.isCustom && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCustom(v.token)}
+                          className={BTN_SECUNDARIO}
+                          title="Remover campo"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
       </div>
-    </div>
+    </Drawer>
   );
 }
