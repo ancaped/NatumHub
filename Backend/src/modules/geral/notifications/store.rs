@@ -47,7 +47,7 @@ pub async fn list_for_modules(
              FROM hub_notifications n
              LEFT JOIN hub_notification_reads r
                ON r.notification_id = n.id AND r.operator_id = $1
-             ORDER BY n.created_at DESC
+             ORDER BY n.created_at::timestamptz DESC, n.id DESC
              LIMIT $2",
         )
         .bind(operator_id)
@@ -62,7 +62,7 @@ pub async fn list_for_modules(
              LEFT JOIN hub_notification_reads r
                ON r.notification_id = n.id AND r.operator_id = $1
              WHERE n.module_key = ANY($3::text[])
-             ORDER BY n.created_at DESC
+             ORDER BY n.created_at::timestamptz DESC, n.id DESC
              LIMIT $2",
         )
         .bind(operator_id)

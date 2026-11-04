@@ -29,19 +29,20 @@ export default function NotificationsPanel({ currentUser }: NotificationsPanelPr
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [list, count, health] = await Promise.all([
+      const [list, count, health] = await Promise.allSettled([
         fetchNotifications(),
         fetchUnreadCount(),
         checkServerHealth(),
       ]);
-      setItems(list);
-      setUnread(count);
-      setServerOnline(health.ok);
-      setLatencyMs(health.latencyMs);
-    } catch {
-      setItems([]);
-      setUnread(0);
-      setServerOnline(false);
+      // Falha só das notificações (ex.: sessão expirada) não é servidor offline; mantém o que já havia.
+      if (list.status === 'fulfilled') setItems(list.value);
+      if (count.status === 'fulfilled') setUnread(count.value);
+      if (health.status === 'fulfilled') {
+        setServerOnline(health.value.ok);
+        setLatencyMs(health.value.latencyMs);
+      } else {
+        setServerOnline(false);
+      }
     } finally {
       setLoading(false);
     }

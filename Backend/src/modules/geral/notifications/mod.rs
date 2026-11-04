@@ -35,7 +35,7 @@ pub fn notify(
     let message = message.to_string();
     let metadata = metadata.map(|s| s.to_string());
     tokio::spawn(async move {
-        let _ = store::create_notification(
+        if let Err(e) = store::create_notification(
             &pool,
             &module_key,
             &kind,
@@ -43,7 +43,10 @@ pub fn notify(
             &message,
             metadata.as_deref(),
         )
-        .await;
+        .await
+        {
+            eprintln!("[notifications] não foi possível gravar o aviso '{title}': {e}");
+        }
     });
 }
 
