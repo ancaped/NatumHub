@@ -248,6 +248,7 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         .route("/api/server-manager/open-saves", post(handlers::open_saves_handler))
         .merge(modules::geral::router())
         .merge(modules::hub_api::router())
+        .route("/api/*resto", axum::routing::any(api_rota_inexistente))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             modules::geral::auth::auth_middleware,
@@ -267,6 +268,11 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         );
         api
     }
+}
+
+/// Rota inexistente em `/api` devolve 404 em JSON; sem isso o fallback do SPA respondia o `index.html`.
+async fn api_rota_inexistente(uri: axum::http::Uri) -> core::acao::ErroApi {
+    core::acao::ErroApi::nao_encontrado(format!("Rota inexistente: {}", uri.path()))
 }
 
 /// JSON sem `charset` é lido como Latin-1 pelo PowerShell 5 (Invoke-RestMethod) e os acentos chegam quebrados.
