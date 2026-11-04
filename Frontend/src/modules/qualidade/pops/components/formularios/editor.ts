@@ -11,6 +11,8 @@ export interface EstadoEditor {
   specifications: string;
   columns: FormCampo[];
   rowsPerSheet: string;
+  showArea: boolean;
+  showEquip: boolean;
 }
 
 export function estadoDoFormulario(f: Formulario): EstadoEditor {
@@ -22,8 +24,10 @@ export function estadoDoFormulario(f: Formulario): EstadoEditor {
     areasTexto: f.areas.join('\n'),
     limits: f.limits ?? '',
     specifications: f.specifications ?? '',
-    columns: f.fields.map((c) => ({ label: c.label, kind: c.kind, limit: c.limit ?? '' })),
+    columns: f.fields.map((c) => ({ label: c.label, kind: c.kind, limit: c.limit ?? '', width: c.width ?? null })),
     rowsPerSheet: f.rowsPerSheet ? String(f.rowsPerSheet) : '',
+    showArea: f.layout?.showArea !== false,
+    showEquip: f.layout?.showEquip !== false,
   };
 }
 
@@ -42,8 +46,9 @@ export function payloadDoEditor(e: EstadoEditor) {
     areas: areasDoTexto(e.areasTexto),
     limits: e.limits.trim(),
     specifications: e.specifications.trim(),
-    columns: e.columns.map((c) => ({ label: c.label.trim(), kind: c.kind, limit: (c.limit ?? '').trim() || null })),
+    columns: e.columns.map((c) => ({ label: c.label.trim(), kind: c.kind, limit: (c.limit ?? '').trim() || null, width: c.width ?? null })),
     rowsPerSheet: Number.isFinite(linhas) && linhas > 0 ? linhas : 0,
+    layout: { showArea: e.showArea, showEquip: e.showEquip },
   };
 }
 
@@ -61,6 +66,7 @@ export function aplicarEditor(f: Formulario, e: EstadoEditor): Formulario {
     specifications: p.specifications || null,
     fields: p.columns.filter((c) => c.label !== ''),
     rowsPerSheet: p.rowsPerSheet || null,
+    layout: p.layout,
   };
 }
 

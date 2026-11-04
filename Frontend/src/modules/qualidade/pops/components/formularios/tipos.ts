@@ -13,6 +13,8 @@ export interface FormCampo {
   label: string;
   kind: string;
   limit?: string | null;
+  /** Largura em % da folha; vazio = proporcional ao tipo. */
+  width?: number | null;
 }
 
 export interface Formulario {
@@ -40,6 +42,8 @@ export interface Formulario {
   rowsPerSheet?: number | null;
   /** Entra na pasta do mês do setor (formulário que a fábrica preenche todo mês). */
   pastaDoMes?: boolean;
+  /** O que aparece no cabeçalho além do Mês/Ano (sem a chave = aparece). */
+  layout?: { showArea?: boolean; showEquip?: boolean };
   effectiveDate?: string | null;
   nextReviewDate?: string | null;
   daysToReview?: number | null;

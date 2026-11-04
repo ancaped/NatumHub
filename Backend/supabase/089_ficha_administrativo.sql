@@ -1,4 +1,4 @@
--- 088_ficha_administrativo.sql
+-- 089_ficha_administrativo.sql
 -- Ficha técnica do Administrativo (Linha de Produtos e Funcionários) e conexões com Produção.
 -- Só a parte escrita (telas, regras, pontos de atenção); rotas, arquivos e tabelas a ficha gera do código.
 -- Roda em todo boot (SCHEMA_FILES), então aplica uma vez só: a chave `attention` marca que já foi aplicada

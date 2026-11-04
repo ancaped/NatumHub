@@ -370,8 +370,12 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         include_str!("../../../../supabase/087_pops_formularios_pasta_do_mes.sql"),
     ),
     (
-        "088_ficha_administrativo.sql",
-        include_str!("../../../../supabase/088_ficha_administrativo.sql"),
+        "088_pops_formularios_layout.sql",
+        include_str!("../../../../supabase/088_pops_formularios_layout.sql"),
+    ),
+    (
+        "089_ficha_administrativo.sql",
+        include_str!("../../../../supabase/089_ficha_administrativo.sql"),
     ),
 ];
 

@@ -167,11 +167,19 @@ export function fmtDataHora(iso?: string | null): string {
 /** Peso de largura de cada tipo de coluna na folha. */
 const PESO_COLUNA: Record<string, number> = { data: 1, hora: 0.8, numero: 1, texto: 2, sim_nao: 0.95, rubrica: 1.3 };
 
-/** Larguras (%) das colunas da folha, proporcionais ao tipo; somam 100. */
-export function largurasColunas(tipos: string[]): number[] {
+/**
+ * Larguras (%) das colunas da folha; somam 100. A coluna com largura definida fica com ela; as demais dividem o que sobra,
+ * proporcionais ao tipo. Se as definidas passam de 100 (ou não sobra espaço), tudo é reescalado.
+ */
+export function largurasColunas(tipos: string[], fixas: Array<number | null | undefined> = []): number[] {
   const pesos = tipos.map((t) => PESO_COLUNA[t] ?? 1);
-  const total = pesos.reduce((a, b) => a + b, 0) || 1;
-  return pesos.map((p) => (p / total) * 100);
+  const definidas = tipos.map((_, i) => (fixas[i] && fixas[i]! > 0 ? fixas[i]! : null));
+  const somaFixas = definidas.reduce<number>((a, w) => a + (w ?? 0), 0);
+  const pesoLivre = pesos.reduce((a, p, i) => a + (definidas[i] === null ? p : 0), 0);
+  const sobra = 100 - somaFixas;
+  const bruto = pesos.map((p, i) => definidas[i] ?? (pesoLivre > 0 && sobra > 0 ? (p / pesoLivre) * sobra : 0));
+  const total = bruto.reduce((a, b) => a + b, 0) || 1;
+  return bruto.map((w) => (w / total) * 100);
 }
 
 /** Sobe/desce um item da lista (cópia nova; fora dos limites devolve igual). */

@@ -38,14 +38,14 @@ export interface FolhaProps {
 
 export function Folha({ f, area, pagina, total, logoSrc, marca, mesAno }: FolhaProps) {
   const paisagem = deitado(f);
-  // FOR-PRD-047: o laudo em papel só preenche o mês (decisão do Edson, 2026-11-04); o equipamento já é uma coluna.
-  const soMes = f.code.startsWith('FOR-PRD-047');
+  const mostraArea = f.layout?.showArea !== false;
+  const mostraEquip = f.layout?.showEquip !== false;
   const linhas = linhasPorFolha(f);
   // Mais linhas que cabem: as linhas encolhem; senão a tabela estica e a última linha encosta no rodapé.
   const cabem = linhasQueCabem(paisagem, !!f.limits?.trim(), alturaEspecificacoes(f.specifications, paisagem));
   const especificacoes = itensEspecificacoes(f.specifications);
   const alturaLinha = Math.min(7.2, (cabem * 7.2) / Math.max(linhas, 1));
-  const larguras = largurasColunas(f.fields.map((c) => c.kind));
+  const larguras = largurasColunas(f.fields.map((c) => c.kind), f.fields.map((c) => c.width));
   const vigencia = fmtData(f.effectiveDate) || '__/__/____';
   return (
     <div
@@ -105,8 +105,8 @@ export function Folha({ f, area, pagina, total, logoSrc, marca, mesAno }: FolhaP
         </div>
         <div style={{ display: 'flex', gap: 16, fontSize: 9, padding: '3px 8px', borderBottom: BORDA }}>
           <span><b>Mês/Ano:</b> {mesAno ?? '____/______'}</span>
-          {!soMes && <span><b>{area ? 'Área:' : 'Setor/Área:'}</b> {area || '________________'}</span>}
-          {!soMes && <span><b>Equipamento/ID:</b> ____________</span>}
+          {mostraArea && <span><b>{area ? 'Área:' : 'Setor/Área:'}</b> {area || '________________'}</span>}
+          {mostraEquip && <span><b>Equipamento/ID:</b> ____________</span>}
         </div>
         {f.limits && (
           <div style={{ fontSize: 8.5, padding: '3px 8px', borderBottom: BORDA, background: '#f4f4f5' }}>
