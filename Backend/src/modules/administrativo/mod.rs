@@ -1,4 +1,5 @@
 pub mod funcionarios;
+pub mod linhas_kits;
 pub mod produtos_ativos_relatorios;
 pub mod acompanhamento_producao;
 
@@ -10,5 +11,6 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .merge(funcionarios::router())
         .merge(produtos_ativos_relatorios::router())
+        .merge(linhas_kits::router())
         .merge(acompanhamento_producao::router())
 }

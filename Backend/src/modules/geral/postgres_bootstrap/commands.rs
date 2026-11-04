@@ -361,6 +361,10 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         "085_for_prd_047_colunas.sql",
         include_str!("../../../../supabase/085_for_prd_047_colunas.sql"),
     ),
+    (
+        "086_linhas_kits.sql",
+        include_str!("../../../../supabase/086_linhas_kits.sql"),
+    ),
 ];
 
 #[derive(Debug, Serialize)]
