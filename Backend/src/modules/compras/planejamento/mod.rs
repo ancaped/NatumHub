@@ -8,6 +8,7 @@ pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
     axum::Router::new()
         .route("/api/estoque/item-info/:code", axum::routing::get(handlers::get_item_extra_info))
         .route("/api/compras/insumos/:code/detalhes", axum::routing::get(handlers::get_insumo_detalhes))
+        .route("/api/compras/produtos/:code/historico-pedidos", axum::routing::get(handlers::get_produto_historico_pedidos))
         .route("/api/compras/pedidos", axum::routing::get(handlers::list_purchase_orders))
         .route("/api/compras/pedidos/:id", axum::routing::get(handlers::get_purchase_order_detail))
         .route("/api/compras/notas", axum::routing::get(handlers::list_invoices))
@@ -61,6 +62,13 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
             "Ficha de compras de um insumo: cadastro, estoque, consumo, pedidos e notas recentes e simulação.",
             "/api/compras/insumos/:code/detalhes",
             vec![param("code", "caminho", "texto", true, "Código do insumo.")],
+        ),
+        Acao::leitura(
+            "historico_pedidos_produto_compra",
+            "compras_coloracao",
+            "Últimos 100 pedidos de compra de um produto de Coloração ou Material de Apoio: pedido, data, fornecedor, quantidade pedida e recebida, preço. Código sem pedidos devolve lista vazia.",
+            "/api/compras/produtos/:code/historico-pedidos",
+            vec![param("code", "caminho", "texto", true, "Código do produto.")],
         ),
         Acao::leitura(
             "consultar_info_item_estoque",

@@ -757,6 +757,46 @@ pub async fn get_item_extra_info(
         .into_response()
 }
 
+/// Últimos 100 pedidos de compra de um código (casa com e sem pontos), do mais novo ao mais antigo.
+/// Serve ao insumo e ao produto acabado de Coloração/Apoio; erro de banco devolve lista vazia.
+pub async fn historico_pedidos_do_codigo(pool: &sqlx::PgPool, code: &str) -> Vec<PendingPurchaseOrderInfo> {
+    let code_clean = code.replace(".", "");
+    match sqlx::query(
+        "SELECT po.n_registro AS n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, poi.n_preco 
+         FROM purchase_order_items poi
+         INNER JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
+         WHERE (poi.c_referencia = $1 OR poi.c_referencia = $2)
+         ORDER BY po.d_pedido DESC LIMIT 100",
+    )
+    .bind(code)
+    .bind(&code_clean)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(rows) => rows
+            .iter()
+            .map(|row| PendingPurchaseOrderInfo {
+                n_pedido: row.get(0),
+                d_pedido: row.get(1),
+                c_nome_f: row.get(2),
+                n_qtde: row.get(3),
+                n_chegou: row.get(4),
+                n_preco: row.get(5),
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+// GET /api/compras/produtos/:code/historico-pedidos
+pub async fn get_produto_historico_pedidos(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    let pedidos = historico_pedidos_do_codigo(state.db.pool(), &code).await;
+    Json(json!({ "pedidos": pedidos }))
+}
+
 // GET /api/compras/insumos/:code/detalhes
 pub async fn get_insumo_detalhes(
     State(state): State<Arc<AppState>>,
@@ -1070,31 +1110,7 @@ pub async fn get_insumo_detalhes(
             .collect();
     }
 
-    let mut all_orders = Vec::new();
-    if let Ok(rows) = sqlx::query(
-        "SELECT po.n_registro AS n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, poi.n_preco 
-         FROM purchase_order_items poi
-         INNER JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
-         WHERE (poi.c_referencia = $1 OR poi.c_referencia = $2)
-         ORDER BY po.d_pedido DESC LIMIT 100",
-    )
-    .bind(&code)
-    .bind(&code_clean)
-    .fetch_all(&pool)
-    .await
-    {
-        all_orders = rows
-            .iter()
-            .map(|row| PendingPurchaseOrderInfo {
-                n_pedido: row.get(0),
-                d_pedido: row.get(1),
-                c_nome_f: row.get(2),
-                n_qtde: row.get(3),
-                n_chegou: row.get(4),
-                n_preco: row.get(5),
-            })
-            .collect();
-    }
+    let all_orders = historico_pedidos_do_codigo(&pool, &code).await;
 
     let mut quotations = Vec::new();
     if let Ok(rows) = sqlx::query(
@@ -1337,4 +1353,43 @@ pub async fn get_insumo_detalhes(
     };
 
     (StatusCode::OK, Json(response)).into_response()
+}
+
+#[cfg(test)]
+mod testes {
+    use super::historico_pedidos_do_codigo;
+
+    /// Tudo dentro de uma transação desfeita no fim (pool de 1 conexão: BEGIN/ROLLBACK valem para as consultas).
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn historico_pedidos_ordem_limite_e_codigo_com_e_sem_pontos() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        // pool de 1 conexão: a função recebe o pool, então a transação é emprestada pela mesma conexão
+        let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&url).await.unwrap();
+        sqlx::query("BEGIN").execute(&pool).await.unwrap();
+
+        // 105 pedidos do código com pontos e 1 com o código sem pontos; datas crescentes (ISO) para a ordem ser previsível
+        for i in 0..105i32 {
+            let reg = 990_000_000 + i;
+            sqlx::query("INSERT INTO purchase_orders (n_registro, n_pedido, d_pedido, c_nome_f) VALUES ($1, $1, $2, 'ZZ FORNEC')")
+                .bind(reg).bind(format!("2030-01-{:02}T{:02}:00:00", 1 + i / 24, i % 24)).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO purchase_order_items (n_pedido_registro, n_pedido, c_referencia, n_qtde, n_preco, n_chegou) VALUES ($1, $1, 'ZZ.9.001', 10, 2.5, 4)")
+                .bind(reg).execute(&pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO purchase_orders (n_registro, n_pedido, d_pedido, c_nome_f) VALUES (990001000, 990001000, '2031-01-01T00:00:00', 'ZZ OUTRO')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO purchase_order_items (n_pedido_registro, n_pedido, c_referencia, n_qtde, n_preco, n_chegou) VALUES (990001000, 990001000, 'ZZ9001', 1, 1, 0)").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO purchase_orders (n_registro, n_pedido, d_pedido) VALUES (990001001, 990001001, '2032-01-01T00:00:00')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO purchase_order_items (n_pedido_registro, n_pedido, c_referencia, n_qtde, n_preco, n_chegou) VALUES (990001001, 990001001, 'ZZ.9.999', 1, 1, 0)").execute(&pool).await.unwrap();
+
+        let lista = historico_pedidos_do_codigo(&pool, "ZZ.9.001").await;
+        assert_eq!(lista.len(), 100, "limite de 100");
+        assert_eq!(lista[0].n_pedido, 990_001_000, "o mais novo primeiro, e o item sem pontos entra");
+        assert_eq!(lista[0].c_nome_f.as_deref(), Some("ZZ OUTRO"));
+        assert_eq!(lista[1].n_pedido, 990_000_104);
+        assert!(lista.windows(2).all(|p| p[0].d_pedido >= p[1].d_pedido), "ordem por data decrescente");
+        assert!(lista.iter().all(|p| p.n_pedido != 990_001_001), "outro código não entra");
+        assert!(historico_pedidos_do_codigo(&pool, "ZZ.SEM.PEDIDO").await.is_empty());
+
+        sqlx::query("ROLLBACK").execute(&pool).await.unwrap();
+    }
 }

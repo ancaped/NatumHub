@@ -11,6 +11,8 @@ import type { DemandResult, ActiveRequestedItemSummary } from '../../../geral/li
 import { getAuthUser, isSupervisor } from '../../../geral/lib/auth';
 import Drawer from '../../../geral/components/ui/Drawer';
 import { useListaCompra } from '../useListaCompra';
+import { HistoricoPedidosTable, type PedidoCompraHistorico } from './HistoricoPedidosTable';
+import { ultimoRecebimento } from '../ultimoRecebimento';
 
 interface ProductRow {
   codigo: string;
@@ -126,9 +128,12 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
   
   const [pendingOrders, setPendingOrders] = useState<PendingOrdersData | null>(null);
   const [pendingOrdersLoading, setPendingOrdersLoading] = useState(false);
+  const [historicoPedidos, setHistoricoPedidos] = useState<PedidoCompraHistorico[] | null>(null);
+  const [historicoLoading, setHistoricoLoading] = useState(false);
+  const [historicoErro, setHistoricoErro] = useState<string | null>(null);
 
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
-  const [drawerTab, setDrawerTab] = useState<'visao_geral' | 'vendas_mensais' | 'pedidos_venda' | 'pedidos_compra' | 'configuracoes'>('visao_geral');
+  const [drawerTab, setDrawerTab] = useState<'visao_geral' | 'vendas_mensais' | 'pedidos_venda' | 'pedidos_compra' | 'historico_pedidos' | 'configuracoes'>('visao_geral');
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [tempNotes, setTempNotes] = useState('');
 
@@ -436,10 +441,31 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     }
   };
 
+  const loadHistoricoPedidos = async (code: string) => {
+    setHistoricoLoading(true);
+    setHistoricoPedidos(null);
+    setHistoricoErro(null);
+    try {
+      const res = await apiFetch(`/compras/produtos/${encodeURIComponent(code)}/historico-pedidos`);
+      if (res.ok) {
+        const data = await res.json();
+        setHistoricoPedidos(data.pedidos ?? []);
+      } else {
+        setHistoricoErro('Não foi possível carregar o histórico de pedidos.');
+      }
+    } catch (e) {
+      console.error("Erro ao carregar histórico de pedidos do produto:", e);
+      setHistoricoErro('Não foi possível carregar o histórico de pedidos.');
+    } finally {
+      setHistoricoLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (selectedProductCode) {
       loadDetails(selectedProductCode);
       loadPendingOrders(selectedProductCode);
+      loadHistoricoPedidos(selectedProductCode);
       loadItemConfig(selectedProductCode);
       setDrawerTab('visao_geral');
       setIsEditingNotes(false);
@@ -447,6 +473,8 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     } else {
       setDetails(null);
       setPendingOrders(null);
+      setHistoricoPedidos(null);
+      setHistoricoErro(null);
       setItemConfig(null);
     }
   }, [selectedProductCode]);
@@ -707,6 +735,8 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
       return d;
     }
   };
+
+  const ultimaNota = useMemo(() => ultimoRecebimento(details?.recentInvoices), [details]);
 
   const handleSaveNotes = async (notesText: string) => {
     if (!selectedProduct) return;
@@ -1534,7 +1564,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
         badge={
           <div className="flex items-center gap-2">
             <span className="px-2 py-0.5 bg-zinc-900 text-white rounded text-[9px] font-bold uppercase tracking-wider">
-              Detalhamento de Produto Acabado
+              Detalhes do Produto
             </span>
             {selectedProduct?.visivel === 0 && (
               <span className="px-2 py-0.5 bg-red-100 text-red-800 rounded-full text-[9px] font-extrabold uppercase tracking-wider">
@@ -1603,8 +1633,9 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
         tabs={[
           { id: 'visao_geral', label: 'Visão Geral', icon: Info },
           { id: 'vendas_mensais', label: 'Consumo/Vendas', icon: BarChart3 },
-          { id: 'pedidos_venda', label: 'Pedidos Pendentes', icon: Clock },
-          { id: 'pedidos_compra', label: 'Compras em Trânsito', icon: ShoppingCart },
+          { id: 'pedidos_venda', label: 'Pedidos de Venda', icon: Clock },
+          { id: 'pedidos_compra', label: 'Pedidos Abertos', icon: ShoppingCart },
+          { id: 'historico_pedidos', label: 'Histórico de Pedidos', icon: FileText },
           { id: 'configuracoes', label: 'Configurações', icon: Settings },
         ]}
         activeTab={drawerTab}
@@ -1681,7 +1712,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                     )}
 
                     {/* Stats summary */}
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-xl shadow-sm text-left">
                         <span className="text-[9px] text-zinc-400 font-extrabold uppercase block tracking-wider">Estoque Atual</span>
                         <p className="text-lg font-extrabold text-zinc-900 mt-1">
@@ -1698,13 +1729,22 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                           Período: últimos {itemConfig?.periodoMedia ?? globalAvgPeriod ?? 12} meses (config. do item)
                         </p>
                       </div>
+                      <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-xl shadow-sm text-left">
+                        <span className="text-[9px] text-zinc-400 font-extrabold uppercase block tracking-wider">Último recebimento</span>
+                        <p className="text-xs font-bold text-zinc-805 mt-2 truncate">
+                          {ultimaNota ? formatDate(ultimaNota.invoiceDate) : '—'}
+                        </p>
+                        <span className="text-[9px] text-zinc-400 block mt-0.5">
+                          {ultimaNota ? `NF #${ultimaNota.invoiceNumber}` : '—'}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Observations Panel */}
                     <div className="p-4 bg-zinc-50 border border-zinc-200 rounded-xl space-y-2 text-left">
                       <div className="flex items-center justify-between">
-                        <h5 className="text-xs font-extrabold text-zinc-700 flex items-center gap-1.5 uppercase tracking-wider">
-                          <Info className="h-4 w-4 text-zinc-400 shrink-0" /> Observações do Produto (Suprimentos)
+                        <h5 className="text-xs font-bold text-zinc-700 flex items-center gap-1.5">
+                          <Info className="h-4 w-4 text-zinc-400 shrink-0" /> Observações do Produto
                         </h5>
                         {isEditingNotes ? (
                           <div className="flex items-center gap-2">
@@ -1753,9 +1793,9 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
                     {/* Recent Invoices List */}
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 border-b border-zinc-150 pb-2">
-                        <FileText className="h-4.5 w-4.5 text-zinc-600" />
-                        <h4 className="font-extrabold text-xs text-zinc-800 uppercase tracking-wider">Histórico de Recebimento de Notas</h4>
+                      <div className="flex items-center gap-2 border-b border-zinc-105 pb-2">
+                        <FileText className="h-4 w-4 text-zinc-650" />
+                        <h4 className="font-extrabold text-sm text-zinc-900">Histórico Recente de NF</h4>
                       </div>
                       {!details.recentInvoices || details.recentInvoices.length === 0 ? (
                         <p className="text-xs text-zinc-450 italic py-2">Sem faturas de recebimento recentes no sistema.</p>
@@ -1935,11 +1975,11 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                   </div>
                 )}
 
-                {/* ===== TAB: Compras em Trânsito ===== */}
+                {/* ===== TAB: Pedidos Abertos ===== */}
                 {drawerTab === 'pedidos_compra' && (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between border-b border-zinc-150 pb-2">
-                      <h4 className="font-extrabold text-xs text-zinc-850 uppercase tracking-wider">Ordens de Compra em Aberto (Em Trânsito)</h4>
+                      <h4 className="font-extrabold text-sm text-zinc-900">Pedidos de Compra em Aberto</h4>
                       <span className="text-xs font-bold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded">
                         {pendingOrders?.in_transit_purchase_orders.length || 0} ordens
                       </span>
@@ -1951,7 +1991,11 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                         Carregando ordens de compra em trânsito...
                       </div>
                     ) : !pendingOrders || pendingOrders.in_transit_purchase_orders.length === 0 ? (
-                      <p className="text-xs text-zinc-450 italic py-6 text-center">Nenhuma compra em trânsito/pendente registrada para este produto.</p>
+                      <div className="flex flex-col items-center justify-center py-12 text-zinc-400">
+                        <ShoppingCart className="h-8 w-8 text-zinc-300 mb-2" />
+                        <p className="text-sm font-medium">Nenhum pedido de compra em aberto</p>
+                        <p className="text-xs mt-0.5">Este produto não possui pedidos pendentes.</p>
+                      </div>
                     ) : (
                       <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
                         <table className="w-full text-left text-xs whitespace-nowrap">
@@ -1987,6 +2031,20 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                       </div>
                     )}
                   </div>
+                )}
+
+                {/* ===== TAB: Histórico de Pedidos ===== */}
+                {drawerTab === 'historico_pedidos' && (
+                  historicoLoading ? (
+                    <div className="flex items-center justify-center py-12 text-zinc-450 gap-2 text-xs">
+                      <RefreshCw className="h-4 w-4 animate-spin text-zinc-500" />
+                      Carregando histórico de pedidos...
+                    </div>
+                  ) : historicoErro ? (
+                    <p className="text-xs text-rose-600 font-medium py-6 text-center">{historicoErro}</p>
+                  ) : (
+                    <HistoricoPedidosTable pedidos={historicoPedidos} rotuloItem="produto" />
+                  )
                 )}
 
                 {/* ===== TAB: Configurações ===== */}
@@ -2047,7 +2105,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                     <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-2">
                       <div>
                         <span className="text-xs font-bold text-zinc-700 block">Subcategoria / Linha de Produto</span>
-                        <span className="text-[10px] text-zinc-500 block">Altere a categoria associada a este produto acabado</span>
+                        <span className="text-[10px] text-zinc-500 block">Altere a categoria associada a este produto</span>
                       </div>
                       <select
                         value={selectedProduct.categoria_produto || ''}
