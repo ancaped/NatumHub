@@ -131,6 +131,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   // Kits Composition state
   const [kitComposicao, setKitComposicao] = useState<any[]>([]);
   const [kitCompSearch, setKitCompSearch] = useState('');
+  const [kitFiltro, setKitFiltro] = useState<'ALL' | 'SEM'>('ALL');
   const [uploadingKitsConfig, setUploadingKitsConfig] = useState(false);
 
   // States: Drawer de Composição de Kits
@@ -188,6 +189,15 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     );
   }, [categories, products, kitComposicao, kitCompSearch]);
 
+
+  const kitsSemComposicao = useMemo(
+    () => masterKitsList.filter(k => !kitComposicao.some(row => row.kit_codigo === k.codigo)).length,
+    [masterKitsList, kitComposicao],
+  );
+  const kitsExibidos = useMemo(
+    () => (kitFiltro === 'SEM' ? masterKitsList.filter(k => !kitComposicao.some(row => row.kit_codigo === k.codigo)) : masterKitsList),
+    [masterKitsList, kitComposicao, kitFiltro],
+  );
 
   // Reset selections when active tab changes
   useEffect(() => {
@@ -1695,37 +1705,39 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
           {activeAtivosTab === 'kits' && (
             <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
-              <span className="text-xs font-bold text-zinc-455 shrink-0">
-                Catálogo mestre dos Kits comerciais e montáveis da Natum com suporte a insumos fracionários.
-              </span>
-
-              {/* Toolbar com importação Excel e busca */}
-              <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 flex flex-col md:flex-row items-center justify-between gap-4 shrink-0">
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <div className="relative w-full max-w-md">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+              {/* Busca, filtro e ações */}
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
+                  <div className="relative w-full max-w-sm">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                     <input
                       type="text"
                       placeholder="Buscar kit por código ou descrição..."
                       value={kitCompSearch}
                       onChange={(e) => setKitCompSearch(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900 text-xs font-medium transition-all"
+                      className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm font-medium"
                     />
                   </div>
+                  {[
+                    { id: 'ALL', rotulo: 'Todos', n: masterKitsList.length },
+                    { id: 'SEM', rotulo: 'Sem composição', n: kitsSemComposicao },
+                  ].filter(c => c.id === 'ALL' || c.n > 0 || kitFiltro === c.id).map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => setKitFiltro(c.id as 'ALL' | 'SEM')}
+                      className={cn(
+                        'px-3 py-1.5 rounded-full border text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1.5',
+                        kitFiltro === c.id ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
+                      )}
+                    >
+                      {c.rotulo}
+                      <span className={cn('font-mono text-[10px]', kitFiltro === c.id ? 'text-zinc-300' : 'text-zinc-400')}>{c.n}</span>
+                    </button>
+                  ))}
                 </div>
 
-                {/* Excel import & Compor Novo Kit */}
                 <div className="shrink-0 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsNewKitModalOpen(true)}
-                    className="bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5 h-[36px]"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Compor Novo Kit
-                  </button>
-
-                  <label className="bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5 h-[36px]">
+                  <label className="bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold py-2 px-4 rounded-xl transition-all cursor-pointer inline-flex items-center gap-1.5">
                     <UploadCloud className="w-4 h-4 text-zinc-500" />
                     {uploadingKitsConfig ? 'Importando...' : 'Importar Excel (.xlsx)'}
                     <input
@@ -1736,84 +1748,79 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                       disabled={uploadingKitsConfig}
                     />
                   </label>
+                  <button
+                    type="button"
+                    onClick={() => setIsNewKitModalOpen(true)}
+                    className="bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Compor novo kit
+                  </button>
                 </div>
               </div>
 
-              {/* Lista Mestre-Detalhe dos Kits Montáveis */}
-              <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col flex-1">
-                <div className="px-6 py-3.5 bg-zinc-50 border-b border-zinc-200 flex items-center justify-between text-xs font-bold text-zinc-600">
-                  <span>Catálogo de Kits Montáveis ({masterKitsList.length})</span>
-                  <span className="text-[11px] text-zinc-400 font-normal">Clique em um kit para gerenciar seus insumos/proporções</span>
-                </div>
-
-                <div className="overflow-y-auto flex-1 p-4">
-                  {masterKitsList.length === 0 ? (
-                    <div className="p-12 text-center text-zinc-400 font-bold space-y-2">
-                      <Layers className="w-8 h-8 mx-auto text-zinc-300" />
-                      <p>Nenhum kit encontrado no catálogo.</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                      {masterKitsList.map((kit) => {
-                        const kitItems = kitComposicao.filter(row => row.kit_codigo === kit.codigo);
-                        const compCount = kitItems.length;
-                        return (
-                          <div
-                            key={kit.codigo}
-                            onClick={() => {
-                              setSelectedDrawerKitCode(kit.codigo);
-                              setSelectedDrawerKitDesc(kit.descricao);
-                              setIsDrawerOpen(true);
-                            }}
-                            className="p-4 bg-white border border-zinc-200 hover:border-zinc-900 rounded-2xl shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4 group relative overflow-hidden"
-                          >
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="font-mono text-xs font-extrabold px-2.5 py-1 bg-zinc-100 group-hover:bg-zinc-900 group-hover:text-white text-zinc-900 rounded-lg transition-colors">
-                                  {kit.codigo}
-                                </span>
+              {/* Tabela de kits */}
+              <div className="table-card !rounded-2xl !mb-0 flex-1 overflow-hidden flex flex-col min-h-0">
+                <div className="flex-1 overflow-auto table-wrapper">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-zinc-50 border-b border-zinc-150 font-bold text-zinc-500 sticky top-0 z-10">
+                      <tr>
+                        <th className="px-6 py-3 w-28 text-[10px] uppercase tracking-wider">Código</th>
+                        <th className="px-6 py-3 text-[10px] uppercase tracking-wider">Kit</th>
+                        <th className="px-6 py-3 w-40 text-[10px] uppercase tracking-wider">Composição</th>
+                        <th className="px-6 py-3 w-24"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100">
+                      {kitsExibidos.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="p-10 text-center text-zinc-400 font-medium">Nenhum kit encontrado.</td>
+                        </tr>
+                      ) : (
+                        kitsExibidos.map((kit) => {
+                          const compCount = kitComposicao.filter(row => row.kit_codigo === kit.codigo).length;
+                          return (
+                            <tr
+                              key={kit.codigo}
+                              onClick={() => {
+                                setSelectedDrawerKitCode(kit.codigo);
+                                setSelectedDrawerKitDesc(kit.descricao);
+                                setIsDrawerOpen(true);
+                              }}
+                              className="hover:bg-zinc-50/70 transition-colors cursor-pointer"
+                            >
+                              <td className="px-6 py-2.5 font-mono font-bold text-zinc-500">{kit.codigo}</td>
+                              <td className="px-6 py-2.5 font-bold text-zinc-800">{kit.descricao}</td>
+                              <td className="px-6 py-2.5">
                                 {compCount > 0 ? (
-                                  <span className="px-2.5 py-1 bg-zinc-100 border border-zinc-200 text-zinc-700 rounded-full font-bold text-[11px] inline-flex items-center gap-1">
-                                    <Layers className="w-3.5 h-3.5 text-zinc-500" />
+                                  <span className="px-2 py-0.5 bg-zinc-100 border border-zinc-200 text-zinc-700 rounded-full font-bold text-[11px]">
                                     {compCount} {compCount === 1 ? 'insumo' : 'insumos'}
                                   </span>
                                 ) : (
-                                  <span className="px-2.5 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-full font-bold text-[11px] inline-flex items-center gap-1 animate-pulse">
-                                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                  <span className="px-2 py-0.5 bg-white border border-dashed border-zinc-300 text-zinc-500 rounded-full font-bold text-[11px]">
                                     Sem composição
                                   </span>
                                 )}
-                              </div>
-
-                              <h4 className="text-sm font-bold text-zinc-900 line-clamp-2 leading-snug">
-                                {kit.descricao}
-                              </h4>
-                            </div>
-
-                            <div className="pt-3 border-t border-zinc-100 flex items-center justify-between text-xs">
-                              <div className="text-[11px] text-zinc-500 font-medium">
-                                {compCount > 0 ? (
-                                  <span className="text-zinc-600">
-                                    Insumos ativos vinculados
-                                  </span>
-                                ) : (
-                                  <span className="text-amber-600 font-semibold">
-                                    Configure a estrutura do kit
-                                  </span>
-                                )}
-                              </div>
-                              <button
-                                type="button"
-                                className="px-3 py-1.5 bg-zinc-100 group-hover:bg-zinc-900 text-zinc-700 group-hover:text-white rounded-xl font-bold transition-all inline-flex items-center gap-1.5 shadow-xs"
-                              >
-                                Ver / Editar
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                              </td>
+                              <td className="px-6 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  onClick={() => {
+                                    setSelectedDrawerKitCode(kit.codigo);
+                                    setSelectedDrawerKitDesc(kit.descricao);
+                                    setIsDrawerOpen(true);
+                                  }}
+                                  className="p-1.5 hover:bg-zinc-100 text-zinc-400 hover:text-zinc-800 rounded-lg transition-colors cursor-pointer"
+                                  title="Ver / editar composição"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
