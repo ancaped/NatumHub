@@ -561,6 +561,22 @@ async fn status_item_handler(
     }
 }
 
+/// Números de cada item na hora do pedido: o que o agente mandou vale; o que faltar vem da demanda do ERP.
+async fn dados_dos_itens(pool: &sqlx::PgPool, itens: &[CreatePurchaseRequestItemInput]) -> Vec<agente::DadosDoItem> {
+    let completos = itens.iter().all(|i| i.current_stock_at_time.is_some() && i.overall_avg_at_time.is_some());
+    let demanda = if completos {
+        Vec::new()
+    } else {
+        get_demands_query(pool.clone(), None, default_target_days(), None).await.unwrap_or_default()
+    };
+    let por_codigo: std::collections::HashMap<String, &DemandResult> =
+        demanda.iter().map(|d| (d.item_code.replace('.', ""), d)).collect();
+    itens
+        .iter()
+        .map(|i| agente::DadosDoItem::montar(i, por_codigo.get(&i.item_code.trim().replace('.', "")).copied()))
+        .collect()
+}
+
 fn id_do_resultado(v: &Value) -> String {
     v.pointer("/depois/id")
         .or_else(|| v.pointer("/depois/codigo"))
@@ -991,17 +1007,20 @@ async fn create_purchase_list_handler(
     let observacoes = input.observacoes.clone();
     let created_by = input.created_by.clone().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| ctx.display_name.clone());
     let itens = input.items.clone();
+    let dados = dados_dos_itens(state.db.pool(), &input.items).await;
     let confirmar = c.confirmar || input.confirmar;
     match executar_em_2_passos(state.db.pool(), "criar_lista_compra", confirmar, move |tx| {
         Box::pin(async move {
             let linhas: Vec<agente::ItemLista<'_>> = itens
                 .iter()
-                .map(|i| agente::ItemLista {
+                .zip(dados.iter())
+                .map(|(i, d)| agente::ItemLista {
                     item_code: i.item_code.as_str(),
                     item_description: i.item_description.as_str(),
                     unit: i.unit.as_deref(),
                     quantity_requested: i.quantity_requested,
                     observacao: i.observacao.as_deref(),
+                    dados: d.clone(),
                 })
                 .collect();
             agente::criar_lista(
@@ -1088,17 +1107,20 @@ async fn incluir_itens_lista_handler(
     let ctx_tx = ctx.clone();
     let id_tx = id.clone();
     let itens = body.itens.clone();
+    let dados = dados_dos_itens(state.db.pool(), &body.itens).await;
     let motivo = body.motivo.clone();
     match executar_em_2_passos(state.db.pool(), "incluir_item_lista_compra", c.confirmar, move |tx| {
         Box::pin(async move {
             let linhas: Vec<agente::ItemLista<'_>> = itens
                 .iter()
-                .map(|i| agente::ItemLista {
+                .zip(dados.iter())
+                .map(|(i, d)| agente::ItemLista {
                     item_code: i.item_code.as_str(),
                     item_description: i.item_description.as_str(),
                     unit: i.unit.as_deref(),
                     quantity_requested: i.quantity_requested,
                     observacao: i.observacao.as_deref(),
+                    dados: d.clone(),
                 })
                 .collect();
             agente::incluir_itens_lista(&mut **tx, &ctx_tx, &id_tx, &linhas, &motivo).await
@@ -1410,7 +1432,7 @@ pub fn acoes() -> Vec<Acao> {
         Acao::gravacao(
             "criar_lista_compra",
             MP,
-            "Cria uma lista de solicitação (lote) quando o corpo traz `motivo`. Sem `confirmar=true` devolve a prévia e não grava (o id fica nulo); com ele grava os itens e audita. A tela, sem motivo, continua gravando direto. Exige editar a família do módulo da lista. Não apaga lista.",
+            "Cria uma lista de solicitação (lote) quando o corpo traz `motivo`. Sem `confirmar=true` devolve a prévia e não grava (o id fica nulo); com ele grava os itens e audita. A tela, sem motivo, continua gravando direto. Exige editar a família do módulo da lista. Não apaga lista. Estoque, média, simulação, previsão, dias e fornecedor de cada item vêm da demanda do ERP (o que o item trouxer no corpo vale mais); itens sem esses números voltam em `semDadosDeEstoque`. Os itens do lote saem da Lista de Compra do módulo.",
             "POST",
             "/api/hub/compras/listas",
             true,

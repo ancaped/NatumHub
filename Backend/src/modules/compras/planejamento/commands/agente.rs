@@ -7,6 +7,7 @@ use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
 use crate::core::acao::ErroApi;
+use crate::modules::compras::planejamento::models::{CreatePurchaseRequestItemInput, DemandResult};
 use crate::modules::geral::auth::models::AuthContext;
 
 pub const FAMILIAS: &[&str] = &[
@@ -47,6 +48,33 @@ pub fn e_classe_a(nome: &str) -> bool {
 
 pub fn status_item_valido(status: &str) -> bool {
     matches!(status, "ativo" | "suspenso" | "ignorado")
+}
+
+/// Status que vale na prática. A tela só grava `is_ignored`/`visivel`: item na demanda é sempre ativo, mesmo que
+/// `status_compra` esteja velho; item fora da demanda é ignorado só se foi gravado assim, senão suspenso.
+pub fn status_efetivo(fora_da_demanda: bool, gravado: Option<&str>) -> String {
+    match (fora_da_demanda, gravado) {
+        (false, _) => "ativo",
+        (true, Some("ignorado")) => "ignorado",
+        (true, _) => "suspenso",
+    }
+    .to_string()
+}
+
+/// Agente só mexe em produto que já é de Material de Apoio ou Coloração: mudar outro muda como Produção e MRP o tratam.
+pub fn agente_pode_mexer_no_produto(raiz_atual: Option<&str>) -> bool {
+    matches!(raiz_atual, Some("cat_apoio" | "cat_coloracao"))
+}
+
+/// Nome da lista como a tela grava em `purchase_request_batches.modulo` e `compras_lista_itens.modulo`.
+pub fn nome_da_lista(modulo: &str) -> Option<&'static str> {
+    match modulo_da_lista(modulo)? {
+        "compras_materia_prima" => Some("materia_prima"),
+        "compras_embalagens" => Some("embalagens"),
+        "compras_coloracao" => Some("coloracao"),
+        "compras_apoio" => Some("apoio"),
+        _ => None,
+    }
 }
 
 pub fn modulo_da_lista(modulo: &str) -> Option<&'static str> {
@@ -276,6 +304,10 @@ pub async fn ajustar_subcategoria(
     }))
 }
 
+async fn e_produto(conn: &mut PgConnection, code: &str) -> Result<bool, ErroApi> {
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM produtos WHERE codigo = $1)").bind(code).fetch_one(&mut *conn).await?)
+}
+
 async fn categoria_do_codigo(conn: &mut PgConnection, code: &str) -> Result<Option<String>, ErroApi> {
     let prod: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM produtos WHERE codigo = $1)")
         .bind(code)
@@ -357,6 +389,18 @@ pub async fn mover_itens(
             continue;
         }
         let antes = categoria_do_codigo(conn, code).await?;
+        if ctx.is_agente() && e_produto(conn, code).await? {
+            let raiz_atual = match antes.as_deref() {
+                Some(c) => Some(raiz_de(conn, c).await?),
+                None => raiz_pelo_codigo(code).map(String::from),
+            };
+            if !agente_pode_mexer_no_produto(raiz_atual.as_deref()) {
+                return Err(ErroApi::sem_permissao(
+                    "Agente só troca a categoria de produto que já é de Material de Apoio ou Coloração; os demais ficam com o supervisor.",
+                )
+                .com_detalhes(json!({ "codigo": code })));
+            }
+        }
         if let Some(origem) = antes.as_deref() {
             let raiz_origem = raiz_de(conn, origem).await?;
             if raiz_origem != raiz_destino && !ctx.role.is_supervisor() {
@@ -398,7 +442,7 @@ async fn ler_status(conn: &mut PgConnection, code: &str) -> Result<(bool, String
             Some(r) => {
                 let visivel: i32 = r.try_get("visivel").unwrap_or(1);
                 let gravado: Option<String> = r.try_get("status_compra").ok().flatten();
-                let status = gravado.unwrap_or_else(|| if visivel == 0 { "suspenso".into() } else { "ativo".into() });
+                let status = status_efetivo(visivel == 0, gravado.as_deref());
                 (status, r.try_get("categoria_produto").ok().flatten())
             }
             None => ("ativo".into(), None),
@@ -414,7 +458,7 @@ async fn ler_status(conn: &mut PgConnection, code: &str) -> Result<(bool, String
     };
     let ignored: i32 = row.try_get("is_ignored").unwrap_or(0);
     let gravado: Option<String> = row.try_get("status_compra").ok().flatten();
-    let status = gravado.unwrap_or_else(|| if ignored == 1 { "suspenso".into() } else { "ativo".into() });
+    let status = status_efetivo(ignored == 1, gravado.as_deref());
     Ok((false, status, row.try_get("category_id").ok().flatten()))
 }
 
@@ -486,12 +530,48 @@ async fn proximo_lote(conn: &mut PgConnection) -> Result<String, ErroApi> {
     Ok(format!("LOTE #{:03}", max_seq + 1))
 }
 
+/// Números do item na hora do pedido (os mesmos que a tela grava no lote). `None` = sem o dado.
+#[derive(Default, Clone)]
+pub struct DadosDoItem {
+    pub estoque: Option<f64>,
+    pub media: Option<f64>,
+    pub sim_producao: Option<f64>,
+    pub estoque_futuro: Option<f64>,
+    pub dias_objetivo: Option<i32>,
+    pub dias_disparo: Option<i32>,
+    pub fornecedor: Option<String>,
+}
+
+impl DadosDoItem {
+    /// O que o agente mandou vale; o que faltar vem da demanda do ERP; sem nenhum dos dois fica `None`.
+    pub fn montar(entrada: &CreatePurchaseRequestItemInput, demanda: Option<&DemandResult>) -> Self {
+        Self {
+            estoque: entrada.current_stock_at_time.or(demanda.map(|d| d.current_stock)),
+            media: entrada.overall_avg_at_time.or(demanda.map(|d| d.overall_avg)),
+            sim_producao: entrada.sim_producao_at_time.or(demanda.map(|d| d.sim_producao)),
+            estoque_futuro: entrada.future_stock_at_time.or(demanda.map(|d| d.future_stock_forecast)),
+            dias_objetivo: entrada.target_days_at_time.or(demanda.map(|d| d.target_days)),
+            dias_disparo: entrada.trigger_days_at_time.or(demanda.map(|d| d.trigger_days)),
+            fornecedor: entrada
+                .supplier_name
+                .clone()
+                .or_else(|| demanda.and_then(|d| d.last_supplier_invoice.clone().or_else(|| d.last_supplier_order.clone()))),
+        }
+    }
+
+    /// Sem estoque nem média o relatório sairia com zeros no lugar de números reais.
+    pub fn sem_numeros(&self) -> bool {
+        self.estoque.is_none() && self.media.is_none()
+    }
+}
+
 pub struct ItemLista<'a> {
     pub item_code: &'a str,
     pub item_description: &'a str,
     pub unit: Option<&'a str>,
     pub quantity_requested: f64,
     pub observacao: Option<&'a str>,
+    pub dados: DadosDoItem,
 }
 
 pub async fn criar_lista(
@@ -509,6 +589,7 @@ pub async fn criar_lista(
         return Err(ErroApi::invalido("A lista precisa ter pelo menos 1 item."));
     }
     let familia = exige_modulo_lista(ctx, modulo)?;
+    let lista = nome_da_lista(modulo).ok_or_else(|| ErroApi::invalido("Módulo da lista inválido."))?;
     let id = Uuid::new_v4().to_string();
     let lote = proximo_lote(conn).await?;
     sqlx::query(
@@ -517,7 +598,7 @@ pub async fn criar_lista(
     )
     .bind(&id)
     .bind(&lote)
-    .bind(modulo)
+    .bind(lista)
     .bind(titulo)
     .bind(observacoes)
     .bind(created_by)
@@ -526,9 +607,18 @@ pub async fn criar_lista(
     for item in itens {
         inserir_item_lista(conn, &id, item).await?;
     }
+    // como na tela: o que virou lote sai da Lista de Compra do módulo (só estes itens)
+    let chaves: Vec<String> = itens.iter().map(|i| i.item_code.trim().replace('.', "")).collect();
+    sqlx::query("DELETE FROM compras_lista_itens WHERE modulo = $1 AND item_chave = ANY($2)")
+        .bind(lista)
+        .bind(&chaves)
+        .execute(&mut *conn)
+        .await?;
+    let sem_numeros: Vec<&str> = itens.iter().filter(|i| i.dados.sem_numeros()).map(|i| i.item_code.trim()).collect();
     Ok(json!({
         "antes": Value::Null,
-        "depois": { "id": id, "loteNumero": lote, "modulo": modulo, "titulo": titulo, "itens": itens.len() },
+        "depois": { "id": id, "loteNumero": lote, "modulo": lista, "titulo": titulo, "itens": itens.len() },
+        "semDadosDeEstoque": sem_numeros,
         "motivo": motivo,
         "familia": familia,
     }))
@@ -539,12 +629,16 @@ async fn inserir_item_lista(conn: &mut PgConnection, batch_id: &str, item: &Item
     if code.is_empty() {
         return Err(ErroApi::invalido("Item da lista sem código."));
     }
+    if !item.quantity_requested.is_finite() || item.quantity_requested < 0.0 {
+        return Err(ErroApi::invalido(format!("Quantidade inválida para o item {code}.")));
+    }
+    let d = &item.dados;
     sqlx::query(
         "INSERT INTO purchase_request_items (
             id, batch_id, item_code, item_description, unit, quantity_requested,
             current_stock_at_time, overall_avg_at_time, sim_producao_at_time, future_stock_at_time,
             target_days_at_time, trigger_days_at_time, supplier_name, observacao, status, created_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, 0, 90, 30, NULL, $7, 'solicitado', CURRENT_TIMESTAMP)",
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'solicitado', CURRENT_TIMESTAMP)",
     )
     .bind(Uuid::new_v4().to_string())
     .bind(batch_id)
@@ -552,6 +646,13 @@ async fn inserir_item_lista(conn: &mut PgConnection, batch_id: &str, item: &Item
     .bind(item.item_description)
     .bind(item.unit.unwrap_or("UN"))
     .bind(item.quantity_requested)
+    .bind(d.estoque.unwrap_or(0.0))
+    .bind(d.media.unwrap_or(0.0))
+    .bind(d.sim_producao.unwrap_or(0.0))
+    .bind(d.estoque_futuro.unwrap_or(0.0))
+    .bind(d.dias_objetivo.unwrap_or(90))
+    .bind(d.dias_disparo.unwrap_or(30))
+    .bind(d.fornecedor.as_deref())
     .bind(item.observacao)
     .execute(&mut *conn)
     .await?;
@@ -718,9 +819,140 @@ mod tests {
     }
 
     #[test]
+    fn status_segue_a_demanda_e_nao_um_valor_velho() {
+        assert_eq!(status_efetivo(false, Some("suspenso")), "ativo");
+        assert_eq!(status_efetivo(false, None), "ativo");
+        assert_eq!(status_efetivo(true, None), "suspenso");
+        assert_eq!(status_efetivo(true, Some("ativo")), "suspenso");
+        assert_eq!(status_efetivo(true, Some("ignorado")), "ignorado");
+    }
+
+    #[test]
+    fn agente_so_mexe_em_produto_de_apoio_ou_coloracao() {
+        assert!(agente_pode_mexer_no_produto(Some("cat_apoio")));
+        assert!(agente_pode_mexer_no_produto(Some("cat_coloracao")));
+        assert!(!agente_pode_mexer_no_produto(Some("cat_mp")));
+        assert!(!agente_pode_mexer_no_produto(None));
+    }
+
+    #[test]
+    fn nome_da_lista_aceita_apelidos_e_grava_o_da_tela() {
+        assert_eq!(nome_da_lista("mp"), Some("materia_prima"));
+        assert_eq!(nome_da_lista("compras_embalagens"), Some("embalagens"));
+        assert_eq!(nome_da_lista("cat_apoio"), Some("apoio"));
+        assert_eq!(nome_da_lista("geral"), None);
+    }
+
+    #[test]
+    fn dados_do_item_usam_o_que_o_agente_mandou() {
+        let entrada = CreatePurchaseRequestItemInput {
+            item_code: "9.15.001".into(),
+            item_description: "X".into(),
+            unit: None,
+            quantity_requested: 1.0,
+            current_stock_at_time: Some(12.5),
+            overall_avg_at_time: None,
+            sim_producao_at_time: None,
+            future_stock_at_time: None,
+            target_days_at_time: Some(60),
+            trigger_days_at_time: None,
+            supplier_name: Some("FORNEC".into()),
+            observacao: None,
+        };
+        let d = DadosDoItem::montar(&entrada, None);
+        assert_eq!((d.estoque, d.media, d.dias_objetivo), (Some(12.5), None, Some(60)));
+        assert_eq!(d.fornecedor.as_deref(), Some("FORNEC"));
+        assert!(!d.sem_numeros());
+        assert!(DadosDoItem::default().sem_numeros());
+    }
+
+    #[test]
     fn lista_aponta_para_a_familia() {
         assert_eq!(modulo_da_lista("embalagens"), Some("compras_embalagens"));
         assert_eq!(modulo_da_lista("APOIO"), Some("compras_apoio"));
         assert_eq!(modulo_da_lista("geral"), None);
+    }
+
+    fn ctx_de(role: crate::modules::geral::auth::models::OperatorRole, origem: crate::modules::geral::auth::models::Origem) -> AuthContext {
+        AuthContext {
+            operator_id: "a1".into(),
+            display_name: "Teste".into(),
+            role,
+            modules: vec!["compras_materia_prima".into()],
+            permissions: vec![("compras_materia_prima".to_string(), "edit".to_string())].into_iter().collect(),
+            origem,
+        }
+    }
+
+    /// Tudo dentro de uma transação que no fim é desfeita: não deixa nada no banco.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn agente_produto_status_e_lote_com_numeros() {
+        use crate::modules::geral::auth::models::{OperatorRole, Origem};
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = sqlx::PgPool::connect(&url).await.unwrap();
+        // a coluna `status_compra` vem da migração 082 (idempotente); o banco de teste pode ainda não ter
+        sqlx::raw_sql(include_str!("../../../../../supabase/082_compras_status_item.sql")).execute(&pool).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        let agente = ctx_de(OperatorRole::Operador, Origem::Agente);
+        let supervisor = ctx_de(OperatorRole::Supervisor, Origem::Tela);
+
+        sqlx::query("INSERT INTO items (code, description, unit, category_id) VALUES ('ZZ.AG.001', 'ZZ item', 'KG', 'cat_mp'), ('ZZ.AG.002', 'ZZ item 2', 'KG', 'cat_mp')")
+            .execute(&mut *tx).await.unwrap();
+        sqlx::query("INSERT INTO config_linhas (linha_prefix, nome_linha) VALUES ('ZZAG', 'teste') ON CONFLICT DO NOTHING").execute(&mut *tx).await.unwrap();
+        sqlx::query("INSERT INTO produtos (codigo, descricao, linha_prefix) VALUES ('ZZ.AG.PROD', 'ZZ produto', 'ZZAG')").execute(&mut *tx).await.unwrap();
+
+        // produto sem categoria de Apoio/Coloração: agente é recusado, supervisor move
+        let recusa = mover_itens(&mut *tx, &agente, &["ZZ.AG.PROD".to_string()], "cat_mp", "teste").await.unwrap_err();
+        assert_eq!(recusa.codigo, "sem_permissao");
+        let ok = mover_itens(&mut *tx, &supervisor, &["ZZ.AG.PROD".to_string()], "cat_mp", "teste").await.unwrap();
+        assert_eq!(ok["quantidade"], 1);
+        // insumo o agente continua movendo dentro da família
+        mover_itens(&mut *tx, &agente, &["ZZ.AG.001".to_string()], "cat_mp", "teste").await.unwrap();
+
+        // a tela reativou o item (só is_ignored) e `status_compra` ficou velho: vale a demanda
+        sqlx::query("UPDATE items SET is_ignored = 0, status_compra = 'suspenso' WHERE code = 'ZZ.AG.001'").execute(&mut *tx).await.unwrap();
+        let r = alterar_status_item(&mut *tx, &agente, "ZZ.AG.001", "suspenso", "teste").await.unwrap();
+        assert_eq!(r["antes"]["status"], "ativo");
+        assert_eq!(r["depois"]["status"], "suspenso");
+        let nada = alterar_status_item(&mut *tx, &agente, "ZZ.AG.001", "suspenso", "teste").await.unwrap_err();
+        assert_eq!(nada.codigo, "regra_violada");
+
+        // lote por agente: números gravados, apelido do módulo vira o nome da tela e a Lista de Compra só perde os itens do lote
+        sqlx::query("INSERT INTO compras_lista_itens (modulo, item_chave, item_code) VALUES ('materia_prima', 'ZZAG001', 'ZZ.AG.001'), ('materia_prima', 'ZZAG002', 'ZZ.AG.002'), ('embalagens', 'ZZAG001', 'ZZ.AG.001')")
+            .execute(&mut *tx).await.unwrap();
+        let itens = [
+            ItemLista {
+                item_code: "ZZ.AG.001",
+                item_description: "ZZ item",
+                unit: Some("KG"),
+                quantity_requested: 5.0,
+                observacao: None,
+                dados: DadosDoItem { estoque: Some(12.5), media: Some(3.0), dias_objetivo: Some(60), fornecedor: Some("FORNEC".into()), ..Default::default() },
+            },
+        ];
+        let lote = criar_lista(&mut *tx, &agente, "mp", Some("ZZ"), None, "zz", &itens, "teste").await.unwrap();
+        assert_eq!(lote["depois"]["modulo"], "materia_prima");
+        assert_eq!(lote["semDadosDeEstoque"], json!([]));
+        let (estoque, media, dias, fornecedor): (f64, f64, i32, Option<String>) = sqlx::query_as(
+            "SELECT current_stock_at_time, overall_avg_at_time, target_days_at_time, supplier_name FROM purchase_request_items WHERE item_code = 'ZZ.AG.001'",
+        )
+        .fetch_one(&mut *tx).await.unwrap();
+        assert_eq!((estoque, media, dias, fornecedor.as_deref()), (12.5, 3.0, 60, Some("FORNEC")));
+        let modulo_gravado: String = sqlx::query_scalar("SELECT modulo FROM purchase_request_batches WHERE titulo = 'ZZ'").fetch_one(&mut *tx).await.unwrap();
+        assert_eq!(modulo_gravado, "materia_prima");
+        let restam: Vec<(String, String)> = sqlx::query_as("SELECT modulo, item_chave FROM compras_lista_itens WHERE item_chave LIKE 'ZZAG%' ORDER BY 1, 2")
+            .fetch_all(&mut *tx).await.unwrap();
+        assert_eq!(restam, vec![("embalagens".to_string(), "ZZAG001".to_string()), ("materia_prima".to_string(), "ZZAG002".to_string())]);
+
+        // item sem nenhum número é apontado, e quantidade inválida é recusada
+        let sem = [ItemLista { item_code: "ZZ.AG.002", item_description: "x", unit: None, quantity_requested: 1.0, observacao: None, dados: DadosDoItem::default() }];
+        let r = criar_lista(&mut *tx, &agente, "materia_prima", None, None, "zz", &sem, "teste").await.unwrap();
+        assert_eq!(r["semDadosDeEstoque"], json!(["ZZ.AG.002"]));
+        let neg = [ItemLista { item_code: "ZZ.AG.002", item_description: "x", unit: None, quantity_requested: -1.0, observacao: None, dados: DadosDoItem::default() }];
+        let e = criar_lista(&mut *tx, &agente, "materia_prima", None, None, "zz", &neg, "teste").await.unwrap_err();
+        assert_eq!(e.codigo, "invalido");
+
+        tx.rollback().await.unwrap();
     }
 }
