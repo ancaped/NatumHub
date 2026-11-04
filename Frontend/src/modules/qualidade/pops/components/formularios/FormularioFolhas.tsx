@@ -36,6 +36,8 @@ export interface FolhaProps {
 
 export function Folha({ f, area, pagina, total, logoSrc, marca }: FolhaProps) {
   const paisagem = deitado(f);
+  // FOR-PRD-047: o laudo em papel só preenche o mês (decisão do Edson, 2026-11-04); o equipamento já é uma coluna.
+  const soMes = f.code.startsWith('FOR-PRD-047');
   const linhas = linhasPorFolha(f);
   // Mais linhas que cabem: as linhas encolhem; senão a tabela estica e a última linha encosta no rodapé.
   const cabem = linhasQueCabem(paisagem, !!f.limits?.trim(), alturaEspecificacoes(f.specifications, paisagem));
@@ -101,8 +103,8 @@ export function Folha({ f, area, pagina, total, logoSrc, marca }: FolhaProps) {
         </div>
         <div style={{ display: 'flex', gap: 16, fontSize: 9, padding: '3px 8px', borderBottom: BORDA }}>
           <span><b>Mês/Ano:</b> ____/______</span>
-          <span><b>{area ? 'Área:' : 'Setor/Área:'}</b> {area || '________________'}</span>
-          <span><b>Equipamento/ID:</b> ____________</span>
+          {!soMes && <span><b>{area ? 'Área:' : 'Setor/Área:'}</b> {area || '________________'}</span>}
+          {!soMes && <span><b>Equipamento/ID:</b> ____________</span>}
         </div>
         {f.limits && (
           <div style={{ fontSize: 8.5, padding: '3px 8px', borderBottom: BORDA, background: '#f4f4f5' }}>
@@ -142,9 +144,6 @@ export function Folha({ f, area, pagina, total, logoSrc, marca }: FolhaProps) {
               {especificacoes.map((item, i) => <div key={i}>{item}</div>)}
             </div>
           )}
-          <div style={{ padding: '3px 8px', borderBottom: BORDA, lineHeight: 1.35 }}>
-            <b>Instruções:</b> caneta azul ou preta. Sem corretivo. Erro = um traço + valor correto + rubrica + data + motivo. Campo não aplicável = N/A. Fora do limite → abrir Não Conformidade (POP-CQL-081). Usar só a revisão vigente.
-          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 40mm' }}>
             <div style={{ padding: '4px 8px', borderRight: BORDA }}><b>Elaborado:</b><br />{f.elaboratedBy?.trim() || '—'}</div>
             <div style={{ padding: '4px 8px', borderRight: BORDA }}><b>Aprovado (CQ):</b><br />{f.approvedBy?.trim() || '—'}</div>
