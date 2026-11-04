@@ -231,6 +231,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [linhaSearch, setLinhaSearch] = useState('');
   const [semLinha, setSemLinha] = useState<{ prefixo: string; produtos: number; exemploCodigo: string; exemploDescricao: string; codigos: string[] }[]>([]);
   const [auditSearch, setAuditSearch] = useState('');
+  const [auditTipo, setAuditTipo] = useState('ALL');
   const [auditPage, setAuditPage] = useState(1);
   const AUDIT_POR_PAGINA = 50;
 
@@ -1000,14 +1001,50 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     return mapa;
   }, [products]);
 
+  // Ajustes manuais de um override, por tipo (filtro e chips da aba Audit usam a mesma lista).
+  const ajustesDoOverride = (ovr: ProductOverride) => {
+    const mods: { tipo: string; rotulo: string; valor: string }[] = [];
+    if (ovr.estoque_ideal_manual !== null) mods.push({ tipo: 'estoque', rotulo: 'Estoque fixo', valor: `${ovr.estoque_ideal_manual} un` });
+    if (ovr.media_manual !== null) mods.push({ tipo: 'media', rotulo: 'Média de vendas', valor: `${ovr.media_manual}/mês` });
+    if (ovr.pedidos_manual !== null) mods.push({ tipo: 'pedidos', rotulo: 'Pedidos em carteira', valor: `${ovr.pedidos_manual} un` });
+    if (ovr.is_lancamento_manual !== null) mods.push({ tipo: 'lancamento', rotulo: 'Lançamento', valor: ovr.is_lancamento_manual === 1 ? 'marcado' : 'forçado normal' });
+    if (ovr.visivel === 0) mods.push({ tipo: 'oculto', rotulo: 'Oculto', valor: '' });
+    if (ovr.linha_prefix_manual !== null) mods.push({ tipo: 'linha', rotulo: 'Linha', valor: configs.find(c => c.linha_prefix === ovr.linha_prefix_manual)?.nome_linha || ovr.linha_prefix_manual });
+    if (ovr.status_produto !== null) mods.push({ tipo: 'status', rotulo: 'Status', valor: PRODUCT_LINE_STATUSES.find(st => st.value === ovr.status_produto)?.label || ovr.status_produto });
+    if (ovr.categoria_produto !== null) mods.push({ tipo: 'categoria', rotulo: 'Categoria', valor: categories.find(c => c.id === ovr.categoria_produto)?.name || 'categoria removida' });
+    return mods;
+  };
+
+  const TIPOS_AJUSTE: { id: string; rotulo: string }[] = [
+    { id: 'estoque', rotulo: 'Estoque fixo' },
+    { id: 'media', rotulo: 'Média' },
+    { id: 'pedidos', rotulo: 'Pedidos' },
+    { id: 'lancamento', rotulo: 'Lançamento' },
+    { id: 'oculto', rotulo: 'Oculto' },
+    { id: 'linha', rotulo: 'Linha' },
+    { id: 'status', rotulo: 'Status' },
+    { id: 'categoria', rotulo: 'Categoria' },
+  ];
+
+  const contagemPorTipoAjuste = useMemo(() => {
+    const cont: Record<string, number> = {};
+    for (const o of allOverrides) {
+      for (const m of ajustesDoOverride(o)) cont[m.tipo] = (cont[m.tipo] || 0) + 1;
+    }
+    return cont;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allOverrides, configs, categories]);
+
   const overridesFiltrados = useMemo(() => {
     const q = auditSearch.trim().toLowerCase();
-    if (!q) return allOverrides;
-    return allOverrides.filter(o => {
+    const porTipo = auditTipo === 'ALL' ? allOverrides : allOverrides.filter(o => ajustesDoOverride(o).some(m => m.tipo === auditTipo));
+    if (!q) return porTipo;
+    return porTipo.filter(o => {
       const desc = products.find(p => p.codigo === o.codigo)?.descricao || '';
       return o.codigo.toLowerCase().includes(q) || desc.toLowerCase().includes(q) || (o.observacao || '').toLowerCase().includes(q);
     });
-  }, [allOverrides, products, auditSearch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allOverrides, products, auditSearch, auditTipo, configs, categories]);
 
   const auditTotalPaginas = Math.max(1, Math.ceil(overridesFiltrados.length / AUDIT_POR_PAGINA));
   const auditPaginaAtual = Math.min(auditPage, auditTotalPaginas);
@@ -1761,6 +1798,21 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
           {activeAtivosTab === 'overrides' && (
             <div className="flex-1 flex flex-col space-y-4">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {[{ id: 'ALL', rotulo: 'Todos', n: allOverrides.length }, ...TIPOS_AJUSTE.filter(t => contagemPorTipoAjuste[t.id]).map(t => ({ ...t, n: contagemPorTipoAjuste[t.id] }))].map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => { setAuditTipo(t.id); setAuditPage(1); }}
+                    className={cn(
+                      'px-3 py-1.5 rounded-full border text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1.5',
+                      auditTipo === t.id ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
+                    )}
+                  >
+                    {t.rotulo}
+                    <span className={cn('font-mono text-[10px]', auditTipo === t.id ? 'text-zinc-300' : 'text-zinc-400')}>{t.n}</span>
+                  </button>
+                ))}
+              </div>
               <div className="relative w-full max-w-sm shrink-0">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                 <input
@@ -1792,11 +1844,11 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                           className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 cursor-pointer"
                         />
                       </th>
-                      <th className="px-6 py-3.5 w-24">Código</th>
-                      <th className="px-6 py-3.5">Descrição do Produto</th>
-                      <th className="px-6 py-3.5">Ajustes Manuais Detectados</th>
-                      <th className="px-6 py-3.5">Observações</th>
-                      <th className="px-6 py-3.5 text-center w-32">Ações</th>
+                      <th className="px-6 py-3 w-24 text-[10px] uppercase tracking-wider">Código</th>
+                      <th className="px-6 py-3 text-[10px] uppercase tracking-wider">Produto</th>
+                      <th className="px-6 py-3 text-[10px] uppercase tracking-wider">Ajustes manuais</th>
+                      <th className="px-6 py-3 text-[10px] uppercase tracking-wider">Observações</th>
+                      <th className="px-6 py-3 w-24"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100">
@@ -1814,16 +1866,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                         const description = prod ? prod.descricao : 'Produto não cadastrado ou oculto';
                         const isSelected = selectedOverrideCodes.has(ovr.codigo);
                         
-                        // Detect modified parameters
-                        const mods: string[] = [];
-                        if (ovr.estoque_ideal_manual !== null) mods.push(`Estoque Fixo (${ovr.estoque_ideal_manual} UN)`);
-                        if (ovr.media_manual !== null) mods.push(`Média Vendas (${ovr.media_manual}/mês)`);
-                        if (ovr.pedidos_manual !== null) mods.push(`Pedidos Carteira (${ovr.pedidos_manual} UN)`);
-                        if (ovr.is_lancamento_manual !== null) mods.push(ovr.is_lancamento_manual === 1 ? 'Marcar Lançamento' : 'Forçar Normal');
-                        if (ovr.visivel === 0) mods.push('Ocultar Produto');
-                        if (ovr.linha_prefix_manual !== null) mods.push(`Linha Manual (${ovr.linha_prefix_manual})`);
-                        if (ovr.status_produto !== null) mods.push(`Status Manual (${ovr.status_produto})`);
-                        if (ovr.categoria_produto !== null) mods.push(`Categoria Manual (${categories.find(c => c.id === ovr.categoria_produto)?.name || 'categoria removida'})`);
+                        const mods = ajustesDoOverride(ovr);
 
                         return (
                           <tr 
@@ -1857,8 +1900,8 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                             <td className="px-6 py-3">
                               <div className="flex flex-wrap gap-1">
                                 {mods.map((m, idx) => (
-                                  <span key={idx} className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-250/50 rounded-full text-[10px] font-bold whitespace-nowrap">
-                                    {m}
+                                  <span key={idx} className="px-2 py-0.5 bg-zinc-100 text-zinc-700 border border-zinc-200 rounded-full text-[10px] font-bold whitespace-nowrap">
+                                    <span className="text-zinc-400 font-semibold">{m.rotulo}{m.valor ? ':' : ''}</span> {m.valor}
                                   </span>
                                 ))}
                                 {mods.length === 0 && <span className="text-zinc-300 italic">Nenhum ajuste real salvo</span>}
@@ -1870,10 +1913,10 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                             <td className="px-6 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                               <button
                                 onClick={() => handleClearOverride(ovr.codigo)}
-                                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg font-bold border border-rose-150 transition-colors cursor-pointer"
+                                className="px-2.5 py-1 bg-white hover:bg-zinc-50 text-zinc-600 hover:text-rose-700 rounded-lg font-bold border border-zinc-200 transition-colors cursor-pointer"
                                 title="Limpar overrides manuais e restaurar regras padrão da linha"
                               >
-                                Limpar Overrides
+                                Limpar
                               </button>
                             </td>
                           </tr>
