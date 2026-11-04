@@ -13,14 +13,3 @@ pub struct HubNotification {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<String>,
 }
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateNotificationInput {
-    pub module_key: String,
-    pub kind: String,
-    pub title: String,
-    pub message: String,
-    #[serde(default)]
-    pub metadata: Option<String>,
-}

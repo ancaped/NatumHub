@@ -42,6 +42,12 @@ pub async fn alertar(pool: &PgPool, tipo: &'static str, titulo: &str, mensagem: 
     }
     if let Err(e) = store::create_notification(pool, MODULE_CONFIGURACOES, "error", titulo, mensagem, None).await {
         eprintln!("[alertas] não foi possível gravar o aviso '{tipo}': {e}");
+        // não gravou: libera o tipo para tentar de novo na próxima ocorrência
+        let mut mapa = match ultimos().lock() {
+            Ok(m) => m,
+            Err(p) => p.into_inner(),
+        };
+        mapa.remove(tipo);
     }
 }
 
