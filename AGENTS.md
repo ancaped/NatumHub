@@ -114,12 +114,15 @@ Decisão do Edson. O ai-memory roda no ZimaOS (`http://100.64.207.54:49374/mcp`,
 - **Antes**: consultar o ai-memory (`memory_query` / `memory_read_page`) sobre o módulo ou tema antes de propor ou mexer em código.
 - **Depois**: registrar no ai-memory o que mudou ou foi descoberto (decisões, bugs achados, gotchas, regras de módulo), atualizando a página existente em vez de criar outra. Não usar a memória local do harness para fatos do projeto.
 
-## Regra fixa: Opus planeja, Sonnet implementa, Haiku faz o simples
+## Regra fixa: Opus só planeja; o resto é Sonnet e Haiku
 
-Decisão do Edson. O agente principal (Opus) investiga, consulta o ai-memory, planeja, revisa o resultado, confere no navegador, commita e registra no ai-memory.
-- **`implementador`** (`.claude/agents/implementador.md`, `model: sonnet`): escreve o código a partir de um plano fechado (arquivos, passos e critério de pronto).
-- **`auxiliar`** (`.claude/agents/auxiliar.md`, `model: haiku`): tarefas simples e bem definidas — buscas e levantamentos no código, rodar validações e relatar, edições mecânicas já especificadas.
-Ajustes de uma ou duas linhas podem ser feitos direto pelo Opus.
+Decisão do Edson (atualizada em 2026-11-04, ao ver que o Opus era o maior consumo: pesquisa e testes estavam nele e o Haiku não era usado).
+- **Conversa de módulo abre no Sonnet.** O modelo da conversa principal é o que mais pesa, porque relê o histórico a cada resposta. Conversa longa custa caro: terminou a entrega, abra outra.
+- **Opus**: só plano de mudança difícil e decisão de desenho. Conversa em Opus não pesquisa nem testa: delega, recebe o resumo, decide.
+- **Sonnet** (conversa principal ou `implementador`, `.claude/agents/implementador.md`): investiga, escreve o código, valida, confere no navegador, commita e registra no ai-memory.
+- **Haiku** (`auxiliar`, `.claude/agents/auxiliar.md`): tarefas simples e bem definidas: buscas e levantamentos no código, rodar validações e relatar, edições mecânicas já especificadas.
+- Subagente leva plano fechado (arquivos, passos e critério de pronto) e devolve resumo curto, sem despejar arquivos na conversa.
+- Ajustes de uma ou duas linhas podem ser feitos direto por quem está na conversa.
 
 ## Regra fixa: uma conversa por módulo
 
