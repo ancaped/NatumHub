@@ -26,11 +26,25 @@ const STATUSES: &[&str] = &[
     "outro",
 ];
 
+/// Tipos de avaria: o que foi encontrado fora do fluxo. Padrão (registros antigos): produto acabado.
+pub(super) const TIPOS: &[&str] = &["produto_acabado", "materia_prima", "embalagem", "material_processo"];
+
+pub(super) fn normalize_tipo(raw: &str) -> Result<&'static str, String> {
+    let t = raw.trim();
+    let t = if t.is_empty() { "produto_acabado" } else { t };
+    TIPOS
+        .iter()
+        .copied()
+        .find(|x| *x == t)
+        .ok_or_else(|| format!("Tipo de avaria inválido: {t}"))
+}
+
 pub(super) const SELECT_COLS: &str = r#"
     a.id, a.register_number, a.item_code, a.description, a.lote, a.qty, a.location, a.status,
     a.notes, a.foto_path, a.created_by, a.decided_by, a.decided_at, a.created_at, a.updated_at,
     folha.sheet_number, folha.sheet_status,
-    a.repair_type, a.problema, a.encaminhamento, a.fq_necessaria, a.fq_resultado, a.fq_observacao
+    a.repair_type, a.problema, a.encaminhamento, a.fq_necessaria, a.fq_resultado, a.fq_observacao,
+    a.tipo
 "#;
 
 pub(super) const AVARIA_FROM: &str = r#"
@@ -120,6 +134,7 @@ pub async fn ensure_tables(pool: &PgPool) -> Result<(), String> {
         "ALTER TABLE qualidade_avarias ADD COLUMN IF NOT EXISTS fq_necessaria BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE qualidade_avarias ADD COLUMN IF NOT EXISTS fq_resultado TEXT",
         "ALTER TABLE qualidade_avarias ADD COLUMN IF NOT EXISTS fq_observacao TEXT",
+        "ALTER TABLE qualidade_avarias ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'produto_acabado'",
         "ALTER TABLE qualidade_avaria_folhas ADD COLUMN IF NOT EXISTS box_count INTEGER NOT NULL DEFAULT 1",
     ] {
         sqlx::query(stmt)
@@ -192,6 +207,7 @@ pub(super) fn map_avaria(r: &sqlx::postgres::PgRow) -> AvariaOut {
         fq_necessaria: r.get(20),
         fq_resultado: r.get(21),
         fq_observacao: r.get(22),
+        tipo: r.get(23),
     }
 }
 
@@ -249,6 +265,8 @@ struct CleanInput {
     fq_necessaria: bool,
     fq_resultado: Option<String>,
     fq_observacao: Option<String>,
+    /// None = o corpo não trouxe tipo: grava produto acabado ao criar e mantém o atual ao editar.
+    tipo: Option<&'static str>,
 }
 
 fn clean_input(payload: &UpsertAvariaRequest) -> Result<CleanInput, String> {
@@ -264,6 +282,10 @@ fn clean_input(payload: &UpsertAvariaRequest) -> Result<CleanInput, String> {
         return Err("A quantidade precisa ser maior que zero".into());
     }
     let status = normalize_status(payload.status.as_deref().unwrap_or("em_analise"))?;
+    let tipo = match payload.tipo.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        Some(t) => Some(normalize_tipo(t)?),
+        None => None,
+    };
     let notes = payload
         .notes
         .as_deref()
@@ -320,6 +342,7 @@ fn clean_input(payload: &UpsertAvariaRequest) -> Result<CleanInput, String> {
         fq_necessaria: payload.fq_necessaria.unwrap_or(false),
         fq_resultado,
         fq_observacao: text(&payload.fq_observacao),
+        tipo,
     })
 }
 
@@ -349,6 +372,15 @@ pub async fn list_avarias(
         )
             .into_response();
     }
+    let tipo = query.tipo.unwrap_or_default();
+    let tipo = tipo.trim();
+    if !tipo.is_empty() && normalize_tipo(tipo).is_err() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("Tipo de avaria inválido: {tipo}") })),
+        )
+            .into_response();
+    }
     let q = query.q.unwrap_or_default();
     let q = q.trim().to_string();
     let pattern = format!("%{q}%");
@@ -358,6 +390,7 @@ pub async fn list_avarias(
         SELECT {SELECT_COLS}
         {AVARIA_FROM}
         WHERE ($1 = '' OR a.status = $1)
+          AND ($4 = '' OR a.tipo = $4)
           AND (
             $2 = ''
             OR a.register_number ILIKE $3
@@ -374,6 +407,7 @@ pub async fn list_avarias(
         .bind(status)
         .bind(&q)
         .bind(&pattern)
+        .bind(tipo)
         .fetch_all(pool)
         .await
     {
@@ -459,12 +493,12 @@ pub async fn create_avaria(
         INSERT INTO qualidade_avarias (
             register_number, item_code, description, lote, qty, location, status, notes,
             created_by, decided_by, decided_at,
-            repair_type, problema, encaminhamento, fq_necessaria, fq_resultado, fq_observacao
+            repair_type, problema, encaminhamento, fq_necessaria, fq_resultado, fq_observacao, tipo
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9,
             CASE WHEN $7 = 'em_analise' THEN NULL ELSE $9 END,
             CASE WHEN $7 = 'em_analise' THEN NULL ELSE NOW() END,
-            $10, $11, $12, $13, $14, $15
+            $10, $11, $12, $13, $14, $15, COALESCE($16, 'produto_acabado')
         )
         RETURNING id
         "#,
@@ -484,6 +518,7 @@ pub async fn create_avaria(
     .bind(input.fq_necessaria)
     .bind(&input.fq_resultado)
     .bind(&input.fq_observacao)
+    .bind(input.tipo)
     .fetch_one(pool)
     .await;
 
@@ -553,6 +588,7 @@ pub async fn update_avaria(
             fq_necessaria = $13,
             fq_resultado = $14,
             fq_observacao = $15,
+            tipo = COALESCE($16, tipo),
             decided_by = CASE
                 WHEN $6 = 'em_analise' THEN NULL
                 WHEN status = $6 THEN decided_by
@@ -582,6 +618,7 @@ pub async fn update_avaria(
     .bind(input.fq_necessaria)
     .bind(&input.fq_resultado)
     .bind(&input.fq_observacao)
+    .bind(input.tipo)
     .execute(pool)
     .await;
 
@@ -942,6 +979,41 @@ pub async fn lookup_item(
         return Json(Vec::<ItemLookupOut>::new()).into_response();
     }
     let pattern = format!("%{q}%");
+    let tipo = match normalize_tipo(query.tipo.as_deref().unwrap_or("")) {
+        Ok(t) => t,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    };
+
+    // Matéria-prima e embalagem vêm do cadastro de insumos; material de processo é digitado (sem cadastro).
+    if tipo != "produto_acabado" {
+        if tipo == "material_processo" {
+            return Json(Vec::<ItemLookupOut>::new()).into_response();
+        }
+        let embalagem = tipo == "embalagem";
+        return match sqlx::query(
+            r#"
+            SELECT code, COALESCE(NULLIF(description, ''), code)
+            FROM items
+            WHERE (COALESCE(category_id, '') = 'cat_emb') = $2
+              AND (code ILIKE $1 OR description ILIKE $1)
+            ORDER BY code
+            LIMIT 15
+            "#,
+        )
+        .bind(&pattern)
+        .bind(embalagem)
+        .fetch_all(pool)
+        .await
+        {
+            Ok(rows) => Json(
+                rows.into_iter()
+                    .map(|r| ItemLookupOut { lote: String::new(), product_code: r.get(0), description: r.get(1) })
+                    .collect::<Vec<_>>(),
+            )
+            .into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+        };
+    }
 
     let rows = match sqlx::query(
         r#"
@@ -1234,5 +1306,17 @@ pub async fn get_foto(
             Json(json!({ "error": "Foto não encontrada" })),
         )
             .into_response(),
+    }
+}
+
+#[cfg(test)]
+mod testes_tipo {
+    use super::normalize_tipo;
+
+    #[test]
+    fn tipo_vazio_e_produto_acabado_e_invalido_falha() {
+        assert_eq!(normalize_tipo("").unwrap(), "produto_acabado");
+        assert_eq!(normalize_tipo(" materia_prima ").unwrap(), "materia_prima");
+        assert!(normalize_tipo("outro").is_err());
     }
 }

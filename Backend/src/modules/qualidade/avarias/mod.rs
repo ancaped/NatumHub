@@ -79,16 +79,18 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
             "/api/qualidade/avarias",
             vec![
                 param("status", "query", "texto", false, "Filtra por status."),
+                param("tipo", "query", "texto", false, "Filtra por tipo: produto_acabado, materia_prima, embalagem ou material_processo."),
                 param("q", "query", "texto", false, "Texto de busca."),
             ],
         ),
         Acao::leitura(
             "consultar_item_avaria",
             "qualidade_avarias",
-            "Busca lotes/produtos para registrar uma avaria: com 2 letras ou mais procura por lote, código ou descrição nos laudos de lote (até 15), e se não achar procura nos produtos. Devolve lote, código do produto e descrição. Use antes de registrar a avaria.",
+            "Busca o item para registrar uma avaria, conforme o `tipo` (padrão produto_acabado): produto acabado procura por lote, código ou descrição nos laudos de lote (até 15) e, se não achar, nos produtos; matéria-prima e embalagem procuram no cadastro de insumos; material_processo não tem cadastro (digitar). Devolve lote, código e descrição. Use antes de registrar a avaria.",
             "/api/qualidade/avarias/lookup-item",
             vec![
                 param("q", "query", "texto", true, "Código ou descrição."),
+                param("tipo", "query", "texto", false, "produto_acabado (padrão), materia_prima, embalagem ou material_processo."),
             ],
         ),
         Acao::leitura(
@@ -139,7 +141,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "detalhar_avaria",
             "qualidade_avarias",
-            "Uma avaria pelo id, com registro, item, lote, quantidade, local, status, observações, foto, quem criou e decidiu, folha, tipo de reparo, problema, encaminhamento e dados da FQ (necessária, resultado, observação). Dá 404 se não existir.",
+            "Uma avaria pelo id, com registro, item, lote, quantidade, local, status, observações, foto, quem criou e decidiu, folha, tipo da avaria (`tipo`), tipo de reparo, problema, encaminhamento e dados da FQ (necessária, resultado, observação). Dá 404 se não existir.",
             "/api/qualidade/avarias/:id",
             vec![
                 param("id", "caminho", "inteiro", true, "Id da avaria."),
