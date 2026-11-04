@@ -307,6 +307,15 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
                           <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Data de Entrada</span>
                           <p className="text-sm font-semibold text-zinc-700">{formatDate(selectedInvoice.entryDate)}</p>
                         </div>
+                        <div className="space-y-1">
+                          <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Pedido(s)</span>
+                          <p className="text-sm font-mono font-bold text-zinc-700">
+                            {(() => {
+                              const nums = [...new Set((selectedInvoice.vinculos ?? []).map((v) => v.nRegistro))];
+                              return nums.length ? nums.map((n) => `#${n}`).join('  ') : <span className="font-sans font-medium text-zinc-400">Sem pedido</span>;
+                            })()}
+                          </p>
+                        </div>
                         {(selectedInvoice.icmsValue > 0 || selectedInvoice.ipiValue > 0) && (
                           <div className="space-y-1">
                             <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Impostos (itens)</span>
@@ -325,7 +334,7 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
                         {selectedInvoice.carrierName && (
                           <div className="space-y-1 col-span-2">
                             <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Transportadora (NF)</span>
-                            <p className="text-xs font-medium text-zinc-700 truncate bg-zinc-50 p-2 rounded-lg border border-zinc-150">{selectedInvoice.carrierName}</p>
+                            <p className="text-sm font-semibold text-zinc-700">{selectedInvoice.carrierName}</p>
                           </div>
                         )}
                       </div>

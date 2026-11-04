@@ -281,35 +281,43 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
               </TabelaPainel>
             </div>
 
-            <div>
-              <h4 style={{ fontSize: '0.82rem', fontWeight: 800, marginBottom: 6 }}>Notas recebidas ({(selectedOrder.notas ?? []).length})</h4>
-              <TabelaPainel>
-                <thead>
-                  <tr>
-                    <th>Nota</th>
-                    <th>Data</th>
-                    <th>Item</th>
-                    <th className="numeric-col">Qtd</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(selectedOrder.notas ?? []).length === 0 && (
-                    <tr><td colSpan={4} style={vazio}>Nenhuma nota vinculada a este pedido.</td></tr>
-                  )}
-                  {(selectedOrder.notas ?? []).map((n, idx) => (
-                    <tr key={`${n.invoiceNumber}-${n.itemPedidoId}-${idx}`}>
-                      <td><span className="product-code" style={{ fontWeight: 700 }}>NF {n.invoiceNumber}</span></td>
-                      <td>{fmtData(n.invoiceDate)}</td>
-                      <td><span className="product-code">{n.itemCode}</span></td>
-                      <td className="numeric-col">{fmtNum(n.quantidade)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </TabelaPainel>
-              <p style={{ fontSize: '0.68rem', color: 'hsl(var(--text-secondary-hsl))', marginTop: 4 }}>
-                Vínculo por fornecedor e insumo: NF de data igual ou posterior ao pedido, do mais antigo ao mais novo.
-              </p>
-            </div>
+            {(() => {
+              const porNota = new Map<string, { data: string | null; itens: string[] }>();
+              for (const n of selectedOrder.notas ?? []) {
+                const g = porNota.get(n.invoiceNumber) ?? { data: n.invoiceDate, itens: [] };
+                if (!g.itens.includes(n.itemCode)) g.itens.push(n.itemCode);
+                porNota.set(n.invoiceNumber, g);
+              }
+              return (
+                <div>
+                  <h4 style={{ fontSize: '0.82rem', fontWeight: 800, marginBottom: 6 }}>Notas recebidas ({porNota.size})</h4>
+                  <TabelaPainel>
+                    <thead>
+                      <tr>
+                        <th>Nota</th>
+                        <th>Data</th>
+                        <th>Itens recebidos</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {porNota.size === 0 && (
+                        <tr><td colSpan={3} style={vazio}>Nenhuma nota registrada para este pedido.</td></tr>
+                      )}
+                      {[...porNota.entries()].map(([numero, g]) => (
+                        <tr key={numero}>
+                          <td><span className="product-code" style={{ fontWeight: 700 }}>NF {numero}</span></td>
+                          <td>{fmtData(g.data)}</td>
+                          <td><span className="product-code">{g.itens.join('  ')}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </TabelaPainel>
+                  <p style={{ fontSize: '0.68rem', color: 'hsl(var(--text-secondary-hsl))', marginTop: 4 }}>
+                    O pedido de cada nota é o que o ERP registrou no recebimento.
+                  </p>
+                </div>
+              );
+            })()}
           </div>
         )}
       </Drawer>
