@@ -137,7 +137,7 @@ export function buildNavRegistry(): NavModuleGroup[] {
   return moduleRegistry()
     .filter((g) => TOP_NAV_GROUP_KEYS.includes(g.key as TopNavGroupKey))
     .map((group) => {
-      const submodules: NavSubmodule[] = group.children.map((child, index) => ({
+      const submodules: NavSubmodule[] = group.children.filter((child) => !child.soPermissao).map((child, index) => ({
         view: child.key,
         label: child.label,
         icon: SUBMODULE_ICONS[child.key] ?? Boxes,

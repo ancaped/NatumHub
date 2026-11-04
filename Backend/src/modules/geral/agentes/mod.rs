@@ -970,6 +970,25 @@ mod tests {
     }
 
     #[test]
+    fn modulo_categorias_so_libera_a_rota_de_categorias() {
+        let bot = agente_com(&[("compras_categorias", "edit")]);
+        assert!(has_write_access(&bot, "/api/hub/compras/categorias", "POST"));
+        assert!(has_read_access(&bot, "/api/hub/compras/categories", "GET"));
+        assert!(has_read_access(&bot, "/api/hub/compras/items", "GET"));
+        assert!(!has_write_access(&bot, "/api/hub/compras/items/1.30.001/categoria", "POST"));
+        assert!(!has_read_access(&bot, "/api/compras/pedidos", "GET"));
+        let leitor = agente_com(&[("compras_categorias", "view")]);
+        assert!(!has_write_access(&leitor, "/api/hub/compras/categorias", "POST"));
+        let apoio = agente_com(&[("compras_apoio", "edit")]);
+        assert!(!has_write_access(&apoio, "/api/hub/compras/categorias", "POST"));
+        // o gerente repassa só o que tem, pela regra geral de módulos
+        let gerente = agente_com(&[("hub_operadores", "edit"), ("compras_categorias", "edit")]);
+        let pedido = BTreeMap::from([("compras_categorias".to_string(), "editar".to_string())]);
+        assert!(recusas_de_modulos(&gerente, &pedido).is_empty());
+        assert!(!recusas_de_modulos(&apoio, &pedido).is_empty());
+    }
+
+    #[test]
     fn todo_modulo_do_mapa_existe_no_registro() {
         use crate::modules::geral::auth::store::modulos_da_rota;
         let validos = all_module_keys_vec();

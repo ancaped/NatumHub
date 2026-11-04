@@ -1464,6 +1464,12 @@ pub fn modulos_da_rota(path: &str) -> Option<&'static [&'static str]> {
         MODULE_QUALIDADE_LIMPEZA, MODULE_QUALIDADE_RECEBIMENTO_MP, MODULE_QUALIDADE_DOCUMENTACAO,
         MODULE_QUALIDADE_DEVOLUCOES, MODULE_QUALIDADE_AVARIAS,
     ];
+    // Quem só tem "Categorias" lê as categorias e os itens, não o resto de Compras.
+    const COMPRAS_E_CATEGORIAS: &[&str] = &[
+        MODULE_COMPRAS_MP, MODULE_COMPRAS_EMB, MODULE_COMPRAS_COLOR, MODULE_COMPRAS_APOIO,
+        MODULE_COMPRAS_COT, MODULE_COMPRAS_PEDIDOS, MODULE_COMPRAS_NOTAS, MODULE_COMPRAS_SIMULATION,
+        MODULE_COMPRAS_CATEGORIAS,
+    ];
     // Cadastro de produtos: consultado por produção, vendas, compras e estoque.
     const CADASTRO_PRODUTOS: &[&str] = &[
         MODULE_PRODUCAO, MODULE_PLANEJAMENTO_PRODUCAO, MODULE_VENDAS, MODULE_COMPRAS_MP, MODULE_COMPRAS_EMB,
@@ -1475,6 +1481,8 @@ pub fn modulos_da_rota(path: &str) -> Option<&'static [&'static str]> {
         ("/api/vendas", &[MODULE_VENDAS, MODULE_VENDAS_ONLINE]),
         ("/api/expedicao", &[MODULE_EXPEDICAO, MODULE_EXPEDICAO_ECOMMERCE, MODULE_EXPEDICAO_SEPARACAO]),
         ("/api/financeiro", &[MODULE_FINANCEIRO]),
+        ("/api/hub/compras/categories", COMPRAS_E_CATEGORIAS),
+        ("/api/hub/compras/items", COMPRAS_E_CATEGORIAS),
         ("/api/hub/compras", COMPRAS),
         ("/api/compras", COMPRAS),
         ("/api/hub/microbio", &[MODULE_MICROBIOLOGIA]),
@@ -1568,7 +1576,11 @@ pub fn has_write_access(ctx: &AuthContext, path: &str, method: &str) -> bool {
         return true;
     }
     if path.starts_with("/api/hub/compras") {
-        return ctx.modules.iter().any(|m| m.starts_with("compras") && ctx.can_edit_module(m));
+        use super::modules_registry::MODULE_COMPRAS_CATEGORIAS;
+        if rota_de(path, "/api/hub/compras/categorias") {
+            return ctx.can_edit_module(MODULE_COMPRAS_CATEGORIAS);
+        }
+        return ctx.modules.iter().any(|m| m != MODULE_COMPRAS_CATEGORIAS && m.starts_with("compras") && ctx.can_edit_module(m));
     }
     if path.starts_with("/api/almox") && !path.starts_with("/api/almox/demands") {
         use super::modules_registry::*;

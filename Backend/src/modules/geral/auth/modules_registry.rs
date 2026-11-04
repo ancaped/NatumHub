@@ -38,6 +38,8 @@ pub const MODULE_COMPRAS_MP: &str = "compras_materia_prima";
 pub const MODULE_COMPRAS_EMB: &str = "compras_embalagens";
 pub const MODULE_COMPRAS_COLOR: &str = "compras_coloracao";
 pub const MODULE_COMPRAS_APOIO: &str = "compras_apoio";
+/// Sem tela: dá ao agente de IA a ação de criar/renomear categorias de Compras (`/api/hub/compras/categorias`).
+pub const MODULE_COMPRAS_CATEGORIAS: &str = "compras_categorias";
 pub const MODULE_COMPRAS_COT: &str = "compras_quotations";
 pub const MODULE_COMPRAS_PEDIDOS: &str = "compras_pedidos";
 pub const MODULE_COMPRAS_NOTAS: &str = "compras_notas";
@@ -99,6 +101,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_COMPRAS_EMB,
     MODULE_COMPRAS_COLOR,
     MODULE_COMPRAS_APOIO,
+    MODULE_COMPRAS_CATEGORIAS,
     MODULE_COMPRAS_COT,
     MODULE_COMPRAS_PEDIDOS,
     MODULE_COMPRAS_NOTAS,
@@ -190,6 +193,7 @@ pub fn module_registry() -> Vec<ModuleGroup> {
                 leaf(MODULE_COMPRAS_EMB, "Embalagens"),
                 leaf(MODULE_COMPRAS_COLOR, "Coloração"),
                 leaf(MODULE_COMPRAS_APOIO, "Material de Apoio"),
+                leaf(MODULE_COMPRAS_CATEGORIAS, "Categorias (agentes de IA)"),
                 leaf(MODULE_COMPRAS_COT, "Cotações"),
                 leaf(MODULE_COMPRAS_PEDIDOS, "Pedidos"),
                 leaf(MODULE_COMPRAS_NOTAS, "Notas Fiscais"),

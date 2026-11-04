@@ -3,6 +3,8 @@
 export interface ModuleLeaf {
   key: string;
   label: string;
+  /** Só aparece na grade de permissões: não tem tela nem item de menu. */
+  soPermissao?: boolean;
 }
 
 export interface ModuleGroup {
@@ -49,6 +51,7 @@ export const MODULE_KEYS = {
   COMPRAS_EMB: 'compras_embalagens',
   COMPRAS_COLOR: 'compras_coloracao',
   COMPRAS_APOIO: 'compras_apoio',
+  COMPRAS_CATEGORIAS: 'compras_categorias',
   COMPRAS_COT: 'compras_quotations',
   COMPRAS_PEDIDOS: 'compras_pedidos',
   COMPRAS_NOTAS: 'compras_notas',
@@ -140,6 +143,7 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.COMPRAS_EMB, label: 'Embalagens' },
         { key: MODULE_KEYS.COMPRAS_COLOR, label: 'Coloração' },
         { key: MODULE_KEYS.COMPRAS_APOIO, label: 'Material de Apoio' },
+        { key: MODULE_KEYS.COMPRAS_CATEGORIAS, label: 'Categorias (agentes de IA)', soPermissao: true },
         { key: MODULE_KEYS.COMPRAS_PEDIDOS, label: 'Pedidos' },
         { key: MODULE_KEYS.COMPRAS_NOTAS, label: 'Notas Fiscais' },
         { key: MODULE_KEYS.COMPRAS_SIMULATION, label: 'Simulador' },
