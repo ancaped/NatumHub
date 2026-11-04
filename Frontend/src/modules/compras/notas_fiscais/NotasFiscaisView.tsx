@@ -1,9 +1,9 @@
 import { apiFetch } from '../../geral/lib/http';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { ArrowLeft, FileText, RefreshCw, Package, Truck } from 'lucide-react';
-import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
+import { FileText, RefreshCw, Package, Truck, CalendarDays, CalendarRange } from 'lucide-react';
+import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
 import Drawer from '../../geral/components/ui/Drawer';
-import { ReportHeader, ReportTabs, FilterBar, StatusBadge, TabelaPainel, BotaoAcao } from '../../geral/components/ui/ReportKit';
+import { ReportHeader, FilterBar, StatusBadge, TabelaPainel, BotaoAcao } from '../../geral/components/ui/ReportKit';
 
 
 interface NotasFiscaisViewProps {
@@ -88,7 +88,6 @@ const fmtNum = (n: number) => Number(n ?? 0).toLocaleString('pt-BR', { maximumFr
 const vazio: React.CSSProperties = { padding: 20, textAlign: 'center', color: 'hsl(var(--text-secondary-hsl))' };
 
 export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps) {
-  const globalNav = useGlobalNavActive();
   const [invoices, setInvoices] = useState<InvoiceHeader[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -160,10 +159,10 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
     return invoices.filter((i) => noPeriodo(i, Number(periodo)));
   }, [invoices, periodo, noPeriodo]);
 
-  const abas = [
-    { id: '30', label: 'Últimos 30 dias', contagem: invoices.filter((i) => noPeriodo(i, 30)).length },
-    { id: '90', label: 'Últimos 90 dias', contagem: invoices.filter((i) => noPeriodo(i, 90)).length },
-    { id: 'todas', label: 'Todas', contagem: invoices.length },
+  const sidebarItems: SidebarItem[] = [
+    { id: '30', label: 'Últimos 30 dias', icon: CalendarDays, badge: invoices.filter((i) => noPeriodo(i, 30)).length },
+    { id: '90', label: 'Últimos 90 dias', icon: CalendarRange, badge: invoices.filter((i) => noPeriodo(i, 90)).length },
+    { id: 'todas', label: 'Todas as notas', icon: FileText, badge: invoices.length },
   ];
 
   const hasFte = useMemo(() => {
@@ -178,7 +177,15 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
   const dadoParado = ultimaNota !== null && diasDesde(ultimaNota) > 7;
 
   return (
-    <div className="flex-1 h-full overflow-y-auto bg-zinc-50 p-6 font-sans text-zinc-900">
+    <AppLayout
+      moduleTitle="Notas Fiscais"
+      moduleSubtitle="Compras"
+      onBackToHub={onBackToHub}
+      sidebarItems={sidebarItems}
+      activeTab={periodo}
+      onTabChange={(id) => setPeriodo(id as AbaPeriodo)}
+    >
+      <div className="w-full max-w-none">
       <ReportHeader
         titulo="Notas fiscais de compra"
         subtitulo={
@@ -196,14 +203,12 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
         }
         acoes={
           <>
-            {!globalNav && <BotaoAcao onClick={onBackToHub}><ArrowLeft size={13} /> Voltar</BotaoAcao>}
             <BotaoAcao onClick={() => loadInvoices(search)} disabled={loading}>
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Atualizar
             </BotaoAcao>
           </>
         }
       />
-      <ReportTabs abas={abas} ativa={periodo} onChange={(id) => setPeriodo(id as AbaPeriodo)} />
       <FilterBar busca={search} onBusca={setSearch} placeholder="Buscar por nº da nota, fornecedor ou item (código/descrição)..." />
 
       <TabelaPainel>
@@ -240,9 +245,13 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
               <td>
                 {(inv.pedidos ?? []).length === 0
                   ? '—'
-                  : (inv.pedidos ?? []).map((n) => (
-                      <span key={n} className="product-code" style={{ marginRight: 6 }}>#{n}</span>
-                    ))}
+                  : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 6px' }}>
+                      {(inv.pedidos ?? []).map((n) => (
+                        <span key={n} className="product-code">#{n}</span>
+                      ))}
+                    </div>
+                  )}
               </td>
               <td className="numeric-col">{formatCurrency(inv.totalValue)}</td>
             </tr>
@@ -510,6 +519,7 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
           </div>
         )}
       </Drawer>
-    </div>
+      </div>
+    </AppLayout>
   );
 }

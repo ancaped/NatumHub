@@ -1,10 +1,10 @@
 import { apiFetch } from '../../geral/lib/http';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
-import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
+import { RefreshCw, Clock, PackageOpen, AlertTriangle, CheckCircle2, ClipboardList } from 'lucide-react';
+import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
 import Drawer from '../../geral/components/ui/Drawer';
 import {
-  ReportHeader, ReportTabs, FilterBar, StatusBadge, TabelaPainel, BotaoAcao, type VarianteBadge,
+  ReportHeader, FilterBar, StatusBadge, TabelaPainel, BotaoAcao, type VarianteBadge,
 } from '../../geral/components/ui/ReportKit';
 
 interface PedidosViewProps {
@@ -89,7 +89,6 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [aba, setAba] = useState<Aba>('ABERTO');
-  const globalNav = useGlobalNavActive();
 
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrderDetail | null>(null);
   const [drawerLoading, setDrawerLoading] = useState(false);
@@ -145,12 +144,12 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
     [orders, aba],
   );
 
-  const abas = [
-    { id: 'ABERTO', label: 'Em aberto', contagem: contagem.ABERTO },
-    { id: 'PARCIAL', label: 'Parcial', contagem: contagem.PARCIAL },
-    { id: 'ATRASADO', label: 'Atrasados', contagem: contagem.ATRASADO },
-    { id: 'FECHADO', label: 'Concluídos', contagem: contagem.FECHADO },
-    { id: 'ALL', label: 'Todos', contagem: contagem.ALL },
+  const sidebarItems: SidebarItem[] = [
+    { id: 'ABERTO', label: 'Em aberto', icon: Clock, badge: contagem.ABERTO },
+    { id: 'PARCIAL', label: 'Parcial', icon: PackageOpen, badge: contagem.PARCIAL },
+    { id: 'ATRASADO', label: 'Atrasados', icon: AlertTriangle, badge: contagem.ATRASADO, badgeTone: 'amber' },
+    { id: 'FECHADO', label: 'Concluídos', icon: CheckCircle2, badge: contagem.FECHADO },
+    { id: 'ALL', label: 'Todos', icon: ClipboardList, badge: contagem.ALL },
   ];
 
   const badgeDe = (status: string | null) => {
@@ -159,20 +158,26 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
   };
 
   return (
-    <div className="flex-1 h-full overflow-y-auto bg-zinc-50 p-6 font-sans text-zinc-900">
+    <AppLayout
+      moduleTitle="Pedidos de Compra"
+      moduleSubtitle="Compras"
+      onBackToHub={onBackToHub}
+      sidebarItems={sidebarItems}
+      activeTab={aba}
+      onTabChange={(id) => setAba(id as Aba)}
+    >
+      <div className="w-full max-w-none">
       <ReportHeader
         titulo="Pedidos de compra"
         subtitulo="Pedidos do ERP, com as notas recebidas de cada um."
         acoes={
           <>
-            {!globalNav && <BotaoAcao onClick={onBackToHub}><ArrowLeft size={13} /> Voltar</BotaoAcao>}
             <BotaoAcao onClick={() => loadOrders(search)} disabled={loading}>
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Atualizar
             </BotaoAcao>
           </>
         }
       />
-      <ReportTabs abas={abas} ativa={aba} onChange={(id) => setAba(id as Aba)} />
       <FilterBar busca={search} onBusca={setSearch} placeholder="Buscar por nº do pedido, fornecedor ou item (código/descrição)..." />
 
       <TabelaPainel>
@@ -308,6 +313,7 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
           </div>
         )}
       </Drawer>
-    </div>
+      </div>
+    </AppLayout>
   );
 }
