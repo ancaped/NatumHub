@@ -1,6 +1,7 @@
 import type { HubPrinter } from '../../impressoras/lib/types';
 import { printersApi } from '../../impressoras/lib/printersApi';
 import { renderLabelPngDataUrl } from './printCanvasRenderer';
+import { modeloNativo, montarPaginasNativas } from './impressaoNativa';
 import { readLabelFillScale, readLabelOffsetX } from './printService';
 import type { LabelTemplate, PrintConfig } from './types';
 
@@ -87,6 +88,24 @@ export async function printLabelDirect(
   const total = config.sequenceTotal || copies;
   const start = config.sequenceStart || 1;
   const padding = config.sequencePadding || 2;
+
+  // Texto e código de barras nativos da Zebra (só modelos migrados, impressora remota, sem girar).
+  if (modeloNativo(template) && impressoraRemota(printer) && !landscape) {
+    const paginas = await montarPaginasNativas(template, config.enableSequence ? copies : 1, total, start, padding, dpi, amostragem);
+    await printersApi.printDirect({
+      printer_id: printer.id,
+      printer_name: printerName,
+      width_mm: template.width_mm || 100,
+      height_mm: template.height_mm || 50,
+      copies: config.enableSequence ? 1 : Math.min(copies, 200),
+      landscape,
+      fill_scale: fill,
+      offset_x_mm: readLabelOffsetX(),
+      pages_png_base64: [],
+      paginas_nativas: paginas,
+    });
+    return;
+  }
 
   const pages: string[] = [];
   let jobCopies = Math.min(copies, 200);

@@ -120,6 +120,8 @@ export const printersApi = {
     fill_scale: number;
     offset_x_mm?: number;
     pages_png_base64: string[];
+    /** Etiquetas com texto e barras nativos da impressora (ZPL/EPL); valem no lugar das imagens. */
+    paginas_nativas?: unknown[];
   }): Promise<void> {
     const res = await apiJson<ApiResponse<{ printed: boolean }>>('/api/ferramentas/impressoras/direct', {
       method: 'POST',

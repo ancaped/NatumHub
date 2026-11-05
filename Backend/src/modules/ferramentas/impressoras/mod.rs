@@ -2,6 +2,7 @@ pub mod direct_print;
 pub mod handlers;
 pub mod lpr;
 pub mod models;
+pub mod nativo;
 pub mod raw_label;
 pub mod store;
 

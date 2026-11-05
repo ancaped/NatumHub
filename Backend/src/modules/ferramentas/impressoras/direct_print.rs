@@ -23,7 +23,11 @@ pub struct DirectPrintRequest {
     /// Ajuste lateral em mm (positivo desloca a arte para a direita). Corrige impressora que corta a borda esquerda.
     #[serde(default)]
     pub offset_x_mm: f64,
+    #[serde(default)]
     pub pages_png_base64: Vec<String>,
+    /// Etiquetas com texto e códigos de barras nativos (ZPL/EPL). Quando presente, vale no lugar das imagens.
+    #[serde(default)]
+    pub paginas_nativas: Vec<super::nativo::PaginaNativa>,
 }
 
 const SCRIPT: &str = r#"
@@ -383,7 +387,9 @@ pub async fn imprimir_etiquetas(pool: &PgPool, mut req: DirectPrintRequest) -> R
     if !(10.0..=300.0).contains(&req.width_mm) || !(10.0..=300.0).contains(&req.height_mm) {
         return Err("Tamanho da etiqueta fora do intervalo suportado.".into());
     }
-    if req.pages_png_base64.is_empty() || req.pages_png_base64.len() > 80 {
+    let nativo = !req.paginas_nativas.is_empty();
+    let n_paginas = if nativo { req.paginas_nativas.len() } else { req.pages_png_base64.len() };
+    if n_paginas == 0 || n_paginas > 80 {
         return Err("Informe de 1 a 80 etiquetas por envio.".into());
     }
     let copias = req.copies.clamp(1, 200);
@@ -394,6 +400,9 @@ pub async fn imprimir_etiquetas(pool: &PgPool, mut req: DirectPrintRequest) -> R
         Some("windows_lpd") | Some("network_tcp")
     );
     if !remota {
+        if nativo {
+            return Err("Texto nativo só funciona em impressora de rede ou compartilhada num PC Windows.".into());
+        }
         // Spooler local do Windows (caminho antigo).
         if let Some(p) = &printer {
             if req.printer_name.trim().is_empty() {
@@ -408,6 +417,34 @@ pub async fn imprimir_etiquetas(pool: &PgPool, mut req: DirectPrintRequest) -> R
             .map_err(|e| format!("Falha ao imprimir: {e}"))?;
     }
     let printer = printer.expect("impressora remota carregada");
+
+    if nativo {
+        if req.landscape {
+            return Err("Texto nativo imprime sem girar a etiqueta (orientação Deitada).".into());
+        }
+        let dpi = if printer.dpi >= 100 { printer.dpi as f64 } else { 203.0 };
+        let alvo_w = ((req.width_mm / 25.4) * dpi).round() as u32;
+        let alvo_h = ((req.height_mm / 25.4) * dpi).round() as u32;
+        let deslocamento = ((req.offset_x_mm.clamp(-10.0, 10.0) / 25.4) * dpi).round() as i32;
+        let epl = printer.raw_protocol.eq_ignore_ascii_case("epl");
+        let paginas = std::mem::take(&mut req.paginas_nativas);
+        return tokio::task::spawn_blocking(move || {
+            let mut dados: Vec<u8> = Vec::new();
+            for pag in &paginas {
+                let imagem = match pag.imagem_png_base64.as_deref().filter(|r| !r.trim().is_empty()) {
+                    Some(raw) => {
+                        let bm = raw_label::png_para_bitmap_no_tamanho(&decode_png(raw)?, alvo_w, alvo_h)?;
+                        Some(raw_label::preparar(bm, false, 1.0, deslocamento))
+                    }
+                    None => None,
+                };
+                dados.extend(super::nativo::montar_pagina(epl, dpi, alvo_w, alvo_h, pag, imagem.as_ref(), copias, deslocamento));
+            }
+            enviar_bytes(&printer, &dados)
+        })
+        .await
+        .map_err(|e| format!("Falha ao imprimir: {e}"))?;
+    }
 
     let landscape = req.landscape;
     let fill = req.fill_scale;
