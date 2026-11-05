@@ -928,4 +928,12 @@ export interface AcuraciaDuracao {
     familias: AcuraciaFamilia[];
     padraoDeConsumo: Record<string, number>;
   };
+  planoDeProducao: {
+    data: string | null;
+    familias: { familia: string; itens: number; comHistorico: number; comPlano: number; nosDois: number }[];
+  };
+  comparacaoPlano: {
+    horizonteDias: number;
+    familias: { familia: string; amostras: number; real: number; erroMediaPct: number | null; erroPlanoPct: number | null; somaMedia: number; somaPlano: number }[];
+  };
 }

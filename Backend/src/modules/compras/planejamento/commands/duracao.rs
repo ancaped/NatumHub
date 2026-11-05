@@ -59,7 +59,22 @@ pub async fn registrar_snapshot_do_dia(pool: &PgPool) -> Result<usize, String> {
         .iter()
         .map(|r| (r.get::<String, _>("id"), r.get::<Option<String>, _>("parent_id")))
         .collect();
-    let (mut codes, mut fams, mut dur, mut cons, mut est, mut sem) = (vec![], vec![], vec![], vec![], vec![], vec![]);
+    // Consumo previsto pela produção planejada e pela fila nas próximas 4 semanas (Cobertura). Se o plano não puder
+    // ser calculado, a foto sai com NULL nessa coluna e a medição ignora a linha.
+    let plano: Option<HashMap<String, f64>> = match crate::modules::producao::cobertura::horizonte::calcular(pool).await {
+        Ok(h) => Some(
+            h.saida
+                .insumos
+                .iter()
+                .map(|i| (crate::modules::producao::cobertura::store::canon(&i.codigo), i.consumo_previsto))
+                .collect(),
+        ),
+        Err(e) => {
+            eprintln!("[Compras] plano de produção indisponível para a foto da duração: {e}");
+            None
+        }
+    };
+    let (mut codes, mut fams, mut dur, mut cons, mut est, mut sem, mut proj) = (vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
     for d in &demandas {
         let raiz = d.category_id.as_deref().map(|c| raiz_de(c, &pais));
         codes.push(d.item_code.clone());
@@ -68,12 +83,13 @@ pub async fn registrar_snapshot_do_dia(pool: &PgPool) -> Result<usize, String> {
         cons.push(d.overall_avg / 30.0);
         est.push(d.future_stock_forecast);
         sem.push(d.sem_controle);
+        proj.push(plano.as_ref().map(|m| m.get(&crate::modules::producao::cobertura::store::canon(&d.item_code)).copied().unwrap_or(0.0)));
     }
     let n = codes.len();
     sqlx::query(
-        "INSERT INTO compras_duracao_snapshots (data, item_code, familia, duracao_prevista_dias, consumo_diario_previsto, estoque_previsto, sem_controle)
-         SELECT CURRENT_DATE, c, f, d, k, e, s
-         FROM UNNEST($1::text[], $2::text[], $3::float8[], $4::float8[], $5::float8[], $6::bool[]) AS t(c, f, d, k, e, s)
+        "INSERT INTO compras_duracao_snapshots (data, item_code, familia, duracao_prevista_dias, consumo_diario_previsto, estoque_previsto, sem_controle, consumo_projetado_28d)
+         SELECT CURRENT_DATE, c, f, d, k, e, s, p
+         FROM UNNEST($1::text[], $2::text[], $3::float8[], $4::float8[], $5::float8[], $6::bool[], $7::float8[]) AS t(c, f, d, k, e, s, p)
          ON CONFLICT (data, item_code) DO NOTHING",
     )
     .bind(&codes)
@@ -82,6 +98,7 @@ pub async fn registrar_snapshot_do_dia(pool: &PgPool) -> Result<usize, String> {
     .bind(&cons)
     .bind(&est)
     .bind(&sem)
+    .bind(&proj)
     .execute(pool)
     .await
     .map_err(|e| e.to_string())?;
@@ -151,6 +168,70 @@ async fn acuracia_real(pool: &PgPool, horizonte_dias: i32) -> Result<Value, Stri
         "familias": familias,
         "observacao": if rows.is_empty() { "Ainda não há foto com mais de o horizonte de dias: a medição real aparece quando a primeira foto completar esse prazo." } else { "" },
     }))
+}
+
+/// Quanto o plano de produção cobre dos itens (foto mais recente): itens que a média diz que consomem, itens que o
+/// plano das próximas 4 semanas prevê consumir, e quantos estão nos dois.
+async fn cobertura_do_plano(pool: &PgPool) -> Result<Value, String> {
+    let rows = sqlx::query(
+        "WITH u AS (SELECT MAX(data) AS data FROM compras_duracao_snapshots WHERE consumo_projetado_28d IS NOT NULL)
+         SELECT s.familia, COUNT(*) AS itens,
+                SUM((s.consumo_diario_previsto > 0)::int) AS com_historico,
+                SUM((s.consumo_projetado_28d > 0)::int) AS com_plano,
+                SUM((s.consumo_diario_previsto > 0 AND s.consumo_projetado_28d > 0)::int) AS nos_dois,
+                u.data::text AS data
+         FROM compras_duracao_snapshots s JOIN u ON s.data = u.data
+         WHERE NOT s.sem_controle GROUP BY s.familia, u.data ORDER BY s.familia",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    let familias: Vec<Value> = rows
+        .iter()
+        .map(|r| json!({
+            "familia": r.get::<String, _>("familia"), "itens": r.get::<i64, _>("itens"), "comHistorico": r.get::<i64, _>("com_historico"),
+            "comPlano": r.get::<i64, _>("com_plano"), "nosDois": r.get::<i64, _>("nos_dois"),
+        }))
+        .collect();
+    Ok(json!({ "data": rows.first().map(|r| r.get::<String, _>("data")), "familias": familias }))
+}
+
+/// Média histórica x produção planejada, lado a lado, sobre as fotos que já completaram 28 dias.
+async fn comparacao_projecao(pool: &PgPool) -> Result<Value, String> {
+    let rows = sqlx::query(
+        "WITH s AS (
+             SELECT data, item_code, familia, consumo_diario_previsto * 28 AS media, consumo_projetado_28d AS plano
+             FROM compras_duracao_snapshots
+             WHERE data <= CURRENT_DATE - 28 AND NOT sem_controle AND consumo_projetado_28d IS NOT NULL
+         ),
+         r AS (
+             SELECT s.familia, s.media, s.plano, COALESCE(SUM(m.quantity), 0)::float8 AS real
+             FROM s LEFT JOIN stock_movements m
+               ON m.item_code = s.item_code AND m.movement_type = 'saida' AND m.item_type IN ('insumo', 'produto')
+              AND m.date >= to_char(s.data, 'YYYY-MM-DD') AND m.date < to_char(s.data + 28, 'YYYY-MM-DD')
+             GROUP BY s.data, s.item_code, s.familia, s.media, s.plano
+         )
+         SELECT familia, COUNT(*) AS amostras, SUM(real) AS real, SUM(ABS(media - real)) AS erro_media, SUM(ABS(plano - real)) AS erro_plano,
+                SUM(media) AS soma_media, SUM(plano) AS soma_plano
+         FROM r GROUP BY familia ORDER BY familia",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    let familias: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            let real: f64 = r.get("real");
+            let (em, ep): (f64, f64) = (r.get("erro_media"), r.get("erro_plano"));
+            json!({
+                "familia": r.get::<String, _>("familia"), "amostras": r.get::<i64, _>("amostras"), "real": real.round(),
+                "erroMediaPct": if real > 0.0 { pct(100.0 * em / real) } else { Value::Null },
+                "erroPlanoPct": if real > 0.0 { pct(100.0 * ep / real) } else { Value::Null },
+                "somaMedia": r.get::<f64, _>("soma_media").round(), "somaPlano": r.get::<f64, _>("soma_plano").round(),
+            })
+        })
+        .collect();
+    Ok(json!({ "horizonteDias": 28, "familias": familias }))
 }
 
 /// Teste histórico com o método de hoje (média dos 12 meses anteriores) sobre as saídas já registradas:
@@ -246,6 +327,8 @@ pub async fn acuracia_duracao(pool: &PgPool, horizonte_dias: i32) -> Result<Valu
     Ok(json!({
         "real": acuracia_real(pool, horizonte_dias).await?,
         "historico": acuracia_historica(pool, meses).await?,
+        "planoDeProducao": cobertura_do_plano(pool).await?,
+        "comparacaoPlano": comparacao_projecao(pool).await?,
     }))
 }
 
@@ -278,6 +361,8 @@ mod tests {
         }
         let r = acuracia_duracao(&pool, 30).await.unwrap();
         assert!(r["historico"]["familias"].is_array());
+        assert!(r["planoDeProducao"]["familias"].is_array());
+        assert!(r["comparacaoPlano"]["familias"].is_array());
         assert_eq!(r["real"]["horizonteDias"], 30);
         sqlx::query("DELETE FROM compras_duracao_snapshots WHERE data = CURRENT_DATE").execute(&pool).await.unwrap();
     }

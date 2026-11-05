@@ -101,6 +101,78 @@ export function AcuraciaDuracao({ active = false }: { active?: boolean }) {
         </div>
       )}
 
+      {dados?.planoDeProducao && (
+        <div>
+          <h4 style={{ fontSize: '0.82rem', fontWeight: 800, marginBottom: 2 }}>O plano de produção cobre os itens?</h4>
+          <p style={{ fontSize: '0.72rem', color: 'hsl(var(--text-secondary-hsl))', marginBottom: 6 }}>
+            {dados.planoDeProducao.data
+              ? `Foto de ${dados.planoDeProducao.data}. Consumo previsto pelas ordens planejadas e pela fila das próximas 4 semanas (Cobertura de Insumos), contra os itens que a média diz que consomem.`
+              : 'Aparece depois da primeira foto com o plano.'}
+          </p>
+          <TabelaPainel>
+            <thead>
+              <tr>
+                <th>Família</th>
+                <th className="numeric-col">Itens</th>
+                <th className="numeric-col">Com consumo na média</th>
+                <th className="numeric-col">Com consumo no plano</th>
+                <th className="numeric-col">Nos dois</th>
+                <th className="numeric-col" title="Dos itens que consomem pela média, quantos o plano também prevê">Cobertura do plano</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dados.planoDeProducao.familias.length === 0 && <tr><td colSpan={6} style={vazio}>Sem foto com plano ainda.</td></tr>}
+              {dados.planoDeProducao.familias.map((f) => (
+                <tr key={f.familia}>
+                  <td style={{ fontWeight: 600 }}>{NOME[f.familia] ?? f.familia}</td>
+                  <td className="numeric-col">{num(f.itens)}</td>
+                  <td className="numeric-col">{num(f.comHistorico)}</td>
+                  <td className="numeric-col">{num(f.comPlano)}</td>
+                  <td className="numeric-col">{num(f.nosDois)}</td>
+                  <td className="numeric-col" style={{ fontWeight: 700 }}>{f.comHistorico > 0 ? `${Math.round((100 * f.nosDois) / f.comHistorico)}%` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </TabelaPainel>
+        </div>
+      )}
+
+      {dados?.comparacaoPlano && (
+        <div>
+          <h4 style={{ fontSize: '0.82rem', fontWeight: 800, marginBottom: 2 }}>Média x plano de produção ({dados.comparacaoPlano.horizonteDias} dias depois)</h4>
+          <p style={{ fontSize: '0.72rem', color: 'hsl(var(--text-secondary-hsl))', marginBottom: 6 }}>
+            Qual das duas previsões chegou mais perto do consumo real, nas fotos que já completaram {dados.comparacaoPlano.horizonteDias} dias. Menor erro vence.
+          </p>
+          <TabelaPainel>
+            <thead>
+              <tr>
+                <th>Família</th>
+                <th className="numeric-col">Amostras</th>
+                <th className="numeric-col">Consumo real</th>
+                <th className="numeric-col">Erro da média</th>
+                <th className="numeric-col">Erro do plano</th>
+                <th>Melhor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dados.comparacaoPlano.familias.length === 0 && <tr><td colSpan={6} style={vazio}>Ainda sem fotos com {dados.comparacaoPlano.horizonteDias} dias e plano.</td></tr>}
+              {dados.comparacaoPlano.familias.map((f) => (
+                <tr key={f.familia}>
+                  <td style={{ fontWeight: 600 }}>{NOME[f.familia] ?? f.familia}</td>
+                  <td className="numeric-col">{num(f.amostras)}</td>
+                  <td className="numeric-col">{num(f.real)}</td>
+                  <td className="numeric-col">{pct(f.erroMediaPct)}</td>
+                  <td className="numeric-col">{pct(f.erroPlanoPct)}</td>
+                  <td style={{ fontWeight: 700 }}>
+                    {f.erroMediaPct === null || f.erroPlanoPct === null ? '—' : f.erroPlanoPct < f.erroMediaPct ? 'Plano' : 'Média'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </TabelaPainel>
+        </div>
+      )}
+
       {real && (
         <div>
           <h4 style={{ fontSize: '0.82rem', fontWeight: 800, marginBottom: 2 }}>Medição real: fotos diárias da previsão ({horizonte} dias depois)</h4>
