@@ -1,0 +1,115 @@
+/* Etiquetas: galeria de modelos e listas de lote/kit/coloração. Só tokens HSL Zinc do sistema. */
+.modelo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 14px;
+}
+.modelo-card {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+  border-radius: 14px;
+  border: 1px solid hsl(var(--card-border-hsl));
+  background: hsl(var(--card-bg-hsl, 0 0% 100%));
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.modelo-card:hover {
+  border-color: hsl(240 5% 65%);
+  box-shadow: 0 6px 18px hsl(240 10% 10% / 0.08);
+  transform: translateY(-1px);
+}
+.modelo-card:focus-visible {
+  outline: 2px solid hsl(240 6% 10%);
+  outline-offset: 2px;
+}
+.modelo-card-previa {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: hsl(240 5% 96%);
+  border-bottom: 1px solid hsl(var(--card-border-hsl));
+}
+.modelo-card-previa img,
+.modelo-card-vazio {
+  width: 100%;
+  display: block;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px hsl(240 10% 10% / 0.18);
+}
+.modelo-card-corpo {
+  padding: 12px 14px 13px;
+}
+.modelo-card-nome {
+  font-weight: 600;
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modelo-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  font-size: 0.7rem;
+  color: hsl(var(--text-secondary-hsl));
+}
+
+/* Listas de lote / kit / coloração */
+.lote-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: hsl(240 5% 94%);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.lote-nome {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lote-sub {
+  font-size: 0.68rem;
+  color: hsl(var(--text-secondary-hsl));
+  margin-top: 1px;
+}
+.lote-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.lote-cx-input {
+  width: 62px;
+  text-align: center;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  padding: 4px 6px;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--card-border-hsl));
+  background: transparent;
+}
+.lote-cx-input:hover { border-color: hsl(240 5% 65%); }
+.lote-cx-input:focus { outline: 2px solid hsl(240 6% 10%); outline-offset: 0; }
+.lote-cx-input.editado { border-color: hsl(240 6% 10%); background: hsl(240 5% 96%); font-weight: 700; }
+.lote-vazio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 36px 16px;
+  color: hsl(var(--text-secondary-hsl));
+  font-size: 0.8rem;
+}
+.lote-imprimir {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

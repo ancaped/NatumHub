@@ -5,6 +5,7 @@ import { BotaoAcao, FilterBar, ReportHeader, ReportTabs, StatusBadge, TabelaPain
 import { pedirMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import LabelsCalendarTab from './components/LabelsCalendarTab';
 import LotesTab from './components/LotesTab';
+import ModeloCard from './components/ModeloCard';
 import ModeloDrawer from './components/ModeloDrawer';
 import PrintModal from './components/PrintModal';
 import PrintWithSystemDataModal from './components/PrintWithSystemDataModal';
@@ -148,51 +149,13 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
             />
             <ReportTabs abas={abas} ativa={familia} onChange={setFamilia} />
             <FilterBar busca={busca} onBusca={setBusca} placeholder="Buscar modelo..." />
-            <TabelaPainel>
-              <thead>
-                <tr>
-                  <th>Modelo</th>
-                  <th style={{ width: 170 }}>Família</th>
-                  <th style={{ width: 110, textAlign: 'center' }}>Tamanho</th>
-                  <th style={{ width: 90 }}>Origem</th>
-                  <th style={{ width: 100 }}>Atualizado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {carregando && (
-                  <tr>
-                    <td colSpan={5} style={{ padding: 20, textAlign: 'center', ...muted }}>Carregando...</td>
-                  </tr>
-                )}
-                {!carregando && linhas.length === 0 && (
-                  <tr>
-                    <td colSpan={5} style={{ padding: 20, textAlign: 'center', ...muted }}>Nenhum modelo com este filtro.</td>
-                  </tr>
-                )}
-                {linhas.map((t) => (
-                  <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => setAberto(t)}>
-                    <td>
-                      <div style={{ fontWeight: 600 }}>{t.name}</div>
-                      {t.description && (
-                        <div style={{ fontSize: '0.7rem', maxWidth: 520, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...muted }}>
-                          {t.description}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ fontSize: '0.75rem', ...muted }}>{FAMILIAS[familiaDe(t)]}</td>
-                    <td style={{ textAlign: 'center', fontSize: '0.75rem' }}>
-                      {t.width_mm}×{t.height_mm} mm
-                    </td>
-                    <td>
-                      <StatusBadge variante={t.is_default ? 'descontinuado' : 'saudavel'}>{t.is_default ? 'Padrão' : 'Criado'}</StatusBadge>
-                    </td>
-                    <td style={{ fontSize: '0.72rem', ...muted }}>
-                      {t.updated_at || t.created_at ? new Date((t.updated_at || t.created_at)!).toLocaleDateString('pt-BR') : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </TabelaPainel>
+            {carregando && linhas.length === 0 && <div className="lote-vazio">Carregando...</div>}
+            {!carregando && linhas.length === 0 && <div className="lote-vazio">Nenhum modelo com este filtro.</div>}
+            <div className="modelo-grid">
+              {linhas.map((t) => (
+                <ModeloCard key={t.id} modelo={t} onAbrir={() => setAberto(t)} />
+              ))}
+            </div>
           </>
         )}
 

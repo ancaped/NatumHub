@@ -3,6 +3,7 @@ import { Edit3, Printer, Trash2 } from 'lucide-react';
 import Drawer from '../../../geral/components/ui/Drawer';
 import { BotaoAcao } from '../../../geral/components/ui/ReportKit';
 import { renderLabelPngDataUrl } from '../lib/printCanvasRenderer';
+import { comExemplo } from '../lib/previaExemplo';
 import type { LabelTemplate } from '../lib/types';
 import { FAMILIAS, familiaDe } from '../lib/familias';
 
@@ -36,7 +37,7 @@ export default function ModeloDrawer({ modelo, onClose, onImprimir, onImprimirCo
     let vivo = true;
     setPrevia(null);
     setErro(false);
-    renderLabelPngDataUrl(modelo, 0, 1, 1, 3, 300)
+    renderLabelPngDataUrl(comExemplo(modelo), 0, 1, 1, 3, 300)
       .then((url) => vivo && setPrevia(url))
       .catch(() => vivo && setErro(true));
     return () => {

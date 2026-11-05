@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { Printer, RefreshCw, SearchX } from 'lucide-react';
+import '../etiquetas.css';
 import { BotaoAcao, FilterBar, ReportHeader, ReportTabs, StatusBadge, TabelaPainel, type AbaRelatorio } from '../../../geral/components/ui/ReportKit';
 import PrintModal from './PrintModal';
 import { labelsApi, type LoteEtiqueta } from '../lib/labelsApi';
@@ -161,17 +162,22 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
         <tbody>
           {carregando && lotes.length === 0 && (
             <tr>
-              <td colSpan={sem ? 5 : 8} style={{ padding: 20, textAlign: 'center', ...muted }}>Carregando...</td>
+              <td colSpan={sem ? 5 : 8}><div className="lote-vazio">Carregando...</div></td>
             </tr>
           )}
           {erro && (
             <tr>
-              <td colSpan={sem ? 5 : 8} style={{ padding: 20, textAlign: 'center', color: 'hsl(0 70% 40%)' }}>{erro}</td>
+              <td colSpan={sem ? 5 : 8}><div className="lote-vazio" style={{ color: 'hsl(0 70% 40%)' }}>{erro}</div></td>
             </tr>
           )}
           {!carregando && !erro && linhas.length === 0 && (
             <tr>
-              <td colSpan={sem ? 5 : 8} style={{ padding: 20, textAlign: 'center', ...muted }}>Nenhum lote encontrado.</td>
+              <td colSpan={sem ? 5 : 8}>
+                <div className="lote-vazio">
+                  <SearchX size={22} />
+                  {sem ? 'Nenhum produto encontrado.' : kit ? 'Nenhuma ordem de kit encontrada.' : 'Nenhum lote encontrado.'}
+                </div>
+              </td>
             </tr>
           )}
           {linhas.map((l0) => {
@@ -184,28 +190,24 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
                 </td>
               )}
               {!sem && (
-                <td style={{ fontWeight: 700 }}>
-                  {l.lote}
-                  {kit && l.status && (
-                    <div style={{ fontSize: '0.62rem', fontWeight: 400, ...muted }}>{l.status === 'COMPLETED' ? 'Concluída' : 'Em aberto'}</div>
-                  )}
+                <td>
+                  <span className="lote-chip">{l.lote}</span>
+                  {kit && l.status && <div className="lote-sub">{l.status === 'COMPLETED' ? 'Concluída' : 'Em aberto'}</div>}
                 </td>
               )}
               <td style={{ maxWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
-                  <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.descricao}>
-                    {l.descricao}
-                  </span>
-                  <span className="product-code" style={{ fontSize: '0.65rem', flexShrink: 0 }}>{l.codigo}</span>
+                <div className="lote-nome" title={l.descricao}>{l.descricao}</div>
+                <div className="lote-sub">
+                  <span className="product-code">{l.codigo}</span>
                 </div>
               </td>
               {!sem && <td style={{ fontSize: '0.75rem', ...muted }}>{formatarData(l.data_producao)}</td>}
               {!sem && (
-                <td style={{ textAlign: 'right' }} title={l.quantidade_estimada ? 'Estimado: kg do lote / peso da unidade (sem conferência no envase)' : undefined}>
+                <td className="lote-num" title={l.quantidade_estimada ? 'Estimado: kg do lote / peso da unidade (sem conferência no envase)' : undefined}>
                   {l.quantidade_estimada ? '~' : ''}{l.quantidade}
                 </td>
               )}
-              {!sem && <td style={{ textAlign: 'right' }}>{l.caixas ?? '—'}</td>}
+              {!sem && <td className="lote-num" style={{ fontWeight: 600 }}>{l.caixas ?? '—'}</td>}
               <td style={{ textAlign: 'center' }}>
                 <input
                   type="number"
@@ -213,21 +215,13 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
                   value={l.quantidade_caixa ?? ''}
                   placeholder="—"
                   title="Unidades por caixa na etiqueta. Muda só a etiqueta, não o cadastro do produto."
+                  className={`lote-cx-input${porCaixa[chave(l0)] != null ? ' editado' : ''}`}
                   onChange={(e) => {
                     const n = parseInt(e.target.value, 10);
                     setPorCaixa((m) => {
                       const { [chave(l0)]: _, ...resto } = m;
                       return n > 0 ? { ...resto, [chave(l0)]: n } : resto;
                     });
-                  }}
-                  style={{
-                    width: 58,
-                    textAlign: 'center',
-                    fontSize: '0.8rem',
-                    padding: '3px 4px',
-                    borderRadius: 6,
-                    border: `1px solid ${porCaixa[chave(l0)] != null ? 'hsl(var(--text-primary-hsl, 240 6% 10%))' : 'hsl(var(--card-border-hsl))'}`,
-                    background: 'transparent',
                   }}
                 />
               </td>
@@ -244,8 +238,8 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
                 )}
               </td>
               <td style={{ textAlign: 'right' }}>
-                <BotaoAcao disabled={!modelo} onClick={() => setImprimindo(l)}>
-                  Imprimir
+                <BotaoAcao primario={!sem && l.etiquetas_impressas === 0} disabled={!modelo} onClick={() => setImprimindo(l)}>
+                  <span className="lote-imprimir"><Printer size={14} /> Imprimir</span>
                 </BotaoAcao>
               </td>
             </tr>
