@@ -44,9 +44,23 @@ export function validarImpressoraDireta(printer: HubPrinter): string {
 }
 
 /** DPI do desenho: impressora compartilhada/de rede recebe pontos crus (sem driver), então desenha na DPI dela. */
-export function dpiDoDesenho(printer: HubPrinter, dpiOverride?: number): number {
-  const remota = printer.connection_type === 'windows_lpd' || printer.connection_type === 'network_tcp';
-  if (remota) return printer.dpi && printer.dpi >= 150 ? printer.dpi : 203;
+function impressoraRemota(printer: HubPrinter): boolean {
+  return printer.connection_type === 'windows_lpd' || printer.connection_type === 'network_tcp';
+}
+
+/**
+ * Na impressora remota (ZPL/EPL) o servidor reduz a imagem para os pontos da impressora fazendo a média da área.
+ * Desenhar em 3x (2x em muitas páginas, para o envio não estourar) e deixar o servidor reduzir dá texto bem mais
+ * liso que desenhar já em 203 dpi, onde a fonte sai quebrada. 1 = desenha direto na resolução do papel.
+ */
+export function amostragemDoDesenho(printer: HubPrinter, paginas = 1): number {
+  if (!impressoraRemota(printer)) return 1;
+  return paginas <= 20 ? 3 : 2;
+}
+
+export function dpiDoDesenho(printer: HubPrinter, dpiOverride?: number, paginas = 1): number {
+  const remota = impressoraRemota(printer);
+  if (remota) return (printer.dpi && printer.dpi >= 150 ? printer.dpi : 203) * amostragemDoDesenho(printer, paginas);
   if (dpiOverride && dpiOverride >= 150) return dpiOverride;
   return printer.dpi && printer.dpi >= 150 ? printer.dpi : 300;
 }
@@ -65,7 +79,9 @@ export async function printLabelDirect(
     throw new Error('A sequência direta aceita até 80 etiquetas por vez.');
   }
 
-  const dpi = dpiDoDesenho(printer, dpiOverride);
+  const paginasEnvio = config.enableSequence ? copies : 1;
+  const dpi = dpiDoDesenho(printer, dpiOverride, paginasEnvio);
+  const amostragem = amostragemDoDesenho(printer, paginasEnvio);
   const fill = (config.fillScale ?? readLabelFillScale()) / 100;
   const landscape = readLabelFeed() === 'portrait';
   const total = config.sequenceTotal || copies;
@@ -76,11 +92,11 @@ export async function printLabelDirect(
   let jobCopies = Math.min(copies, 200);
   if (config.enableSequence) {
     for (let i = 0; i < copies; i++) {
-      pages.push(await renderLabelPngDataUrl(template, i, total, start, padding, dpi));
+      pages.push(await renderLabelPngDataUrl(template, i, total, start, padding, dpi, amostragem));
     }
     jobCopies = 1;
   } else {
-    pages.push(await renderLabelPngDataUrl(template, 0, total, start, padding, dpi));
+    pages.push(await renderLabelPngDataUrl(template, 0, total, start, padding, dpi, amostragem));
   }
 
   await printersApi.printDirect({

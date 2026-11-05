@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, ExternalLink, Loader2, Printer, X } from 'lucide-react';
 import type { LabelTemplate, PrintConfig } from '../lib/types';
 import { openPrintWindow } from '../lib/printService';
-import { dpiDoDesenho, printLabelDirect, readLabelFeed, validarImpressoraDireta, type LabelFeed } from '../lib/directPrint';
+import { amostragemDoDesenho, dpiDoDesenho, printLabelDirect, readLabelFeed, validarImpressoraDireta, type LabelFeed } from '../lib/directPrint';
 import { readLabelFillScale, readLabelOffsetX } from '../lib/printService';
 import { renderLabelPngDataUrl } from '../lib/printCanvasRenderer';
 import { labelsApi } from '../lib/labelsApi';
@@ -152,10 +152,11 @@ export default function PrintModal({
     try {
       if (batch) {
         const printerName = validarImpressoraDireta(selectedPrinter);
-        const dpi = dpiDoDesenho(selectedPrinter, printDpi);
+        const dpi = dpiDoDesenho(selectedPrinter, printDpi, batch.length);
+        const amostragem = amostragemDoDesenho(selectedPrinter, batch.length);
         const pages: string[] = [];
         for (const page of batch) {
-          pages.push(await renderLabelPngDataUrl(page, 0, batch.length, 1, 2, dpi));
+          pages.push(await renderLabelPngDataUrl(page, 0, batch.length, 1, 2, dpi, amostragem));
         }
         await printersApi.printDirect({
           printer_id: selectedPrinter.id,

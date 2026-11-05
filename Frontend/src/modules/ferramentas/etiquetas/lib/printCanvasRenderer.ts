@@ -153,7 +153,9 @@ export async function renderLabelPngDataUrl(
   totalCount: number,
   startSeq: number,
   padding: number,
-  dpi = 203
+  dpi = 203,
+  /** Quando a imagem é desenhada em N× a resolução final, medidas finas (barras, bordas, QR) andam em múltiplos de N. */
+  amostragem = 1
 ): Promise<string> {
   const widthMm = template.width_mm || 100;
   const heightMm = template.height_mm || 50;
@@ -174,7 +176,7 @@ export async function renderLabelPngDataUrl(
 
   const imagesMap = await preloadImages(template.elements_json);
   for (const el of template.elements_json) {
-    drawElement(ctx, el, seqIndex, totalCount, startSeq, padding, imagesMap, dpi);
+    drawElement(ctx, el, seqIndex, totalCount, startSeq, padding, imagesMap, dpi, amostragem);
   }
 
   return canvas.toDataURL('image/png');
@@ -188,9 +190,13 @@ function drawElement(
   startSeq: number,
   padding: number,
   imagesMap: Map<string, HTMLImageElement>,
-  dpi: number
+  dpi: number,
+  amostragem = 1
 ) {
   const mmToPx = dpi / 25.4;
+  const am = Math.max(1, Math.round(amostragem));
+  /** Arredonda para o ponto inteiro da impressora (múltiplo de `am` na imagem ampliada). */
+  const q = (v: number) => Math.round(v / am) * am;
   const x = el.x_mm * mmToPx;
   const y = el.y_mm * mmToPx;
   const w = el.width_mm * mmToPx;
@@ -202,7 +208,7 @@ function drawElement(
   switch (el.type) {
     case 'box': {
       // Traço e posição em pontos inteiros: borda fracionária vira cinza e a impressora térmica a quebra.
-      const bw = Math.max(1, Math.round((p.borderWidth || 0.6) * mmToPx));
+      const bw = Math.max(am, q((p.borderWidth || 0.6) * mmToPx));
       const br = (p.borderRadius || 0) * mmToPx;
       const bc = p.borderColor || '#000000';
       const bg = p.backgroundColor && p.backgroundColor !== 'transparent' ? p.backgroundColor : null;
@@ -216,10 +222,10 @@ function drawElement(
         ctx.setLineDash([bw * 1.5, bw * 1.5]);
       }
 
-      const bx0 = Math.round(x);
-      const by0 = Math.round(y);
-      const bww = Math.round(w);
-      const bhh = Math.round(h);
+      const bx0 = q(x);
+      const by0 = q(y);
+      const bww = q(w);
+      const bhh = q(h);
       ctx.beginPath();
       if (br > 0 && typeof ctx.roundRect === 'function') {
         ctx.roundRect(bx0 + bw / 2, by0 + bw / 2, Math.max(1, bww - bw), Math.max(1, bhh - bw), br);
@@ -236,7 +242,7 @@ function drawElement(
     }
 
     case 'line': {
-      const sw = Math.max(1, Math.round((p.strokeWidth || 0.5) * mmToPx));
+      const sw = Math.max(am, q((p.strokeWidth || 0.5) * mmToPx));
       const sc = p.strokeColor || '#000000';
 
       ctx.lineWidth = sw;
@@ -250,11 +256,11 @@ function drawElement(
 
       ctx.beginPath();
       if (p.orientation === 'vertical') {
-        ctx.moveTo(Math.round(x) + sw / 2, Math.round(y));
-        ctx.lineTo(Math.round(x) + sw / 2, Math.round(y + h));
+        ctx.moveTo(q(x) + sw / 2, q(y));
+        ctx.lineTo(q(x) + sw / 2, q(y + h));
       } else {
-        ctx.moveTo(Math.round(x), Math.round(y) + sw / 2);
-        ctx.lineTo(Math.round(x + w), Math.round(y) + sw / 2);
+        ctx.moveTo(q(x), q(y) + sw / 2);
+        ctx.lineTo(q(x + w), q(y) + sw / 2);
       }
       ctx.stroke();
       break;
@@ -339,11 +345,11 @@ function drawElement(
 
       // Módulo de largura inteira em pontos, centralizado: barras fracionárias saem com larguras
       // diferentes e frestas ("craquelado") quando a imagem vira preto e branco para a térmica.
-      const modulo = Math.max(1, Math.floor(w / res.totalModules));
+      const modulo = Math.max(am, Math.floor(w / res.totalModules / am) * am);
       const largura = modulo * res.totalModules;
-      const ox = Math.round(x + (w - largura) / 2);
-      const oy = Math.round(y);
-      const altBarras = Math.round(barHeight);
+      const ox = q(x + (w - largura) / 2);
+      const oy = q(y);
+      const altBarras = q(barHeight);
       ctx.fillStyle = '#000000';
       for (const b of res.bars) {
         ctx.fillRect(ox + b.x * modulo, oy, b.width * modulo, altBarras);
@@ -366,11 +372,11 @@ function drawElement(
       const matrix = generateQrMatrix(rawVal);
       const n = matrix.length;
       // Célula inteira em pontos: sem isso as linhas do QR saem com espessuras diferentes.
-      const cell = Math.max(1, Math.floor(Math.min(w, h) / n));
+      const cell = Math.max(am, Math.floor(Math.min(w, h) / n / am) * am);
       const cellW = cell;
       const cellH = cell;
-      const qx = Math.round(x + (w - cell * n) / 2);
-      const qy = Math.round(y + (h - cell * n) / 2);
+      const qx = q(x + (w - cell * n) / 2);
+      const qy = q(y + (h - cell * n) / 2);
 
       ctx.fillStyle = '#000000';
       for (let r = 0; r < n; r++) {
