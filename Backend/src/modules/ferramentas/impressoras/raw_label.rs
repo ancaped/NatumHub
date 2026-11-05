@@ -48,9 +48,9 @@ impl Bitmap {
     }
 }
 
-/// Pontos mais escuros que isto viram preto. Um pouco acima do meio-termo (128): o texto fino, que a tela
-/// desenha em cinza nas bordas, sai mais cheio e sem quebras na térmica.
-const LIMIAR_PRETO: u8 = 150;
+/// Pontos mais escuros que isto viram preto (meio-termo). Com a imagem desenhada em 3x e reduzida pela média da
+/// área, 128 mantém o traço no peso certo; 150 engrossava o texto e adensava as barras.
+const LIMIAR_PRETO: u8 = 128;
 
 /// Decodifica um PNG (RGBA, RGB, cinza, paleta) para luminância.
 /// Luminância (0 = preto, 255 = branco) de cada ponto do PNG, com o alfa transparente contando como branco.
