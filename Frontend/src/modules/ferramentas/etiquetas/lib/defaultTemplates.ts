@@ -1154,14 +1154,30 @@ if (modeloLote) {
     id: 'template_coloracao_erp',
     name: 'Etiqueta de Coloração (ERP)',
     description: 'Etiqueta de produto de Coloração, sem lote: nome, código de barras da caixa, código e quantidade por caixa.',
+    // Layout próprio, sem sobras: nome grande em cima, código de barras central e uma linha com código e quantidade.
     elements_json: modeloLote.elements_json
       .filter((el) => !sem.includes(el.id))
       .map((el) => {
-        if (el.id === 'lbl_cod') return { ...el, x_mm: 5, y_mm: 20, width_mm: 42 };
-        if (el.id === 'txt_cod') return { ...el, x_mm: 5, y_mm: 24, width_mm: 42, height_mm: 7, props: { ...el.props, fontSize: 14 } };
-        if (el.id === 'txt_contem') return { ...el, x_mm: 53, y_mm: 30, width_mm: 42, height_mm: 8, props: { ...el.props, fontSize: 12, fontWeight: 'bold' } };
+        if (el.id === 'txt_prod') return { ...el, x_mm: 5, y_mm: 4, width_mm: 90, height_mm: 13, props: { ...el.props, fontSize: 12.5 } };
+        if (el.id === 'barcode_caixa') return { ...el, x_mm: 29, y_mm: 18.5, width_mm: 42, height_mm: 13 };
+        if (el.id === 'txt_dun') return { ...el, x_mm: 29, y_mm: 32, width_mm: 42, props: { ...el.props, textAlign: 'center', fontSize: 9 } };
+        if (el.id === 'lbl_cod') return { ...el, x_mm: 5, y_mm: 37.5, width_mm: 42 };
+        if (el.id === 'txt_cod') return { ...el, x_mm: 5, y_mm: 41, width_mm: 42, height_mm: 7, props: { ...el.props, fontSize: 15 } };
+        if (el.id === 'txt_contem') {
+          return { ...el, x_mm: 53, y_mm: 41, width_mm: 42, height_mm: 7, props: { ...el.props, text: '{box_qty}', fontSize: 15, fontWeight: 'bold' } };
+        }
         return el;
-      }),
+      })
+      .concat([
+        {
+          ...modeloLote.elements_json.find((el) => el.id === 'lbl_cod')!,
+          id: 'lbl_qtd',
+          x_mm: 53,
+          y_mm: 37.5,
+          width_mm: 42,
+          props: { ...modeloLote.elements_json.find((el) => el.id === 'lbl_cod')!.props, text: 'QTD. POR CAIXA' },
+        },
+      ]),
   });
 }
 
