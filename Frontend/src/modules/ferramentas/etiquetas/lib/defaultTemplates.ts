@@ -950,9 +950,9 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
       {
         id: 'barcode_caixa',
         type: 'barcode',
-        x_mm: 31,
+        x_mm: 53,
         y_mm: 14,
-        width_mm: 38,
+        width_mm: 42,
         height_mm: 9,
         zIndex: 2,
         props: {
@@ -964,9 +964,9 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
       {
         id: 'txt_dun',
         type: 'text',
-        x_mm: 31,
+        x_mm: 53,
         y_mm: 23.5,
-        width_mm: 38,
+        width_mm: 42,
         height_mm: 3.5,
         zIndex: 2,
         props: {
@@ -983,7 +983,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         id: 'lbl_data',
         type: 'text',
         x_mm: 5,
-        y_mm: 29,
+        y_mm: 17,
         width_mm: 42,
         height_mm: 3,
         zIndex: 2,
@@ -1001,13 +1001,13 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         id: 'txt_data',
         type: 'text',
         x_mm: 5,
-        y_mm: 32,
+        y_mm: 20.5,
         width_mm: 42,
         height_mm: 5,
         zIndex: 2,
         props: {
           text: '{manufacturing_date}',
-          fontSize: 9,
+          fontSize: 10,
           fontWeight: 'normal',
           fontFamily: 'Inter',
           textAlign: 'center',
@@ -1019,7 +1019,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         id: 'lbl_cod',
         type: 'text',
         x_mm: 5,
-        y_mm: 38,
+        y_mm: 29,
         width_mm: 42,
         height_mm: 3,
         zIndex: 2,
@@ -1037,13 +1037,13 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         id: 'txt_cod',
         type: 'text',
         x_mm: 5,
-        y_mm: 41,
+        y_mm: 32.5,
         width_mm: 42,
         height_mm: 6,
         zIndex: 2,
         props: {
           text: '{product_code}',
-          fontSize: 12,
+          fontSize: 14,
           fontWeight: 'bold',
           fontFamily: 'Inter',
           textAlign: 'center',
@@ -1055,9 +1055,9 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         id: 'barcode_lote',
         type: 'barcode',
         x_mm: 53,
-        y_mm: 29,
+        y_mm: 28,
         width_mm: 42,
-        height_mm: 10,
+        height_mm: 9,
         zIndex: 2,
         props: {
           value: '{lot}',
@@ -1069,7 +1069,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         id: 'txt_lote',
         type: 'text',
         x_mm: 53,
-        y_mm: 39.5,
+        y_mm: 37.5,
         width_mm: 42,
         height_mm: 5,
         zIndex: 2,
@@ -1087,7 +1087,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         id: 'txt_contem',
         type: 'text',
         x_mm: 53,
-        y_mm: 44.5,
+        y_mm: 43,
         width_mm: 42,
         height_mm: 4,
         zIndex: 2,
@@ -1157,9 +1157,9 @@ if (modeloLote) {
     elements_json: modeloLote.elements_json
       .filter((el) => !sem.includes(el.id))
       .map((el) => {
-        if (el.id === 'lbl_cod') return { ...el, x_mm: 5, y_mm: 30, width_mm: 42 };
-        if (el.id === 'txt_cod') return { ...el, x_mm: 5, y_mm: 34, width_mm: 42, height_mm: 7, props: { ...el.props, fontSize: 14 } };
-        if (el.id === 'txt_contem') return { ...el, x_mm: 53, y_mm: 32, width_mm: 42, height_mm: 8, props: { ...el.props, fontSize: 12, fontWeight: 'bold' } };
+        if (el.id === 'lbl_cod') return { ...el, x_mm: 5, y_mm: 20, width_mm: 42 };
+        if (el.id === 'txt_cod') return { ...el, x_mm: 5, y_mm: 24, width_mm: 42, height_mm: 7, props: { ...el.props, fontSize: 14 } };
+        if (el.id === 'txt_contem') return { ...el, x_mm: 53, y_mm: 30, width_mm: 42, height_mm: 8, props: { ...el.props, fontSize: 12, fontWeight: 'bold' } };
         return el;
       }),
   });
