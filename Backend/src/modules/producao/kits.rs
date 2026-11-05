@@ -21,13 +21,15 @@ use crate::modules::producao::gerenciamento::calculations::calculate_products;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
+        .merge(crate::modules::producao::kits_erp::router())
         .route("/api/kits", get(list_kits))
         .route("/api/producao/insumos-status/:code", get(get_insumos_status))
 }
 
 /// Ações de kits e de insumos por produto descritas para agentes (ver `core::catalogo`).
 pub fn acoes() -> Vec<Acao> {
-    vec![
+    let mut v = crate::modules::producao::kits_erp::acoes();
+    v.extend(vec![
         Acao::leitura(
             "listar_kits",
             "montagem_kits",
@@ -52,7 +54,8 @@ pub fn acoes() -> Vec<Acao> {
                 param("bulk_kg", "query", "número", false, "Kg de granel do lote, quando já conhecido."),
             ],
         ),
-    ]
+    ]);
+    v
 }
 
 /// Estoque de componentes que existem em `items` (embalagem/insumo), não em produtos.
