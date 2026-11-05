@@ -903,3 +903,29 @@ export interface ResumoSubcategoria {
   itens: number;
   produtos: number;
 }
+
+export interface AcuraciaFamilia {
+  familia: string;
+  amostras: number;
+  itens: number;
+  previsto: number;
+  real: number;
+  erroPct: number | null;
+  viesPct: number | null;
+  semConsumo: number;
+}
+
+export interface AcuraciaDuracao {
+  real: {
+    horizonteDias: number;
+    fotos: { dias: number; primeira: string | null; ultima: string | null };
+    familias: AcuraciaFamilia[];
+    observacao: string;
+  };
+  historico: {
+    metodo: string;
+    horizonteMeses: number;
+    familias: AcuraciaFamilia[];
+    padraoDeConsumo: Record<string, number>;
+  };
+}

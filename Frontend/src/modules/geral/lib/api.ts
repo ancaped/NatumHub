@@ -1,6 +1,6 @@
 import { hubJson, ApiError, apiJson } from './http';
 import type {
-  Category, Supplier, Item, Invoice, GrupoSugestaoFornecedor, PropostaSubcategoria, ResumoSubcategoria,
+  Category, Supplier, Item, Invoice, GrupoSugestaoFornecedor, PropostaSubcategoria, ResumoSubcategoria, AcuraciaDuracao,
   DemandResult, Quotation, QuotationItem, QuotationPrice,
   ImportResult, StockImport, PricePoint, SupplierSpend, CategorySpend,
   ComprasAppConfig, MicrobioAppConfig, FiscoAppConfig, Feedback, Product, Report,
@@ -189,6 +189,9 @@ export const api = {
   /** Grava na hora (confirmar=true): a tela já pede a confirmação ao operador; o motivo vai para a auditoria. */
   unifySuppliers(parentId: string, childIds: string[], motivo = 'Unificação pela tela Fornecedores'): Promise<void> {
     return hubJson('compras/suppliers/unify?confirmar=true', { method: 'POST', body: JSON.stringify({ parentId, childIds, motivo }) });
+  },
+  getAcuraciaDuracao(horizonteDias = 30): Promise<AcuraciaDuracao> {
+    return hubJson(`compras/duracao/acuracia?horizonte=${horizonteDias}`);
   },
   getPropostasSubcategoria(status = 'pendente'): Promise<PropostaSubcategoria[]> {
     return hubJson(`compras/categories/propostas?status=${status}`);

@@ -4,9 +4,10 @@ import { api } from '../../../geral/lib/api';
 import { PricePoint, SupplierSpend, CategorySpend, Item, Category } from '../../../geral/lib/types';
 import { TrendingUp, DollarSign, Package, Search, Calendar } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
+import { AcuraciaDuracao } from './AcuraciaDuracao';
 
 
-type ReportView = 'spending_supplier' | 'spending_category' | 'price_evolution';
+type ReportView = 'spending_supplier' | 'spending_category' | 'price_evolution' | 'duracao';
 
 export function ReportDashboard({ mode = 'all', active = false }: { mode?: string; active?: boolean }) {
   const [view, setView] = useState<ReportView>('spending_supplier');
@@ -92,6 +93,7 @@ export function ReportDashboard({ mode = 'all', active = false }: { mode?: strin
           { id: 'spending_supplier', label: 'Gasto por Fornecedor', icon: DollarSign },
           { id: 'spending_category', label: 'Gasto por Categoria', icon: Package },
           { id: 'price_evolution', label: 'Evolução de Preço', icon: TrendingUp },
+          { id: 'duracao', label: 'Acerto da Duração', icon: Calendar },
         ] as const).map(r => (
           <button key={r.id} onClick={() => setView(r.id)}
             className={cn("flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors",
@@ -101,7 +103,9 @@ export function ReportDashboard({ mode = 'all', active = false }: { mode?: strin
         ))}
       </div>
 
-      {view !== 'price_evolution' && (
+      {view === 'duracao' && <AcuraciaDuracao active={active} />}
+
+      {view !== 'price_evolution' && view !== 'duracao' && (
         <div className="bg-white rounded-xl border border-zinc-200 p-4 shadow-sm flex items-center gap-4">
           <Calendar className="h-4 w-4 text-zinc-500" />
           <span className="text-sm text-zinc-600">Período:</span>

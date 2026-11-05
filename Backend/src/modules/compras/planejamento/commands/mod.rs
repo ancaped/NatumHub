@@ -6,6 +6,7 @@ mod quotations;
 mod suppliers;
 mod sugestoes_fornecedor;
 pub mod unificar_fornecedores;
+pub mod duracao;
 mod custom_configs;
 mod purchase_lists;
 mod lista_compra;

@@ -335,6 +335,23 @@ async fn recusar_proposta_handler(
     }
 }
 
+#[derive(Deserialize)]
+struct AcuraciaQuery {
+    horizonte: Option<i32>,
+}
+
+// GET /api/hub/compras/duracao/acuracia?horizonte=30|60|90 (dias)
+async fn acuracia_duracao_handler(State(state): State<Arc<AppState>>, Query(q): Query<AcuraciaQuery>) -> Response {
+    let h = q.horizonte.unwrap_or(30);
+    if ![30, 60, 90].contains(&h) {
+        return crate::core::acao::ErroApi::invalido("horizonte deve ser 30, 60 ou 90 (dias).").into_response();
+    }
+    match duracao::acuracia_duracao(state.db.pool(), h).await {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => crate::core::acao::ErroApi::interno(e).into_response(),
+    }
+}
+
 async fn delete_category_handler(
     State(state): State<Arc<AppState>>,
     axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
@@ -1315,6 +1332,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         // Categories
         .route("/api/hub/compras/categories", get(get_categories_handler).post(save_category_handler))
+        .route("/api/hub/compras/duracao/acuracia", get(acuracia_duracao_handler))
         .route("/api/hub/compras/categories/propostas", get(listar_propostas_handler))
         .route("/api/hub/compras/categories/resumo", get(resumo_subcategorias_handler))
         .route("/api/hub/compras/categories/propostas/:id/aprovar", post(aprovar_proposta_handler))
@@ -1435,6 +1453,13 @@ pub fn acoes() -> Vec<Acao> {
             ],
         )
         .com_familias(agente::FAMILIAS),
+        Acao::leitura(
+            "acuracia_duracao_compras",
+            MP,
+            "Mede o erro da previsão de consumo que sustenta a duração estimada. `historico` testa o método de hoje (média dos 12 meses anteriores) sobre as saídas já registradas, por família e por padrão de consumo (contínuo, ocasional, em lotes); `real` compara as fotos diárias da previsão com o consumo que saiu depois (aparece quando a primeira foto completa o `horizonte`). `erroPct` = soma do erro absoluto sobre o consumo real; `viesPct` > 0 = previu mais do que saiu. Só leitura.",
+            "/api/hub/compras/duracao/acuracia",
+            vec![param("horizonte", "query", "inteiro", false, "Dias à frente: 30 (padrão), 60 ou 90.")],
+        ),
         Acao::leitura(
             "listar_propostas_subcategoria_compras",
             MP,

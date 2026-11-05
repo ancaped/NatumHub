@@ -373,6 +373,12 @@ where
         modules::geral::alertas::vigiar_sync_erp(pool_alertas).await;
     });
 
+    // Compras: foto diária da duração estimada, para medir o erro da previsão (só mede).
+    let pool_duracao = state.db.pool().clone();
+    tokio::spawn(async move {
+        modules::compras::planejamento::commands::duracao::vigiar_snapshot_diario(pool_duracao).await;
+    });
+
     let scheduler_state = state.clone();
     tokio::spawn(async move {
         modules::geral::configuracoes::erp_sync_scheduler::start_erp_sync_scheduler(scheduler_state)
