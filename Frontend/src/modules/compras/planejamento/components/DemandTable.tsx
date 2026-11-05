@@ -10,6 +10,7 @@ import { LoteDetailsDrawer } from '../../../producao/gerenciamento/components/Lo
 import Drawer from '../../../geral/components/ui/Drawer';
 import { useListaCompra } from '../useListaCompra';
 import { HistoricoPedidosTable } from './HistoricoPedidosTable';
+import { FiltroFornecedor, LinhaGrupoFornecedor, compararFornecedor, nomeFornecedor, opcoesFornecedor, passaFornecedor } from './FornecedorGrupo';
 import { ItensSemelhantesTab } from './ItensSemelhantesTab';
 
 interface InsumoDetalhes {
@@ -142,6 +143,8 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   const [sortKey, setSortKey] = useState<SortKey>('estimatedDurationDays');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [urgencyFilter, setUrgencyFilter] = useState<string>('');
+  const [fornecedorFiltro, setFornecedorFiltro] = useState('');
+  const [agruparFornecedor, setAgruparFornecedor] = useState(false);
 
   const [selectedItemCode, setSelectedItemCode] = useState<string | null>(null);
   const [details, setDetails] = useState<InsumoDetalhes | null>(null);
@@ -493,7 +496,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, selectedCategory, urgencyFilter, activeMainTab]);
+  }, [search, selectedCategory, urgencyFilter, activeMainTab, fornecedorFiltro, agruparFornecedor]);
 
   const filteredSubcategories = useMemo(() => {
     if (mode === 'embalagens') {
@@ -588,14 +591,26 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
       result = result.filter(d => (d.itemCode || '').toLowerCase().includes(q) || (d.description || '').toLowerCase().includes(q));
     }
     if (urgencyFilter) result = result.filter(d => d.urgency === urgencyFilter);
+    if (fornecedorFiltro) result = result.filter(d => passaFornecedor(fornecedorFiltro, d.fornecedor));
     result = [...result].sort((a, b) => {
+      if (agruparFornecedor) {
+        const g = compararFornecedor(a.fornecedor, b.fornecedor);
+        if (g !== 0) return g;
+      }
       const aVal = a[sortKey];
       const bVal = b[sortKey];
       if (typeof aVal === 'string' && typeof bVal === 'string') return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
       return sortDir === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
     });
     return result;
-  }, [demands, activeMainTab, selectedCategory, search, urgencyFilter, sortKey, sortDir, mode, categories]);
+  }, [demands, activeMainTab, selectedCategory, search, urgencyFilter, fornecedorFiltro, agruparFornecedor, sortKey, sortDir, mode, categories]);
+
+  const opcoesForn = useMemo(() => {
+    let r = demands;
+    if (mode === 'materia_prima') r = r.filter(isMateriaPrimaItem);
+    else if (mode === 'embalagens') r = r.filter(isPackagingItem);
+    return opcoesFornecedor(r.map(d => d.fornecedor));
+  }, [demands, mode]);
 
   const paginatedDemands = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -1032,6 +1047,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                   </select>
                 </div>
               )}
+              <FiltroFornecedor valor={fornecedorFiltro} onValor={setFornecedorFiltro} opcoes={opcoesForn} agrupar={agruparFornecedor} onAgrupar={setAgruparFornecedor} />
               <select value={urgencyFilter} onChange={e => setUrgencyFilter(e.target.value)} className="text-sm border border-zinc-300 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none">
                 <option value="">Todos os Status</option>
                 <option value="critical">🔴 Crítico (&lt; disparo)</option>
@@ -1155,8 +1171,12 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
-                  {paginatedDemands.map(demand => (
-                    <tr key={demand.itemCode} onClick={() => setSelectedItemCode(demand.itemCode)} className={cn("hover:bg-zinc-50 transition-colors cursor-pointer", selectedItemCode === demand.itemCode && "bg-zinc-100", selectedItems.has(demand.itemCode) && "bg-blue-50/50")}>
+                  {paginatedDemands.map((demand, idx) => (
+                    <React.Fragment key={demand.itemCode}>
+                    {agruparFornecedor && (idx === 0 || nomeFornecedor(paginatedDemands[idx - 1].fornecedor) !== nomeFornecedor(demand.fornecedor)) && (
+                      <LinhaGrupoFornecedor nome={nomeFornecedor(demand.fornecedor)} colSpan={20} />
+                    )}
+                    <tr onClick={() => setSelectedItemCode(demand.itemCode)} className={cn("hover:bg-zinc-50 transition-colors cursor-pointer", selectedItemCode === demand.itemCode && "bg-zinc-100", selectedItems.has(demand.itemCode) && "bg-blue-50/50")}>
                       {mode !== 'materia_prima' && mode !== 'embalagens' && (
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                           <input type="checkbox" checked={selectedItems.has(demand.itemCode)} onChange={() => toggleSelection(demand.itemCode)} className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900" />
@@ -1165,6 +1185,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       <td className="px-4 py-3">
                         <div className="font-mono text-xs text-zinc-500">{demand.itemCode}</div>
                         <div className="font-medium text-zinc-900" title={demand.description}>{demand.description}</div>
+                        {demand.fornecedor && <div className="text-[11px] text-zinc-500 truncate" title="Fornecedor do último pedido">{demand.fornecedor}</div>}
                         {demand.classificacao && (
                           <span
                             className="inline-flex mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-zinc-100 text-zinc-600 border border-zinc-200"
@@ -1291,6 +1312,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                         </button>
                       </td>
                     </tr>
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>

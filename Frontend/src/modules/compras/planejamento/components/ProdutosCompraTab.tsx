@@ -13,6 +13,7 @@ import Drawer from '../../../geral/components/ui/Drawer';
 import { useListaCompra } from '../useListaCompra';
 import { HistoricoPedidosTable, type PedidoCompraHistorico } from './HistoricoPedidosTable';
 import { ultimoRecebimento } from '../ultimoRecebimento';
+import { FiltroFornecedor, LinhaGrupoFornecedor, compararFornecedor, nomeFornecedor, opcoesFornecedor, passaFornecedor } from './FornecedorGrupo';
 
 interface ProductRow {
   codigo: string;
@@ -120,6 +121,8 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
   const [selectedLine, setSelectedLine] = useState<string>('ALL');
   const [urgencyFilter, setUrgencyFilter] = useState<string>('');
+  const [fornecedorFiltro, setFornecedorFiltro] = useState('');
+  const [agruparFornecedor, setAgruparFornecedor] = useState(false);
 
   // Selected product details & pending orders
   const [selectedProductCode, setSelectedProductCode] = useState<string | null>(null);
@@ -481,7 +484,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedLine, urgencyFilter]);
+  }, [searchTerm, selectedLine, urgencyFilter, fornecedorFiltro, agruparFornecedor]);
 
   // Extract lines dynamically for filters
   const availableLines = useMemo(() => {
@@ -600,6 +603,11 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     });
   }, [products, triggerDaysInput, targetDaysInput, customConfigs, categories, demandsByCode]);
 
+  const fornecedorDe = React.useCallback(
+    (codigo: string) => (demandsByCode[codigo] || demandsByCode[(codigo || '').replace(/\./g, '')])?.fornecedor,
+    [demandsByCode],
+  );
+
   const filteredProducts = useMemo(() => {
     let result = computedProducts;
 
@@ -633,7 +641,15 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
       result = result.filter(p => p.urgency_computed === urgencyFilter);
     }
 
+    if (fornecedorFiltro) {
+      result = result.filter(p => passaFornecedor(fornecedorFiltro, fornecedorDe(p.codigo)));
+    }
+
     result = [...result].sort((a, b) => {
+      if (agruparFornecedor) {
+        const g = compararFornecedor(fornecedorDe(a.codigo), fornecedorDe(b.codigo));
+        if (g !== 0) return g;
+      }
       let aVal = a[sortKey as keyof typeof a];
       let bVal = b[sortKey as keyof typeof b];
 
@@ -667,7 +683,9 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     });
 
     return result;
-  }, [computedProducts, searchTerm, selectedLine, urgencyFilter, sortKey, sortDir, initialCategoryFilter, categories, statusFilter]);
+  }, [computedProducts, searchTerm, selectedLine, urgencyFilter, fornecedorFiltro, agruparFornecedor, fornecedorDe, sortKey, sortDir, initialCategoryFilter, categories, statusFilter]);
+
+  const opcoesForn = useMemo(() => opcoesFornecedor(computedProducts.map(p => fornecedorDe(p.codigo))), [computedProducts, fornecedorDe]);
 
   const paginatedProducts = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -1249,6 +1267,8 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
               </select>
             </div>
 
+            <FiltroFornecedor valor={fornecedorFiltro} onValor={setFornecedorFiltro} opcoes={opcoesForn} agrupar={agruparFornecedor} onAgrupar={setAgruparFornecedor} />
+
             {/* Urgency Filter */}
             <select 
               value={urgencyFilter} 
@@ -1408,12 +1428,15 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {paginatedProducts.map(p => {
+                {paginatedProducts.map((p, idx) => {
                   const hasSugestao = p.sugestao_compra_computed > 0;
                   const isSelected = selectedProductCode === p.codigo;
                   return (
+                    <React.Fragment key={p.codigo}>
+                    {agruparFornecedor && (idx === 0 || nomeFornecedor(fornecedorDe(paginatedProducts[idx - 1].codigo)) !== nomeFornecedor(fornecedorDe(p.codigo))) && (
+                      <LinhaGrupoFornecedor nome={nomeFornecedor(fornecedorDe(p.codigo))} colSpan={20} />
+                    )}
                     <tr 
-                      key={p.codigo} 
                       onClick={() => setSelectedProductCode(p.codigo)} 
                       className={cn(
                         "hover:bg-zinc-50/70 transition-colors cursor-pointer text-[13px] font-medium text-zinc-700",
@@ -1437,6 +1460,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                       <td className="px-4 py-3 truncate">
                         <div className="font-mono text-[10px] font-bold text-zinc-400">{p.codigo}</div>
                         <div className="font-bold text-zinc-900 truncate" title={p.descricao}>{p.descricao}</div>
+                        {fornecedorDe(p.codigo) && <div className="text-[11px] text-zinc-500 truncate" title="Fornecedor do último pedido">{fornecedorDe(p.codigo)}</div>}
                         {(() => {
                           const cleanCode = (p.codigo || '').replace(/\./g, '');
                           const activeReq = activeRequests[cleanCode] || activeRequests[p.codigo];
@@ -1520,6 +1544,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                         </button>
                       </td>
                     </tr>
+                    </React.Fragment>
                   );
                 })}
               </tbody>

@@ -211,6 +211,11 @@ pub struct DemandResult {
     pub notes: Option<String>,
     pub last_supplier_invoice: Option<String>,
     pub last_supplier_order: Option<String>,
+    /// Fornecedor do último pedido (o principal, se o cadastro estiver agrupado por `suppliers.parent_id`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fornecedor_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fornecedor: Option<String>,
     #[serde(default)]
     pub trigger_point: f64,
     #[serde(default)]

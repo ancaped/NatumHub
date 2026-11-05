@@ -200,6 +200,9 @@ export interface DemandResult {
   notes: string | null;
   lastSupplierInvoice?: string;
   lastSupplierOrder?: string;
+  /** Fornecedor do último pedido (o principal, se o cadastro estiver agrupado). */
+  fornecedorId?: string;
+  fornecedor?: string;
   triggerPoint?: number;
   targetStock?: number;
   triggerDays?: number;

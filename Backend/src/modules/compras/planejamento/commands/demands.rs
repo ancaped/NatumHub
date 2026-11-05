@@ -665,6 +665,35 @@ pub async fn get_insumo_simulation_breakdown(
     }
 }
 
+/// Fornecedor do último pedido de cada item (não cancelado). Se o cadastro estiver agrupado
+/// (`suppliers.parent_id`), vale o fornecedor principal.
+async fn fornecedor_do_ultimo_pedido(pool: &PgPool) -> HashMap<String, (String, String)> {
+    let mut out = HashMap::new();
+    if let Ok(rows) = sqlx::query(
+        "SELECT DISTINCT ON (poi.c_referencia) poi.c_referencia,
+                COALESCE(p.id, s.id, po.n_cod_fornec::text) AS fid,
+                TRIM(COALESCE(p.name, s.name, po.c_nome_f, '')) AS fnome
+         FROM purchase_order_items poi
+         JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
+         LEFT JOIN suppliers s ON s.id = po.n_cod_fornec::text
+         LEFT JOIN suppliers p ON p.id = s.parent_id
+         WHERE po.n_cod_fornec IS NOT NULL AND UPPER(COALESCE(po.c_status, '')) NOT IN ('C', 'CANCELADO')
+         ORDER BY poi.c_referencia, po.d_pedido DESC NULLS LAST, poi.id DESC",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            if let (Ok(code), Ok(fid), Ok(nome)) = (row.try_get::<String, _>(0), row.try_get::<String, _>(1), row.try_get::<String, _>(2)) {
+                if !nome.is_empty() {
+                    out.insert(code, (fid, nome));
+                }
+            }
+        }
+    }
+    out
+}
+
 fn build_demand_result(
     row: sqlx::postgres::PgRow,
     target_days: i32,
@@ -931,6 +960,8 @@ fn build_demand_result(
         notes,
         last_supplier_invoice,
         last_supplier_order,
+        fornecedor_id: None,
+        fornecedor: None,
         trigger_point,
         target_stock,
         trigger_days,
@@ -1238,6 +1269,7 @@ pub async fn get_demands_query(
         trocados.entry(t.insumo_de).or_insert(if t.descricao_para.is_empty() { t.insumo_para } else { t.descricao_para });
     }
 
+    let fornecedor_map = fornecedor_do_ultimo_pedido(&pool).await;
     let mut results = Vec::with_capacity(rows.len());
     for row in rows {
         let item = build_demand_result(
@@ -1260,6 +1292,10 @@ pub async fn get_demands_query(
         if !auto_ignored.contains_key(&item.item_code) {
             let mut item = item;
             let chave = crate::modules::producao::cobertura::store::canon(&item.item_code);
+            if let Some((fid, fnome)) = fornecedor_map.get(&item.item_code) {
+                item.fornecedor_id = Some(fid.clone());
+                item.fornecedor = Some(fnome.clone());
+            }
             if let Some(classe) = classes.get(&chave) {
                 // sem controle / não usado mais: continua na tabela com etiqueta, mas não é recomendado para compra
                 item.sem_controle = true;
