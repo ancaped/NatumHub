@@ -261,6 +261,64 @@ struct LoteBaixaRow {
     n_qtde_ref: f64,
 }
 
+const SELECT_LOTES_BAIXAS: &str = "
+SELECT
+    b.Registro,
+    b.nLote,
+    b.cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
+    CAST(b.nQtde AS FLOAT) as nQtde,
+    CONVERT(varchar, b.dLog, 120) COLLATE Latin1_General_CI_AS as dLog,
+    b.cUsuario COLLATE Latin1_General_CI_AS as cUsuario,
+    b.cJustificativa COLLATE Latin1_General_CI_AS as cJustificativa,
+    b.cCodProd COLLATE Latin1_General_CI_AS as cCodProd,
+    CAST(b.nQtdeRef AS FLOAT) as nQtdeRef
+FROM Lotes_Baixas b WITH (NOLOCK)";
+
+fn baixa_da_linha(row: &tiberius::Row) -> Option<LoteBaixaRow> {
+    let registro: i32 = row.get(0).unwrap_or(0);
+    let ref_code: &str = row.get(2).unwrap_or("");
+    let d_log: Option<&str> = row.get(4);
+    if registro == 0 || ref_code.is_empty() || d_log.is_none() {
+        return None;
+    }
+    Some(LoteBaixaRow {
+        registro,
+        lote: row.get(1).unwrap_or(0),
+        ref_code: ref_code.trim().to_string(),
+        qty: row.get(3).unwrap_or(0.0),
+        date_str: d_log.unwrap().to_string(),
+        user: row.get(5).map(|s: &str| s.trim().to_string()),
+        just: row.get(6).map(|s: &str| s.trim().to_string()),
+        prod_code: row.get(7).map(|s: &str| s.trim().to_string()),
+        n_qtde_ref: row.get(8).unwrap_or(0.0),
+    })
+}
+
+/// Apaga no Nexus tudo que se guardou de baixas dos lotes dados (tabela `lotes_baixas` e as saídas de
+/// insumo em `stock_movements`, `details` = `OP: <lote>`). O ERP apaga a linha de reserva da abertura
+/// ao fechar o lote e insere as reais, então o Nexus precisa substituir o lote inteiro, não só a janela.
+async fn apagar_baixas_dos_lotes(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    lotes: &[i32],
+) -> Result<(), sqlx::Error> {
+    if lotes.is_empty() {
+        return Ok(());
+    }
+    let textos: Vec<String> = lotes.iter().map(|n| n.to_string()).collect();
+    sqlx::query("DELETE FROM lotes_baixas WHERE nlote = ANY($1)")
+        .bind(lotes)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query(
+        "DELETE FROM stock_movements
+         WHERE item_type = 'insumo' AND document_number = ANY($1) AND details LIKE 'OP:%'",
+    )
+    .bind(&textos)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 /// Agrupa duplicatas (nlote, creferencia) somando qty/nqtderef — mantém menor registro.
 fn dedupe_lotes_baixas(rows: Vec<LoteBaixaRow>) -> Vec<LoteBaixaRow> {
     let mut merged: HashMap<(i32, String), LoteBaixaRow> = HashMap::new();
@@ -1602,42 +1660,46 @@ WHERE (
 
     // I. Query Lotes_Baixas (Insumo exits logs)
     let query_lotes_baixas = format!(
-        "
-SELECT 
-    b.Registro,
-    b.nLote,
-    b.cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
-    CAST(b.nQtde AS FLOAT) as nQtde,
-    CONVERT(varchar, b.dLog, 120) COLLATE Latin1_General_CI_AS as dLog,
-    b.cUsuario COLLATE Latin1_General_CI_AS as cUsuario,
-    b.cJustificativa COLLATE Latin1_General_CI_AS as cJustificativa,
-    b.cCodProd COLLATE Latin1_General_CI_AS as cCodProd,
-    CAST(b.nQtdeRef AS FLOAT) as nQtdeRef
-FROM Lotes_Baixas b WITH (NOLOCK)
-WHERE b.dLog >= '{since_dt}'
-  AND b.cReferencia IS NOT NULL AND b.cReferencia <> '';
-"
+        "{SELECT_LOTES_BAIXAS} WHERE b.dLog >= '{since_dt}' AND b.cReferencia IS NOT NULL AND b.cReferencia <> '';"
     );
     println!("Step I: Querying Lotes Baixas (since {since})");
     let stream = client.query(query_lotes_baixas, &[]).await?;
     let db_rows_baixas = stream.into_first_result().await?;
     let mut lotes_baixas_list = Vec::new();
     for row in db_rows_baixas {
-        let registro: i32 = row.get(0).unwrap_or(0);
-        let ref_code: &str = row.get(2).unwrap_or("");
-        let d_log: Option<&str> = row.get(4);
-        if registro == 0 || ref_code.is_empty() || d_log.is_none() { continue; }
-        lotes_baixas_list.push(LoteBaixaRow {
-            registro,
-            lote: row.get(1).unwrap_or(0),
-            ref_code: ref_code.trim().to_string(),
-            qty: row.get(3).unwrap_or(0.0),
-            date_str: d_log.unwrap().to_string(),
-            user: row.get(5).map(|s: &str| s.trim().to_string()),
-            just: row.get(6).map(|s: &str| s.trim().to_string()),
-            prod_code: row.get(7).map(|s: &str| s.trim().to_string()),
-            n_qtde_ref: row.get(8).unwrap_or(0.0),
-        });
+        if let Some(b) = baixa_da_linha(&row) {
+            lotes_baixas_list.push(b);
+        }
+    }
+
+    // O ERP apaga as linhas de abertura (reserva) ao fechar o lote e insere as reais, e a janela por
+    // dLog não vê o que sumiu. Para os lotes que o passo H devolveu e os que o Hub ainda tem abertos,
+    // reconsulta TODAS as baixas atuais do lote; o Nexus troca o lote inteiro na gravação.
+    let mut lotes_baixas_trocar: Vec<i32> = Vec::new();
+    if mode == SyncMode::Incremental {
+        let mut set: std::collections::BTreeSet<i32> = lotes_list.iter().map(|l| l.lote).collect();
+        set.extend(hub_open_lotes.iter().copied());
+        set.extend(lotes_baixas_list.iter().map(|b| b.lote));
+        lotes_baixas_trocar = set.into_iter().collect();
+        let mut por_registro: HashMap<i32, LoteBaixaRow> = HashMap::new();
+        for chunk in lotes_baixas_trocar.chunks(800) {
+            let in_list = chunk.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",");
+            let q = format!(
+                "{SELECT_LOTES_BAIXAS} WHERE b.nLote IN ({in_list}) AND b.cReferencia IS NOT NULL AND b.cReferencia <> '';"
+            );
+            let rows = client.query(q, &[]).await?.into_first_result().await?;
+            for row in rows {
+                if let Some(b) = baixa_da_linha(&row) {
+                    por_registro.insert(b.registro, b);
+                }
+            }
+        }
+        lotes_baixas_list = por_registro.into_values().collect();
+        eprintln!(
+            "[ERP Sync] baixas: {} lote(s) reconsultado(s) por inteiro, {} linha(s)",
+            lotes_baixas_trocar.len(),
+            lotes_baixas_list.len()
+        );
     }
     let lb_before = lotes_baixas_list.len();
     lotes_baixas_list = dedupe_lotes_baixas(lotes_baixas_list);
@@ -2755,6 +2817,7 @@ WHERE {so2_date_filter};
             .bind(&since)
             .execute(&mut *tx)
             .await?;
+        apagar_baixas_dos_lotes(&mut tx, &lotes_baixas_trocar).await?;
     }
 
     let mut lb_reg: Vec<i32> = Vec::new();
@@ -4647,5 +4710,40 @@ mod d1_sql_tests {
         assert!(!sql.to_uppercase().contains("DECLARE"));
         // Lotes cancelados não descontam do saldo.
         assert!(sql.contains("l.cStatus <> 'CA'"));
+    }
+}
+
+#[cfg(test)]
+mod baixas_lote_tests {
+    use super::apagar_baixas_dos_lotes;
+
+    /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.
+    /// Lote com a baixa de abertura (reserva, registro A) e depois só a do fechamento (registro B):
+    /// apagar o lote inteiro e regravar o que o ERP tem hoje deixa só a de B; outros lotes não mudam.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn troca_do_lote_deixa_so_a_baixa_do_fechamento() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = sqlx::PgPool::connect(&url).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        for (reg, lote, qtd) in [(900001, 99901, 167.0_f64), (900002, 99902, 5.0)] {
+            sqlx::query("INSERT INTO lotes_baixas (registro, nlote, creferencia, nqtde, dlog) VALUES ($1,$2,'9.09.120',$3,'2026-10-13 10:00:00')")
+                .bind(reg).bind(lote).bind(qtd).execute(&mut *tx).await.unwrap();
+            sqlx::query("INSERT INTO stock_movements (id, item_code, item_type, movement_type, quantity, date, document_number, details) VALUES ($1,'9.09.120','insumo','saida',$2,'2026-10-13',$3,'OP: x | Usuário: u | Justificativa: j')")
+                .bind(format!("t-{reg}")).bind(qtd).bind(lote.to_string()).execute(&mut *tx).await.unwrap();
+        }
+        apagar_baixas_dos_lotes(&mut tx, &[99901]).await.unwrap();
+        sqlx::query("INSERT INTO lotes_baixas (registro, nlote, creferencia, nqtde, dlog) VALUES (900003, 99901,'9.09.120',157,'2026-11-04 09:00:00')")
+            .execute(&mut *tx).await.unwrap();
+        let (n, soma): (i64, f64) = sqlx::query_as("SELECT COUNT(*), COALESCE(SUM(nqtde),0)::float8 FROM lotes_baixas WHERE nlote = 99901")
+            .fetch_one(&mut *tx).await.unwrap();
+        assert_eq!((n, soma), (1, 157.0));
+        let (m,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM stock_movements WHERE document_number = '99901' AND details LIKE 'OP:%'")
+            .fetch_one(&mut *tx).await.unwrap();
+        assert_eq!(m, 0, "a saída antiga some; a nova entra no fluxo normal do sync");
+        let (outro,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM lotes_baixas WHERE nlote = 99902")
+            .fetch_one(&mut *tx).await.unwrap();
+        assert_eq!(outro, 1);
+        tx.rollback().await.unwrap();
     }
 }
