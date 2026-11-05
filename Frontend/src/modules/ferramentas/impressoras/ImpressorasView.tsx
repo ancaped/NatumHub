@@ -322,6 +322,14 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
     });
   };
 
+  // Teste de texto nativo (fontes da própria Zebra), só para comparar a nitidez com a etiqueta enviada como imagem.
+  const handleTestText = (printer: HubPrinter) => {
+    void printersApi
+      .printTestText(printer.id)
+      .then(() => alert('Etiqueta de texto nativo enviada.'))
+      .catch((err: any) => alert(err?.message || 'Não foi possível imprimir o teste de texto.'));
+  };
+
   // Run test calibration print
   const handleTestPrint = (printer: HubPrinter) => {
     if (printer.connection_type === 'windows_lpd' || printer.connection_type === 'network_tcp') {
@@ -626,6 +634,17 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
                               <Play className="h-3 w-3 text-emerald-400" />
                               <span>Teste</span>
                             </button>
+
+                            {(p.connection_type === 'windows_lpd' || p.connection_type === 'network_tcp') && (
+                              <button
+                                type="button"
+                                onClick={() => handleTestText(p)}
+                                className="flex items-center gap-1 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-200 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                                title="Imprimir etiqueta com texto e código de barras nativos da impressora (para comparar a nitidez)"
+                              >
+                                <span>Teste texto</span>
+                              </button>
+                            )}
 
                             <button
                               type="button"

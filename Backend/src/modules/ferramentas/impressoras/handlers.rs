@@ -269,6 +269,20 @@ pub async fn test_print_handler(
     }
 }
 
+pub async fn test_print_text_handler(
+    State(state): State<Arc<AppState>>,
+    Extension(_ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match super::direct_print::imprimir_teste_texto(state.db.pool(), &id).await {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(ApiResponse::ok(serde_json::json!({ "printed": true }))),
+        ),
+        Err(message) => (StatusCode::BAD_REQUEST, Json(ApiResponse::err(message))),
+    }
+}
+
 pub async fn cancel_print_job_handler(
     State(state): State<Arc<AppState>>,
     Extension(_ctx): Extension<AuthContext>,

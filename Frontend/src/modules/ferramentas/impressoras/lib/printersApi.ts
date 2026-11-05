@@ -137,6 +137,14 @@ export const printersApi = {
     if (!res.success && res.error) throw new Error(res.error);
   },
 
+  /** Etiqueta de teste com texto e código de barras nativos da impressora, para comparar com a imagem. */
+  async printTestText(id: string): Promise<void> {
+    const res = await apiJson<ApiResponse<{ printed: boolean }>>(`/api/ferramentas/impressoras/${id}/teste-texto`, {
+      method: 'POST',
+    });
+    if (!res.success && res.error) throw new Error(res.error);
+  },
+
   async cancelPrintJob(id: string): Promise<void> {
     const res = await apiJson<ApiResponse<{ cancelled: boolean }>>(`/api/ferramentas/impressoras/jobs/${id}/cancel`, {
       method: 'POST',

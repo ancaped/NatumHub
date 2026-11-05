@@ -319,12 +319,21 @@ fn montar_dados(paginas: &[(Bitmap, u32)], linguagem: Linguagem) -> Vec<u8> {
 }
 
 /// Envia as páginas (bitmap + cópias) pela conexão cadastrada. Bloqueante: chame em `spawn_blocking`.
-fn enviar_para_impressora(printer: &HubPrinter, paginas: &[(Bitmap, u32)]) -> Result<(), String> {
-    let linguagem = if printer.raw_protocol.eq_ignore_ascii_case("epl") {
+fn linguagem_da(printer: &HubPrinter) -> Linguagem {
+    if printer.raw_protocol.eq_ignore_ascii_case("epl") {
         Linguagem::Epl
     } else {
         Linguagem::Zpl
-    };
+    }
+}
+
+fn enviar_para_impressora(printer: &HubPrinter, paginas: &[(Bitmap, u32)]) -> Result<(), String> {
+    let linguagem = linguagem_da(printer);
+    enviar_bytes(printer, &montar_dados(paginas, linguagem))
+}
+
+/// Entrega os comandos prontos pelo caminho da impressora (compartilhamento do Windows ou rede, porta 9100).
+fn enviar_bytes(printer: &HubPrinter, dados: &[u8]) -> Result<(), String> {
     let ip = printer.ip_address.as_deref().unwrap_or("").trim().to_string();
     match printer.connection_type.as_str() {
         "windows_lpd" => {
@@ -334,13 +343,13 @@ fn enviar_para_impressora(printer: &HubPrinter, paginas: &[(Bitmap, u32)]) -> Re
                     "Informe, em Impressoras, o PC (IP ou nome) e o nome do compartilhamento.".into(),
                 );
             }
-            enviar_lpr(&ip, &fila, &montar_dados(paginas, linguagem), "etiquetas-nexus")
+            enviar_lpr(&ip, &fila, dados, "etiquetas-nexus")
         }
         "network_tcp" => {
             if ip.is_empty() {
                 return Err("Informe, em Impressoras, o IP da impressora.".into());
             }
-            enviar_tcp_9100(&ip, &montar_dados(paginas, linguagem))
+            enviar_tcp_9100(&ip, dados)
         }
         _ => Err(MSG_NESTE_SERVIDOR.into()),
     }
@@ -459,9 +468,84 @@ pub async fn imprimir_teste(pool: &PgPool, id: &str) -> Result<(), String> {
     .map_err(|e| format!("Falha ao imprimir: {e}"))?
 }
 
+/// Texto em ISO/CP850 para o EPL (acentos do português); fora do mapa vira `?`.
+fn cp850(texto: &str) -> Vec<u8> {
+    texto
+        .chars()
+        .map(|c| match c {
+            'á' => 0xA0, 'é' => 0x82, 'í' => 0xA1, 'ó' => 0xA2, 'ú' => 0xA3, 'ã' => 0xC6, 'õ' => 0xE4, 'ç' => 0x87,
+            'â' => 0x83, 'ê' => 0x88, 'ô' => 0x93, 'à' => 0x85, 'Á' => 0xB5, 'É' => 0x90, 'Ç' => 0x80, 'º' => 0xA7,
+            c if c.is_ascii() => c as u8,
+            _ => b'?',
+        })
+        .collect()
+}
+
+/// Etiqueta de teste com texto e código de barras **nativos** da impressora (fontes gravadas nela), para
+/// comparar com a etiqueta enviada como imagem. Mesmas linhas da etiqueta de lote.
+fn comandos_texto_nativo(linguagem: Linguagem, largura: u32, altura: u32) -> Vec<u8> {
+    match linguagem {
+        Linguagem::Zpl => {
+            let mut s = format!("^XA^CI28^PW{largura}^LL{altura}^LH0,0");
+            s.push_str("^FO40,30^A0N,44,40^FDKIT SH/COND/MASC PISTACHE^FS");
+            s.push_str("^FO40,100^A0N,28,26^FDTexto nativo ZPL (fonte 0 escalavel)^FS");
+            s.push_str("^FO40,150^BY3^BCN,70,Y,N,N^FD202611^FS");
+            s.push_str("^FO40,265^A0N,36,34^FDN\u{ba} Lote: 202611^FS");
+            s.push_str("^FO40,315^A0N,26,24^FDCont\u{e9}m 6 unidades  -  2.11.070^FS");
+            s.push_str("^PQ1^XZ");
+            s.into_bytes()
+        }
+        Linguagem::Epl => {
+            let mut out: Vec<u8> = format!("\nN\nq{largura}\nQ{altura},24\nI8,1,001\n").into_bytes();
+            let mut texto = |x: u32, y: u32, fonte: u32, hm: u32, vm: u32, t: &str| {
+                out.extend(format!("A{x},{y},0,{fonte},{hm},{vm},N,\"").into_bytes());
+                out.extend(cp850(t));
+                out.extend(b"\"\n");
+            };
+            texto(40, 30, 4, 2, 2, "KIT SH/COND/MASC");
+            texto(40, 110, 3, 1, 1, "Texto nativo EPL fonte 3 x1");
+            texto(40, 150, 3, 2, 2, "Fonte 3 x2");
+            texto(40, 215, 2, 2, 2, "Nº Lote: 202611");
+            texto(40, 255, 4, 1, 1, "Contém 6 unidades");
+            out.extend(b"B40,300,0,1,3,6,70,B,\"202611\"\n");
+            out.extend(b"P1\n");
+            out
+        }
+    }
+}
+
+/// Imprime a etiqueta de teste de texto nativo (rota `/:id/teste-texto`).
+pub async fn imprimir_teste_texto(pool: &PgPool, id: &str) -> Result<(), String> {
+    let printer = match store::get_printer(pool, id).await {
+        Ok(Some(p)) => p,
+        Ok(None) => return Err("Impressora não encontrada.".into()),
+        Err(e) => return Err(format!("Erro ao buscar impressora: {e}")),
+    };
+    if !matches!(printer.connection_type.as_str(), "windows_lpd" | "network_tcp") {
+        return Err(MSG_NESTE_SERVIDOR.into());
+    }
+    tokio::task::spawn_blocking(move || {
+        let dpi = printer.dpi.clamp(100, 600) as f64;
+        let largura = ((printer.default_width_mm.clamp(10.0, 300.0) / 25.4) * dpi).round() as u32;
+        let altura = ((printer.default_height_mm.clamp(10.0, 300.0) / 25.4) * dpi).round() as u32;
+        enviar_bytes(&printer, &comandos_texto_nativo(linguagem_da(&printer), largura, altura))
+    })
+    .await
+    .map_err(|e| format!("Falha ao imprimir: {e}"))?
+}
+
 #[cfg(test)]
 mod testes_servico {
     use super::*;
+
+    #[test]
+    fn texto_nativo_zpl_e_epl() {
+        let z = comandos_texto_nativo(Linguagem::Zpl, 800, 400);
+        assert!(z.starts_with(b"^XA") && z.ends_with(b"^XZ"));
+        let e = comandos_texto_nativo(Linguagem::Epl, 800, 400);
+        assert!(e.starts_with(b"\nN\nq800") && e.ends_with(b"P1\n"));
+        assert!(e.windows(1).any(|w| w[0] == 0x82), "acento em CP850");
+    }
 
     fn impressora(conexao: &str, ip: &str, fila: &str, proto: &str) -> HubPrinter {
         HubPrinter {

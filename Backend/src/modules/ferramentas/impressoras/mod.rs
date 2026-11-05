@@ -52,6 +52,10 @@ pub fn router() -> Router<Arc<AppState>> {
             post(handlers::direct_print_handler),
         )
         .route(
+            "/api/ferramentas/impressoras/:id/teste-texto",
+            post(handlers::test_print_text_handler),
+        )
+        .route(
             "/api/ferramentas/impressoras/:id/teste",
             post(handlers::test_print_handler),
         )
