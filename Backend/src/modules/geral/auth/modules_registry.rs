@@ -68,6 +68,7 @@ pub const MODULE_FERRAMENTAS_ETIQUETAS: &str = "ferramentas_etiquetas";
 pub const MODULE_FERRAMENTAS_EDITOR: &str = "ferramentas_editor";
 pub const MODULE_FERRAMENTAS_IMPRESSORAS: &str = "ferramentas_impressoras";
 pub const MODULE_FERRAMENTAS_BALANCA: &str = "ferramentas_balanca";
+pub const MODULE_FERRAMENTAS_RELATORIOS: &str = "ferramentas_relatorios";
 pub const MODULE_CONFIGURACOES: &str = "hub_settings";
 pub const MODULE_OPERADORES: &str = "hub_operadores";
 
@@ -126,6 +127,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_FERRAMENTAS_EDITOR,
     MODULE_FERRAMENTAS_IMPRESSORAS,
     MODULE_FERRAMENTAS_BALANCA,
+    MODULE_FERRAMENTAS_RELATORIOS,
     MODULE_CONFIGURACOES,
     MODULE_OPERADORES,
 ];
@@ -259,6 +261,7 @@ pub fn module_registry() -> Vec<ModuleGroup> {
                 leaf(MODULE_FERRAMENTAS_EDITOR, "Editor de Etiquetas"),
                 leaf(MODULE_FERRAMENTAS_IMPRESSORAS, "Central de Impressoras"),
                 leaf(MODULE_FERRAMENTAS_BALANCA, "Carga da Balança"),
+                leaf(MODULE_FERRAMENTAS_RELATORIOS, "Relatórios"),
             ],
         },
         ModuleGroup {

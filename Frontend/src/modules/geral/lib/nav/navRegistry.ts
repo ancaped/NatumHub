@@ -125,6 +125,7 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   ferramentas_editor: Palette,
   ferramentas_impressoras: Printer,
   ferramentas_balanca: Scale,
+  ferramentas_relatorios: FileText,
 };
 
 const DEPRECATED_HUB_VIEWS = new Set(['compras_hub', 'producao_hub', 'estoque_hub', 'almoxarifado_hub', 'vendas_hub', 'qualidade_hub', 'expedicao_hub', 'ferramentas_hub']);

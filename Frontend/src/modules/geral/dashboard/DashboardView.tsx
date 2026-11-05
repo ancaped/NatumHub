@@ -644,6 +644,26 @@ export default function DashboardView({
                 </div>
               </button>
               )}
+
+              {allow('ferramentas_relatorios') && (
+              <button 
+                onClick={() => setView('ferramentas_relatorios')}
+                className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <FileText className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-zinc-900">Relatórios</h3>
+                    <p className="text-xs text-zinc-500 mt-1">Catálogo de todos os relatórios em A4 do sistema: laudos, folhas e relatórios, com o módulo de origem e a situação.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Acessar Relatórios <ArrowRight className="h-3 w-3" />
+                </div>
+              </button>
+              )}
             </div>
           </div>
         ) : null}

@@ -43,6 +43,7 @@ const AdministrativoView = lazy(() => import('./modules/administrativo/Administr
 const ExpedicaoView = lazy(() => import('./modules/expedicao/ExpedicaoView'));
 const FinanceiroView = lazy(() => import('./modules/financeiro/FinanceiroView'));
 const EtiquetasView = lazy(() => import('./modules/ferramentas/etiquetas/EtiquetasView'));
+const RelatoriosCatalogoView = lazy(() => import('./modules/ferramentas/relatorios/RelatoriosView'));
 const EditorEtiquetasView = lazy(() => import('./modules/ferramentas/editor/EditorEtiquetasView'));
 const ImpressorasView = lazy(() => import('./modules/ferramentas/impressoras/ImpressorasView'));
 const BalancaView = lazy(() => import('./modules/ferramentas/balanca/BalancaView'));
@@ -71,7 +72,7 @@ import {
   ensureBrowserClientConfig,
 } from './modules/geral/lib/connectionConfig';
 
-type HubView = 'hub' | 'producao_hub' | 'planejamento_producao' | 'producao' | 'producao_bases' | 'producao_lotes' | 'producao_proc' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'mapa_arquitetura' | 'desenvolvimento' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_ordens_manuais' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_devolucoes' | 'qualidade_avarias' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'qualidade_documentacao' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'admin_funcionarios' | 'admin_acompanhamento_producao' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro' | 'ferramentas_hub' | 'ferramentas_etiquetas' | 'ferramentas_editor' | 'ferramentas_impressoras' | 'ferramentas_balanca' | 'producao_rotina' | 'estoque_movimentacoes' | 'admin_relatorios' | 'saude_estoque';
+type HubView = 'hub' | 'producao_hub' | 'planejamento_producao' | 'producao' | 'producao_bases' | 'producao_lotes' | 'producao_proc' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'mapa_arquitetura' | 'desenvolvimento' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_ordens_manuais' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_devolucoes' | 'qualidade_avarias' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'qualidade_documentacao' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'admin_funcionarios' | 'admin_acompanhamento_producao' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro' | 'ferramentas_hub' | 'ferramentas_etiquetas' | 'ferramentas_editor' | 'ferramentas_impressoras' | 'ferramentas_balanca' | 'ferramentas_relatorios' | 'producao_rotina' | 'estoque_movimentacoes' | 'admin_relatorios' | 'saude_estoque';
 
 const getInitialView = (): HubView => {
   if (typeof window !== 'undefined') {
@@ -1181,6 +1182,14 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo Financeiro">
           <FinanceiroView onBackToHub={() => setView('hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'ferramentas_relatorios') {
+      return (
+        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo de Relatórios">
+          <RelatoriosCatalogoView onBackToHub={() => setView('hub')} />
         </ErrorBoundary>
       );
     }

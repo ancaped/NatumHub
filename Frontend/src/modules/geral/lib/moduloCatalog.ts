@@ -202,6 +202,12 @@ export const MODULE_CATALOG: ModuleCatalogItem[] = [
     group: 'Sistema & Ferramentas',
     subPages: ['Códigos rápidos', 'ITENSMGV.TXT', 'Relatório'],
   },
+  {
+    key: 'ferramentas_relatorios',
+    label: 'Ferramentas > Relatórios',
+    group: 'Sistema & Ferramentas',
+    subPages: ['Catálogo', 'Como funciona'],
+  },
 ];
 
 /** Resolve o item de catálogo a partir de uma view ou chave */
