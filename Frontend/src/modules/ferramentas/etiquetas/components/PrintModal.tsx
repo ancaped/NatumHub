@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, ExternalLink, Loader2, Printer, X } from 'lu
 import type { LabelTemplate, PrintConfig } from '../lib/types';
 import { openPrintWindow } from '../lib/printService';
 import { dpiDoDesenho, printLabelDirect, readLabelFeed, validarImpressoraDireta, type LabelFeed } from '../lib/directPrint';
-import { readLabelFillScale } from '../lib/printService';
+import { readLabelFillScale, readLabelOffsetX } from '../lib/printService';
 import { renderLabelPngDataUrl } from '../lib/printCanvasRenderer';
 import { labelsApi } from '../lib/labelsApi';
 import { printersApi } from '../../impressoras/lib/printersApi';
@@ -162,6 +162,7 @@ export default function PrintModal({
           copies: 1,
           landscape: feed === 'portrait',
           fill_scale: fillPercent / 100,
+          offset_x_mm: readLabelOffsetX(),
           pages_png_base64: pages,
         });
       } else {

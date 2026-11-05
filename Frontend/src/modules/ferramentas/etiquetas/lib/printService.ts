@@ -26,6 +26,28 @@ export function writeLabelFillScale(percent: number) {
   }
 }
 
+const OFFSET_X_KEY = 'nexus.labelOffsetX';
+
+/** Ajuste lateral em mm (-5 a 5, passo 0,5). Positivo desloca a arte para a direita. */
+export function readLabelOffsetX(): number {
+  try {
+    const n = Number(localStorage.getItem(OFFSET_X_KEY) ?? 0);
+    if (!Number.isFinite(n)) return 0;
+    return Math.min(5, Math.max(-5, Math.round(n * 2) / 2));
+  } catch {
+    return 0;
+  }
+}
+
+export function writeLabelOffsetX(mm: number) {
+  const next = Math.min(5, Math.max(-5, Math.round(mm * 2) / 2));
+  try {
+    localStorage.setItem(OFFSET_X_KEY, String(next));
+  } catch {
+    /* ignore */
+  }
+}
+
 function resolveFillScale(config: PrintConfig): number {
   const raw = config.fillScale ?? readLabelFillScale();
   const percent = Number.isFinite(raw) ? raw : 100;

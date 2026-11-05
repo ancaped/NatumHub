@@ -20,6 +20,9 @@ pub struct DirectPrintRequest {
     pub copies: u32,
     pub landscape: bool,
     pub fill_scale: f64,
+    /// Ajuste lateral em mm (positivo desloca a arte para a direita). Corrige impressora que corta a borda esquerda.
+    #[serde(default)]
+    pub offset_x_mm: f64,
     pub pages_png_base64: Vec<String>,
 }
 
@@ -36,6 +39,8 @@ $copies = [Math]::Max(1, [int]$env:NEXUS_COPIES)
 $landscape = $env:NEXUS_LANDSCAPE -eq '1'
 $fill = [single]$env:NEXUS_FILL
 if ($fill -lt 0.85 -or $fill -gt 1.2) { $fill = [single]1 }
+$offsetX = [single]0
+if ($env:NEXUS_OFFSET_X) { $offsetX = [single]::Parse($env:NEXUS_OFFSET_X, [Globalization.CultureInfo]::InvariantCulture) }
 
 $files = @(Get-ChildItem -LiteralPath $dir -Filter '*.png' | Sort-Object Name)
 if ($files.Count -eq 0) { throw 'Nenhuma imagem de etiqueta.' }
@@ -88,7 +93,7 @@ function New-LabelDocument {
     $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
     $drawW = $global:NexusPrintW * $global:NexusPrintFill
     $drawH = $global:NexusPrintH * $global:NexusPrintFill
-    $ox = ($global:NexusPrintW - $drawW) / 2.0
+    $ox = (($global:NexusPrintW - $drawW) / 2.0) + $global:NexusPrintOffsetX
     $oy = ($global:NexusPrintH - $drawH) / 2.0
     $rect = New-Object System.Drawing.RectangleF([single]$ox, [single]$oy, [single]$drawW, [single]$drawH)
     $e.Graphics.DrawImage($global:NexusPrintImg, $rect)
@@ -108,6 +113,7 @@ function Invoke-LabelPrint([string]$path) {
   $global:NexusPrintW = $widthMm
   $global:NexusPrintH = $heightMm
   $global:NexusPrintFill = $fill
+  $global:NexusPrintOffsetX = $offsetX
   try {
     for ($i = 0; $i -lt $copies; $i++) {
       $printed = $false
@@ -166,6 +172,7 @@ fn print_labels_windows(req: DirectPrintRequest) -> Result<(), String> {
         return Err("Tamanho da etiqueta fora do intervalo suportado.".into());
     }
     let copies = req.copies.clamp(1, 200);
+    let offset_x = req.offset_x_mm.clamp(-10.0, 10.0);
     let fill = if (0.85..=1.2).contains(&req.fill_scale) {
         req.fill_scale
     } else {
@@ -193,7 +200,7 @@ fn print_labels_windows(req: DirectPrintRequest) -> Result<(), String> {
             .map_err(|e| format!("Não foi possível gravar o script: {e}"))?;
         drop(script);
 
-        run_print_script(&script_path, &dir, printer, req.width_mm, req.height_mm, copies, req.landscape, fill)
+        run_print_script(&script_path, &dir, printer, req.width_mm, req.height_mm, copies, req.landscape, fill, offset_x)
     })();
 
     let _ = fs::remove_dir_all(&dir);
@@ -224,6 +231,7 @@ fn run_print_script(
     copies: u32,
     landscape: bool,
     fill: f64,
+    offset_x: f64,
 ) -> Result<(), String> {
     let child = Command::new("powershell")
         .args([
@@ -241,6 +249,7 @@ fn run_print_script(
         .env("NEXUS_COPIES", copies.to_string())
         .env("NEXUS_LANDSCAPE", if landscape { "1" } else { "0" })
         .env("NEXUS_FILL", format!("{fill}"))
+        .env("NEXUS_OFFSET_X", format!("{offset_x}"))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -393,16 +402,18 @@ pub async fn imprimir_etiquetas(pool: &PgPool, mut req: DirectPrintRequest) -> R
 
     let landscape = req.landscape;
     let fill = req.fill_scale;
+    let offset_x_mm = req.offset_x_mm.clamp(-10.0, 10.0);
     let paginas_png = std::mem::take(&mut req.pages_png_base64);
     // A imagem chega com o tamanho da etiqueta em mm; em pontos da impressora ela tem de ter mm × DPI dela.
     let dpi = if printer.dpi >= 100 { printer.dpi as f64 } else { 203.0 };
     let alvo_w = ((req.width_mm / 25.4) * dpi).round() as u32;
     let alvo_h = ((req.height_mm / 25.4) * dpi).round() as u32;
+    let deslocamento = ((offset_x_mm / 25.4) * dpi).round() as i32;
     tokio::task::spawn_blocking(move || {
         let mut paginas = Vec::with_capacity(paginas_png.len());
         for raw in &paginas_png {
             let bm = raw_label::png_para_bitmap_no_tamanho(&decode_png(raw)?, alvo_w, alvo_h)?;
-            paginas.push((raw_label::preparar(bm, landscape, fill), copias));
+            paginas.push((raw_label::preparar(bm, landscape, fill, deslocamento), copias));
         }
         enviar_para_impressora(&printer, &paginas)
     })

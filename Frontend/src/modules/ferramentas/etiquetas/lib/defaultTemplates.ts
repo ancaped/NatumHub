@@ -921,7 +921,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
   {
     id: 'template_lote_erp',
     name: 'Etiqueta de Lote (ERP)',
-    description: 'Mesmo desenho da etiqueta de lote do ERP: nome do produto, código de barras (EAN-13) do produto, data, código, nº do lote e quantidade por caixa.',
+    description: 'Desenho da etiqueta de lote do ERP, sem borda: nome do produto, código de barras (EAN-13) do produto, data, código, nº do lote e quantidade por caixa.',
     category: 'producao',
     width_mm: 100,
     height_mm: 50,
@@ -929,26 +929,11 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
     is_default: true,
     elements_json: [
       {
-        id: 'border_1',
-        type: 'box',
-        x_mm: 0.5,
-        y_mm: 0.5,
-        width_mm: 99,
-        height_mm: 49,
-        zIndex: 1,
-        props: {
-          borderWidth: 0.4,
-          borderColor: '#000000',
-          backgroundColor: 'transparent',
-          borderRadius: 1,
-        },
-      },
-      {
         id: 'txt_prod',
         type: 'text',
-        x_mm: 3,
-        y_mm: 2,
-        width_mm: 94,
+        x_mm: 5,
+        y_mm: 3,
+        width_mm: 90,
         height_mm: 10,
         zIndex: 2,
         props: {
@@ -966,7 +951,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         id: 'barcode_caixa',
         type: 'barcode',
         x_mm: 31,
-        y_mm: 13,
+        y_mm: 14,
         width_mm: 38,
         height_mm: 9,
         zIndex: 2,
@@ -980,7 +965,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         id: 'txt_dun',
         type: 'text',
         x_mm: 31,
-        y_mm: 22.5,
+        y_mm: 23.5,
         width_mm: 38,
         height_mm: 3.5,
         zIndex: 2,
@@ -997,9 +982,9 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
       {
         id: 'lbl_data',
         type: 'text',
-        x_mm: 16,
-        y_mm: 27,
-        width_mm: 32,
+        x_mm: 5,
+        y_mm: 29,
+        width_mm: 42,
         height_mm: 3,
         zIndex: 2,
         props: {
@@ -1015,14 +1000,14 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
       {
         id: 'txt_data',
         type: 'text',
-        x_mm: 16,
-        y_mm: 30,
-        width_mm: 32,
-        height_mm: 4,
+        x_mm: 5,
+        y_mm: 32,
+        width_mm: 42,
+        height_mm: 5,
         zIndex: 2,
         props: {
           text: '{manufacturing_date}',
-          fontSize: 8,
+          fontSize: 9,
           fontWeight: 'normal',
           fontFamily: 'Inter',
           textAlign: 'center',
@@ -1033,9 +1018,9 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
       {
         id: 'lbl_cod',
         type: 'text',
-        x_mm: 16,
-        y_mm: 35,
-        width_mm: 32,
+        x_mm: 5,
+        y_mm: 38,
+        width_mm: 42,
         height_mm: 3,
         zIndex: 2,
         props: {
@@ -1051,14 +1036,14 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
       {
         id: 'txt_cod',
         type: 'text',
-        x_mm: 16,
-        y_mm: 38,
-        width_mm: 32,
-        height_mm: 5,
+        x_mm: 5,
+        y_mm: 41,
+        width_mm: 42,
+        height_mm: 6,
         zIndex: 2,
         props: {
           text: '{product_code}',
-          fontSize: 11,
+          fontSize: 12,
           fontWeight: 'bold',
           fontFamily: 'Inter',
           textAlign: 'center',
@@ -1069,9 +1054,9 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
       {
         id: 'barcode_lote',
         type: 'barcode',
-        x_mm: 52,
-        y_mm: 27,
-        width_mm: 44,
+        x_mm: 53,
+        y_mm: 29,
+        width_mm: 42,
         height_mm: 10,
         zIndex: 2,
         props: {
@@ -1083,9 +1068,9 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
       {
         id: 'txt_lote',
         type: 'text',
-        x_mm: 52,
-        y_mm: 37.5,
-        width_mm: 44,
+        x_mm: 53,
+        y_mm: 39.5,
+        width_mm: 42,
         height_mm: 5,
         zIndex: 2,
         props: {
@@ -1101,9 +1086,9 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
       {
         id: 'txt_contem',
         type: 'text',
-        x_mm: 52,
-        y_mm: 43,
-        width_mm: 44,
+        x_mm: 53,
+        y_mm: 44.5,
+        width_mm: 42,
         height_mm: 4,
         zIndex: 2,
         props: {
@@ -1172,9 +1157,9 @@ if (modeloLote) {
     elements_json: modeloLote.elements_json
       .filter((el) => !sem.includes(el.id))
       .map((el) => {
-        if (el.id === 'lbl_cod') return { ...el, x_mm: 6, y_mm: 29, width_mm: 40 };
-        if (el.id === 'txt_cod') return { ...el, x_mm: 6, y_mm: 33, width_mm: 40, height_mm: 7, props: { ...el.props, fontSize: 14 } };
-        if (el.id === 'txt_contem') return { ...el, x_mm: 52, y_mm: 31, width_mm: 42, height_mm: 8, props: { ...el.props, fontSize: 12, fontWeight: 'bold' } };
+        if (el.id === 'lbl_cod') return { ...el, x_mm: 5, y_mm: 30, width_mm: 42 };
+        if (el.id === 'txt_cod') return { ...el, x_mm: 5, y_mm: 34, width_mm: 42, height_mm: 7, props: { ...el.props, fontSize: 14 } };
+        if (el.id === 'txt_contem') return { ...el, x_mm: 53, y_mm: 32, width_mm: 42, height_mm: 8, props: { ...el.props, fontSize: 12, fontWeight: 'bold' } };
         return el;
       }),
   });

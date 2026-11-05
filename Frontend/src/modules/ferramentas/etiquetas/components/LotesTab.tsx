@@ -55,6 +55,14 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
   const [imprimindo, setImprimindo] = useState<LoteEtiqueta | null>(null);
+  /** Unidades por caixa ajustadas na tela; valem só para a etiqueta, o cadastro do produto não muda. */
+  const [porCaixa, setPorCaixa] = useState<Record<string, number>>({});
+  const chave = (l: LoteEtiqueta) => `${l.lote}|${l.codigo}`;
+  const efetivo = (l: LoteEtiqueta): LoteEtiqueta => {
+    const cx = porCaixa[chave(l)] ?? l.quantidade_caixa ?? null;
+    const caixas = !sem && cx && cx > 0 && l.quantidade > 0 ? Math.ceil(l.quantidade / cx) : null;
+    return { ...l, quantidade_caixa: cx, caixas, etiquetas_sugeridas: sem ? 1 : caixas != null ? caixas + 1 : 1 };
+  };
 
   const carregar = useCallback(() => {
     setCarregando(true);
@@ -106,7 +114,8 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
             <th>Produto</th>
             {!sem && <th style={{ width: 100 }}>Data</th>}
             {!sem && <th style={{ width: 80, textAlign: 'right' }}>Unidades</th>}
-            <th style={{ width: 70, textAlign: 'right' }}>{sem ? 'Un/cx' : 'Caixas'}</th>
+            {!sem && <th style={{ width: 70, textAlign: 'right' }}>Caixas</th>}
+            <th style={{ width: 90, textAlign: 'center' }}>Un/cx</th>
             <th style={{ width: 150 }}>Etiqueta</th>
             <th style={{ width: 110 }} />
           </tr>
@@ -114,20 +123,22 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
         <tbody>
           {carregando && lotes.length === 0 && (
             <tr>
-              <td colSpan={sem ? 4 : 7} style={{ padding: 20, textAlign: 'center', ...muted }}>Carregando...</td>
+              <td colSpan={sem ? 4 : 8} style={{ padding: 20, textAlign: 'center', ...muted }}>Carregando...</td>
             </tr>
           )}
           {erro && (
             <tr>
-              <td colSpan={sem ? 4 : 7} style={{ padding: 20, textAlign: 'center', color: 'hsl(0 70% 40%)' }}>{erro}</td>
+              <td colSpan={sem ? 4 : 8} style={{ padding: 20, textAlign: 'center', color: 'hsl(0 70% 40%)' }}>{erro}</td>
             </tr>
           )}
           {!carregando && !erro && linhas.length === 0 && (
             <tr>
-              <td colSpan={sem ? 4 : 7} style={{ padding: 20, textAlign: 'center', ...muted }}>Nenhum lote encontrado.</td>
+              <td colSpan={sem ? 4 : 8} style={{ padding: 20, textAlign: 'center', ...muted }}>Nenhum lote encontrado.</td>
             </tr>
           )}
-          {linhas.map((l) => (
+          {linhas.map((l0) => {
+            const l = efetivo(l0);
+            return (
             <tr key={`${l.lote}-${l.codigo}`}>
               {!sem && (
                 <td style={{ fontWeight: 700 }}>
@@ -151,9 +162,31 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
                   {l.quantidade_estimada ? '~' : ''}{l.quantidade}
                 </td>
               )}
-              <td style={{ textAlign: 'right' }} title={l.quantidade_caixa ? `${l.quantidade_caixa} un. por caixa` : 'Produto sem quantidade por caixa'}>
-                {sem ? (l.quantidade_caixa ?? '—') : (l.caixas ?? '—')}
-                {!sem && l.quantidade_caixa ? <div style={{ fontSize: '0.62rem', ...muted }}>{l.quantidade_caixa} un/cx</div> : null}
+              {!sem && <td style={{ textAlign: 'right' }}>{l.caixas ?? '—'}</td>}
+              <td style={{ textAlign: 'center' }}>
+                <input
+                  type="number"
+                  min={1}
+                  value={l.quantidade_caixa ?? ''}
+                  placeholder="—"
+                  title="Unidades por caixa na etiqueta. Muda só a etiqueta, não o cadastro do produto."
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    setPorCaixa((m) => {
+                      const { [chave(l0)]: _, ...resto } = m;
+                      return n > 0 ? { ...resto, [chave(l0)]: n } : resto;
+                    });
+                  }}
+                  style={{
+                    width: 58,
+                    textAlign: 'center',
+                    fontSize: '0.8rem',
+                    padding: '3px 4px',
+                    borderRadius: 6,
+                    border: `1px solid ${porCaixa[chave(l0)] != null ? 'hsl(var(--text-primary-hsl, 240 6% 10%))' : 'hsl(var(--card-border-hsl))'}`,
+                    background: 'transparent',
+                  }}
+                />
               </td>
               <td>
                 {l.etiquetas_impressas > 0 ? (
@@ -173,7 +206,8 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
                 </BotaoAcao>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </TabelaPainel>
 

@@ -586,8 +586,14 @@ pub async fn list_coloracoes_etiqueta(
     limit: i64,
 ) -> Result<Vec<super::models::ColoracaoEtiquetaItem>, sqlx::Error> {
     let termo = q.map(str::trim).filter(|t| !t.is_empty()).map(|t| format!("%{}%", t));
+    // A categoria do produto pode ser uma subcategoria de Coloração (árvore em `categories`), como na Compras.
     let rows = sqlx::query_as::<_, (String, String, Option<i32>, Option<String>, i64, Option<String>)>(
         r#"
+        WITH RECURSIVE arvore AS (
+            SELECT id FROM categories WHERE id = 'cat_coloracao'
+            UNION
+            SELECT c.id FROM categories c JOIN arvore a ON c.parent_id = a.id
+        )
         SELECT
             p.codigo,
             p.descricao,
@@ -603,7 +609,7 @@ pub async fn list_coloracoes_etiqueta(
             WHERE template_name = 'Etiqueta de Coloração (ERP)'
             GROUP BY product_code
         ) e ON e.product_code = p.codigo
-        WHERE COALESCE(NULLIF(o.categoria_produto, ''), CASE WHEN p.codigo LIKE '1.34.%' THEN 'cat_coloracao' END) = 'cat_coloracao'
+        WHERE COALESCE(NULLIF(o.categoria_produto, ''), CASE WHEN p.codigo LIKE '1.34.%' THEN 'cat_coloracao' END) IN (SELECT id FROM arvore)
           AND ($1::text IS NULL OR p.codigo ILIKE $1 OR p.descricao ILIKE $1)
         ORDER BY p.descricao ASC
         LIMIT $2

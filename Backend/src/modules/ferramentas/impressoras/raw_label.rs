@@ -140,13 +140,30 @@ pub fn png_para_bitmap_no_tamanho(bytes: &[u8], largura: u32, altura: u32) -> Re
 /// Gira 90° no sentido horário quando `landscape` (mesmo sentido do `Landscape` do spooler do
 /// Windows usado no caminho local) e aplica `fill` (0,85–1,2; fora disso 1,0): escala em volta do
 /// centro mantendo o tamanho final, como o script PowerShell faz.
-pub fn preparar(bitmap: Bitmap, landscape: bool, fill: f64) -> Bitmap {
+pub fn preparar(bitmap: Bitmap, landscape: bool, fill: f64, dx: i32) -> Bitmap {
     let mut bm = if landscape { girar_horario(&bitmap) } else { bitmap };
     let fill = if (0.85..=1.2).contains(&fill) { fill } else { 1.0 };
     if (fill - 1.0).abs() > 1e-9 {
         bm = escalar_centro(&bm, fill);
     }
+    if dx != 0 {
+        bm = deslocar_x(&bm, dx);
+    }
     bm
+}
+
+/// Desloca a arte `dx` pontos para a direita (negativo: esquerda), mantendo o tamanho; o que sai da página se perde.
+fn deslocar_x(b: &Bitmap, dx: i32) -> Bitmap {
+    let mut out = Bitmap::branco(b.largura, b.altura);
+    for y in 0..b.altura {
+        for x in 0..b.largura {
+            let sx = x as i64 - dx as i64;
+            if sx >= 0 && sx < b.largura as i64 && b.ponto(sx as u32, y) {
+                out.definir(x, y, true);
+            }
+        }
+    }
+    out
 }
 
 fn girar_horario(b: &Bitmap) -> Bitmap {
@@ -260,7 +277,7 @@ mod tests {
         // 3x2: linha 0 = ponto em x=0; gira para 2x3: ponto vai para (altura-1-0, 0) = (1, 0)
         let mut b = Bitmap::branco(3, 2);
         b.definir(0, 0, true);
-        let g = preparar(b, true, 1.0);
+        let g = preparar(b, true, 1.0, 0);
         assert_eq!((g.largura, g.altura), (2, 3));
         assert!(g.ponto(1, 0));
         let pretos = (0..3).flat_map(|y| (0..2).map(move |x| (x, y))).filter(|&(x, y)| g.ponto(x, y)).count();
@@ -270,7 +287,7 @@ mod tests {
     #[test]
     fn fill_fora_da_faixa_nao_muda() {
         let b = bm_16x2();
-        assert_eq!(preparar(b.clone(), false, 3.0), b);
+        assert_eq!(preparar(b.clone(), false, 3.0, 0), b);
     }
 
     #[test]
@@ -281,9 +298,19 @@ mod tests {
                 b.definir(x, y, true);
             }
         }
-        let r = preparar(b, false, 0.9);
+        let r = preparar(b, false, 0.9, 0);
         assert!(!r.ponto(0, 0));
         assert!(r.ponto(10, 10));
+    }
+
+    #[test]
+    fn ajuste_lateral_desloca_para_a_direita() {
+        let mut b = Bitmap::branco(16, 2);
+        b.definir(0, 0, true);
+        let r = preparar(b.clone(), false, 1.0, 3);
+        assert!(r.ponto(3, 0) && !r.ponto(0, 0));
+        let l = preparar(r, false, 1.0, -3);
+        assert_eq!(l, b);
     }
 
     fn codificar(w: u32, h: u32, cor: png::ColorType, dados: &[u8]) -> Vec<u8> {

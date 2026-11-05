@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { readLabelFeed, writeLabelFeed, type LabelFeed } from '../lib/directPrint';
-import { readLabelFillScale, writeLabelFillScale } from '../lib/printService';
+import { readLabelFillScale, readLabelOffsetX, writeLabelFillScale, writeLabelOffsetX } from '../lib/printService';
 
 /** Ajuste compartilhado por todas as impressões de etiqueta do Nexus. */
 export default function LabelFillControl({
@@ -12,12 +12,14 @@ export default function LabelFillControl({
 }) {
   const [percent, setPercent] = useState(initialPercent ?? 100);
   const [feed, setFeed] = useState<LabelFeed>('landscape');
+  const [offsetX, setOffsetX] = useState(0);
 
   useEffect(() => {
     const storedPercent = initialPercent ?? readLabelFillScale();
     const storedFeed = readLabelFeed();
     setPercent(storedPercent);
     setFeed(storedFeed);
+    setOffsetX(readLabelOffsetX());
     onChange?.({ percent: storedPercent, feed: storedFeed });
     // Só na abertura: onChange do pai muda a cada render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -82,6 +84,32 @@ export default function LabelFillControl({
       <p className="text-[11px] text-zinc-500 leading-relaxed">
         100% usa a área exata do modelo. Aumente se a impressão ficar menor que o adesivo e sobrar borda branca; diminua se a arte cortar na borda.
       </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between gap-3">
+          <label className="text-xs font-bold text-zinc-900">Ajuste lateral</label>
+          <span className="font-mono text-xs font-bold text-zinc-800">
+            {offsetX > 0 ? '+' : ''}
+            {offsetX.toFixed(1)} mm
+          </span>
+        </div>
+        <input
+          type="range"
+          min={-5}
+          max={5}
+          step={0.5}
+          value={offsetX}
+          onChange={(e) => {
+            const next = Number(e.target.value);
+            setOffsetX(next);
+            writeLabelOffsetX(next);
+          }}
+          className="w-full accent-zinc-900"
+        />
+        <p className="text-[11px] text-zinc-500 leading-relaxed">
+          Se a impressora corta a esquerda da etiqueta, aumente para empurrar a arte para a direita. Vale para todas as etiquetas desta impressão.
+        </p>
       </div>
     </div>
   );

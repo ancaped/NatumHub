@@ -1,7 +1,7 @@
 import type { HubPrinter } from '../../impressoras/lib/types';
 import { printersApi } from '../../impressoras/lib/printersApi';
 import { renderLabelPngDataUrl } from './printCanvasRenderer';
-import { readLabelFillScale } from './printService';
+import { readLabelFillScale, readLabelOffsetX } from './printService';
 import type { LabelTemplate, PrintConfig } from './types';
 
 const FEED_KEY = 'nexus.labelFeed';
@@ -91,6 +91,7 @@ export async function printLabelDirect(
     copies: jobCopies,
     landscape,
     fill_scale: fill,
+    offset_x_mm: readLabelOffsetX(),
     pages_png_base64: pages,
   });
 }

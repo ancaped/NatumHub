@@ -118,6 +118,7 @@ export const printersApi = {
     copies: number;
     landscape: boolean;
     fill_scale: number;
+    offset_x_mm?: number;
     pages_png_base64: string[];
   }): Promise<void> {
     const res = await apiJson<ApiResponse<{ printed: boolean }>>('/api/ferramentas/impressoras/direct', {
