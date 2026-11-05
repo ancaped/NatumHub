@@ -303,3 +303,21 @@ pub async fn list_kits_etiqueta_handler(
         }
     }
 }
+
+pub async fn list_coloracoes_etiqueta_handler(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(q): Query<LotesQuery>,
+) -> impl IntoResponse {
+    if !can_access(&ctx) {
+        return err(StatusCode::FORBIDDEN, "Acesso não autorizado");
+    }
+    let limit = q.limit.unwrap_or(300).clamp(1, 1000);
+    match store::list_coloracoes_etiqueta(state.db.pool(), q.q.as_deref(), limit).await {
+        Ok(lista) => (StatusCode::OK, Json(lista)).into_response(),
+        Err(e) => {
+            eprintln!("[etiquetas] Erro ao listar coloração: {:?}", e);
+            err(StatusCode::INTERNAL_SERVER_ERROR, format!("Erro ao listar coloração: {}", e))
+        }
+    }
+}

@@ -119,3 +119,14 @@ pub struct LoteEtiquetaItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
 }
+
+/// Produto de Coloração para etiqueta (não tem lote no sistema).
+#[derive(Debug, Clone, Serialize)]
+pub struct ColoracaoEtiquetaItem {
+    pub codigo: String,
+    pub descricao: String,
+    pub quantidade_caixa: Option<i32>,
+    pub codigo_barras_caixa: Option<String>,
+    pub etiquetas_impressas: i64,
+    pub ultima_impressao: Option<String>,
+}

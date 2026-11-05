@@ -552,3 +552,51 @@ pub async fn list_kits_etiqueta(
         })
         .collect())
 }
+
+/// Produtos de Coloração (categoria efetiva `cat_coloracao`: override ou código 1.34.*), por descrição.
+pub async fn list_coloracoes_etiqueta(
+    pool: &PgPool,
+    q: Option<&str>,
+    limit: i64,
+) -> Result<Vec<super::models::ColoracaoEtiquetaItem>, sqlx::Error> {
+    let termo = q.map(str::trim).filter(|t| !t.is_empty()).map(|t| format!("%{}%", t));
+    let rows = sqlx::query_as::<_, (String, String, Option<i32>, Option<String>, i64, Option<String>)>(
+        r#"
+        SELECT
+            p.codigo,
+            p.descricao,
+            NULLIF(p.qtde_cx, 0),
+            NULLIF(TRIM(p.codigo_barras), ''),
+            COALESCE(e.copias, 0)::bigint,
+            e.ultima
+        FROM produtos p
+        LEFT JOIN overrides_produtos o ON o.codigo = p.codigo
+        LEFT JOIN (
+            SELECT product_code, SUM(copies) AS copias, to_char(MAX(printed_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS ultima
+            FROM hub_label_print_history
+            WHERE template_name = 'Etiqueta de Coloração (ERP)'
+            GROUP BY product_code
+        ) e ON e.product_code = p.codigo
+        WHERE COALESCE(NULLIF(o.categoria_produto, ''), CASE WHEN p.codigo LIKE '1.34.%' THEN 'cat_coloracao' END) = 'cat_coloracao'
+          AND ($1::text IS NULL OR p.codigo ILIKE $1 OR p.descricao ILIKE $1)
+        ORDER BY p.descricao ASC
+        LIMIT $2
+        "#,
+    )
+    .bind(termo)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(codigo, descricao, qtde_cx, ean, impressas, ultima)| super::models::ColoracaoEtiquetaItem {
+            codigo,
+            descricao,
+            quantidade_caixa: qtde_cx,
+            codigo_barras_caixa: ean.filter(|e| e.len() == 13).map(|e| format!("1{}", e)),
+            etiquetas_impressas: impressas,
+            ultima_impressao: ultima,
+        })
+        .collect())
+}

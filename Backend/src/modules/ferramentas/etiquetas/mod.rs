@@ -39,6 +39,10 @@ pub fn router() -> Router<Arc<AppState>> {
             get(handlers::list_kits_etiqueta_handler),
         )
         .route(
+            "/api/ferramentas/etiquetas/coloracoes",
+            get(handlers::list_coloracoes_etiqueta_handler),
+        )
+        .route(
             "/api/ferramentas/etiquetas/production-lots",
             get(handlers::list_production_lots_handler),
         )

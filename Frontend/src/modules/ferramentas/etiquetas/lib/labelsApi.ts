@@ -144,9 +144,12 @@ export const labelsApi = {
     }
   },
 
-  async listLotes(q: string, tipo: 'lotes' | 'kits' = 'lotes'): Promise<LoteEtiqueta[]> {
+  async listLotes(q: string, tipo: 'lotes' | 'kits' | 'coloracoes' = 'lotes'): Promise<LoteEtiqueta[]> {
     const params = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
     const data = await apiJson<LoteEtiqueta[]>(`/api/ferramentas/etiquetas/${tipo}${params}`);
-    return Array.isArray(data) ? data : [];
+    if (!Array.isArray(data)) return [];
+    // Coloração não tem lote nem produção: só código, descrição e caixa.
+    if (tipo === 'coloracoes') return data.map((d) => ({ ...d, lote: '', quantidade: 0, etiquetas_sugeridas: 1 }));
+    return data;
   },
 };

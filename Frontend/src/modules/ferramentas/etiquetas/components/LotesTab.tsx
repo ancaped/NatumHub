@@ -36,7 +36,7 @@ function montarEtiqueta(modelo: LabelTemplate, l: LoteEtiqueta): LabelTemplate {
 
 interface LotesTabProps {
   /** Lotes do ERP ou ordens de montagem de kit (o número da ordem é o lote). */
-  tipo?: 'lotes' | 'kits';
+  tipo?: 'lotes' | 'kits' | 'coloracoes';
   modelo: LabelTemplate | undefined;
   /** Recarrega o histórico da tela depois de imprimir. */
   onImpresso?: () => void;
@@ -48,6 +48,7 @@ interface LotesTabProps {
  */
 export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTabProps) {
   const kit = tipo === 'kits';
+  const sem = tipo === 'coloracoes'; // coloração não tem lote: a lista é de produtos
   const [busca, setBusca] = useState('');
   const [aba, setAba] = useState('todos');
   const [lotes, setLotes] = useState<LoteEtiqueta[]>([]);
@@ -88,8 +89,8 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
   return (
     <>
       <ReportHeader
-        titulo={kit ? 'Etiquetas de kit' : 'Etiquetas de lote'}
-        subtitulo={kit ? 'Ordens de montagem de kit, da mais recente para a mais antiga. O lote é o número da ordem.' : 'Lotes do ERP, do mais recente para o mais antigo. Busque por lote, código ou produto.'}
+        titulo={sem ? 'Etiquetas de coloração' : kit ? 'Etiquetas de kit' : 'Etiquetas de lote'}
+        subtitulo={sem ? 'Produtos de Coloração. Não tem lote: imprima a quantidade que precisar.' : kit ? 'Ordens de montagem de kit, da mais recente para a mais antiga. O lote é o número da ordem.' : 'Lotes do ERP, do mais recente para o mais antigo. Busque por lote, código ou produto.'}
         acoes={
           <BotaoAcao onClick={carregar} disabled={carregando}>
             <RefreshCw size={15} className={carregando ? 'animate-spin' : ''} /> Atualizar
@@ -97,15 +98,15 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
         }
       />
       <ReportTabs abas={abas} ativa={aba} onChange={setAba} />
-      <FilterBar busca={busca} onBusca={setBusca} placeholder={kit ? 'Buscar ordem, código ou kit...' : 'Buscar lote, código ou produto...'} />
+      <FilterBar busca={busca} onBusca={setBusca} placeholder={sem ? 'Buscar código ou produto...' : kit ? 'Buscar ordem, código ou kit...' : 'Buscar lote, código ou produto...'} />
       <TabelaPainel>
         <thead>
           <tr>
-            <th style={{ width: 80 }}>Lote</th>
+            {!sem && <th style={{ width: 80 }}>Lote</th>}
             <th>Produto</th>
-            <th style={{ width: 100 }}>Data</th>
-            <th style={{ width: 80, textAlign: 'right' }}>Unidades</th>
-            <th style={{ width: 70, textAlign: 'right' }}>Caixas</th>
+            {!sem && <th style={{ width: 100 }}>Data</th>}
+            {!sem && <th style={{ width: 80, textAlign: 'right' }}>Unidades</th>}
+            <th style={{ width: 70, textAlign: 'right' }}>{sem ? 'Un/cx' : 'Caixas'}</th>
             <th style={{ width: 150 }}>Etiqueta</th>
             <th style={{ width: 110 }} />
           </tr>
@@ -113,27 +114,29 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
         <tbody>
           {carregando && lotes.length === 0 && (
             <tr>
-              <td colSpan={7} style={{ padding: 20, textAlign: 'center', ...muted }}>Carregando...</td>
+              <td colSpan={sem ? 4 : 7} style={{ padding: 20, textAlign: 'center', ...muted }}>Carregando...</td>
             </tr>
           )}
           {erro && (
             <tr>
-              <td colSpan={7} style={{ padding: 20, textAlign: 'center', color: 'hsl(0 70% 40%)' }}>{erro}</td>
+              <td colSpan={sem ? 4 : 7} style={{ padding: 20, textAlign: 'center', color: 'hsl(0 70% 40%)' }}>{erro}</td>
             </tr>
           )}
           {!carregando && !erro && linhas.length === 0 && (
             <tr>
-              <td colSpan={7} style={{ padding: 20, textAlign: 'center', ...muted }}>Nenhum lote encontrado.</td>
+              <td colSpan={sem ? 4 : 7} style={{ padding: 20, textAlign: 'center', ...muted }}>Nenhum lote encontrado.</td>
             </tr>
           )}
           {linhas.map((l) => (
             <tr key={`${l.lote}-${l.codigo}`}>
-              <td style={{ fontWeight: 700 }}>
-                {l.lote}
-                {kit && l.status && (
-                  <div style={{ fontSize: '0.62rem', fontWeight: 400, ...muted }}>{l.status === 'COMPLETED' ? 'Concluída' : 'Em aberto'}</div>
-                )}
-              </td>
+              {!sem && (
+                <td style={{ fontWeight: 700 }}>
+                  {l.lote}
+                  {kit && l.status && (
+                    <div style={{ fontSize: '0.62rem', fontWeight: 400, ...muted }}>{l.status === 'COMPLETED' ? 'Concluída' : 'Em aberto'}</div>
+                  )}
+                </td>
+              )}
               <td style={{ maxWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
                   <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.descricao}>
@@ -142,11 +145,11 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
                   <span className="product-code" style={{ fontSize: '0.65rem', flexShrink: 0 }}>{l.codigo}</span>
                 </div>
               </td>
-              <td style={{ fontSize: '0.75rem', ...muted }}>{formatarData(l.data_producao)}</td>
-              <td style={{ textAlign: 'right' }}>{l.quantidade}</td>
+              {!sem && <td style={{ fontSize: '0.75rem', ...muted }}>{formatarData(l.data_producao)}</td>}
+              {!sem && <td style={{ textAlign: 'right' }}>{l.quantidade}</td>}
               <td style={{ textAlign: 'right' }} title={l.quantidade_caixa ? `${l.quantidade_caixa} un. por caixa` : 'Produto sem quantidade por caixa'}>
-                {l.caixas ?? '—'}
-                {l.quantidade_caixa ? <div style={{ fontSize: '0.62rem', ...muted }}>{l.quantidade_caixa} un/cx</div> : null}
+                {sem ? (l.quantidade_caixa ?? '—') : (l.caixas ?? '—')}
+                {!sem && l.quantidade_caixa ? <div style={{ fontSize: '0.62rem', ...muted }}>{l.quantidade_caixa} un/cx</div> : null}
               </td>
               <td>
                 {l.etiquetas_impressas > 0 ? (
@@ -182,7 +185,7 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
           }}
           initialCopies={imprimindo.etiquetas_sugeridas ?? 1}
           initialEnableSequence={false}
-          history={{ product_code: imprimindo.codigo, product_name: imprimindo.descricao, lot_number: imprimindo.lote }}
+          history={{ product_code: imprimindo.codigo, product_name: imprimindo.descricao, lot_number: sem ? undefined : imprimindo.lote }}
         />
       )}
     </>

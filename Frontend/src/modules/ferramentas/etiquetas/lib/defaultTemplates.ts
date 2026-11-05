@@ -1160,3 +1160,23 @@ if (modeloLote) {
     description: 'Mesmo desenho da etiqueta de lote, para kits. O lote é o número da ordem de montagem.',
   });
 }
+
+// Coloração não tem lote: mesmo desenho, sem lote e sem data; código e quantidade por caixa ganham o espaço.
+if (modeloLote) {
+  const sem = ['lbl_data', 'txt_data', 'barcode_lote', 'txt_lote'];
+  DEFAULT_LABEL_TEMPLATES.push({
+    ...modeloLote,
+    id: 'template_coloracao_erp',
+    name: 'Etiqueta de Coloração (ERP)',
+    description: 'Etiqueta de produto de Coloração, sem lote: nome, código de barras da caixa, código e quantidade por caixa.',
+    elements_json: modeloLote.elements_json
+      .filter((el) => !sem.includes(el.id))
+      .map((el) => {
+        if (el.id === 'lbl_cod') return { ...el, x_mm: 6, y_mm: 29, width_mm: 40 };
+        if (el.id === 'txt_cod') return { ...el, x_mm: 6, y_mm: 33, width_mm: 40, height_mm: 7, props: { ...el.props, fontSize: 14 } };
+        if (el.id === 'txt_contem') return { ...el, x_mm: 52, y_mm: 31, width_mm: 42, height_mm: 8, props: { ...el.props, fontSize: 12, fontWeight: 'bold' } };
+        return el;
+      }),
+  });
+}
+
