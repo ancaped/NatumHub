@@ -1393,6 +1393,7 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
         || path == "/api/hub/compras/pinned-subcategories"
         || path == "/api/hub/compras/items/category"
         || (path.starts_with("/api/hub/compras/categories") && method == "DELETE")
+        || (path.starts_with("/api/hub/compras/categories/propostas/") && method == "POST")
     {
         return true;
     }
@@ -1710,6 +1711,8 @@ mod tests {
         assert!(!requires_supervisor("/api/hub/compras/categories/cat_x", "PATCH"));
         assert!(!requires_supervisor("/api/hub/compras/categories", "GET"));
         assert!(requires_supervisor("/api/hub/compras/categories/cat_x", "DELETE"));
+        assert!(requires_supervisor("/api/hub/compras/categories/propostas/prop_x/aprovar", "POST"));
+        assert!(!requires_supervisor("/api/hub/compras/categories/propostas", "GET"));
         assert!(!requires_supervisor("/api/hub/compras/categories/cat_x/arquivar", "POST"));
         assert!(requires_supervisor("/api/hub/compras/config", "POST"));
     }

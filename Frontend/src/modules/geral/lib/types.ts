@@ -880,3 +880,26 @@ export interface GrupoSugestaoFornecedor {
   principalId: string;
   membros: MembroSugestaoFornecedor[];
 }
+
+export interface PropostaSubcategoria {
+  id: string;
+  nome: string;
+  parentId: string;
+  parentNome: string;
+  periodo?: number | null;
+  motivo: string;
+  status: 'pendente' | 'aprovada' | 'recusada';
+  propostoPor?: string | null;
+  criadaEm: string;
+  decididaEm?: string | null;
+  motivoDecisao?: string | null;
+  categoriaId?: string | null;
+}
+
+export interface ResumoSubcategoria {
+  id: string;
+  name: string;
+  parentId?: string | null;
+  itens: number;
+  produtos: number;
+}

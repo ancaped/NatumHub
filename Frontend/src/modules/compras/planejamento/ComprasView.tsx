@@ -9,7 +9,8 @@ import { ProdutosCompraTab } from './components/ProdutosCompraTab';
 import { PrintListTab } from './components/PrintListTab';
 import { ListasAcompanhamentoTab } from './components/ListasAcompanhamentoTab';
 import { SimulationTab } from './components/SimulationTab';
-import { Package, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers, Printer, ClipboardList, EyeOff, Calculator, ClipboardCheck } from 'lucide-react';
+import { OrganizacaoCompras } from './components/OrganizacaoCompras';
+import { Package, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers, Printer, ClipboardList, EyeOff, Calculator, ClipboardCheck, ListChecks } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
 import { api } from '../../geral/lib/api';
 import { Category } from '../../geral/lib/types';
@@ -29,6 +30,11 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
   const [pinnedSubs, setPinnedSubs] = useState<string[]>([]);
   const totalLista = useListaCompra(mode).codigos.length;
   const [loteDestaque, setLoteDestaque] = useState<string | null>(null);
+  const [propostasPendentes, setPropostasPendentes] = useState(0);
+  const carregarPropostas = () => {
+    api.getPropostasSubcategoria('pendente').then((l) => setPropostasPendentes(l.length)).catch(() => setPropostasPendentes(0));
+  };
+  useEffect(carregarPropostas, [mode]);
 
   const loadPinnedAndCategories = async () => {
     try {
@@ -87,6 +93,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff, grupo: 'Gestão' },
           { id: 'suppliers', label: 'Fornecedores', icon: Users, grupo: 'Gestão' },
           { id: 'reports', label: 'Relatórios', icon: BarChart3, grupo: 'Gestão' },
+          { id: 'organizacao', label: 'Organização', icon: ListChecks, grupo: 'Gestão', badge: propostasPendentes > 0 ? propostasPendentes : undefined, badgeTone: 'amber' as const },
           ...settingsItem,
         ];
         break;
@@ -99,6 +106,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff, grupo: 'Gestão' },
           { id: 'suppliers', label: 'Fornecedores', icon: Users, grupo: 'Gestão' },
           { id: 'reports', label: 'Relatórios', icon: BarChart3, grupo: 'Gestão' },
+          { id: 'organizacao', label: 'Organização', icon: ListChecks, grupo: 'Gestão', badge: propostasPendentes > 0 ? propostasPendentes : undefined, badgeTone: 'amber' as const },
           ...settingsItem,
         ];
         break;
@@ -111,6 +119,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff, grupo: 'Gestão' },
           { id: 'suppliers', label: 'Fornecedores', icon: Users, grupo: 'Gestão' },
           { id: 'reports', label: 'Relatórios', icon: BarChart3, grupo: 'Gestão' },
+          { id: 'organizacao', label: 'Organização', icon: ListChecks, grupo: 'Gestão', badge: propostasPendentes > 0 ? propostasPendentes : undefined, badgeTone: 'amber' as const },
           ...settingsItem,
         ];
         break;
@@ -123,6 +132,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff, grupo: 'Gestão' },
           { id: 'suppliers', label: 'Fornecedores', icon: Users, grupo: 'Gestão' },
           { id: 'reports', label: 'Relatórios', icon: BarChart3, grupo: 'Gestão' },
+          { id: 'organizacao', label: 'Organização', icon: ListChecks, grupo: 'Gestão', badge: propostasPendentes > 0 ? propostasPendentes : undefined, badgeTone: 'amber' as const },
           ...settingsItem,
         ];
         break;
@@ -151,7 +161,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         break;
     }
     return items;
-  }, [mode, categories, pinnedSubs, canConfig, totalLista]);
+  }, [mode, categories, pinnedSubs, canConfig, totalLista, propostasPendentes]);
 
   const initialTab = React.useMemo(() => {
     if (mode === 'materia_prima') return 'materia_prima';
@@ -273,6 +283,11 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           </div>
         )}
 
+        {navItems.some(i => i.id === 'organizacao') && (
+          <div className={activeTab !== 'organizacao' ? 'hidden' : ''}>
+            <OrganizacaoCompras active={activeTab === 'organizacao'} mode={mode} onMudou={carregarPropostas} />
+          </div>
+        )}
         {navItems.some(i => i.id === 'reports') && (
           <div className={activeTab !== 'reports' ? 'hidden' : ''}>
             <ReportDashboard active={activeTab === 'reports'} mode={mode} />

@@ -1,6 +1,6 @@
 import { hubJson, ApiError, apiJson } from './http';
 import type {
-  Category, Supplier, Item, Invoice, GrupoSugestaoFornecedor,
+  Category, Supplier, Item, Invoice, GrupoSugestaoFornecedor, PropostaSubcategoria, ResumoSubcategoria,
   DemandResult, Quotation, QuotationItem, QuotationPrice,
   ImportResult, StockImport, PricePoint, SupplierSpend, CategorySpend,
   ComprasAppConfig, MicrobioAppConfig, FiscoAppConfig, Feedback, Product, Report,
@@ -189,6 +189,18 @@ export const api = {
   /** Grava na hora (confirmar=true): a tela já pede a confirmação ao operador; o motivo vai para a auditoria. */
   unifySuppliers(parentId: string, childIds: string[], motivo = 'Unificação pela tela Fornecedores'): Promise<void> {
     return hubJson('compras/suppliers/unify?confirmar=true', { method: 'POST', body: JSON.stringify({ parentId, childIds, motivo }) });
+  },
+  getPropostasSubcategoria(status = 'pendente'): Promise<PropostaSubcategoria[]> {
+    return hubJson(`compras/categories/propostas?status=${status}`);
+  },
+  getResumoSubcategorias(): Promise<ResumoSubcategoria[]> {
+    return hubJson('compras/categories/resumo');
+  },
+  aprovarPropostaSubcategoria(id: string, motivo = 'Aprovada pelo supervisor'): Promise<void> {
+    return hubJson(`compras/categories/propostas/${encodeURIComponent(id)}/aprovar?confirmar=true`, { method: 'POST', body: JSON.stringify({ motivo }) });
+  },
+  recusarPropostaSubcategoria(id: string, motivo: string): Promise<void> {
+    return hubJson(`compras/categories/propostas/${encodeURIComponent(id)}/recusar?confirmar=true`, { method: 'POST', body: JSON.stringify({ motivo }) });
   },
   getSugestoesUnificacaoFornecedores(): Promise<GrupoSugestaoFornecedor[]> {
     return hubJson('compras/suppliers/unify-suggestions');

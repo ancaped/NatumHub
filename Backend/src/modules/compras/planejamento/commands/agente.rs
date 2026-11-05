@@ -913,6 +913,175 @@ pub async fn retirar_itens_lista(
     }))
 }
 
+// ---- Propostas de subcategoria: agente propõe, supervisor aprova ----
+
+const AVISO_PROPOSTA: &str = "Proposta registrada: a subcategoria só passa a existir quando o supervisor aprovar na tela Organização.";
+
+/// Agente não cria subcategoria: registra a proposta (pendente). Mesmas validações de `criar_subcategoria`.
+pub async fn propor_subcategoria(
+    conn: &mut PgConnection,
+    ctx: &AuthContext,
+    nome: &str,
+    parent_id: &str,
+    periodo: Option<i32>,
+    motivo: &str,
+) -> Result<Value, ErroApi> {
+    let motivo = motivo_ok(motivo)?;
+    let nome = nome.trim();
+    if nome.is_empty() {
+        return Err(ErroApi::invalido("Informe o nome da subcategoria."));
+    }
+    let parent = resolver_categoria(conn, parent_id).await?;
+    let raiz = raiz_de(conn, &parent.id).await?;
+    let familia = exige_familia(ctx, &raiz)?;
+    if nome_repetido(conn, &parent.id, nome, None).await? {
+        return Err(ErroApi::conflito("Já existe uma subcategoria com esse nome nessa família."));
+    }
+    let periodo = match periodo {
+        Some(p) => Some(validar_periodo(p)?),
+        None => None,
+    };
+    let pendente: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM compras_subcategoria_propostas WHERE status = 'pendente' AND parent_id = $1 AND lower(btrim(nome)) = lower(btrim($2)) LIMIT 1",
+    )
+    .bind(&parent.id)
+    .bind(nome)
+    .fetch_optional(&mut *conn)
+    .await?;
+    if let Some(id) = pendente {
+        return Err(ErroApi::conflito("Já existe uma proposta pendente com esse nome nessa família.").com_detalhes(json!({ "propostaId": id })));
+    }
+    let id = format!("prop_{}", Uuid::new_v4().simple());
+    sqlx::query(
+        "INSERT INTO compras_subcategoria_propostas (id, nome, parent_id, periodo, motivo, proposto_por, proposto_por_nome)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    )
+    .bind(&id)
+    .bind(nome)
+    .bind(&parent.id)
+    .bind(periodo)
+    .bind(motivo)
+    .bind(&ctx.operator_id)
+    .bind(&ctx.display_name)
+    .execute(&mut *conn)
+    .await?;
+    Ok(json!({
+        "antes": Value::Null,
+        "depois": { "id": id, "nome": nome, "parentId": parent.id, "periodo": periodo, "status": "pendente", "proposta": true },
+        "motivo": motivo,
+        "familia": familia,
+        "aviso": AVISO_PROPOSTA,
+    }))
+}
+
+/// Supervisor aprova: cria a subcategoria (mesma regra de `criar_subcategoria`) e fecha a proposta.
+pub async fn aprovar_proposta(conn: &mut PgConnection, ctx: &AuthContext, id: &str, motivo: &str) -> Result<Value, ErroApi> {
+    let motivo = motivo_ok(motivo)?;
+    let row = sqlx::query("SELECT nome, parent_id, periodo, motivo, status FROM compras_subcategoria_propostas WHERE id = $1 FOR UPDATE")
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await?;
+    let Some(row) = row else {
+        return Err(ErroApi::nao_encontrado("Proposta não encontrada.").com_detalhes(json!({ "id": id })));
+    };
+    let status: String = row.get("status");
+    if status != "pendente" {
+        return Err(ErroApi::regra("Essa proposta já foi decidida.").com_detalhes(json!({ "id": id, "status": status })));
+    }
+    let nome: String = row.get("nome");
+    let parent_id: String = row.get("parent_id");
+    let periodo: Option<i32> = row.get("periodo");
+    let motivo_proposta: String = row.get("motivo");
+    let criada = criar_subcategoria(conn, ctx, &nome, &parent_id, periodo, &motivo_proposta).await?;
+    let categoria_id = criada["depois"]["id"].as_str().unwrap_or_default().to_string();
+    sqlx::query(
+        "UPDATE compras_subcategoria_propostas SET status = 'aprovada', decidido_por = $2, decidido_em = now(), motivo_decisao = $3, categoria_id = $4 WHERE id = $1",
+    )
+    .bind(id)
+    .bind(&ctx.operator_id)
+    .bind(motivo)
+    .bind(&categoria_id)
+    .execute(&mut *conn)
+    .await?;
+    Ok(json!({
+        "antes": { "propostaId": id, "status": "pendente" },
+        "depois": { "id": categoria_id, "nome": nome, "parentId": parent_id, "periodo": criada["depois"]["periodo"], "propostaId": id },
+        "motivo": motivo,
+        "familia": criada["familia"],
+    }))
+}
+
+pub async fn recusar_proposta(conn: &mut PgConnection, ctx: &AuthContext, id: &str, motivo: &str) -> Result<Value, ErroApi> {
+    let motivo = motivo_ok(motivo)?;
+    let row = sqlx::query("SELECT nome, parent_id, status FROM compras_subcategoria_propostas WHERE id = $1 FOR UPDATE")
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await?;
+    let Some(row) = row else {
+        return Err(ErroApi::nao_encontrado("Proposta não encontrada.").com_detalhes(json!({ "id": id })));
+    };
+    let status: String = row.get("status");
+    if status != "pendente" {
+        return Err(ErroApi::regra("Essa proposta já foi decidida.").com_detalhes(json!({ "id": id, "status": status })));
+    }
+    let nome: String = row.get("nome");
+    let parent_id: String = row.get("parent_id");
+    let raiz = raiz_de(conn, &parent_id).await?;
+    sqlx::query("UPDATE compras_subcategoria_propostas SET status = 'recusada', decidido_por = $2, decidido_em = now(), motivo_decisao = $3 WHERE id = $1")
+        .bind(id)
+        .bind(&ctx.operator_id)
+        .bind(motivo)
+        .execute(&mut *conn)
+        .await?;
+    Ok(json!({
+        "antes": { "id": id, "status": "pendente", "nome": nome },
+        "depois": { "id": id, "status": "recusada", "nome": nome, "parentId": parent_id },
+        "motivo": motivo,
+        "familia": modulo_da_raiz(&raiz).unwrap_or("compras_materia_prima"),
+    }))
+}
+
+pub async fn listar_propostas(pool: &sqlx::PgPool, status: &str) -> Result<Vec<Value>, ErroApi> {
+    let rows = sqlx::query(
+        "SELECT p.id, p.nome, p.parent_id, c.name AS parent_nome, p.periodo, p.motivo, p.status, p.proposto_por_nome,
+                p.created_at::text AS criada_em, p.decidido_em::text AS decidida_em, p.motivo_decisao, p.categoria_id
+         FROM compras_subcategoria_propostas p JOIN categories c ON c.id = p.parent_id
+         WHERE ($1 = 'todas' OR p.status = $1) ORDER BY p.created_at DESC LIMIT 200",
+    )
+    .bind(status)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|r| {
+            json!({
+                "id": r.get::<String, _>("id"), "nome": r.get::<String, _>("nome"), "parentId": r.get::<String, _>("parent_id"),
+                "parentNome": r.get::<String, _>("parent_nome"), "periodo": r.get::<Option<i32>, _>("periodo"),
+                "motivo": r.get::<String, _>("motivo"), "status": r.get::<String, _>("status"),
+                "propostoPor": r.get::<Option<String>, _>("proposto_por_nome"), "criadaEm": r.get::<String, _>("criada_em"),
+                "decididaEm": r.get::<Option<String>, _>("decidida_em"), "motivoDecisao": r.get::<Option<String>, _>("motivo_decisao"),
+                "categoriaId": r.get::<Option<String>, _>("categoria_id"),
+            })
+        })
+        .collect())
+}
+
+/// Subcategorias ativas com quantos itens e produtos cada uma tem (base do aviso de fusão).
+pub async fn resumo_subcategorias(pool: &sqlx::PgPool) -> Result<Vec<Value>, ErroApi> {
+    let rows = sqlx::query(
+        "SELECT c.id, c.name, c.parent_id,
+                (SELECT COUNT(*) FROM items i WHERE i.category_id = c.id AND COALESCE(i.is_ignored, 0) = 0) AS itens,
+                (SELECT COUNT(*) FROM overrides_produtos o WHERE o.categoria_produto = c.id) AS produtos
+         FROM categories c WHERE c.arquivada_em IS NULL ORDER BY c.name",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|r| json!({ "id": r.get::<String, _>("id"), "name": r.get::<String, _>("name"), "parentId": r.get::<Option<String>, _>("parent_id"), "itens": r.get::<i64, _>("itens"), "produtos": r.get::<i64, _>("produtos") }))
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1078,6 +1247,45 @@ mod tests {
         let neg = [ItemLista { item_code: "ZZ.AG.002", item_description: "x", unit: None, quantity_requested: -1.0, observacao: None, dados: DadosDoItem::default() }];
         let e = criar_lista(&mut *tx, &agente, "materia_prima", None, None, "zz", &neg, "teste").await.unwrap_err();
         assert_eq!(e.codigo, "invalido");
+
+        tx.rollback().await.unwrap();
+    }
+
+    /// Agente propõe, supervisor aprova ou recusa; nada existe antes da aprovação.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn proposta_de_subcategoria_aprovar_e_recusar() {
+        use crate::modules::geral::auth::models::{OperatorRole, Origem};
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = sqlx::PgPool::connect(&url).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        let agente = ctx_de(OperatorRole::Operador, Origem::Agente);
+        let sup = ctx_de(OperatorRole::Supervisor, Origem::Tela);
+
+        let p = propor_subcategoria(&mut *tx, &agente, "ZZ proposta A", "cat_mp", Some(6), "teste").await.unwrap();
+        let id_a = p["depois"]["id"].as_str().unwrap().to_string();
+        assert_eq!(p["depois"]["status"], "pendente");
+        let existe: i64 = sqlx::query_scalar("SELECT count(*) FROM categories WHERE name = 'ZZ proposta A'").fetch_one(&mut *tx).await.unwrap();
+        assert_eq!(existe, 0, "proposta não cria a categoria");
+        // proposta repetida e nome de motivo vazio
+        assert_eq!(propor_subcategoria(&mut *tx, &agente, " zz PROPOSTA a ", "cat_mp", None, "t").await.unwrap_err().codigo, "conflito");
+        assert_eq!(propor_subcategoria(&mut *tx, &agente, "ZZ outra", "cat_mp", None, " ").await.unwrap_err().codigo, "invalido");
+        // sem permissão na família
+        assert_eq!(propor_subcategoria(&mut *tx, &agente, "ZZ emb", "cat_emb", None, "t").await.unwrap_err().codigo, "sem_permissao");
+
+        let ap = aprovar_proposta(&mut *tx, &sup, &id_a, "ok").await.unwrap();
+        let cat = ap["depois"]["id"].as_str().unwrap().to_string();
+        assert_eq!(ap["depois"]["periodo"].as_i64(), Some(6));
+        let (nome, pai): (String, Option<String>) = sqlx::query_as("SELECT name, parent_id FROM categories WHERE id = $1").bind(&cat).fetch_one(&mut *tx).await.unwrap();
+        assert_eq!((nome.as_str(), pai.as_deref()), ("ZZ proposta A", Some("cat_mp")));
+        assert_eq!(aprovar_proposta(&mut *tx, &sup, &id_a, "ok").await.unwrap_err().codigo, "regra_violada");
+        assert_eq!(recusar_proposta(&mut *tx, &sup, &id_a, "x").await.unwrap_err().codigo, "regra_violada");
+
+        let p2 = propor_subcategoria(&mut *tx, &agente, "ZZ proposta B", "cat_mp", None, "teste").await.unwrap();
+        let id_b = p2["depois"]["id"].as_str().unwrap().to_string();
+        assert_eq!(recusar_proposta(&mut *tx, &sup, &id_b, "  ").await.unwrap_err().codigo, "invalido");
+        let rc = recusar_proposta(&mut *tx, &sup, &id_b, "duplica a A").await.unwrap();
+        assert_eq!(rc["depois"]["status"], "recusada");
 
         tx.rollback().await.unwrap();
     }

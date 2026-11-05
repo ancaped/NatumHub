@@ -244,8 +244,16 @@ async fn save_category_handler(
             let parent = b.parent_id.clone();
             let motivo = b.motivo.clone();
             let periodo = b.periodo;
+            // Agente não cria subcategoria: registra uma proposta que o supervisor aprova na tela Organização.
+            let proposta = ctx.is_agente();
             match executar_em_2_passos(state.db.pool(), "criar_subcategoria_compras", c.confirmar, move |tx| {
-                Box::pin(async move { agente::criar_subcategoria(&mut **tx, &ctx_tx, &nome, &parent, periodo, &motivo).await })
+                Box::pin(async move {
+                    if proposta {
+                        agente::propor_subcategoria(&mut **tx, &ctx_tx, &nome, &parent, periodo, &motivo).await
+                    } else {
+                        agente::criar_subcategoria(&mut **tx, &ctx_tx, &nome, &parent, periodo, &motivo).await
+                    }
+                })
             })
             .await
             {
@@ -253,6 +261,77 @@ async fn save_category_handler(
                 Err(e) => e.into_response(),
             }
         }
+    }
+}
+
+#[derive(Deserialize)]
+struct PropostasQuery {
+    status: Option<String>,
+}
+
+// GET /api/hub/compras/categories/propostas?status=pendente|aprovada|recusada|todas (padrão: pendente)
+async fn listar_propostas_handler(State(state): State<Arc<AppState>>, Query(q): Query<PropostasQuery>) -> Response {
+    let status = q.status.unwrap_or_else(|| "pendente".into());
+    if !["pendente", "aprovada", "recusada", "todas"].contains(&status.as_str()) {
+        return crate::core::acao::ErroApi::invalido("status deve ser pendente, aprovada, recusada ou todas.").into_response();
+    }
+    match agente::listar_propostas(state.db.pool(), &status).await {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+// GET /api/hub/compras/categories/resumo: subcategorias com a contagem de itens e produtos de cada uma.
+async fn resumo_subcategorias_handler(State(state): State<Arc<AppState>>) -> Response {
+    match agente::resumo_subcategorias(state.db.pool()).await {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct DecisaoProposta {
+    #[serde(default)]
+    motivo: String,
+}
+
+// POST /api/hub/compras/categories/propostas/:id/aprovar (2 passos, só supervisor): cria a subcategoria.
+async fn aprovar_proposta_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<AuthContext>,
+    Path(id): Path<String>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<DecisaoProposta>,
+) -> Response {
+    let ctx_tx = ctx.clone();
+    let motivo = if body.motivo.trim().is_empty() { "Aprovada pelo supervisor".to_string() } else { body.motivo };
+    match executar_em_2_passos(state.db.pool(), "aprovar_proposta_subcategoria_compras", c.confirmar, move |tx| {
+        Box::pin(async move { agente::aprovar_proposta(&mut **tx, &ctx_tx, &id, &motivo).await })
+    })
+    .await
+    {
+        Ok(r) => concluir(state.db.pool(), &ctx, "aprovar_proposta_subcategoria_compras", "category", r, true).await,
+        Err(e) => e.into_response(),
+    }
+}
+
+// POST /api/hub/compras/categories/propostas/:id/recusar (2 passos, só supervisor, motivo obrigatório).
+async fn recusar_proposta_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<AuthContext>,
+    Path(id): Path<String>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<DecisaoProposta>,
+) -> Response {
+    let ctx_tx = ctx.clone();
+    let motivo = body.motivo;
+    match executar_em_2_passos(state.db.pool(), "recusar_proposta_subcategoria_compras", c.confirmar, move |tx| {
+        Box::pin(async move { agente::recusar_proposta(&mut **tx, &ctx_tx, &id, &motivo).await })
+    })
+    .await
+    {
+        Ok(r) => concluir(state.db.pool(), &ctx, "recusar_proposta_subcategoria_compras", "category", r, false).await,
+        Err(e) => e.into_response(),
     }
 }
 
@@ -1236,6 +1315,10 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         // Categories
         .route("/api/hub/compras/categories", get(get_categories_handler).post(save_category_handler))
+        .route("/api/hub/compras/categories/propostas", get(listar_propostas_handler))
+        .route("/api/hub/compras/categories/resumo", get(resumo_subcategorias_handler))
+        .route("/api/hub/compras/categories/propostas/:id/aprovar", post(aprovar_proposta_handler))
+        .route("/api/hub/compras/categories/propostas/:id/recusar", post(recusar_proposta_handler))
         .route("/api/hub/compras/categories/:id", patch(ajustar_categoria_handler).delete(delete_category_handler))
         .route("/api/hub/compras/categories/:id/arquivar", post(arquivar_categoria_handler))
         // Items
@@ -1339,7 +1422,7 @@ pub fn acoes() -> Vec<Acao> {
         Acao::gravacao(
             "criar_subcategoria_compras",
             MP,
-            "Cria uma subcategoria em POST /api/hub/compras/categories com nome, parentId e motivo. Sem `confirmar=true` devolve a prévia (o id fica nulo, porque a gravação é desfeita) e não grava; com ele grava, herda o período de estoque da mãe e audita o motivo. `periodo` opcional substitui o herdado. Exige editar a família da categoria-mãe. Não mexe na raiz e não apaga.",
+            "PROPÕE uma subcategoria em POST /api/hub/compras/categories com nome, parentId e motivo: agente não cria direto, a proposta fica pendente até o supervisor aprovar na tela Organização (use `listar_propostas_subcategoria_compras` para ver o andamento). Sem `confirmar=true` devolve a prévia (o id fica nulo) e não grava; com ele registra a proposta e audita o motivo. Recusa nome que já existe na família ou já proposto. `periodo` opcional vale quando for aprovada (senão herda da mãe). Exige editar a família da categoria-mãe.",
             "POST",
             "/api/hub/compras/categories",
             true,
@@ -1352,6 +1435,13 @@ pub fn acoes() -> Vec<Acao> {
             ],
         )
         .com_familias(agente::FAMILIAS),
+        Acao::leitura(
+            "listar_propostas_subcategoria_compras",
+            MP,
+            "Lista as propostas de subcategoria (pendente por padrão): nome, categoria-mãe, motivo, quem propôs, status e, se aprovada, o id da subcategoria criada. Aprovar e recusar é só do supervisor, na tela Organização.",
+            "/api/hub/compras/categories/propostas",
+            vec![param("status", "query", "texto", false, "pendente (padrão), aprovada, recusada ou todas.")],
+        ),
         Acao::gravacao(
             "ajustar_subcategoria_compras",
             MP,
