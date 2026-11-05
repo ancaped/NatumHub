@@ -107,6 +107,8 @@ pub struct LoteEtiquetaItem {
     pub quantidade: i32,
     pub data_producao: Option<String>,
     pub quantidade_caixa: Option<i32>,
+    /// DUN-14 da caixa: "1" + EAN-13 do produto.
+    pub codigo_barras_caixa: Option<String>,
     /// Caixas do lote: quantidade produzida / unidades por caixa, arredondado para cima.
     pub caixas: Option<i32>,
     /// Sugestão de etiquetas: caixas + 1.

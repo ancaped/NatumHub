@@ -43,6 +43,7 @@ export interface LoteEtiqueta {
   quantidade: number;
   data_producao?: string | null;
   quantidade_caixa?: number | null;
+  codigo_barras_caixa?: string | null;
   caixas?: number | null;
   etiquetas_sugeridas?: number | null;
   etiquetas_impressas: number;

@@ -429,7 +429,7 @@ pub async fn list_lotes_etiqueta(
     limit: i64,
 ) -> Result<Vec<super::models::LoteEtiquetaItem>, sqlx::Error> {
     let termo = q.map(str::trim).filter(|t| !t.is_empty()).map(|t| format!("%{}%", t));
-    let rows = sqlx::query_as::<_, (String, String, Option<String>, i32, Option<String>, Option<i32>, i64, Option<String>)>(
+    let rows = sqlx::query_as::<_, (String, String, Option<String>, i32, Option<String>, Option<i32>, Option<String>, i64, Option<String>)>(
         r#"
         SELECT
             h.lote_erp,
@@ -438,6 +438,7 @@ pub async fn list_lotes_etiqueta(
             h.quantidade,
             h.data_producao,
             NULLIF(p.qtde_cx, 0),
+            NULLIF(TRIM(p.codigo_barras), ''),
             COALESCE(e.copias, 0)::bigint,
             e.ultima
         FROM historico_producao h
@@ -464,7 +465,7 @@ pub async fn list_lotes_etiqueta(
 
     Ok(rows
         .into_iter()
-        .map(|(lote, codigo, descricao, quantidade, data_producao, qtde_cx, impressas, ultima)| {
+        .map(|(lote, codigo, descricao, quantidade, data_producao, qtde_cx, ean, impressas, ultima)| {
             let caixas = qtde_cx
                 .filter(|c| *c > 0)
                 .map(|c| (quantidade + c - 1) / c)
@@ -476,6 +477,7 @@ pub async fn list_lotes_etiqueta(
                 quantidade,
                 data_producao,
                 quantidade_caixa: qtde_cx,
+                codigo_barras_caixa: ean.filter(|e| e.len() == 13).map(|e| format!("1{}", e)),
                 etiquetas_sugeridas: caixas.map(|n| n + 1),
                 caixas,
                 etiquetas_impressas: impressas,

@@ -19,9 +19,10 @@ function montarEtiqueta(modelo: LabelTemplate, l: LoteEtiqueta): LabelTemplate {
     t
       .replace(/{product_name}/g, l.descricao)
       .replace(/{product_code}/g, l.codigo)
+      .replace(/{box_barcode}/g, l.codigo_barras_caixa || '')
       .replace(/{lot}/g, l.lote)
       .replace(/{manufacturing_date}/g, formatarData(l.data_producao))
-      .replace(/{box_qty}/g, l.quantidade_caixa ? `${l.quantidade_caixa} un.` : '');
+      .replace(/{box_qty}/g, l.quantidade_caixa ? `${l.quantidade_caixa} unidades` : '');
   return {
     ...modelo,
     elements_json: modelo.elements_json.map((el) => {
@@ -97,7 +98,7 @@ export default function LotesTab({ modelo, onImpresso }: LotesTabProps) {
       <TabelaPainel>
         <thead>
           <tr>
-            <th style={{ width: 90 }}>Lote</th>
+            <th style={{ width: 80 }}>Lote</th>
             <th>Produto</th>
             <th style={{ width: 100 }}>Data</th>
             <th style={{ width: 80, textAlign: 'right' }}>Unidades</th>
@@ -125,14 +126,19 @@ export default function LotesTab({ modelo, onImpresso }: LotesTabProps) {
           {linhas.map((l) => (
             <tr key={`${l.lote}-${l.codigo}`}>
               <td style={{ fontWeight: 700 }}>{l.lote}</td>
-              <td>
-                <div style={{ fontWeight: 600 }}>{l.descricao}</div>
-                <span className="product-code" style={{ fontSize: '0.65rem' }}>{l.codigo}</span>
+              <td style={{ maxWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+                  <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.descricao}>
+                    {l.descricao}
+                  </span>
+                  <span className="product-code" style={{ fontSize: '0.65rem', flexShrink: 0 }}>{l.codigo}</span>
+                </div>
               </td>
               <td style={{ fontSize: '0.75rem', ...muted }}>{formatarData(l.data_producao)}</td>
               <td style={{ textAlign: 'right' }}>{l.quantidade}</td>
               <td style={{ textAlign: 'right' }} title={l.quantidade_caixa ? `${l.quantidade_caixa} un. por caixa` : 'Produto sem quantidade por caixa'}>
                 {l.caixas ?? '—'}
+                {l.quantidade_caixa ? <div style={{ fontSize: '0.62rem', ...muted }}>{l.quantidade_caixa} un/cx</div> : null}
               </td>
               <td>
                 {l.etiquetas_impressas > 0 ? (
@@ -143,11 +149,11 @@ export default function LotesTab({ modelo, onImpresso }: LotesTabProps) {
                     {l.etiquetas_impressas} impressas
                   </StatusBadge>
                 ) : (
-                  <StatusBadge variante="aguardando">Sem etiqueta</StatusBadge>
+                  <StatusBadge variante="descontinuado">Sem etiqueta</StatusBadge>
                 )}
               </td>
               <td style={{ textAlign: 'right' }}>
-                <BotaoAcao primario={l.etiquetas_impressas === 0} disabled={!modelo} onClick={() => setImprimindo(l)}>
+                <BotaoAcao disabled={!modelo} onClick={() => setImprimindo(l)}>
                   Imprimir
                 </BotaoAcao>
               </td>
