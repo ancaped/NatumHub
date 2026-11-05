@@ -31,6 +31,8 @@ interface PrintModalProps {
     product_name?: string;
     lot_number?: string;
   };
+  /** Em lote (`batchTemplates`): um registro por etiqueta, na mesma ordem das páginas, em vez de um só. */
+  batchHistory?: Array<{ product_code?: string; product_name?: string; lot_number?: string }>;
 }
 
 export default function PrintModal({
@@ -46,6 +48,7 @@ export default function PrintModal({
   printDpi,
   initialFillPercent,
   history,
+  batchHistory,
 }: PrintModalProps) {
   const [copies, setCopies] = useState(initialCopies);
   const [enableSequence, setEnableSequence] = useState(initialEnableSequence);
@@ -176,15 +179,24 @@ export default function PrintModal({
 
     const printedCopies = batch ? batch.length : config.copies;
     try {
-      await labelsApi.recordPrint({
+      const base = {
         template_id: template.id.startsWith('template_') ? undefined : template.id,
         template_name: template.name,
-        copies: printedCopies,
         printer_name: selectedPrinter.name,
-        product_code: history?.product_code,
-        product_name: history?.product_name,
-        lot_number: history?.lot_number,
-      });
+      };
+      if (batch && batchHistory && batchHistory.length === batch.length) {
+        for (const h of batchHistory) {
+          await labelsApi.recordPrint({ ...base, copies: 1, product_code: h.product_code, product_name: h.product_name, lot_number: h.lot_number });
+        }
+      } else {
+        await labelsApi.recordPrint({
+          ...base,
+          copies: printedCopies,
+          product_code: history?.product_code,
+          product_name: history?.product_name,
+          lot_number: history?.lot_number,
+        });
+      }
       try {
         await printersApi.createPrintJob({
           printer_id: selectedPrinter.id,

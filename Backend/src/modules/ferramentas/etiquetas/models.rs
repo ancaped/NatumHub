@@ -125,6 +125,8 @@ pub struct LoteEtiquetaItem {
 /// Produto de Coloração para etiqueta (não tem lote no sistema).
 #[derive(Debug, Clone, Serialize)]
 pub struct ColoracaoEtiquetaItem {
+    /// `coloracao` ou `tonalizante` (descrição ou categoria com "tonaliz").
+    pub tipo: String,
     pub codigo: String,
     pub descricao: String,
     pub quantidade_caixa: Option<i32>,

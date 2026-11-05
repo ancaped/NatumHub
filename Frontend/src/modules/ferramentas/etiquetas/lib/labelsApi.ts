@@ -51,6 +51,8 @@ export interface LoteEtiqueta {
   etiquetas_impressas: number;
   ultima_impressao?: string | null;
   status?: string | null;
+  /** Só em coloração: 'coloracao' ou 'tonalizante'. */
+  tipo?: string;
 }
 
 export interface RecordPrintPayload {

@@ -587,7 +587,7 @@ pub async fn list_coloracoes_etiqueta(
 ) -> Result<Vec<super::models::ColoracaoEtiquetaItem>, sqlx::Error> {
     let termo = q.map(str::trim).filter(|t| !t.is_empty()).map(|t| format!("%{}%", t));
     // A categoria do produto pode ser uma subcategoria de Coloração (árvore em `categories`), como na Compras.
-    let rows = sqlx::query_as::<_, (String, String, Option<i32>, Option<String>, i64, Option<String>)>(
+    let rows = sqlx::query_as::<_, (String, String, String, Option<i32>, Option<String>, i64, Option<String>)>(
         r#"
         WITH RECURSIVE arvore AS (
             SELECT id FROM categories WHERE id = 'cat_coloracao'
@@ -597,12 +597,14 @@ pub async fn list_coloracoes_etiqueta(
         SELECT
             p.codigo,
             p.descricao,
+            CASE WHEN p.descricao ILIKE '%tonaliz%' OR cc.name ILIKE '%tonaliz%' THEN 'tonalizante' ELSE 'coloracao' END,
             NULLIF(p.qtde_cx, 0),
             NULLIF(TRIM(p.codigo_barras), ''),
             COALESCE(e.copias, 0)::bigint,
             e.ultima
         FROM produtos p
         LEFT JOIN overrides_produtos o ON o.codigo = p.codigo
+        LEFT JOIN categories cc ON cc.id = NULLIF(o.categoria_produto, '')
         LEFT JOIN (
             SELECT product_code, SUM(copies) AS copias, to_char(MAX(printed_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS ultima
             FROM hub_label_print_history
@@ -622,7 +624,8 @@ pub async fn list_coloracoes_etiqueta(
 
     Ok(rows
         .into_iter()
-        .map(|(codigo, descricao, qtde_cx, ean, impressas, ultima)| super::models::ColoracaoEtiquetaItem {
+        .map(|(codigo, descricao, tipo, qtde_cx, ean, impressas, ultima)| super::models::ColoracaoEtiquetaItem {
+            tipo,
             codigo,
             descricao,
             quantidade_caixa: qtde_cx,

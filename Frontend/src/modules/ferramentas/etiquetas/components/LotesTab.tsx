@@ -55,6 +55,9 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
   const [imprimindo, setImprimindo] = useState<LoteEtiqueta | null>(null);
+  /** Coloração: códigos marcados para imprimir 1 etiqueta de cada de uma vez. */
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  const [emLote, setEmLote] = useState<LoteEtiqueta[] | null>(null);
   /** Unidades por caixa ajustadas na tela; valem só para a etiqueta, o cadastro do produto não muda. */
   const [porCaixa, setPorCaixa] = useState<Record<string, number>>({});
   const chave = (l: LoteEtiqueta) => `${l.lote}|${l.codigo}`;
@@ -83,14 +86,37 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
 
   const abas: AbaRelatorio[] = [
     { id: 'todos', label: 'Todos', contagem: lotes.length },
+    ...(sem
+      ? [
+          { id: 'coloracao', label: 'Coloração', contagem: lotes.filter((l) => l.tipo !== 'tonalizante').length },
+          { id: 'tonalizante', label: 'Tonalizante', contagem: lotes.filter((l) => l.tipo === 'tonalizante').length },
+        ]
+      : []),
     { id: 'pendentes', label: 'Sem etiqueta', contagem: lotes.filter((l) => l.etiquetas_impressas === 0).length },
     { id: 'impressos', label: 'Com etiqueta', contagem: lotes.filter((l) => l.etiquetas_impressas > 0).length },
   ];
   const linhas = useMemo(
     () =>
-      lotes.filter((l) => (aba === 'pendentes' ? l.etiquetas_impressas === 0 : aba === 'impressos' ? l.etiquetas_impressas > 0 : true)),
+      lotes.filter((l) => (aba === 'coloracao' ? l.tipo !== 'tonalizante' : aba === 'tonalizante' ? l.tipo === 'tonalizante' : aba === 'pendentes' ? l.etiquetas_impressas === 0 : aba === 'impressos' ? l.etiquetas_impressas > 0 : true)),
     [lotes, aba],
   );
+
+  const visiveisMarcados = linhas.filter((l) => marcados.has(l.codigo));
+  const todosMarcados = linhas.length > 0 && visiveisMarcados.length === linhas.length;
+  const alternar = (codigo: string) =>
+    setMarcados((m) => {
+      const n = new Set(m);
+      if (n.has(codigo)) n.delete(codigo);
+      else n.add(codigo);
+      return n;
+    });
+  const alternarTodos = () =>
+    setMarcados((m) => {
+      const n = new Set(m);
+      if (todosMarcados) linhas.forEach((l) => n.delete(l.codigo));
+      else linhas.forEach((l) => n.add(l.codigo));
+      return n;
+    });
 
   const etiqueta = useMemo(() => (imprimindo && modelo ? montarEtiqueta(modelo, imprimindo) : null), [imprimindo, modelo]);
 
@@ -100,9 +126,16 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
         titulo={sem ? 'Etiquetas de coloração' : kit ? 'Etiquetas de kit' : 'Etiquetas de lote'}
         subtitulo={sem ? 'Produtos de Coloração. Não tem lote: imprima a quantidade que precisar.' : kit ? 'Ordens de montagem de kit, da mais recente para a mais antiga. O lote é o número da ordem.' : 'Lotes do ERP, do mais recente para o mais antigo. Busque por lote, código ou produto.'}
         acoes={
+          <>
+            {sem && (
+              <BotaoAcao primario disabled={!modelo || visiveisMarcados.length === 0 || visiveisMarcados.length > 80} onClick={() => setEmLote(visiveisMarcados.map(efetivo))}>
+                Imprimir selecionadas{visiveisMarcados.length > 80 ? ' (máx. 80 por vez)' : visiveisMarcados.length > 0 ? ` (${visiveisMarcados.length})` : ''}
+              </BotaoAcao>
+            )}
           <BotaoAcao onClick={carregar} disabled={carregando}>
             <RefreshCw size={15} className={carregando ? 'animate-spin' : ''} /> Atualizar
           </BotaoAcao>
+          </>
         }
       />
       <ReportTabs abas={abas} ativa={aba} onChange={setAba} />
@@ -110,6 +143,11 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
       <TabelaPainel>
         <thead>
           <tr>
+            {sem && (
+              <th style={{ width: 34 }}>
+                <input type="checkbox" checked={todosMarcados} onChange={alternarTodos} title="Marcar todas as listadas" />
+              </th>
+            )}
             {!sem && <th style={{ width: 80 }}>Lote</th>}
             <th>Produto</th>
             {!sem && <th style={{ width: 100 }}>Data</th>}
@@ -123,23 +161,28 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
         <tbody>
           {carregando && lotes.length === 0 && (
             <tr>
-              <td colSpan={sem ? 4 : 8} style={{ padding: 20, textAlign: 'center', ...muted }}>Carregando...</td>
+              <td colSpan={sem ? 5 : 8} style={{ padding: 20, textAlign: 'center', ...muted }}>Carregando...</td>
             </tr>
           )}
           {erro && (
             <tr>
-              <td colSpan={sem ? 4 : 8} style={{ padding: 20, textAlign: 'center', color: 'hsl(0 70% 40%)' }}>{erro}</td>
+              <td colSpan={sem ? 5 : 8} style={{ padding: 20, textAlign: 'center', color: 'hsl(0 70% 40%)' }}>{erro}</td>
             </tr>
           )}
           {!carregando && !erro && linhas.length === 0 && (
             <tr>
-              <td colSpan={sem ? 4 : 8} style={{ padding: 20, textAlign: 'center', ...muted }}>Nenhum lote encontrado.</td>
+              <td colSpan={sem ? 5 : 8} style={{ padding: 20, textAlign: 'center', ...muted }}>Nenhum lote encontrado.</td>
             </tr>
           )}
           {linhas.map((l0) => {
             const l = efetivo(l0);
             return (
             <tr key={`${l.lote}-${l.codigo}`}>
+              {sem && (
+                <td>
+                  <input type="checkbox" checked={marcados.has(l.codigo)} onChange={() => alternar(l.codigo)} />
+                </td>
+              )}
               {!sem && (
                 <td style={{ fontWeight: 700 }}>
                   {l.lote}
@@ -210,6 +253,22 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
           })}
         </tbody>
       </TabelaPainel>
+
+      {emLote && modelo && emLote.length > 0 && (
+        <PrintModal
+          template={montarEtiqueta(modelo, emLote[0])}
+          batchTemplates={emLote.map((l) => montarEtiqueta(modelo, l))}
+          batchHistory={emLote.map((l) => ({ product_code: l.codigo, product_name: l.descricao }))}
+          isOpen
+          onClose={() => setEmLote(null)}
+          onPrintSuccess={() => {
+            setEmLote(null);
+            setMarcados(new Set());
+            carregar();
+            onImpresso?.();
+          }}
+        />
+      )}
 
       {imprimindo && etiqueta && (
         <PrintModal
