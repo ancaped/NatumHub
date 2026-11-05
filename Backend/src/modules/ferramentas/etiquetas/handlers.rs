@@ -285,3 +285,21 @@ pub async fn list_lotes_etiqueta_handler(
         }
     }
 }
+
+pub async fn list_kits_etiqueta_handler(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(q): Query<LotesQuery>,
+) -> impl IntoResponse {
+    if !can_access(&ctx) {
+        return err(StatusCode::FORBIDDEN, "Acesso não autorizado");
+    }
+    let limit = q.limit.unwrap_or(100).clamp(1, 500);
+    match store::list_kits_etiqueta(state.db.pool(), q.q.as_deref(), limit).await {
+        Ok(kits) => (StatusCode::OK, Json(kits)).into_response(),
+        Err(e) => {
+            eprintln!("[etiquetas] Erro ao listar kits: {:?}", e);
+            err(StatusCode::INTERNAL_SERVER_ERROR, format!("Erro ao listar kits: {}", e))
+        }
+    }
+}

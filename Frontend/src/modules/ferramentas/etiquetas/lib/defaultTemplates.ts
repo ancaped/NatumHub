@@ -965,9 +965,9 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
       {
         id: 'barcode_caixa',
         type: 'barcode',
-        x_mm: 10,
+        x_mm: 28,
         y_mm: 13,
-        width_mm: 80,
+        width_mm: 44,
         height_mm: 9,
         zIndex: 2,
         props: {
@@ -979,9 +979,9 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
       {
         id: 'txt_dun',
         type: 'text',
-        x_mm: 50,
+        x_mm: 28,
         y_mm: 22.5,
-        width_mm: 40,
+        width_mm: 44,
         height_mm: 3.5,
         zIndex: 2,
         props: {
@@ -1149,3 +1149,14 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
     ],
   },
 ];
+
+// A etiqueta do kit é a mesma do lote; só muda o nome (o registro de impressão é separado) e de onde vem o lote.
+const modeloLote = DEFAULT_LABEL_TEMPLATES.find((t) => t.id === 'template_lote_erp');
+if (modeloLote) {
+  DEFAULT_LABEL_TEMPLATES.push({
+    ...modeloLote,
+    id: 'template_kit_erp',
+    name: 'Etiqueta de Kit (ERP)',
+    description: 'Mesmo desenho da etiqueta de lote, para kits. O lote é o número da ordem de montagem.',
+  });
+}

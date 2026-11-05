@@ -115,4 +115,7 @@ pub struct LoteEtiquetaItem {
     pub etiquetas_sugeridas: Option<i32>,
     pub etiquetas_impressas: i64,
     pub ultima_impressao: Option<String>,
+    /// Só nas ordens de kit (PENDING, COMPLETED...).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }

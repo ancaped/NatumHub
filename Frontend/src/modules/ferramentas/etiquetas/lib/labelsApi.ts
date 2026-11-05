@@ -48,6 +48,7 @@ export interface LoteEtiqueta {
   etiquetas_sugeridas?: number | null;
   etiquetas_impressas: number;
   ultima_impressao?: string | null;
+  status?: string | null;
 }
 
 export interface RecordPrintPayload {
@@ -143,9 +144,9 @@ export const labelsApi = {
     }
   },
 
-  async listLotes(q: string): Promise<LoteEtiqueta[]> {
+  async listLotes(q: string, tipo: 'lotes' | 'kits' = 'lotes'): Promise<LoteEtiqueta[]> {
     const params = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
-    const data = await apiJson<LoteEtiqueta[]>(`/api/ferramentas/etiquetas/lotes${params}`);
+    const data = await apiJson<LoteEtiqueta[]>(`/api/ferramentas/etiquetas/${tipo}${params}`);
     return Array.isArray(data) ? data : [];
   },
 };

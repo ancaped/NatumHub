@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Boxes, Calendar as CalendarIcon, History, Plus, RefreshCw, Tag } from 'lucide-react';
+import { Boxes, Package, Calendar as CalendarIcon, History, Plus, RefreshCw, Tag } from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
 import { BotaoAcao, FilterBar, ReportHeader, ReportTabs, StatusBadge, TabelaPainel, type AbaRelatorio } from '../../geral/components/ui/ReportKit';
 import { pedirMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
@@ -18,9 +18,10 @@ interface EtiquetasViewProps {
   onNavigateToEditor?: (template?: LabelTemplate) => void;
 }
 
-type Secao = 'modelos' | 'lotes' | 'calendario' | 'historico';
+type Secao = 'modelos' | 'lotes' | 'kits' | 'calendario' | 'historico';
 
 const MODELO_LOTE = 'Etiqueta de Lote (ERP)';
+const MODELO_KIT = 'Etiqueta de Kit (ERP)';
 
 const muted = { color: 'hsl(var(--text-secondary-hsl))' } as const;
 
@@ -117,6 +118,7 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
   const sidebarItems: SidebarItem[] = [
     { id: 'modelos', label: 'Modelos', icon: Tag, badge: modelos.length },
     { id: 'lotes', label: 'Lotes', icon: Boxes },
+    { id: 'kits', label: 'Kits', icon: Package },
     { id: 'calendario', label: 'Calendário', icon: CalendarIcon },
     { id: 'historico', label: 'Histórico', icon: History },
   ];
@@ -195,6 +197,14 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
         {secao === 'lotes' && (
           <LotesTab
             modelo={modelos.find((t) => t.name === MODELO_LOTE) ?? DEFAULT_LABEL_TEMPLATES.find((t) => t.name === MODELO_LOTE)}
+            onImpresso={carregarHistorico}
+          />
+        )}
+
+        {secao === 'kits' && (
+          <LotesTab
+            tipo="kits"
+            modelo={modelos.find((t) => t.name === MODELO_KIT) ?? DEFAULT_LABEL_TEMPLATES.find((t) => t.name === MODELO_KIT)}
             onImpresso={carregarHistorico}
           />
         )}

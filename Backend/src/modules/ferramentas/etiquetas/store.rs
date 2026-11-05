@@ -466,23 +466,89 @@ pub async fn list_lotes_etiqueta(
     Ok(rows
         .into_iter()
         .map(|(lote, codigo, descricao, quantidade, data_producao, qtde_cx, ean, impressas, ultima)| {
-            let caixas = qtde_cx
-                .filter(|c| *c > 0)
-                .map(|c| (quantidade + c - 1) / c)
-                .filter(|n| *n > 0);
-            super::models::LoteEtiquetaItem {
-                descricao: descricao.unwrap_or_else(|| codigo.clone()),
-                lote,
-                codigo,
-                quantidade,
-                data_producao,
-                quantidade_caixa: qtde_cx,
-                codigo_barras_caixa: ean.filter(|e| e.len() == 13).map(|e| format!("1{}", e)),
-                etiquetas_sugeridas: caixas.map(|n| n + 1),
-                caixas,
-                etiquetas_impressas: impressas,
-                ultima_impressao: ultima,
-            }
+            item_etiqueta(lote, codigo, descricao, quantidade, data_producao, qtde_cx, ean, impressas, ultima, None)
+        })
+        .collect())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn item_etiqueta(
+    lote: String,
+    codigo: String,
+    descricao: Option<String>,
+    quantidade: i32,
+    data_producao: Option<String>,
+    qtde_cx: Option<i32>,
+    ean: Option<String>,
+    impressas: i64,
+    ultima: Option<String>,
+    status: Option<String>,
+) -> super::models::LoteEtiquetaItem {
+    let caixas = qtde_cx
+        .filter(|c| *c > 0)
+        .map(|c| (quantidade + c - 1) / c)
+        .filter(|n| *n > 0);
+    super::models::LoteEtiquetaItem {
+        descricao: descricao.unwrap_or_else(|| codigo.clone()),
+        lote,
+        codigo,
+        quantidade,
+        data_producao,
+        quantidade_caixa: qtde_cx,
+        codigo_barras_caixa: ean.filter(|e| e.len() == 13).map(|e| format!("1{}", e)),
+        etiquetas_sugeridas: caixas.map(|n| n + 1),
+        caixas,
+        etiquetas_impressas: impressas,
+        ultima_impressao: ultima,
+        status,
+    }
+}
+
+/// Ordens de montagem de kit (o número da ordem é o lote do kit), da mais recente para a mais antiga.
+pub async fn list_kits_etiqueta(
+    pool: &PgPool,
+    q: Option<&str>,
+    limit: i64,
+) -> Result<Vec<super::models::LoteEtiquetaItem>, sqlx::Error> {
+    let termo = q.map(str::trim).filter(|t| !t.is_empty()).map(|t| format!("%{}%", t));
+    let rows = sqlx::query_as::<_, (String, String, String, i32, String, String, Option<i32>, Option<String>, i64, Option<String>)>(
+        r#"
+        SELECT
+            o.order_number,
+            o.kit_product_code,
+            o.kit_product_description,
+            ROUND(COALESCE(o.quantity_assembled, o.quantity))::int,
+            o.created_at,
+            o.status,
+            NULLIF(p.qtde_cx, 0),
+            NULLIF(TRIM(p.codigo_barras), ''),
+            COALESCE(e.copias, 0)::bigint,
+            e.ultima
+        FROM kit_assembly_orders o
+        LEFT JOIN produtos p ON p.codigo = o.kit_product_code
+        LEFT JOIN (
+            SELECT lot_number, SUM(copies) AS copias, to_char(MAX(printed_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS ultima
+            FROM hub_label_print_history
+            WHERE template_name = 'Etiqueta de Kit (ERP)'
+            GROUP BY lot_number
+        ) e ON e.lot_number = o.order_number
+        WHERE ($1::text IS NULL
+               OR o.order_number ILIKE $1
+               OR o.kit_product_code ILIKE $1
+               OR o.kit_product_description ILIKE $1)
+        ORDER BY o.id DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(termo)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(lote, codigo, descricao, quantidade, criada, status, qtde_cx, ean, impressas, ultima)| {
+            item_etiqueta(lote, codigo, Some(descricao), quantidade, Some(criada), qtde_cx, ean, impressas, ultima, Some(status))
         })
         .collect())
 }

@@ -35,6 +35,8 @@ function montarEtiqueta(modelo: LabelTemplate, l: LoteEtiqueta): LabelTemplate {
 }
 
 interface LotesTabProps {
+  /** Lotes do ERP ou ordens de montagem de kit (o número da ordem é o lote). */
+  tipo?: 'lotes' | 'kits';
   modelo: LabelTemplate | undefined;
   /** Recarrega o histórico da tela depois de imprimir. */
   onImpresso?: () => void;
@@ -44,7 +46,8 @@ interface LotesTabProps {
  * Lotes do ERP, do mais recente para o mais antigo, com o registro de etiqueta impressa.
  * A impressão usa a tela padrão (`PrintModal`) já com a quantidade sugerida (caixas + 1).
  */
-export default function LotesTab({ modelo, onImpresso }: LotesTabProps) {
+export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTabProps) {
+  const kit = tipo === 'kits';
   const [busca, setBusca] = useState('');
   const [aba, setAba] = useState('todos');
   const [lotes, setLotes] = useState<LoteEtiqueta[]>([]);
@@ -55,14 +58,14 @@ export default function LotesTab({ modelo, onImpresso }: LotesTabProps) {
   const carregar = useCallback(() => {
     setCarregando(true);
     labelsApi
-      .listLotes(busca)
+      .listLotes(busca, tipo)
       .then((d) => {
         setLotes(d);
         setErro('');
       })
       .catch((e) => setErro(e instanceof Error ? e.message : 'Erro ao carregar lotes'))
       .finally(() => setCarregando(false));
-  }, [busca]);
+  }, [busca, tipo]);
 
   useEffect(() => {
     const t = setTimeout(carregar, 250);
@@ -85,8 +88,8 @@ export default function LotesTab({ modelo, onImpresso }: LotesTabProps) {
   return (
     <>
       <ReportHeader
-        titulo="Etiquetas de lote"
-        subtitulo="Lotes do ERP, do mais recente para o mais antigo. Busque por lote, código ou produto."
+        titulo={kit ? 'Etiquetas de kit' : 'Etiquetas de lote'}
+        subtitulo={kit ? 'Ordens de montagem de kit, da mais recente para a mais antiga. O lote é o número da ordem.' : 'Lotes do ERP, do mais recente para o mais antigo. Busque por lote, código ou produto.'}
         acoes={
           <BotaoAcao onClick={carregar} disabled={carregando}>
             <RefreshCw size={15} className={carregando ? 'animate-spin' : ''} /> Atualizar
@@ -94,7 +97,7 @@ export default function LotesTab({ modelo, onImpresso }: LotesTabProps) {
         }
       />
       <ReportTabs abas={abas} ativa={aba} onChange={setAba} />
-      <FilterBar busca={busca} onBusca={setBusca} placeholder="Buscar lote, código ou produto..." />
+      <FilterBar busca={busca} onBusca={setBusca} placeholder={kit ? 'Buscar ordem, código ou kit...' : 'Buscar lote, código ou produto...'} />
       <TabelaPainel>
         <thead>
           <tr>
@@ -125,7 +128,12 @@ export default function LotesTab({ modelo, onImpresso }: LotesTabProps) {
           )}
           {linhas.map((l) => (
             <tr key={`${l.lote}-${l.codigo}`}>
-              <td style={{ fontWeight: 700 }}>{l.lote}</td>
+              <td style={{ fontWeight: 700 }}>
+                {l.lote}
+                {kit && l.status && (
+                  <div style={{ fontSize: '0.62rem', fontWeight: 400, ...muted }}>{l.status === 'COMPLETED' ? 'Concluída' : 'Em aberto'}</div>
+                )}
+              </td>
               <td style={{ maxWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
                   <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.descricao}>
