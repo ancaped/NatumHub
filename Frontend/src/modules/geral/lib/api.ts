@@ -186,14 +186,15 @@ export const api = {
   saveSupplier(supplier: Supplier): Promise<void> {
     return hubJson('compras/suppliers', { method: 'POST', body: JSON.stringify(supplier) });
   },
-  unifySuppliers(parentId: string, childIds: string[]): Promise<void> {
-    return hubJson('compras/suppliers/unify', { method: 'POST', body: JSON.stringify({ parentId, childIds }) });
+  /** Grava na hora (confirmar=true): a tela já pede a confirmação ao operador; o motivo vai para a auditoria. */
+  unifySuppliers(parentId: string, childIds: string[], motivo = 'Unificação pela tela Fornecedores'): Promise<void> {
+    return hubJson('compras/suppliers/unify?confirmar=true', { method: 'POST', body: JSON.stringify({ parentId, childIds, motivo }) });
   },
   getSugestoesUnificacaoFornecedores(): Promise<GrupoSugestaoFornecedor[]> {
     return hubJson('compras/suppliers/unify-suggestions');
   },
-  unlinkSupplier(supplierId: string): Promise<void> {
-    return hubJson('compras/suppliers/unlink', { method: 'POST', body: JSON.stringify({ supplierId }) });
+  unlinkSupplier(supplierId: string, motivo = 'Desvinculado pela tela Fornecedores'): Promise<void> {
+    return hubJson('compras/suppliers/unlink?confirmar=true', { method: 'POST', body: JSON.stringify({ supplierId, motivo }) });
   },
   getSupplierHistory(id: string): Promise<{ invoices: Invoice[]; pricePoints: PricePoint[] }> {
     return hubJson(`compras/suppliers/${encodeURIComponent(id)}/history`);

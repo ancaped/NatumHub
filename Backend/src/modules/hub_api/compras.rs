@@ -834,20 +834,38 @@ async fn sugestoes_unificacao_handler(State(state): State<Arc<AppState>>) -> imp
     }
 }
 
-async fn unify_suppliers_handler(State(state): State<Arc<AppState>>, Json(req): Json<UnifySuppliersRequest>) -> impl IntoResponse {
-    match with_pool(&state, move |pool| async move {
-        unify_suppliers_query(pool, &req.parent_id, &req.child_ids).await
-    }).await {
-        Ok(()) => ok_status().into_response(),
+// POST /api/hub/compras/suppliers/unify (2 passos): liga os cadastros ao principal (parent_id); o código do ERP não muda.
+async fn unify_suppliers_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(req): Json<UnifySuppliersRequest>,
+) -> Response {
+    match executar_em_2_passos(state.db.pool(), "unificar_fornecedores_compras", c.confirmar, move |tx| {
+        let req = req.clone();
+        Box::pin(async move { unificar_fornecedores::unificar(&mut **tx, &req.parent_id, &req.child_ids, &req.motivo).await })
+    })
+    .await
+    {
+        Ok(r) => concluir(state.db.pool(), &ctx, "unificar_fornecedores_compras", "supplier", r, false).await,
         Err(e) => e.into_response(),
     }
 }
 
-async fn unlink_supplier_handler(State(state): State<Arc<AppState>>, Json(req): Json<UnlinkSupplierRequest>) -> impl IntoResponse {
-    match with_pool(&state, move |pool| async move {
-        unlink_supplier_query(pool, &req.supplier_id).await
-    }).await {
-        Ok(()) => ok_status().into_response(),
+// POST /api/hub/compras/suppliers/unlink (2 passos): tira o cadastro do grupo.
+async fn unlink_supplier_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(req): Json<UnlinkSupplierRequest>,
+) -> Response {
+    match executar_em_2_passos(state.db.pool(), "desvincular_fornecedor_compras", c.confirmar, move |tx| {
+        let req = req.clone();
+        Box::pin(async move { unificar_fornecedores::desvincular(&mut **tx, &req.supplier_id, &req.motivo).await })
+    })
+    .await
+    {
+        Ok(r) => concluir(state.db.pool(), &ctx, "desvincular_fornecedor_compras", "supplier", r, false).await,
         Err(e) => e.into_response(),
     }
 }
@@ -1582,6 +1600,33 @@ pub fn acoes() -> Vec<Acao> {
             "Sugere grupos de cadastros de fornecedor que parecem ser a mesma empresa: `criterio` \"CNPJ\" (mesma raiz de 8 dígitos) ou \"Nome\" (nome equivalente, sem CNPJ que confirme), `principalId` sugerido (o já agrupado ou o mais usado) e os `membros` com CNPJ, pedidos e notas. Só leitura: quem decide e grava é a tela Fornecedores (unificar liga o cadastro ao principal, sem apagar o código do ERP).",
             "/api/hub/compras/suppliers/unify-suggestions",
             vec![],
+        ),
+        Acao::gravacao(
+            "unificar_fornecedores_compras",
+            MP,
+            "Liga cadastros de fornecedor ao fornecedor principal (`parentId`), sem apagar nem mudar o código do ERP: pedidos, notas e o filtro por fornecedor passam a somar pelo principal. Sem `confirmar=true` devolve a prévia (`antes`, `depois`, `filhosHerdados`) e não grava; com ele grava e audita o motivo. Recusa principal que já está ligado a outro, cadastro inexistente e quando nada muda. Use `sugestoes_unificacao_fornecedores` para achar os grupos.",
+            "POST",
+            "/api/hub/compras/suppliers/unify",
+            true,
+            vec![
+                param("parentId", "corpo", "texto", true, "Código do fornecedor principal."),
+                param("childIds", "corpo", "lista", true, "Códigos dos cadastros a ligar ao principal."),
+                param("motivo", "corpo", "texto", true, "Por que estão sendo unificados."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
+        ),
+        Acao::gravacao(
+            "desvincular_fornecedor_compras",
+            MP,
+            "Tira um cadastro do grupo do fornecedor principal (ele volta a valer sozinho). Sem `confirmar=true` só devolve a prévia; com ele grava e audita o motivo. Recusa quando o cadastro não está ligado a ninguém.",
+            "POST",
+            "/api/hub/compras/suppliers/unlink",
+            true,
+            vec![
+                param("supplierId", "corpo", "texto", true, "Código do cadastro a desvincular."),
+                param("motivo", "corpo", "texto", true, "Por que está sendo desvinculado."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
         ),
         Acao::leitura(
             "historico_fornecedor_compras",

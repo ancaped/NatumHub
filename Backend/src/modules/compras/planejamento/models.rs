@@ -39,17 +39,21 @@ pub struct Supplier {
     pub linked_count: Option<i64>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct UnifySuppliersRequest {
     pub parent_id: String,
     pub child_ids: Vec<String>,
+    #[serde(default)]
+    pub motivo: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct UnlinkSupplierRequest {
     pub supplier_id: String,
+    #[serde(default)]
+    pub motivo: String,
 }
 
 
