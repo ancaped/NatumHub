@@ -108,6 +108,10 @@ Decisão do Edson (conector MCP: em 2026-10-24 aprovou um MCP mínimo só de lei
 
 Decisão do Edson. Antes de declarar pronta qualquer tela: subir o app local (servidor + `Frontend/dist` contra um banco de teste), abrir no navegador (Playwright com `/usr/bin/brave-browser`, headless), tirar screenshot e **olhar a imagem**. Salvar em `.screens/` (na pasta do projeto, ignorada pelo git) e informar o caminho. Visual: seguir o ai-memory (`concepts/ui-design-hsl-zinc`, `concepts/ui-padroes-componentes`): **sem cards de KPI no topo**, tabela + abas + busca + badges, pouco texto, painéis laterais em `<Drawer>`; peças compartilhadas em `Frontend/src/modules/geral/components/ui/ReportKit.tsx`.
 
+## Regra fixa: toda tela precisa funcionar no celular
+
+Decisão do Edson (2026-11-05): ele usa o Nexus pelo celular. Ao conferir uma tela no navegador (regra acima), conferir também em **375×812** (`resize_window` preset mobile): sem rolagem lateral na página, sem recuo duplicado (o `AppLayout` já dá `p-3` no celular; não somar `padding: 1.5rem` no conteúdo), tabelas largas viram **cartões** no celular (exemplo: classes `ferr-view`, `ferr-cartoes` e `lote-wrap` em `Frontend/src/modules/ferramentas/etiquetas/etiquetas.css`), botões que quebram linha (`flex-wrap`), prévias que se ajustam à largura da tela e painéis em `<Drawer>`. Tela que só funciona no desktop não está pronta.
+
 ## Regra fixa: toda etiqueta é um modelo registrado em Etiquetas
 
 Decisão do Edson (2026-11-05). Nenhum módulo desenha etiqueta no próprio código (nem `LabelTemplate` montado na hora, nem HTML com `@page` do tamanho da etiqueta). Toda etiqueta que o Nexus imprime é um **modelo registrado em Etiquetas** (Ferramentas), para o Edson poder ver, editar e criar padrões num lugar só.

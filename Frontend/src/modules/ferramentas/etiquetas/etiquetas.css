@@ -113,3 +113,47 @@
   align-items: center;
   gap: 6px;
 }
+
+/* Celular: sem recuo duplicado e lista de lote/kit/coloração em cartões (sem rolagem lateral) */
+.ferr-view { padding: 1.5rem; padding-bottom: 30px; }
+@media (max-width: 640px) {
+  .ferr-view { padding: 0 0 24px; }
+  .modelo-grid { grid-template-columns: 1fr; }
+  .ferr-view > div:first-child > div:last-child { flex-wrap: wrap; }
+  .lote-wrap table, .lote-wrap tbody { display: block; width: 100%; }
+  .lote-wrap thead { display: none; }
+  .lote-wrap .panel-card { overflow-x: visible !important; }
+  .lote-wrap tr.lote-linha {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+    padding: 12px; border-bottom: 1px solid hsl(var(--card-border-hsl));
+  }
+  .lote-wrap tr.lote-linha:last-child { border-bottom: 0; }
+  .lote-wrap td { display: block; padding: 0 !important; border: 0 !important; width: auto !important; max-width: none !important; }
+  .lote-wrap td[colspan] { width: 100% !important; }
+  .lote-wrap .c-chk { order: 0; }
+  .lote-wrap .c-lote { order: 1; }
+  .lote-wrap .c-prod { order: 2; flex: 1 1 calc(100% - 110px); min-width: 0; }
+  .lote-wrap .lote-cx-input { width: 54px; }
+  .lote-wrap .lote-nome { white-space: normal; overflow: visible; }
+  .lote-wrap .c-meta { order: 3; display: inline-flex !important; align-items: center; gap: 5px; text-align: left !important; font-size: 0.74rem; }
+  .lote-wrap .c-meta::before { content: attr(data-r); font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.03em; color: hsl(var(--text-secondary-hsl)); }
+  .lote-wrap .c-etq { order: 4; }
+  .lote-wrap .c-acao { order: 5; margin-left: auto; }
+}
+
+/* Celular: tabelas das Impressoras viram cartões (linha = cartão, sem rolagem lateral) */
+@media (max-width: 640px) {
+  .ferr-cartoes table, .ferr-cartoes tbody { display: block; width: 100%; }
+  .ferr-cartoes thead { display: none; }
+  .ferr-cartoes .panel-card { overflow-x: visible !important; }
+  .ferr-cartoes tr {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+    padding: 12px; border-bottom: 1px solid hsl(var(--card-border-hsl));
+  }
+  .ferr-cartoes tr:last-child { border-bottom: 0; }
+  .ferr-cartoes td { display: block; border: 0 !important; padding: 0 !important; text-align: left !important; max-width: 100% !important; width: auto !important; white-space: normal !important; }
+  .ferr-cartoes td[colspan] { width: 100%; text-align: center !important; }
+  .ferr-cartoes td:first-child { flex: 1 1 100%; }
+  .ferr-cartoes td:last-child { flex: 1 1 100%; }
+  .ferr-cartoes td:last-child > div { justify-content: flex-start !important; flex-wrap: wrap; }
+}
