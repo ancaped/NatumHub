@@ -200,6 +200,19 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     }
   };
 
+  // Solicitar = colocar na aba Lista de Compra, em 2 passos: prévia dos recomendados e confirmação (igual aos insumos).
+  const [listaPrevia, setListaPrevia] = useState<typeof filteredProducts | null>(null);
+  const [listaSel, setListaSel] = useState<Set<string>>(new Set());
+  const abrirPreviaLista = () => {
+    const cand = filteredProducts.filter((p) => p.sugestao_compra_computed > 0);
+    setListaPrevia(cand);
+    setListaSel(new Set(cand.filter((p) => !isInPrintList(p.codigo)).map((p) => p.codigo)));
+  };
+  const confirmarPreviaLista = () => {
+    lista.adicionar(Array.from(listaSel).filter((c) => !lista.temItem(c)));
+    setListaPrevia(null);
+  };
+
   const handleAddSelectedToPrintList = () => {
     if (selectedForQuote.size === 0) return;
     const newItems = Array.from(selectedForQuote).filter(code => !lista.temItem(code));
@@ -1333,6 +1346,14 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                 Adicionar à Lista ({selectedForQuote.size})
               </button>
             )}
+            <button
+              onClick={abrirPreviaLista}
+              className="text-xs bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 px-3.5 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+              title="Revise os itens com sugestão de compra e confirme para colocá-los na aba Lista de Compra"
+            >
+              <PlusCircle className="h-3.5 w-3.5" />
+              Recomendados → Lista
+            </button>
             <button 
               onClick={() => {
                 if (statusFilter === 'coloracao') {
@@ -1581,6 +1602,75 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
       {/* Slide-over Product Details Drawer */}
       {/* Slide-over Product Details Drawer */}
+      {listaPrevia && (
+  <Drawer
+    onClose={() => setListaPrevia(null)}
+    title="Recomendados para a Lista"
+    subtitle="Prévia: nada entra na Lista até você confirmar"
+    size="xl"
+    footer={
+      <div className="flex items-center justify-end gap-2 p-3">
+        <button onClick={() => setListaPrevia(null)} className="px-3 py-1.5 border border-zinc-200 bg-white rounded-lg text-xs text-zinc-700 hover:bg-zinc-50 cursor-pointer">Cancelar</button>
+        <button onClick={confirmarPreviaLista} disabled={listaSel.size === 0} className="px-3 py-1.5 bg-zinc-900 text-white rounded-lg text-xs font-medium hover:bg-zinc-800 disabled:opacity-40 cursor-pointer">
+          Colocar {listaSel.size} na Lista
+        </button>
+      </div>
+    }
+  >
+    <div className="p-4 space-y-2">
+      <p className="text-[11px] text-zinc-500">Só itens com sugestão de compra neste filtro. A Lista é a aba que você já usa para pedir.</p>
+      <div className="border border-zinc-200 rounded-xl overflow-hidden bg-white">
+        <table className="w-full text-xs">
+          <thead className="bg-zinc-50 text-zinc-500">
+            <tr>
+              <th className="px-3 py-2 w-8"></th>
+              <th className="px-3 py-2 text-left">Produto</th>
+              <th className="px-3 py-2 text-right">Sugestão</th>
+              <th className="px-3 py-2 text-left">Situação</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100">
+            {listaPrevia.length === 0 && (
+              <tr><td colSpan={4} className="px-3 py-6 text-center text-zinc-400">Nenhum item com sugestão de compra neste filtro.</td></tr>
+            )}
+            {listaPrevia.map((p) => {
+              const clean = (p.codigo || '').replace(/\./g, '');
+              const ativo = activeRequests[clean] || activeRequests[p.codigo];
+              const jaNaLista = isInPrintList(p.codigo);
+              return (
+                <tr key={p.codigo}>
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      disabled={jaNaLista}
+                      checked={listaSel.has(p.codigo)}
+                      onChange={() => {
+                        const n = new Set(listaSel);
+                        if (n.has(p.codigo)) n.delete(p.codigo); else n.add(p.codigo);
+                        setListaSel(n);
+                      }}
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="font-medium text-zinc-900">{p.descricao}</div>
+                    <div className="font-mono text-[10px] text-zinc-500">{p.codigo}</div>
+                  </td>
+                  <td className="px-3 py-2 text-right font-bold">{p.sugestao_compra_computed.toLocaleString('pt-BR')} un</td>
+                  <td className="px-3 py-2">
+                    {jaNaLista && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Já na Lista</span>}
+                    {!jaNaLista && ativo && ativo.status !== 'entregue' && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200" title={`Solicitado no ${ativo.loteNumero}`}>Já solicitado</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </Drawer>
+)}
       <Drawer
         isOpen={Boolean(selectedProductCode)}
         onClose={setSelectedItemCodeNull}
