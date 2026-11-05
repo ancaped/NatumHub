@@ -864,3 +864,19 @@ export interface ListaCompraResposta {
   modulo: ModuloListaCompra;
   itens: ListaCompraItem[];
 }
+
+export interface MembroSugestaoFornecedor {
+  id: string;
+  name: string;
+  cnpj?: string | null;
+  parentId?: string | null;
+  pedidos: number;
+  notas: number;
+}
+
+export interface GrupoSugestaoFornecedor {
+  /** 'CNPJ' (mesma raiz) ou 'Nome' (nome equivalente, sem CNPJ que confirme). */
+  criterio: 'CNPJ' | 'Nome';
+  principalId: string;
+  membros: MembroSugestaoFornecedor[];
+}

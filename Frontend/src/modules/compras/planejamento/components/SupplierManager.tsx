@@ -23,6 +23,7 @@ import {
   Filter
 } from 'lucide-react';
 import { randomId } from '../../../geral/lib/utils';
+import { SugestoesFornecedores } from './SugestoesFornecedores';
 import { getAuthUser, isSupervisor } from '../../../geral/lib/auth';
 
 interface SupplierManagerProps {
@@ -46,6 +47,7 @@ export function SupplierManager({ mode = 'all', active = false }: { mode?: strin
 
   // Modal Unir Fornecedores
   const [showUnifyModal, setShowUnifyModal] = useState(false);
+  const [showSugestoes, setShowSugestoes] = useState(false);
   const [unifyMainId, setUnifyMainId] = useState<string>('');
   const [unifyChildIds, setUnifyChildIds] = useState<Set<string>>(new Set());
   const [unifySearch, setUnifySearch] = useState('');
@@ -617,6 +619,17 @@ export function SupplierManager({ mode = 'all', active = false }: { mode?: strin
         <div className="flex items-center gap-2">
           {canConfig && (
             <button
+              onClick={() => setShowSugestoes(true)}
+              className="text-xs bg-white text-zinc-700 border border-zinc-200 px-3 py-2 rounded-lg font-bold hover:bg-zinc-50 flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+              title="Cadastros repetidos que parecem a mesma empresa"
+            >
+              <Layers className="h-3.5 w-3.5" />
+              Sugestões de unificação
+            </button>
+          )}
+
+          {canConfig && (
+            <button
               onClick={() => {
                 setUnifyMainId('');
                 setUnifyChildIds(new Set());
@@ -745,6 +758,8 @@ export function SupplierManager({ mode = 'all', active = false }: { mode?: strin
       )}
 
       {/* Modal: Unir Fornecedores (Grupo Principal + Filiais) */}
+      {showSugestoes && <SugestoesFornecedores onClose={() => setShowSugestoes(false)} onUnificado={loadSuppliers} />}
+
       {showUnifyModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-150">

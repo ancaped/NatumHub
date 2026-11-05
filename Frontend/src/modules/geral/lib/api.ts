@@ -1,6 +1,6 @@
 import { hubJson, ApiError, apiJson } from './http';
 import type {
-  Category, Supplier, Item, Invoice,
+  Category, Supplier, Item, Invoice, GrupoSugestaoFornecedor,
   DemandResult, Quotation, QuotationItem, QuotationPrice,
   ImportResult, StockImport, PricePoint, SupplierSpend, CategorySpend,
   ComprasAppConfig, MicrobioAppConfig, FiscoAppConfig, Feedback, Product, Report,
@@ -188,6 +188,9 @@ export const api = {
   },
   unifySuppliers(parentId: string, childIds: string[]): Promise<void> {
     return hubJson('compras/suppliers/unify', { method: 'POST', body: JSON.stringify({ parentId, childIds }) });
+  },
+  getSugestoesUnificacaoFornecedores(): Promise<GrupoSugestaoFornecedor[]> {
+    return hubJson('compras/suppliers/unify-suggestions');
   },
   unlinkSupplier(supplierId: string): Promise<void> {
     return hubJson('compras/suppliers/unlink', { method: 'POST', body: JSON.stringify({ supplierId }) });

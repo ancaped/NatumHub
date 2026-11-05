@@ -827,6 +827,13 @@ async fn save_supplier_handler(State(state): State<Arc<AppState>>, Json(supplier
     }
 }
 
+async fn sugestoes_unificacao_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match with_pool(&state, sugestoes_unificacao_query).await {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
 async fn unify_suppliers_handler(State(state): State<Arc<AppState>>, Json(req): Json<UnifySuppliersRequest>) -> impl IntoResponse {
     match with_pool(&state, move |pool| async move {
         unify_suppliers_query(pool, &req.parent_id, &req.child_ids).await
@@ -1253,6 +1260,7 @@ pub fn router() -> Router<Arc<AppState>> {
         // Suppliers
         .route("/api/hub/compras/suppliers", get(get_suppliers_handler).post(save_supplier_handler))
         .route("/api/hub/compras/suppliers/unify", post(unify_suppliers_handler))
+        .route("/api/hub/compras/suppliers/unify-suggestions", get(sugestoes_unificacao_handler))
         .route("/api/hub/compras/suppliers/unlink", post(unlink_supplier_handler))
         .route("/api/hub/compras/suppliers/:id/history", get(get_supplier_history_handler))
         // Reports
@@ -1567,6 +1575,13 @@ pub fn acoes() -> Vec<Acao> {
             "Lista os fornecedores do Hub de Compras: nome, CNPJ, contato, e-mail, observações, fornecedor-mãe e quantos fornecedores estão unificados nele. `mode` restringe aos que venderam itens daquele grupo (materia_prima, embalagens, coloracao ou apoio).",
             "/api/hub/compras/suppliers",
             vec![param("mode", "query", "texto", false, "materia_prima, embalagens, coloracao ou apoio.")],
+        ),
+        Acao::leitura(
+            "sugestoes_unificacao_fornecedores",
+            MP,
+            "Sugere grupos de cadastros de fornecedor que parecem ser a mesma empresa: `criterio` \"CNPJ\" (mesma raiz de 8 dígitos) ou \"Nome\" (nome equivalente, sem CNPJ que confirme), `principalId` sugerido (o já agrupado ou o mais usado) e os `membros` com CNPJ, pedidos e notas. Só leitura: quem decide e grava é a tela Fornecedores (unificar liga o cadastro ao principal, sem apagar o código do ERP).",
+            "/api/hub/compras/suppliers/unify-suggestions",
+            vec![],
         ),
         Acao::leitura(
             "historico_fornecedor_compras",

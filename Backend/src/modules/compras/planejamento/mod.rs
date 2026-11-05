@@ -32,7 +32,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
         Acao::leitura(
             "detalhar_pedido_compra",
             "compras_pedidos",
-            "Cabeçalho, itens e notas recebidas (NFs vinculadas por fornecedor + insumo) de um pedido de compra.",
+            "Cabeçalho, itens e notas recebidas de um pedido de compra (o pedido de cada nota é o que o ERP registrou no recebimento).",
             "/api/compras/pedidos/:id",
             vec![param("id", "caminho", "inteiro", true, "Número de registro do pedido (n_registro).")],
         ),
