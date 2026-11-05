@@ -1,3 +1,4 @@
+import '../etiquetas/etiquetas.css';
 import React, { useState, useEffect, useMemo } from 'react';
 import { pedirMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import {
@@ -434,7 +435,7 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
       activeTab={activeTab}
       onTabChange={(id: string) => setActiveTab(id)}
     >
-      <div className="flex-1 p-6 overflow-y-auto font-sans">
+      <div className="flex-1 p-0 sm:p-6 overflow-y-auto font-sans ferr-cartoes">
         {/* TABS: PRINTERS LIST (all, online, offline, thermal, laser) */}
         {activeTab !== 'jobs' && activeTab !== 'scan' && activeTab !== 'network' && (
           <div className="space-y-4">

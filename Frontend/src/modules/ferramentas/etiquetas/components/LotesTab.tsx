@@ -141,6 +141,7 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
       />
       <ReportTabs abas={abas} ativa={aba} onChange={setAba} />
       <FilterBar busca={busca} onBusca={setBusca} placeholder={sem ? 'Buscar código ou produto...' : kit ? 'Buscar ordem, código ou kit...' : 'Buscar lote, código ou produto...'} />
+      <div className="lote-wrap">
       <TabelaPainel>
         <thead>
           <tr>
@@ -183,32 +184,32 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
           {linhas.map((l0) => {
             const l = efetivo(l0);
             return (
-            <tr key={`${l.lote}-${l.codigo}`}>
+            <tr key={`${l.lote}-${l.codigo}`} className="lote-linha">
               {sem && (
-                <td>
+                <td className="c-chk">
                   <input type="checkbox" checked={marcados.has(l.codigo)} onChange={() => alternar(l.codigo)} />
                 </td>
               )}
               {!sem && (
-                <td>
+                <td className="c-lote">
                   <span className="lote-chip">{l.lote}</span>
                   {kit && l.status && <div className="lote-sub">{l.status === 'COMPLETED' ? 'Concluída' : 'Em aberto'}</div>}
                 </td>
               )}
-              <td style={{ maxWidth: 0 }}>
+              <td className="c-prod" style={{ maxWidth: 0 }}>
                 <div className="lote-nome" title={l.descricao}>{l.descricao}</div>
                 <div className="lote-sub">
                   <span className="product-code">{l.codigo}</span>
                 </div>
               </td>
-              {!sem && <td style={{ fontSize: '0.75rem', ...muted }}>{formatarData(l.data_producao)}</td>}
+              {!sem && <td className="c-meta" data-r="Data" style={{ fontSize: '0.75rem', ...muted }}>{formatarData(l.data_producao)}</td>}
               {!sem && (
-                <td className="lote-num" title={l.quantidade_estimada ? 'Estimado: kg do lote / peso da unidade (sem conferência no envase)' : undefined}>
+                <td className="lote-num c-meta" data-r="Unidades" title={l.quantidade_estimada ? 'Estimado: kg do lote / peso da unidade (sem conferência no envase)' : undefined}>
                   {l.quantidade_estimada ? '~' : ''}{l.quantidade}
                 </td>
               )}
-              {!sem && <td className="lote-num" style={{ fontWeight: 600 }}>{l.caixas ?? '—'}</td>}
-              <td style={{ textAlign: 'center' }}>
+              {!sem && <td className="lote-num c-meta" data-r="Caixas" style={{ fontWeight: 600 }}>{l.caixas ?? '—'}</td>}
+              <td className="c-meta" data-r="Un/cx" style={{ textAlign: 'center' }}>
                 <input
                   type="number"
                   min={1}
@@ -225,7 +226,7 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
                   }}
                 />
               </td>
-              <td>
+              <td className="c-etq">
                 {l.etiquetas_impressas > 0 ? (
                   <StatusBadge
                     variante="saudavel"
@@ -237,7 +238,7 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
                   <StatusBadge variante="descontinuado">Sem etiqueta</StatusBadge>
                 )}
               </td>
-              <td style={{ textAlign: 'right' }}>
+              <td className="c-acao" style={{ textAlign: 'right' }}>
                 <BotaoAcao primario={!sem && l.etiquetas_impressas === 0} disabled={!modelo} onClick={() => setImprimindo(l)}>
                   <span className="lote-imprimir"><Printer size={14} /> Imprimir</span>
                 </BotaoAcao>
@@ -247,6 +248,7 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
           })}
         </tbody>
       </TabelaPainel>
+      </div>
 
       {emLote && modelo && emLote.length > 0 && (
         <PrintModal

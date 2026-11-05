@@ -131,7 +131,7 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
       activeTab={secao}
       onTabChange={(id) => setSecao(id as Secao)}
     >
-      <div className="view-container" style={{ padding: '1.5rem', paddingBottom: 30 }}>
+      <div className="view-container ferr-view">
         {secao === 'modelos' && (
           <>
             <ReportHeader
@@ -217,6 +217,7 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
                 </BotaoAcao>
               }
             />
+            <div className="ferr-cartoes">
             <TabelaPainel>
               <thead>
                 <tr>
@@ -255,6 +256,7 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
                 ))}
               </tbody>
             </TabelaPainel>
+            </div>
           </>
         )}
       </div>

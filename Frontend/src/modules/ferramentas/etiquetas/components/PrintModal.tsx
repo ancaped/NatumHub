@@ -123,7 +123,8 @@ export default function PrintModal({
   const portrait = feed === 'portrait';
   const outW = portrait ? labelH : labelW;
   const outH = portrait ? labelW : labelH;
-  const fit = Math.min(480 / outW, 280 / outH);
+  const maxPrevW = Math.max(200, Math.min(480, (typeof window !== 'undefined' ? window.innerWidth : 480) - 72));
+  const fit = Math.min(maxPrevW / outW, 280 / outH);
   const frameW = Math.round(outW * fit);
   const frameH = Math.round(outH * fit);
   const zoom = fillPercent / 100;
@@ -244,7 +245,7 @@ export default function PrintModal({
         </div>
 
         <div className="flex-1 overflow-y-auto grid grid-cols-1 lg:grid-cols-5 min-h-0">
-          <div className="lg:col-span-3 bg-zinc-100 p-6 flex flex-col items-center justify-center gap-4">
+          <div className="lg:col-span-3 bg-zinc-100 p-4 sm:p-6 flex flex-col items-center justify-center gap-4">
             <div
               className="bg-white border border-zinc-300 shadow-md relative overflow-hidden"
               style={{ width: frameW, height: frameH }}

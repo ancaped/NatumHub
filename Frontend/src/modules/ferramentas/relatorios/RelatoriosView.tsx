@@ -61,7 +61,7 @@ export default function RelatoriosView({ onBackToHub }: { onBackToHub: () => voi
       activeTab={secao}
       onTabChange={(id) => setSecao(id as 'catalogo' | 'como')}
     >
-      <div className="view-container" style={{ padding: '1.5rem', paddingBottom: 30 }}>
+      <div className="view-container ferr-view ferr-cartoes">
         {secao === 'catalogo' && (
           <>
             <ReportHeader titulo="Relatórios do sistema" subtitulo="Tudo que o Nexus imprime em A4, de onde vem e se já está registrado aqui" />

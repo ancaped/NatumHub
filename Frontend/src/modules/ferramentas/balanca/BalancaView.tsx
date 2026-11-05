@@ -1,3 +1,4 @@
+import '../etiquetas/etiquetas.css';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, Layers, Printer, RefreshCw, Scale } from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
@@ -154,7 +155,7 @@ export default function BalancaView({ onBackToHub }: BalancaViewProps) {
       activeTab="carga"
       onTabChange={() => undefined}
     >
-      <div className="view-container balanca-print" style={{ padding: '1.5rem', paddingBottom: 30 }}>
+      <div className="view-container ferr-view balanca-print">
         <style>{`
           @media print {
             body * { visibility: hidden; }

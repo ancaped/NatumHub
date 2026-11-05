@@ -108,15 +108,16 @@ Decisão do Edson (conector MCP: em 2026-10-24 aprovou um MCP mínimo só de lei
 
 Decisão do Edson. Antes de declarar pronta qualquer tela: subir o app local (servidor + `Frontend/dist` contra um banco de teste), abrir no navegador (Playwright com `/usr/bin/brave-browser`, headless), tirar screenshot e **olhar a imagem**. Salvar em `.screens/` (na pasta do projeto, ignorada pelo git) e informar o caminho. Visual: seguir o ai-memory (`concepts/ui-design-hsl-zinc`, `concepts/ui-padroes-componentes`): **sem cards de KPI no topo**, tabela + abas + busca + badges, pouco texto, painéis laterais em `<Drawer>`; peças compartilhadas em `Frontend/src/modules/geral/components/ui/ReportKit.tsx`.
 
-## Regra fixa: toda tela também funciona no celular
+## Regra fixa: toda tela precisa funcionar no celular
 
-Decisão do Edson (2026-11-05). O celular faz parte da definição de pronto, não é etapa posterior. Ao criar ou mexer em qualquer tela:
-- **Conferir em 390 x 844**, além do desktop: screenshot olhado e salvo em `.screens/`, como na regra acima.
-- **Sem rolagem horizontal da página**: tabela larga rola dentro do próprio bloco (`TabelaPainel` ou `overflow-x-auto`); barras de filtro, abas e botões quebram linha ou rolam.
-- **Sem largura fixa que estoure**: evitar `w-[...]` e `min-w-[...]` acima de 300 px sem variante por breakpoint; escrever para o celular primeiro e abrir com `sm:`/`md:`/`lg:`.
+Decisão do Edson (2026-11-05): ele usa o Nexus pelo celular. O celular faz parte da definição de pronto, não é etapa posterior. Ao conferir uma tela no navegador (regra acima), conferir também em **375×812 ou 390×844** (`resize_window` preset mobile), com screenshot olhado e salvo em `.screens/`:
+- **Sem rolagem horizontal da página**: sem recuo duplicado (o `AppLayout` já dá `p-3` no celular; não somar `padding: 1.5rem` no conteúdo); tabela larga vira **cartões** no celular (exemplo: classes `ferr-view`, `ferr-cartoes` e `lote-wrap` em `Frontend/src/modules/ferramentas/etiquetas/etiquetas.css`) ou rola dentro do próprio bloco (`TabelaPainel` ou `overflow-x-auto`); filtros, abas e botões quebram linha (`flex-wrap`).
+- **Sem largura fixa que estoure**: evitar `w-[...]` e `min-w-[...]` acima de 300 px sem variante por breakpoint; escrever para o celular primeiro e abrir com `sm:`/`md:`/`lg:`. Prévias se ajustam à largura da tela.
 - **Dá para usar com o dedo**: alvos de toque com pelo menos 44 px nas ações principais; nada que dependa só de hover.
 - **Altura com `dvh`, não `vh`**, em peças de tela cheia.
-- Usar as peças compartilhadas (`<Drawer>`, `Modal`, `ReportKit`), que já resolvem isso.
+- Painéis laterais em `<Drawer>` e peças compartilhadas (`Modal`, `ReportKit`), que já resolvem a base do celular.
+
+Tela que só funciona no desktop não está pronta.
 
 ## Regra fixa: toda etiqueta é um modelo registrado em Etiquetas
 
