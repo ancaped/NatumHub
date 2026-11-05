@@ -201,7 +201,8 @@ function drawElement(
 
   switch (el.type) {
     case 'box': {
-      const bw = Math.max(1, (p.borderWidth || 0.6) * mmToPx);
+      // Traço e posição em pontos inteiros: borda fracionária vira cinza e a impressora térmica a quebra.
+      const bw = Math.max(1, Math.round((p.borderWidth || 0.6) * mmToPx));
       const br = (p.borderRadius || 0) * mmToPx;
       const bc = p.borderColor || '#000000';
       const bg = p.backgroundColor && p.backgroundColor !== 'transparent' ? p.backgroundColor : null;
@@ -215,11 +216,15 @@ function drawElement(
         ctx.setLineDash([bw * 1.5, bw * 1.5]);
       }
 
+      const bx0 = Math.round(x);
+      const by0 = Math.round(y);
+      const bww = Math.round(w);
+      const bhh = Math.round(h);
       ctx.beginPath();
       if (br > 0 && typeof ctx.roundRect === 'function') {
-        ctx.roundRect(x + bw / 2, y + bw / 2, Math.max(1, w - bw), Math.max(1, h - bw), br);
+        ctx.roundRect(bx0 + bw / 2, by0 + bw / 2, Math.max(1, bww - bw), Math.max(1, bhh - bw), br);
       } else {
-        ctx.rect(x + bw / 2, y + bw / 2, Math.max(1, w - bw), Math.max(1, h - bw));
+        ctx.rect(bx0 + bw / 2, by0 + bw / 2, Math.max(1, bww - bw), Math.max(1, bhh - bw));
       }
 
       if (bg) {
@@ -231,7 +236,7 @@ function drawElement(
     }
 
     case 'line': {
-      const sw = Math.max(1, (p.strokeWidth || 0.5) * mmToPx);
+      const sw = Math.max(1, Math.round((p.strokeWidth || 0.5) * mmToPx));
       const sc = p.strokeColor || '#000000';
 
       ctx.lineWidth = sw;
@@ -245,11 +250,11 @@ function drawElement(
 
       ctx.beginPath();
       if (p.orientation === 'vertical') {
-        ctx.moveTo(x + sw / 2, y);
-        ctx.lineTo(x + sw / 2, y + h);
+        ctx.moveTo(Math.round(x) + sw / 2, Math.round(y));
+        ctx.lineTo(Math.round(x) + sw / 2, Math.round(y + h));
       } else {
-        ctx.moveTo(x, y + sw / 2);
-        ctx.lineTo(x + w, y + sw / 2);
+        ctx.moveTo(Math.round(x), Math.round(y) + sw / 2);
+        ctx.lineTo(Math.round(x + w), Math.round(y) + sw / 2);
       }
       ctx.stroke();
       break;
@@ -332,11 +337,16 @@ function drawElement(
       const showText = p.showText !== false;
       const barHeight = showText ? h * 0.76 : h;
 
+      // Módulo de largura inteira em pontos, centralizado: barras fracionárias saem com larguras
+      // diferentes e frestas ("craquelado") quando a imagem vira preto e branco para a térmica.
+      const modulo = Math.max(1, Math.floor(w / res.totalModules));
+      const largura = modulo * res.totalModules;
+      const ox = Math.round(x + (w - largura) / 2);
+      const oy = Math.round(y);
+      const altBarras = Math.round(barHeight);
       ctx.fillStyle = '#000000';
       for (const b of res.bars) {
-        const bx = x + (b.x / res.totalModules) * w;
-        const bw = (b.width / res.totalModules) * w;
-        ctx.fillRect(bx, y, bw, barHeight);
+        ctx.fillRect(ox + b.x * modulo, oy, b.width * modulo, altBarras);
       }
 
       if (showText) {
@@ -355,14 +365,18 @@ function drawElement(
       const rawVal = replaceDynamicTokens(p.value || 'https://natumbiocosmeticos.com.br', seqIndex, totalCount, startSeq, padding);
       const matrix = generateQrMatrix(rawVal);
       const n = matrix.length;
-      const cellW = w / n;
-      const cellH = h / n;
+      // Célula inteira em pontos: sem isso as linhas do QR saem com espessuras diferentes.
+      const cell = Math.max(1, Math.floor(Math.min(w, h) / n));
+      const cellW = cell;
+      const cellH = cell;
+      const qx = Math.round(x + (w - cell * n) / 2);
+      const qy = Math.round(y + (h - cell * n) / 2);
 
       ctx.fillStyle = '#000000';
       for (let r = 0; r < n; r++) {
         for (let c = 0; c < n; c++) {
           if (matrix[r][c]) {
-            ctx.fillRect(x + c * cellW, y + r * cellH, cellW + 0.5, cellH + 0.5);
+            ctx.fillRect(qx + c * cellW, qy + r * cellH, cellW, cellH);
           }
         }
       }

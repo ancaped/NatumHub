@@ -48,8 +48,11 @@ impl Bitmap {
     }
 }
 
-/// Decodifica um PNG (RGBA, RGB, cinza, paleta) para preto e branco.
-/// Transparente conta como branco; limiar de luminância 128.
+/// Pontos mais escuros que isto viram preto. Um pouco acima do meio-termo (128): o texto fino, que a tela
+/// desenha em cinza nas bordas, sai mais cheio e sem quebras na térmica.
+const LIMIAR_PRETO: u8 = 150;
+
+/// Decodifica um PNG (RGBA, RGB, cinza, paleta) para luminância.
 /// Luminância (0 = preto, 255 = branco) de cada ponto do PNG, com o alfa transparente contando como branco.
 fn png_para_luminancia(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
     let invalida = || "Imagem da etiqueta inválida.".to_string();
@@ -95,7 +98,7 @@ fn limiar(largura: u32, altura: u32, lum: &[u8]) -> Bitmap {
     let mut bm = Bitmap::branco(largura, altura);
     for y in 0..altura {
         for x in 0..largura {
-            if lum[(y * largura + x) as usize] < 128 {
+            if lum[(y * largura + x) as usize] < LIMIAR_PRETO {
                 bm.definir(x, y, true);
             }
         }
