@@ -49,7 +49,7 @@ export default function Modal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200 no-print">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4 animate-in fade-in duration-200 no-print">
       
       {/* Click outside to close */}
       <div className="absolute inset-0 cursor-default" onClick={onClose} />
@@ -57,12 +57,12 @@ export default function Modal({
       {/* Modal Box */}
       <div 
         className={cn(
-          "bg-white rounded-2xl shadow-2xl w-full overflow-hidden flex flex-col max-h-[90vh] text-left relative z-10 animate-in fade-in zoom-in-95 duration-200 border border-zinc-200",
+          "bg-white rounded-2xl shadow-2xl w-full overflow-hidden flex flex-col max-h-[90dvh] text-left relative z-10 animate-in fade-in zoom-in-95 duration-200 border border-zinc-200",
           sizeClasses[size]
         )}
       >
         {/* Header */}
-        <div className="px-6 py-4.5 border-b border-zinc-250 bg-zinc-50 flex justify-between items-center shrink-0">
+        <div className="px-4 sm:px-6 py-4.5 border-b border-zinc-250 bg-zinc-50 flex justify-between items-center shrink-0">
           <div className="truncate pr-4">
             <h3 className="font-extrabold text-zinc-900 text-base tracking-tight truncate">
               {title}
@@ -83,7 +83,7 @@ export default function Modal({
         </div>
 
         {/* Scrollable Content Body */}
-        <div className="p-6 overflow-y-auto flex-1">
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1">
           {children}
         </div>
       </div>

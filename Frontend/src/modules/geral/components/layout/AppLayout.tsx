@@ -191,7 +191,7 @@ export default function AppLayout({
       {mobileMenuOpen && (
         <div className="no-print md:hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex flex-col justify-start animate-in fade-in duration-200">
           <div className="absolute inset-0" onClick={() => setMobileMenuOpen(false)} />
-          <nav className="relative bg-white border-b border-zinc-200 p-4 space-y-2 max-h-[85vh] overflow-y-auto shadow-2xl animate-in slide-in-from-top duration-200">
+          <nav className="relative bg-white border-b border-zinc-200 p-4 space-y-2 max-h-[85dvh] overflow-y-auto shadow-2xl animate-in slide-in-from-top duration-200">
             <div className="flex justify-between items-center pb-2 mb-2 border-b border-zinc-100">
               <span className="text-xs font-bold text-zinc-600 uppercase tracking-wider">{moduleTitle}</span>
               <button

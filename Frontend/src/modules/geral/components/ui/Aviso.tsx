@@ -36,7 +36,7 @@ export function useAviso(): { avisar: (mensagem: string, tipo?: TipoAviso) => vo
     <div
       role="status"
       className={cn(
-        'fixed bottom-4 right-4 z-[60] max-w-sm flex items-start gap-2.5 rounded-xl border px-4 py-3 shadow-lg text-xs font-semibold no-print',
+        'fixed bottom-4 left-4 right-4 sm:left-auto z-[60] sm:max-w-sm flex items-start gap-2.5 rounded-xl border px-4 py-3 shadow-lg text-xs font-semibold no-print',
         ESTILOS[atual.tipo]
       )}
     >

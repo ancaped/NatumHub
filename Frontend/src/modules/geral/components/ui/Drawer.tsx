@@ -96,7 +96,7 @@ export default function Drawer({
         )}
       >
         {/* Cabeçalho Padronizado */}
-        <div className="px-6 py-4.5 border-b border-zinc-200 bg-zinc-50/70 flex justify-between items-start shrink-0 gap-4">
+        <div className="px-4 sm:px-6 py-4.5 border-b border-zinc-200 bg-zinc-50/70 flex justify-between items-start shrink-0 gap-4">
           <div className="min-w-0 flex-1">
             {badge && (
               <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -183,7 +183,7 @@ export default function Drawer({
 
         {/* Rodapé Padronizado Opcional */}
         {footer && (
-          <div className="px-6 py-3.5 border-t border-zinc-200 bg-zinc-50/80 flex items-center justify-end gap-2.5 shrink-0">
+          <div className="px-4 sm:px-6 py-3.5 border-t border-zinc-200 bg-zinc-50/80 flex flex-wrap items-center justify-end gap-2.5 shrink-0">
             {footer}
           </div>
         )}

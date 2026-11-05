@@ -1329,7 +1329,7 @@ export default function App() {
     !(needsSupervisorSetup);
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-zinc-50 font-sans text-zinc-900">
+    <div className="flex flex-col h-dvh overflow-hidden bg-zinc-50 font-sans text-zinc-900">
       <div className="flex-1 flex flex-col overflow-hidden relative min-h-0 w-full">
         {showAppShell ? (
           <AppShell

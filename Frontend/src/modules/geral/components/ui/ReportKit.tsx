@@ -94,7 +94,7 @@ export function FilterBar({
   return (
     <div className="panel-card" style={{ marginBottom: 10, padding: '8px 12px' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
-        <div className="search-input-wrapper" style={{ minWidth: 220, flex: '1 1 auto' }}>
+        <div className="search-input-wrapper" style={{ minWidth: 'min(220px, 100%)', flex: '1 1 220px' }}>
           <Search size={15} className="search-icon" />
           <input
             type="text"

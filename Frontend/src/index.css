@@ -1437,3 +1437,29 @@ tr.expanded-row > td {
 .status-badge {
   white-space: nowrap;
 }
+
+/* Celular: peças compartilhadas */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 639px) {
+  .panel-card {
+    padding: 1rem;
+  }
+  .search-input-wrapper {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

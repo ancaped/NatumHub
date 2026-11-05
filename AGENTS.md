@@ -108,6 +108,16 @@ Decisão do Edson (conector MCP: em 2026-10-24 aprovou um MCP mínimo só de lei
 
 Decisão do Edson. Antes de declarar pronta qualquer tela: subir o app local (servidor + `Frontend/dist` contra um banco de teste), abrir no navegador (Playwright com `/usr/bin/brave-browser`, headless), tirar screenshot e **olhar a imagem**. Salvar em `.screens/` (na pasta do projeto, ignorada pelo git) e informar o caminho. Visual: seguir o ai-memory (`concepts/ui-design-hsl-zinc`, `concepts/ui-padroes-componentes`): **sem cards de KPI no topo**, tabela + abas + busca + badges, pouco texto, painéis laterais em `<Drawer>`; peças compartilhadas em `Frontend/src/modules/geral/components/ui/ReportKit.tsx`.
 
+## Regra fixa: toda tela também funciona no celular
+
+Decisão do Edson (2026-11-05). O celular faz parte da definição de pronto, não é etapa posterior. Ao criar ou mexer em qualquer tela:
+- **Conferir em 390 x 844**, além do desktop: screenshot olhado e salvo em `.screens/`, como na regra acima.
+- **Sem rolagem horizontal da página**: tabela larga rola dentro do próprio bloco (`TabelaPainel` ou `overflow-x-auto`); barras de filtro, abas e botões quebram linha ou rolam.
+- **Sem largura fixa que estoure**: evitar `w-[...]` e `min-w-[...]` acima de 300 px sem variante por breakpoint; escrever para o celular primeiro e abrir com `sm:`/`md:`/`lg:`.
+- **Dá para usar com o dedo**: alvos de toque com pelo menos 44 px nas ações principais; nada que dependa só de hover.
+- **Altura com `dvh`, não `vh`**, em peças de tela cheia.
+- Usar as peças compartilhadas (`<Drawer>`, `Modal`, `ReportKit`), que já resolvem isso.
+
 ## Regra fixa: toda etiqueta é um modelo registrado em Etiquetas
 
 Decisão do Edson (2026-11-05). Nenhum módulo desenha etiqueta no próprio código (nem `LabelTemplate` montado na hora, nem HTML com `@page` do tamanho da etiqueta). Toda etiqueta que o Nexus imprime é um **modelo registrado em Etiquetas** (Ferramentas), para o Edson poder ver, editar e criar padrões num lugar só.
