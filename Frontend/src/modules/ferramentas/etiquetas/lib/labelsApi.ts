@@ -43,7 +43,9 @@ export interface LoteEtiqueta {
   quantidade: number;
   data_producao?: string | null;
   quantidade_caixa?: number | null;
-  codigo_barras_caixa?: string | null;
+  codigo_barras?: string | null;
+  /** true quando as unidades foram calculadas (kg / peso da unidade), não conferidas no envase. */
+  quantidade_estimada?: boolean;
   caixas?: number | null;
   etiquetas_sugeridas?: number | null;
   etiquetas_impressas: number;

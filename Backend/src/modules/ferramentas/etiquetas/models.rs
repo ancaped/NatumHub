@@ -105,10 +105,12 @@ pub struct LoteEtiquetaItem {
     pub codigo: String,
     pub descricao: String,
     pub quantidade: i32,
+    /// true quando as unidades foram calculadas (kg do lote / peso da unidade), não conferidas no envase.
+    pub quantidade_estimada: bool,
     pub data_producao: Option<String>,
     pub quantidade_caixa: Option<i32>,
-    /// DUN-14 da caixa: "1" + EAN-13 do produto.
-    pub codigo_barras_caixa: Option<String>,
+    /// EAN-13 do produto (o coletor lê esse; o DUN-14 é longo demais para a etiqueta).
+    pub codigo_barras: Option<String>,
     /// Caixas do lote: quantidade produzida / unidades por caixa, arredondado para cima.
     pub caixas: Option<i32>,
     /// Sugestão de etiquetas: caixas + 1.
@@ -126,7 +128,7 @@ pub struct ColoracaoEtiquetaItem {
     pub codigo: String,
     pub descricao: String,
     pub quantidade_caixa: Option<i32>,
-    pub codigo_barras_caixa: Option<String>,
+    pub codigo_barras: Option<String>,
     pub etiquetas_impressas: i64,
     pub ultima_impressao: Option<String>,
 }

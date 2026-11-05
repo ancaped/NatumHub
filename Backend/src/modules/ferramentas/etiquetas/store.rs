@@ -429,7 +429,7 @@ pub async fn list_lotes_etiqueta(
     limit: i64,
 ) -> Result<Vec<super::models::LoteEtiquetaItem>, sqlx::Error> {
     let termo = q.map(str::trim).filter(|t| !t.is_empty()).map(|t| format!("%{}%", t));
-    let rows = sqlx::query_as::<_, (String, String, Option<String>, i32, Option<String>, Option<i32>, Option<String>, i64, Option<String>)>(
+    let rows = sqlx::query_as::<_, (String, String, Option<String>, i32, Option<String>, Option<i32>, Option<String>, i64, Option<String>, Option<f64>, Option<String>)>(
         r#"
         SELECT
             h.lote_erp,
@@ -440,9 +440,17 @@ pub async fn list_lotes_etiqueta(
             NULLIF(p.qtde_cx, 0),
             NULLIF(TRIM(p.codigo_barras), ''),
             COALESCE(e.copias, 0)::bigint,
-            e.ultima
+            e.ultima,
+            m.kg::float8,
+            m.det
         FROM historico_producao h
         LEFT JOIN produtos p ON p.codigo = h.codigo
+        LEFT JOIN LATERAL (
+            SELECT SUM(sm.quantity) AS kg, string_agg(sm.details, '|') AS det
+            FROM stock_movements sm
+            WHERE sm.document_number = h.lote_erp AND sm.item_code = h.codigo
+              AND sm.item_type = 'produto' AND sm.movement_type = 'entrada'
+        ) m ON true
         LEFT JOIN (
             SELECT lot_number, SUM(copies) AS copias, to_char(MAX(printed_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS ultima
             FROM hub_label_print_history
@@ -465,8 +473,25 @@ pub async fn list_lotes_etiqueta(
 
     Ok(rows
         .into_iter()
-        .map(|(lote, codigo, descricao, quantidade, data_producao, qtde_cx, ean, impressas, ultima)| {
-            item_etiqueta(lote, codigo, descricao, quantidade, data_producao, qtde_cx, ean, impressas, ultima, None)
+        .map(|(lote, codigo, descricao, quantidade, data_producao, qtde_cx, ean, impressas, ultima, kg, det)| {
+            // O lote do ERP entra em kg. Unidades: as conferidas no envase ("Unidades: N" nos detalhes)
+            // ou, sem conferência, kg / peso da unidade pela descrição (mesma regra da conferência da Produção).
+            let conferidas = det
+                .as_deref()
+                .unwrap_or("")
+                .split('|')
+                .filter_map(|p| p.trim().strip_prefix("Unidades:").and_then(|v| v.trim().parse::<f64>().ok()))
+                .find(|u| *u > 0.0);
+            let peso = crate::modules::producao::lotes::parse_unit_weight_from_desc(descricao.as_deref().unwrap_or(""));
+            let kg = kg.unwrap_or(quantidade as f64);
+            let (unidades, estimada) = match conferidas {
+                Some(u) => (u.round() as i32, false),
+                None if peso > 0.0 => ((kg / peso).round() as i32, true),
+                None => (kg.round() as i32, true),
+            };
+            let mut item = item_etiqueta(lote, codigo, descricao, unidades, data_producao, qtde_cx, ean, impressas, ultima, None);
+            item.quantidade_estimada = estimada;
+            item
         })
         .collect())
 }
@@ -495,7 +520,8 @@ fn item_etiqueta(
         quantidade,
         data_producao,
         quantidade_caixa: qtde_cx,
-        codigo_barras_caixa: ean.filter(|e| e.len() == 13).map(|e| format!("1{}", e)),
+        codigo_barras: ean.filter(|e| e.len() == 13),
+        quantidade_estimada: false,
         etiquetas_sugeridas: caixas.map(|n| n + 1),
         caixas,
         etiquetas_impressas: impressas,
@@ -594,7 +620,7 @@ pub async fn list_coloracoes_etiqueta(
             codigo,
             descricao,
             quantidade_caixa: qtde_cx,
-            codigo_barras_caixa: ean.filter(|e| e.len() == 13).map(|e| format!("1{}", e)),
+            codigo_barras: ean.filter(|e| e.len() == 13),
             etiquetas_impressas: impressas,
             ultima_impressao: ultima,
         })

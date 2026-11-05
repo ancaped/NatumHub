@@ -19,7 +19,7 @@ function montarEtiqueta(modelo: LabelTemplate, l: LoteEtiqueta): LabelTemplate {
     t
       .replace(/{product_name}/g, l.descricao)
       .replace(/{product_code}/g, l.codigo)
-      .replace(/{box_barcode}/g, l.codigo_barras_caixa || '')
+      .replace(/{barcode}/g, l.codigo_barras || '')
       .replace(/{lot}/g, l.lote)
       .replace(/{manufacturing_date}/g, formatarData(l.data_producao))
       .replace(/{box_qty}/g, l.quantidade_caixa ? `${l.quantidade_caixa} unidades` : '');
@@ -146,7 +146,11 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
                 </div>
               </td>
               {!sem && <td style={{ fontSize: '0.75rem', ...muted }}>{formatarData(l.data_producao)}</td>}
-              {!sem && <td style={{ textAlign: 'right' }}>{l.quantidade}</td>}
+              {!sem && (
+                <td style={{ textAlign: 'right' }} title={l.quantidade_estimada ? 'Estimado: kg do lote / peso da unidade (sem conferência no envase)' : undefined}>
+                  {l.quantidade_estimada ? '~' : ''}{l.quantidade}
+                </td>
+              )}
               <td style={{ textAlign: 'right' }} title={l.quantidade_caixa ? `${l.quantidade_caixa} un. por caixa` : 'Produto sem quantidade por caixa'}>
                 {sem ? (l.quantidade_caixa ?? '—') : (l.caixas ?? '—')}
                 {!sem && l.quantidade_caixa ? <div style={{ fontSize: '0.62rem', ...muted }}>{l.quantidade_caixa} un/cx</div> : null}
