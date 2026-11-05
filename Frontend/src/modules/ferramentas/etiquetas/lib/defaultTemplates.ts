@@ -3,6 +3,7 @@ import type { LabelTemplate } from './types';
 export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
   {
     id: 'template_materia_prima',
+    chave: 'materia_prima',
     name: 'Identificação de Matéria-Prima',
     description: 'Etiqueta padrão para identificação e recebimento de insumos químicos e matérias-primas no estoque.',
     category: 'estoque',
@@ -258,6 +259,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
   },
   {
     id: 'template_embalagem',
+    chave: 'embalagem',
     name: 'Identificação de Embalagens & Frascos',
     description: 'Etiqueta para caixas de frascos, tampas, válvulas e rótulos no estoque.',
     category: 'estoque',
@@ -420,6 +422,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
   },
   {
     id: 'template_produto_acabado',
+    chave: 'produto_acabado',
     name: 'Produto Acabado / Amostra',
     description: 'Etiqueta para produtos cosméticos acabados, lotes piloto ou amostras de retenção.',
     category: 'producao',
@@ -599,6 +602,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
   },
   {
     id: 'template_controle_qualidade',
+    chave: 'controle_qualidade',
     name: 'Status de Controle de Qualidade',
     description: 'Etiqueta de inspeção laboratorial (Aprovado / Quarentena / Reprovado).',
     category: 'qualidade',
@@ -777,6 +781,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
   },
   {
     id: 'template_caixa_volume',
+    chave: 'caixa_volume',
     name: 'Identificação de Caixa / Volume',
     description: 'Etiqueta de expedição com numeração sequencial de volume (ex: Vol 01/10).',
     category: 'expedicao',
@@ -920,6 +925,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
   },
   {
     id: 'template_lote_erp',
+    chave: 'lote_erp',
     name: 'Etiqueta de Lote (ERP)',
     description: 'Desenho da etiqueta de lote do ERP, sem borda: nome do produto, código de barras (EAN-13) do produto, data, código, nº do lote e quantidade por caixa.',
     category: 'producao',
@@ -1141,6 +1147,7 @@ if (modeloLote) {
   DEFAULT_LABEL_TEMPLATES.push({
     ...modeloLote,
     id: 'template_kit_erp',
+    chave: 'kit_erp',
     name: 'Etiqueta de Kit (ERP)',
     description: 'Mesmo desenho da etiqueta de lote, para kits. O lote é o número da ordem de montagem.',
   });
@@ -1152,6 +1159,7 @@ if (modeloLote) {
   DEFAULT_LABEL_TEMPLATES.push({
     ...modeloLote,
     id: 'template_coloracao_erp',
+    chave: 'coloracao_erp',
     name: 'Etiqueta de Coloração (ERP)',
     description: 'Etiqueta de produto de Coloração, sem lote: nome, código de barras da caixa, código e quantidade por caixa.',
     // Layout próprio, sem sobras: nome grande em cima, código de barras central e uma linha com código e quantidade.

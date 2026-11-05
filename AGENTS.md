@@ -108,6 +108,15 @@ Decisão do Edson (conector MCP: em 2026-10-24 aprovou um MCP mínimo só de lei
 
 Decisão do Edson. Antes de declarar pronta qualquer tela: subir o app local (servidor + `Frontend/dist` contra um banco de teste), abrir no navegador (Playwright com `/usr/bin/brave-browser`, headless), tirar screenshot e **olhar a imagem**. Salvar em `.screens/` (na pasta do projeto, ignorada pelo git) e informar o caminho. Visual: seguir o ai-memory (`concepts/ui-design-hsl-zinc`, `concepts/ui-padroes-componentes`): **sem cards de KPI no topo**, tabela + abas + busca + badges, pouco texto, painéis laterais em `<Drawer>`; peças compartilhadas em `Frontend/src/modules/geral/components/ui/ReportKit.tsx`.
 
+## Regra fixa: toda etiqueta é um modelo registrado em Etiquetas
+
+Decisão do Edson (2026-11-05). Nenhum módulo desenha etiqueta no próprio código (nem `LabelTemplate` montado na hora, nem HTML com `@page` do tamanho da etiqueta). Toda etiqueta que o Nexus imprime é um **modelo registrado em Etiquetas** (Ferramentas), para o Edson poder ver, editar e criar padrões num lugar só.
+- **Modelo do sistema**: tem `chave` (ex.: `lote_erp`, `kit_erp`, `bombona`) e nasce em `Frontend/src/modules/ferramentas/etiquetas/lib/defaultTemplates.ts` com campos do sistema no lugar dos dados (`{lot}`, `{product_name}`, `{box_qty}`...). Editar pela tela Etiquetas grava a versão editada no banco com a mesma chave; "Restaurar padrão" apaga a linha.
+- **Como o módulo usa**: `obterModeloPorChave(chave)` e `preencherModelo(modelo, dados)` (`etiquetas/lib/modelos.ts`), depois imprime com o `PrintModal`. O módulo manda só os dados.
+- **Etiqueta nova** = modelo novo com chave em `defaultTemplates.ts` + uso pela chave. Sem desenho dentro do módulo. Modelos livres, sem chave, são os "Editáveis".
+- Mudança em `defaultTemplates.ts` é da conversa de **Ferramentas**: o módulo que precisa de etiqueta nova pede o modelo lá (texto pronto para o Edson colar) ou, se o Edson autorizar, acrescenta só o seu modelo.
+- Relatórios em PDF/A4 seguem a mesma ideia no futuro módulo **Relatórios** (ainda não existe).
+
 ## Regra fixa: sempre trabalhar com o ai-memory
 
 Decisão do Edson. O ai-memory roda no ZimaOS (`http://100.64.207.54:49374/mcp`, workspace `default`, projeto `nexus`, ver `.ai-memory.toml`) e é a memória oficial do projeto, compartilhada entre agentes. Em toda tarefa:

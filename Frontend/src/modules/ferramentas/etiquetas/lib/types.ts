@@ -168,6 +168,8 @@ export interface LabelTemplate {
   orientation: LabelOrientation;
   elements_json: LabelElement[];
   is_default?: boolean;
+  /** Modelo do sistema: usado pelos módulos por esta chave. Sem chave = modelo editável. */
+  chave?: string | null;
   created_at?: string;
   updated_at?: string;
 }

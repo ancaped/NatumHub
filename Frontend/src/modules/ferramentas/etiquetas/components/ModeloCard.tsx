@@ -36,7 +36,9 @@ export default function ModeloCard({ modelo, onAbrir }: { modelo: LabelTemplate;
           <span aria-hidden>·</span>
           <span>{modelo.width_mm}×{modelo.height_mm} mm</span>
           <span style={{ marginLeft: 'auto' }}>
-            <StatusBadge variante={modelo.is_default ? 'descontinuado' : 'saudavel'}>{modelo.is_default ? 'Padrão' : 'Criado'}</StatusBadge>
+            <StatusBadge variante={modelo.chave && !modelo.id.startsWith('template_') ? 'saudavel' : modelo.is_default ? 'descontinuado' : 'saudavel'}>
+              {modelo.chave ? (modelo.id.startsWith('template_') ? 'Padrão' : 'Editado') : modelo.is_default ? 'Padrão' : 'Criado'}
+            </StatusBadge>
           </span>
         </div>
       </div>

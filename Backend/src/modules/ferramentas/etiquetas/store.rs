@@ -48,6 +48,12 @@ pub async fn ensure_table(pool: &PgPool) -> Result<(), sqlx::Error> {
 
     let _ = sqlx::raw_sql("ALTER TABLE hub_label_templates ALTER COLUMN width_mm TYPE FLOAT8 USING width_mm::float8;").execute(pool).await;
     let _ = sqlx::raw_sql("ALTER TABLE hub_label_templates ALTER COLUMN height_mm TYPE FLOAT8 USING height_mm::float8;").execute(pool).await;
+    sqlx::raw_sql(
+        "ALTER TABLE hub_label_templates ADD COLUMN IF NOT EXISTS chave TEXT;
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_hub_label_templates_chave ON hub_label_templates(chave) WHERE chave IS NOT NULL;",
+    )
+    .execute(pool)
+    .await?;
 
     Ok(())
 }
@@ -67,6 +73,7 @@ pub async fn list_templates(pool: &PgPool) -> Result<Vec<LabelTemplate>, sqlx::E
             orientation,
             elements_json,
             is_default,
+            chave,
             created_at,
             updated_at
         FROM hub_label_templates
@@ -94,6 +101,7 @@ pub async fn get_template(pool: &PgPool, id: Uuid) -> Result<Option<LabelTemplat
             orientation,
             elements_json,
             is_default,
+            chave,
             created_at,
             updated_at
         FROM hub_label_templates
@@ -129,9 +137,10 @@ pub async fn create_template(
             height_mm,
             orientation,
             elements_json,
-            is_default
+            is_default,
+            chave
         )
-        VALUES ($1, $2, $3, $4::float8, $5::float8, $6, $7, $8)
+        VALUES ($1, $2, $3, $4::float8, $5::float8, $6, $7, $8, $9)
         RETURNING
             id,
             name,
@@ -142,6 +151,7 @@ pub async fn create_template(
             orientation,
             elements_json,
             is_default,
+            chave,
             created_at,
             updated_at
         "#,
@@ -154,6 +164,7 @@ pub async fn create_template(
     .bind(orientation)
     .bind(payload.elements_json)
     .bind(is_default)
+    .bind(payload.chave.filter(|c| !c.trim().is_empty()))
     .fetch_one(pool)
     .await?;
 
@@ -205,6 +216,7 @@ pub async fn update_template(
             orientation,
             elements_json,
             is_default,
+            chave,
             created_at,
             updated_at
         "#,

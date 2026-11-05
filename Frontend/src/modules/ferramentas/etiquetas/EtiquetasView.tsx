@@ -12,6 +12,7 @@ import PrintWithSystemDataModal from './components/PrintWithSystemDataModal';
 import { labelsApi, type LabelPrintHistoryItem } from './lib/labelsApi';
 import { DEFAULT_LABEL_TEMPLATES } from './lib/defaultTemplates';
 import { FAMILIAS, familiaDe } from './lib/familias';
+import { ehDoSistema, foiEditado, mesclarModelos } from './lib/modelos';
 import type { LabelTemplate } from './lib/types';
 
 interface EtiquetasViewProps {
@@ -21,9 +22,6 @@ interface EtiquetasViewProps {
 
 type Secao = 'modelos' | 'lotes' | 'kits' | 'coloracao' | 'calendario' | 'historico';
 
-const MODELO_LOTE = 'Etiqueta de Lote (ERP)';
-const MODELO_KIT = 'Etiqueta de Kit (ERP)';
-const MODELO_COLORACAO = 'Etiqueta de Coloração (ERP)';
 
 const muted = { color: 'hsl(var(--text-secondary-hsl))' } as const;
 
@@ -34,6 +32,8 @@ const muted = { color: 'hsl(var(--text-secondary-hsl))' } as const;
 export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: EtiquetasViewProps) {
   const [secao, setSecao] = useState<Secao>('modelos');
   const [familia, setFamilia] = useState<string>('todos');
+  /** Do sistema: modelos que os módulos usam pela chave. Editáveis: livres, do usuário. */
+  const [origem, setOrigem] = useState<'sistema' | 'editaveis'>('sistema');
   const [busca, setBusca] = useState('');
 
   const [modelos, setModelos] = useState<LabelTemplate[]>(DEFAULT_LABEL_TEMPLATES);
@@ -48,16 +48,7 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
   const carregarModelos = useCallback(async () => {
     setCarregando(true);
     try {
-      const lista = await labelsApi.listTemplates();
-      if (lista.length > 0) {
-        const juntos = [...DEFAULT_LABEL_TEMPLATES];
-        for (const t of lista) {
-          const i = juntos.findIndex((m) => m.id === t.id);
-          if (i >= 0) juntos[i] = t;
-          else juntos.push(t);
-        }
-        setModelos(juntos);
-      }
+      setModelos(mesclarModelos(await labelsApi.listTemplates()));
     } catch (e) {
       console.warn('Erro ao carregar modelos da API:', e);
     } finally {
@@ -81,29 +72,34 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
     carregarHistorico();
   }, [carregarModelos, carregarHistorico]);
 
-  const abas: AbaRelatorio[] = useMemo(() => {
+  const abasOrigem: AbaRelatorio[] = useMemo(
+    () => [
+      { id: 'sistema', label: 'Do sistema', contagem: modelos.filter(ehDoSistema).length },
+      { id: 'editaveis', label: 'Editáveis', contagem: modelos.filter((t) => !ehDoSistema(t)).length },
+    ],
+    [modelos],
+  );
+
+  const daOrigem = useMemo(() => modelos.filter((t) => (origem === 'sistema' ? ehDoSistema(t) : !ehDoSistema(t))), [modelos, origem]);
+
+  const familiasDaOrigem = useMemo(() => {
     const cont: Record<string, number> = {};
-    for (const t of modelos) cont[familiaDe(t)] = (cont[familiaDe(t)] ?? 0) + 1;
-    return [
-      { id: 'todos', label: 'Todos', contagem: modelos.length },
-      ...Object.entries(FAMILIAS)
-        .filter(([id]) => cont[id])
-        .map(([id, label]) => ({ id, label, contagem: cont[id] })),
-    ];
-  }, [modelos]);
+    for (const t of daOrigem) cont[familiaDe(t)] = (cont[familiaDe(t)] ?? 0) + 1;
+    return Object.entries(FAMILIAS).filter(([id]) => cont[id]);
+  }, [daOrigem]);
 
   const linhas = useMemo(() => {
     const q = busca.trim().toLowerCase();
-    return modelos.filter((t) => {
+    return daOrigem.filter((t) => {
       if (familia !== 'todos' && familiaDe(t) !== familia) return false;
       return !q || `${t.name} ${t.description ?? ''} ${FAMILIAS[familiaDe(t)]}`.toLowerCase().includes(q);
     });
-  }, [modelos, familia, busca]);
+  }, [daOrigem, familia, busca]);
 
   const excluir = (t: LabelTemplate) => {
     pedirMotivoExclusao({
-      titulo: 'Excluir modelo de etiqueta',
-      alvo: `Modelo "${t.name}"`,
+      titulo: foiEditado(t) ? 'Restaurar modelo do sistema' : 'Excluir modelo de etiqueta',
+      alvo: foiEditado(t) ? `Volta o modelo "${t.name}" ao padrão do sistema (a versão editada é apagada)` : `Modelo "${t.name}"`,
       executar: async (motivo) => {
         await labelsApi.deleteTemplate(t.id, motivo);
         setAberto(null);
@@ -147,8 +143,29 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
                 </BotaoAcao>
               }
             />
-            <ReportTabs abas={abas} ativa={familia} onChange={setFamilia} />
-            <FilterBar busca={busca} onBusca={setBusca} placeholder="Buscar modelo..." />
+            <ReportTabs
+              abas={abasOrigem}
+              ativa={origem}
+              onChange={(id) => {
+                setOrigem(id as 'sistema' | 'editaveis');
+                setFamilia('todos');
+              }}
+            />
+            <FilterBar busca={busca} onBusca={setBusca} placeholder="Buscar modelo...">
+              <select
+                value={familia}
+                onChange={(e) => setFamilia(e.target.value)}
+                aria-label="Família"
+                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid hsl(var(--card-border-hsl))', background: 'transparent', fontSize: '0.78rem' }}
+              >
+                <option value="todos">Todas as famílias</option>
+                {familiasDaOrigem.map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </FilterBar>
             {carregando && linhas.length === 0 && <div className="lote-vazio">Carregando...</div>}
             {!carregando && linhas.length === 0 && <div className="lote-vazio">Nenhum modelo com este filtro.</div>}
             <div className="modelo-grid">
@@ -161,7 +178,7 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
 
         {secao === 'lotes' && (
           <LotesTab
-            modelo={modelos.find((t) => t.name === MODELO_LOTE) ?? DEFAULT_LABEL_TEMPLATES.find((t) => t.name === MODELO_LOTE)}
+            modelo={modelos.find((t) => t.chave === 'lote_erp')}
             onImpresso={carregarHistorico}
           />
         )}
@@ -169,7 +186,7 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
         {secao === 'kits' && (
           <LotesTab
             tipo="kits"
-            modelo={modelos.find((t) => t.name === MODELO_KIT) ?? DEFAULT_LABEL_TEMPLATES.find((t) => t.name === MODELO_KIT)}
+            modelo={modelos.find((t) => t.chave === 'kit_erp')}
             onImpresso={carregarHistorico}
           />
         )}
@@ -177,7 +194,7 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
         {secao === 'coloracao' && (
           <LotesTab
             tipo="coloracoes"
-            modelo={modelos.find((t) => t.name === MODELO_COLORACAO) ?? DEFAULT_LABEL_TEMPLATES.find((t) => t.name === MODELO_COLORACAO)}
+            modelo={modelos.find((t) => t.chave === 'coloracao_erp')}
             onImpresso={carregarHistorico}
           />
         )}
@@ -249,7 +266,8 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
           onImprimir={() => setImprimirRapido(aberto)}
           onImprimirComLote={() => setImprimirCom(aberto)}
           onAbrirEditor={() => onNavigateToEditor?.(aberto)}
-          onExcluir={aberto.is_default ? undefined : () => excluir(aberto)}
+          rotuloExcluir={foiEditado(aberto) ? 'Restaurar padrão' : 'Excluir'}
+          onExcluir={aberto.is_default && !foiEditado(aberto) ? undefined : () => excluir(aberto)}
         />
       )}
 

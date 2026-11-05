@@ -13,6 +13,9 @@ pub struct LabelTemplate {
     pub orientation: String,
     pub elements_json: serde_json::Value,
     pub is_default: bool,
+    /// Preenchida nos modelos do sistema (usados por módulos pela chave). Uma linha no banco com a chave
+    /// de um modelo padrão é a versão editada dele; apagar a linha restaura o padrão.
+    pub chave: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -31,6 +34,7 @@ pub struct CreateLabelTemplatePayload {
     pub elements_json: serde_json::Value,
     #[serde(alias = "isDefault")]
     pub is_default: Option<bool>,
+    pub chave: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

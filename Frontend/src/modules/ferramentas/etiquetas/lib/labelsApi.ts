@@ -84,6 +84,7 @@ export const labelsApi = {
           ? t.elementsJson
           : [],
         is_default: Boolean(t.is_default || t.isDefault),
+        chave: t.chave || null,
         created_at: t.created_at || t.createdAt,
         updated_at: t.updated_at || t.updatedAt,
       }));

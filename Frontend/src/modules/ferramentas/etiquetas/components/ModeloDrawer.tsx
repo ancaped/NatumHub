@@ -15,6 +15,8 @@ interface ModeloDrawerProps {
   onAbrirEditor: () => void;
   /** Ausente nos modelos padrão: eles não se excluem. */
   onExcluir?: () => void;
+  /** Texto do botão: "Restaurar padrão" quando é um modelo do sistema já editado. */
+  rotuloExcluir?: string;
 }
 
 const muted = { color: 'hsl(var(--text-secondary-hsl))' } as const;
@@ -29,7 +31,7 @@ function Linha({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
 }
 
 /** Ficha do modelo: prévia fiel (mesmo desenho que vai para a impressora), dados e ações. */
-export default function ModeloDrawer({ modelo, onClose, onImprimir, onImprimirComLote, onAbrirEditor, onExcluir }: ModeloDrawerProps) {
+export default function ModeloDrawer({ modelo, onClose, onImprimir, onImprimirComLote, onAbrirEditor, onExcluir, rotuloExcluir = 'Excluir' }: ModeloDrawerProps) {
   const [previa, setPrevia] = useState<string | null>(null);
   const [erro, setErro] = useState(false);
 
@@ -60,7 +62,7 @@ export default function ModeloDrawer({ modelo, onClose, onImprimir, onImprimirCo
           <div>
             {onExcluir && (
               <BotaoAcao onClick={onExcluir} title="Excluir modelo">
-                <Trash2 size={14} /> Excluir
+                <Trash2 size={14} /> {rotuloExcluir}
               </BotaoAcao>
             )}
           </div>
@@ -93,7 +95,7 @@ export default function ModeloDrawer({ modelo, onClose, onImprimir, onImprimirCo
           <Linha rotulo="Família" valor={FAMILIAS[familiaDe(modelo)]} />
           <Linha rotulo="Tamanho" valor={`${modelo.width_mm} × ${modelo.height_mm} mm`} />
           <Linha rotulo="Elementos no desenho" valor={elementos} />
-          <Linha rotulo="Origem" valor={modelo.is_default ? 'Modelo padrão do sistema' : 'Criado no editor'} />
+          <Linha rotulo="Origem" valor={modelo.chave ? (modelo.id.startsWith('template_') ? 'Do sistema (padrão)' : 'Do sistema (editado)') : modelo.is_default ? 'Modelo padrão' : 'Criado no editor'} />
           <Linha rotulo="Atualizado" valor={atualizado ? new Date(atualizado).toLocaleDateString('pt-BR') : '—'} />
         </div>
       </div>

@@ -27,6 +27,7 @@ import Drawer from '../../geral/components/ui/Drawer';
 import { FAMILIAS } from '../etiquetas/lib/familias';
 import type { LabelElement, LabelTemplate } from '../etiquetas/lib/types';
 import { DEFAULT_LABEL_TEMPLATES } from '../etiquetas/lib/defaultTemplates';
+import { mesclarModelos } from '../etiquetas/lib/modelos';
 import LabelCanvas from '../etiquetas/components/LabelCanvas';
 import ElementPropertiesPanel from '../etiquetas/components/ElementPropertiesPanel';
 import ToolbarElements from '../etiquetas/components/ToolbarElements';
@@ -545,13 +546,7 @@ export default function EditorEtiquetasView({
   const loadSavedTemplates = useCallback(async () => {
     try {
       const apiList = await labelsApi.listTemplates();
-      const merged = [...DEFAULT_LABEL_TEMPLATES];
-      for (const t of apiList) {
-        const idx = merged.findIndex((m) => m.id === t.id);
-        if (idx >= 0) merged[idx] = t;
-        else merged.push(t);
-      }
-      setSavedTemplates(merged);
+      setSavedTemplates(mesclarModelos(apiList));
     } catch (e) {
       console.warn('Erro ao carregar modelos da API:', e);
       setSavedTemplates(DEFAULT_LABEL_TEMPLATES);
@@ -563,7 +558,8 @@ export default function EditorEtiquetasView({
   }, [isTemplatesModalOpen, loadSavedTemplates]);
 
   const saveTemplateCopy = async (tpl: LabelTemplate, name: string) => {
-    const { id: _id, ...rest } = tpl;
+    // Cópia é modelo editável: sem a chave do sistema (a chave é única).
+    const { id: _id, chave: _chave, ...rest } = tpl;
     const saved = await labelsApi.saveTemplate({ ...rest, name, is_default: false });
     await loadSavedTemplates();
     return saved;
