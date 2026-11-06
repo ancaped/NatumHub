@@ -145,7 +145,10 @@ fn montar_zpl(dpi: f64, largura: u32, altura: u32, pag: &PaginaNativa, imagem: O
         match b.formato.as_str() {
             "ean13" => {
                 let digitos: String = valor.chars().filter(|c| c.is_ascii_digit()).take(13).collect();
-                s.push_str(&format!("^FO{x},{y}^BY{modulo}^BEN,{h},N,N^FD{digitos}^FS"));
+                // As barras de guarda do EAN-13 descem 5 módulos abaixo das demais: tira isso da altura
+                // para o conjunto terminar onde o modelo manda e o número embaixo não encostar.
+                let h_barras = (h - 5 * modulo).max(10);
+                s.push_str(&format!("^FO{x},{y}^BY{modulo}^BEN,{h_barras},N,N^FD{digitos}^FS"));
             }
             "code39" => s.push_str(&format!("^FO{x},{y}^BY{modulo},3,{h}^B3N,N,{h},N,N^FD{valor}^FS")),
             _ => s.push_str(&format!("^FO{x},{y}^BY{modulo},3,{h}^BCN,{h},N,N,N,A^FD{valor}^FS")),
