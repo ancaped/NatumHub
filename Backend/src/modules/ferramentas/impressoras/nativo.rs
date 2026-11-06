@@ -131,9 +131,8 @@ fn montar_zpl(dpi: f64, largura: u32, altura: u32, pag: &PaginaNativa, imagem: O
             _ => 'L',
         };
         let texto = limpar_zpl(&t.texto);
-        for extra in 0..(if t.negrito { 2 } else { 1 }) {
-            s.push_str(&format!("^FO{},{y}^FB{largura_caixa},{linhas},0,{j},0^A0N,{hd}^FD{texto}^FS", x + extra));
-        }
+        // A fonte 0 da Zebra já é encorpada: o negrito por impressão dupla deixava o traço grosso demais.
+        s.push_str(&format!("^FO{x},{y}^FB{largura_caixa},{linhas},0,{j},0^A0N,{hd}^FD{texto}^FS"));
     }
     for b in &pag.barras {
         let larg_caixa = pontos(b.width_mm, dpi).max(1);
@@ -223,7 +222,7 @@ mod testes {
     fn zpl_tem_texto_centralizado_negrito_e_barra() {
         let z = String::from_utf8(montar_pagina(false, 203.0, 800, 400, &pagina(), None, 2, 0)).unwrap();
         assert!(z.starts_with("^XA^CI28^PW800^LL400"));
-        assert_eq!(z.matches("^FB").count(), 2, "negrito imprime duas vezes");
+        assert_eq!(z.matches("^FB").count(), 1, "ZPL não imprime em dobro no negrito");
         assert!(z.contains(",C,0^A0N,"));
         assert!(z.contains("^BY4,3,") && z.contains("^BCN,"));
         assert!(z.ends_with("^PQ2^XZ"));

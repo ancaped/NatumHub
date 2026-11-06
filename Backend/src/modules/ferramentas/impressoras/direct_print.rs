@@ -389,6 +389,7 @@ pub async fn imprimir_etiquetas(pool: &PgPool, mut req: DirectPrintRequest) -> R
     }
     let nativo = !req.paginas_nativas.is_empty();
     let n_paginas = if nativo { req.paginas_nativas.len() } else { req.pages_png_base64.len() };
+    tracing::info!("impressão direta: {} página(s) em modo {}", n_paginas, if nativo { "texto nativo" } else { "imagem" });
     if n_paginas == 0 || n_paginas > 80 {
         return Err("Informe de 1 a 80 etiquetas por envio.".into());
     }
