@@ -120,9 +120,6 @@ pub const AGENTE_NAO_EXCLUI: &str =
 /// A chamada apaga registro? Todo `DELETE` (menos o logout da sessão) e as ações do catálogo marcadas com `exclui`
 /// (as que usam `POST`, como limpar a fila). É por aqui que o middleware recusa agentes.
 pub fn e_exclusao(metodo: &str, caminho: &str) -> bool {
-    if metodo == "DELETE" && caminho.starts_with("/api/auth/session") {
-        return false;
-    }
     let da_rota = todas().into_iter().find(|a| a.metodo == metodo && caminho_casa(a.caminho, caminho));
     match da_rota {
         // ação descrita no catálogo: vale a marca dela (um DELETE que só cancela, como o das solicitações, não apaga)
@@ -262,7 +259,6 @@ mod tests {
         assert!(e_exclusao("POST", "/api/producao/fila-demandas/limpar"));
         assert!(e_exclusao("DELETE", "/api/rota/sem/catalogo/1"));
         assert!(!e_exclusao("DELETE", "/api/administrativo/terceirizados/solicitacoes/7"));
-        assert!(!e_exclusao("DELETE", "/api/auth/session"));
         assert!(!e_exclusao("POST", "/api/producao/fila-demandas"));
     }
 

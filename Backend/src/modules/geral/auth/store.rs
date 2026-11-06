@@ -1323,8 +1323,6 @@ pub fn is_public_path(path: &str) -> bool {
         path,
         "/api/health"
             | "/api/auth/login"
-            | "/api/auth/operators"
-            | "/api/auth/session"
             | "/api/auth/setup-status"
             | "/api/auth/setup-supervisor"
             | "/api/settings/report-logo"

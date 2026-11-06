@@ -6,20 +6,14 @@ import NexusLogo from '../components/NexusLogo';
 
 interface LoginViewProps {
   message: { text: string; type: 'success' | 'error' } | null;
-  setView: (view: any) => void;
   fetchSqlConfig: () => void;
-  appName: string;
-  loginOnly?: boolean;
   onLoginSuccess?: () => void;
   onReconfigureConnection?: () => void;
 }
 
 export default function LoginView({
   message,
-  setView,
   fetchSqlConfig,
-  appName,
-  loginOnly = false,
   onLoginSuccess,
   onReconfigureConnection,
 }: LoginViewProps) {
@@ -41,7 +35,7 @@ export default function LoginView({
         if (!health.ok) {
           setLoadError(
             health.error ||
-              `API inacessível em ${getApiOrigin()}. No mesmo Wi‑Fi use http://IP-DO-MASTER:3001 (PC Principal ligado). Verifique firewall na porta 3001.`
+              `API inacessível em ${getApiOrigin()}. Confira a conexão deste dispositivo com o servidor do Nexus.`
           );
         }
       } catch (e: unknown) {
@@ -115,30 +109,32 @@ export default function LoginView({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+            <label htmlFor="login-nome" className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
               <User className="h-3 w-3" /> Nome
             </label>
             <input
+              id="login-nome"
               type="text"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               autoComplete="username"
               placeholder="Seu nome de operador"
-              className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm bg-zinc-50"
+              className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-base sm:text-sm bg-zinc-50 min-h-[44px]"
               disabled={submitting || checkingApi}
-              autoFocus
+              autoFocus={typeof window !== 'undefined' && !window.matchMedia('(pointer: coarse)').matches}
             />
           </div>
 
           <div>
-            <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
+            <label htmlFor="login-senha" className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
               <Lock className="h-3 w-3" /> Senha
             </label>
             <input
+              id="login-senha"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm bg-zinc-50"
+              className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-base sm:text-sm bg-zinc-50 min-h-[44px]"
               disabled={submitting || checkingApi}
               autoComplete="current-password"
             />
@@ -147,7 +143,7 @@ export default function LoginView({
           <button
             type="submit"
             disabled={submitting || checkingApi || Boolean(loadError)}
-            className="w-full bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-sm py-3 rounded-xl disabled:opacity-60 cursor-pointer"
+            className="w-full bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-sm py-3 rounded-xl min-h-[44px] disabled:opacity-60 cursor-pointer"
           >
             {submitting || checkingApi ? (
               <Loader2 className="h-4 w-4 animate-spin mx-auto" />
@@ -157,7 +153,7 @@ export default function LoginView({
           </button>
         </form>
 
-        {!loginOnly && onReconfigureConnection && (
+        {onReconfigureConnection && (
           <button
             type="button"
             onClick={onReconfigureConnection}
@@ -167,14 +163,6 @@ export default function LoginView({
           </button>
         )}
 
-        {!loginOnly && (
-          <button
-            type="button"
-            onClick={() => setView('hub')}
-            className="hidden"
-            aria-hidden
-          />
-        )}
       </div>
     </div>
   );

@@ -395,9 +395,7 @@ export default function App() {
       return (
         <LoginView
           message={message}
-          setView={setViewByKey}
           fetchSqlConfig={fetchSqlConfig}
-          appName={APP_NAME}
           onReconfigureConnection={() =>
             openConnectionWizard('Reconfigure o nome deste dispositivo se necessário.')
           }

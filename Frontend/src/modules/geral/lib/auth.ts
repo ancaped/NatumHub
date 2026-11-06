@@ -27,11 +27,6 @@ export interface AuthUser {
   isSupervisor: boolean;
 }
 
-export interface OperatorOption {
-  displayName: string;
-  role: string;
-}
-
 export interface OperatorDetail {
   id: string;
   displayName: string;
@@ -195,17 +190,6 @@ export async function setupSupervisor(data: {
     user,
     expiresAt: res.expiresAt ?? res.expires_at ?? '',
   };
-}
-
-export async function fetchOperators(): Promise<OperatorOption[]> {
-  const list = await apiJson<Array<{ displayName?: string; display_name?: string; role: string }>>(
-    '/auth/operators',
-    { skipAuth: true } as RequestInit & { skipAuth?: boolean }
-  );
-  return list.map((o) => ({
-    displayName: o.displayName ?? o.display_name ?? '',
-    role: o.role,
-  }));
 }
 
 export async function fetchModuleRegistry(): Promise<ModuleGroup[]> {

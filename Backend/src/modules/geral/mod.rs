@@ -1,6 +1,5 @@
 pub mod configuracoes;
 pub mod feedbacks;
-pub mod acesso;
 pub mod alertas;
 pub mod agentes;
 pub mod hub;
@@ -14,7 +13,6 @@ pub mod saude_dados;
 
 pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
     axum::Router::new()
-        .route("/login", axum::routing::get(acesso::login_page))
         .route(
             "/api/settings/report-logo",
             axum::routing::get(configuracoes::handlers::get_report_logo)
@@ -35,7 +33,6 @@ pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
         .route("/api/admin/audit/stock/verify-all", axum::routing::post(configuracoes::admin_handlers::verify_all_stocks_stream))
         .route("/api/admin/audit/stock/:code", axum::routing::get(configuracoes::admin_handlers::audit_stock))
         .route("/api/admin/audit/stock/:code/refresh", axum::routing::post(configuracoes::admin_handlers::refresh_stock_from_erp))
-        .route("/api/auth/session", axum::routing::get(acesso::get_session).post(acesso::save_session).delete(acesso::clear_session))
         .merge(hub::router())
         .merge(saude_dados::router())
         .merge(auth::router())
