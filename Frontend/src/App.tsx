@@ -3,7 +3,6 @@ import LoginView from './modules/geral/acesso/LoginView';
 import SetupSupervisorView from './modules/geral/acesso/SetupSupervisorView';
 import SetupConnectionView from './modules/geral/acesso/SetupConnectionView';
 import RestartRequiredView from './modules/geral/acesso/RestartRequiredView';
-import DashboardView from './modules/geral/dashboard/DashboardView';
 const ConfiguracoesView = lazy(() => import('./modules/geral/configuracoes/ConfiguracoesView'));
 const DesenvolvimentoView = lazy(() => import('./modules/geral/desenvolvimento/DesenvolvimentoView'));
 import AppShell from './modules/geral/components/layout/AppShell';
@@ -1308,16 +1307,8 @@ export default function App() {
       );
     }
 
-    return (
-      <DashboardView
-        view={view}
-        setView={setViewByKey}
-        currentUser={currentUser}
-        handleLogout={handleLogout}
-        fetchSqlConfig={fetchSqlConfig}
-        appName={APP_NAME}
-      />
-    );
+    // Hubs descontinuados: o AppShell redireciona para a primeira tela acessível do módulo.
+    return null;
   };
 
   const showAppShell =
