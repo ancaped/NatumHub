@@ -59,6 +59,8 @@ fn normalizar_campo(campo: &str) -> String {
 fn fonte_sistema(campo: &str) -> Option<(&'static str, &'static str)> {
     match campo {
         "fornecedor" | "supplier" => Some(("suppliers", "name")),
+        "insumo_nome" | "insumo" => Some(("items", "description")),
+        "codigo_ref" | "codigo_insumo" => Some(("items", "code")),
         _ => None,
     }
 }
@@ -203,8 +205,9 @@ mod tests {
     }
 
     #[test]
-    fn so_fornecedor_tem_cadastro_do_sistema() {
+    fn so_alguns_campos_tem_cadastro_do_sistema() {
         assert_eq!(fonte_sistema("fornecedor"), Some(("suppliers", "name")));
+        assert_eq!(fonte_sistema("insumo_nome"), Some(("items", "description")));
         assert_eq!(fonte_sistema("nota_fiscal"), None);
     }
 }
