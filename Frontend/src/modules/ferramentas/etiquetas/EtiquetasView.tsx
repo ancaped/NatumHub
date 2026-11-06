@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Boxes, Package, Palette, FlaskConical, Calendar as CalendarIcon, History, Plus, RefreshCw, Tag } from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
 import { BotaoAcao, FilterBar, ReportHeader, ReportTabs, StatusBadge, TabelaPainel, type AbaRelatorio } from '../../geral/components/ui/ReportKit';
@@ -13,7 +13,8 @@ import PrintWithSystemDataModal from './components/PrintWithSystemDataModal';
 import { labelsApi, type LabelPrintHistoryItem } from './lib/labelsApi';
 import { DEFAULT_LABEL_TEMPLATES } from './lib/defaultTemplates';
 import { FAMILIAS, familiaDe } from './lib/familias';
-import { ehDoSistema, foiEditado, mesclarModelos } from './lib/modelos';
+import { ehDoSistema, foiEditado, mesclarModelos, preencherModelo } from './lib/modelos';
+import { camposApi } from './lib/campos';
 import type { LabelTemplate } from './lib/types';
 
 interface EtiquetasViewProps {
@@ -45,6 +46,13 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
   const [aberto, setAberto] = useState<LabelTemplate | null>(null);
   const [imprimirCom, setImprimirCom] = useState<LabelTemplate | null>(null);
   const [imprimirRapido, setImprimirRapido] = useState<LabelTemplate | null>(null);
+  /** Valores digitados nos campos do modelo da impressão em andamento; vão para as sugestões quando imprime. */
+  const valoresImpressos = useRef<Record<string, string>>({});
+
+  const imprimirComCampos = (modelo: LabelTemplate, valores: Record<string, string>, abrir: (m: LabelTemplate) => void) => {
+    valoresImpressos.current = valores;
+    abrir(preencherModelo(modelo, valores));
+  };
 
   const carregarModelos = useCallback(async () => {
     setCarregando(true);
@@ -274,8 +282,8 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
         <ModeloDrawer
           modelo={aberto}
           onClose={() => setAberto(null)}
-          onImprimir={() => setImprimirRapido(aberto)}
-          onImprimirComLote={() => setImprimirCom(aberto)}
+          onImprimir={(v) => imprimirComCampos(aberto, v, setImprimirRapido)}
+          onImprimirComLote={(v) => imprimirComCampos(aberto, v, setImprimirCom)}
           onAbrirEditor={() => onNavigateToEditor?.(aberto)}
           rotuloExcluir={foiEditado(aberto) ? 'Restaurar padrão' : 'Excluir'}
           onExcluir={aberto.is_default && !foiEditado(aberto) ? undefined : () => excluir(aberto)}
@@ -283,9 +291,9 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
       )}
 
       {imprimirCom && (
-        <PrintWithSystemDataModal template={imprimirCom} isOpen onClose={() => setImprimirCom(null)} onPrintSuccess={carregarHistorico} />
+        <PrintWithSystemDataModal template={imprimirCom} isOpen onClose={() => setImprimirCom(null)} onPrintSuccess={() => { carregarHistorico(); camposApi.gravar(valoresImpressos.current); }} />
       )}
-      {imprimirRapido && <PrintModal template={imprimirRapido} isOpen onClose={() => setImprimirRapido(null)} />}
+      {imprimirRapido && <PrintModal template={imprimirRapido} isOpen onClose={() => setImprimirRapido(null)} onPrintSuccess={() => camposApi.gravar(valoresImpressos.current)} />}
     </AppLayout>
   );
 }

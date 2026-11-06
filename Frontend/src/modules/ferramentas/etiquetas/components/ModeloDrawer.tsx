@@ -1,17 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Edit3, Printer, Trash2 } from 'lucide-react';
 import Drawer from '../../../geral/components/ui/Drawer';
 import { BotaoAcao } from '../../../geral/components/ui/ReportKit';
 import { renderLabelPngDataUrl } from '../lib/printCanvasRenderer';
 import { comExemplo } from '../lib/previaExemplo';
+import { preencherModelo } from '../lib/modelos';
+import { camposDoModelo, nomeDoCampo } from '../lib/campos';
+import CampoComSugestao from './CampoComSugestao';
 import type { LabelTemplate } from '../lib/types';
 import { FAMILIAS, familiaDe } from '../lib/familias';
 
 interface ModeloDrawerProps {
   modelo: LabelTemplate;
   onClose: () => void;
-  onImprimir: () => void;
-  onImprimirComLote: () => void;
+  /** Recebem os valores digitados nos campos do modelo (só os preenchidos). */
+  onImprimir: (valores: Record<string, string>) => void;
+  onImprimirComLote: (valores: Record<string, string>) => void;
   onAbrirEditor: () => void;
   /** Ausente nos modelos padrão: eles não se excluem. */
   onExcluir?: () => void;
@@ -34,18 +38,23 @@ function Linha({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
 export default function ModeloDrawer({ modelo, onClose, onImprimir, onImprimirComLote, onAbrirEditor, onExcluir, rotuloExcluir = 'Excluir' }: ModeloDrawerProps) {
   const [previa, setPrevia] = useState<string | null>(null);
   const [erro, setErro] = useState(false);
+  const campos = useMemo(() => camposDoModelo(modelo), [modelo]);
+  const [valores, setValores] = useState<Record<string, string>>({});
+  const preenchidos = useMemo(() => Object.fromEntries(Object.entries(valores).filter(([, v]) => v.trim())), [valores]);
+
+  useEffect(() => setValores({}), [modelo.id]);
 
   useEffect(() => {
     let vivo = true;
     setPrevia(null);
     setErro(false);
-    renderLabelPngDataUrl(comExemplo(modelo), 0, 1, 1, 3, 300)
+    renderLabelPngDataUrl(comExemplo(preencherModelo(modelo, preenchidos)), 0, 1, 1, 3, 300)
       .then((url) => vivo && setPrevia(url))
       .catch(() => vivo && setErro(true));
     return () => {
       vivo = false;
     };
-  }, [modelo]);
+  }, [modelo, preenchidos]);
 
   const elementos = Array.isArray(modelo.elements_json) ? modelo.elements_json.length : 0;
   const atualizado = modelo.updated_at || modelo.created_at;
@@ -58,7 +67,7 @@ export default function ModeloDrawer({ modelo, onClose, onImprimir, onImprimirCo
       badge={FAMILIAS[familiaDe(modelo)]}
       size="md"
       footer={
-        <div style={{ display: 'flex', gap: 6, justifyContent: 'space-between', padding: 12 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'space-between', padding: 12 }}>
           <div>
             {onExcluir && (
               <BotaoAcao onClick={onExcluir} title="Excluir modelo">
@@ -66,14 +75,14 @@ export default function ModeloDrawer({ modelo, onClose, onImprimir, onImprimirCo
               </BotaoAcao>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             <BotaoAcao onClick={onAbrirEditor}>
               <Edit3 size={14} /> Abrir no editor
             </BotaoAcao>
-            <BotaoAcao onClick={onImprimir}>
+            <BotaoAcao onClick={() => onImprimir(preenchidos)}>
               <Printer size={14} /> Imprimir
             </BotaoAcao>
-            <BotaoAcao primario onClick={onImprimirComLote} title="Preenche produto, lote e códigos de barras do sistema">
+            <BotaoAcao primario onClick={() => onImprimirComLote(preenchidos)} title="Preenche produto, lote e códigos de barras do sistema">
               <Printer size={14} /> Imprimir com lote
             </BotaoAcao>
           </div>
@@ -88,6 +97,15 @@ export default function ModeloDrawer({ modelo, onClose, onImprimir, onImprimirCo
             <span style={{ fontSize: '0.75rem', ...muted }}>{erro ? 'Não foi possível desenhar a prévia.' : 'Desenhando prévia...'}</span>
           )}
         </div>
+
+        {campos.length > 0 && (
+          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700 }}>Campos do texto</span>
+            {campos.map((c) => (
+              <CampoComSugestao key={c} campo={c} rotulo={nomeDoCampo(c)} valor={valores[c] ?? ''} onChange={(v) => setValores((a) => ({ ...a, [c]: v }))} />
+            ))}
+          </div>
+        )}
 
         {modelo.description && <p style={{ fontSize: '0.78rem', margin: '14px 0 4px', ...muted }}>{modelo.description}</p>}
 

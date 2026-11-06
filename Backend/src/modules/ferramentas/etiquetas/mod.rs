@@ -1,10 +1,11 @@
+pub mod campos;
 pub mod handlers;
 pub mod models;
 pub mod store;
 
 use std::sync::Arc;
 use axum::{
-    routing::get,
+    routing::{get, post},
     Router,
 };
 
@@ -41,6 +42,14 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/api/ferramentas/etiquetas/coloracoes",
             get(handlers::list_coloracoes_etiqueta_handler),
+        )
+        .route(
+            "/api/ferramentas/etiquetas/campos/sugestoes",
+            get(campos::sugestoes_handler),
+        )
+        .route(
+            "/api/ferramentas/etiquetas/campos/valores",
+            post(campos::gravar_handler),
         )
         .route(
             "/api/ferramentas/etiquetas/production-lots",

@@ -157,3 +157,13 @@
   .ferr-cartoes td:last-child { flex: 1 1 100%; }
   .ferr-cartoes td:last-child > div { justify-content: flex-start !important; flex-wrap: wrap; }
 }
+
+/* Campos de texto do modelo, no Drawer (com sugestões do que já foi impresso) */
+.campo-sug { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.campo-sug-rotulo { font-size: 0.72rem; font-weight: 700; color: hsl(var(--text-secondary-hsl)); }
+.campo-sug-input { min-height: 44px; padding: 0 12px; font-size: 0.9rem; border: 1px solid hsl(var(--card-border-hsl)); border-radius: 8px; background: hsl(var(--card-bg-hsl, var(--background-hsl))); color: inherit; width: 100%; }
+.campo-sug-input:focus { outline: 2px solid hsl(var(--text-primary-hsl, 240 6% 10%) / 0.25); outline-offset: 0; }
+.campo-sug-lista { position: absolute; z-index: 20; top: 100%; left: 0; right: 0; margin: 4px 0 0; padding: 4px; list-style: none; max-height: 240px; overflow-y: auto; background: #fff; border: 1px solid hsl(var(--card-border-hsl)); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); }
+.campo-sug-lista button { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 0 10px; font-size: 0.85rem; text-align: left; background: transparent; border: 0; border-radius: 6px; cursor: pointer; }
+.campo-sug-lista button:hover, .campo-sug-lista button.ativo { background: hsl(var(--card-border-hsl) / 0.5); }
+.campo-sug-lista small { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; color: hsl(var(--text-secondary-hsl)); }
