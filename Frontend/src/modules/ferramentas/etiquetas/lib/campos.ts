@@ -1,5 +1,5 @@
 import { apiJson } from '../../../geral/lib/http';
-import { getAllSystemVariables } from './systemVariables';
+import { DEFAULT_SYSTEM_VARIABLES } from './systemVariables';
 import type { LabelTemplate } from './types';
 
 export interface SugestaoCampo {
@@ -9,7 +9,7 @@ export interface SugestaoCampo {
 
 /** Campos `{nome}` do modelo que o operador preenche à mão: os do sistema (`{lot}`, `{product_name}`...) ficam de fora. */
 export function camposDoModelo(modelo: LabelTemplate): string[] {
-  const sistema = new Set(getAllSystemVariables().map((v) => v.token.toLowerCase()));
+  const sistema = new Set(DEFAULT_SYSTEM_VARIABLES.map((v) => v.token.toLowerCase()));
   const vistos = new Set<string>();
   const lista: string[] = [];
   for (const el of Array.isArray(modelo.elements_json) ? modelo.elements_json : []) {
@@ -25,6 +25,31 @@ export function camposDoModelo(modelo: LabelTemplate): string[] {
     }
   }
   return lista;
+}
+
+/** Nome digitado no editor ("Nota fiscal") → campo do modelo (`nota_fiscal`). Vazio quando não sobra nada. */
+export function campoDoNome(nome: string): string {
+  return nome
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40);
+}
+
+/** Campo é do sistema (produto, lote, datas...): não vira caixa de texto, vem dos dados do sistema. */
+export function ehCampoDoSistema(campo: string): boolean {
+  return DEFAULT_SYSTEM_VARIABLES.some((v) => v.token.toLowerCase() === `{${campo.toLowerCase()}}`);
+}
+
+/** Nome da caixa: o que foi dado no editor (`props.rotulos`) ou, sem isso, o nome técnico formatado. */
+export function rotuloDoCampo(modelo: LabelTemplate, campo: string): string {
+  for (const el of Array.isArray(modelo.elements_json) ? modelo.elements_json : []) {
+    const r = ((el.props ?? {}) as unknown as { rotulos?: Record<string, string> }).rotulos?.[campo];
+    if (r) return r;
+  }
+  return nomeDoCampo(campo);
 }
 
 /** `data_entrada` → `Data entrada`. */
@@ -60,7 +85,7 @@ export const camposApi = {
 
 /** O modelo usa campos do sistema (produto, lote, datas, caixa): o Drawer pede o produto e os dados do lote. */
 export function usaDadosDoSistema(modelo: LabelTemplate): boolean {
-  const sistema = new Set(getAllSystemVariables().map((v) => v.token.toLowerCase()));
+  const sistema = new Set(DEFAULT_SYSTEM_VARIABLES.map((v) => v.token.toLowerCase()));
   for (const el of Array.isArray(modelo.elements_json) ? modelo.elements_json : []) {
     const props = (el.props ?? {}) as unknown as Record<string, unknown>;
     for (const texto of [props.text, props.value]) {

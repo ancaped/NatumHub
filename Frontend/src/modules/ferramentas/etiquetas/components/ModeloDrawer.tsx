@@ -5,7 +5,7 @@ import { BotaoAcao } from '../../../geral/components/ui/ReportKit';
 import { renderLabelPngDataUrl } from '../lib/printCanvasRenderer';
 import { comExemplo } from '../lib/previaExemplo';
 import { preencherModelo } from '../lib/modelos';
-import { camposDoModelo, nomeDoCampo, usaDadosDoSistema } from '../lib/campos';
+import { camposDoModelo, rotuloDoCampo, usaDadosDoSistema } from '../lib/campos';
 import { dadosIniciais, hidratarModelo, type DadosDoSistema } from '../lib/hidratar';
 import DadosSistemaForm, { type QuantidadeEtiquetas } from './DadosSistemaForm';
 import CampoComSugestao from './CampoComSugestao';
@@ -136,7 +136,7 @@ export default function ModeloDrawer({ modelo, onClose, onImprimir, onAbrirEdito
           <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
             <span style={{ fontSize: '0.78rem', fontWeight: 700 }}>Campos do texto</span>
             {campos.map((c) => (
-              <CampoComSugestao key={c} campo={c} rotulo={nomeDoCampo(c)} valor={valores[c] ?? ''} onChange={(v) => setValores((a) => ({ ...a, [c]: v }))} />
+              <CampoComSugestao key={c} campo={c} rotulo={rotuloDoCampo(modelo, c)} valor={valores[c] ?? ''} onChange={(v) => setValores((a) => ({ ...a, [c]: v }))} />
             ))}
           </div>
         )}

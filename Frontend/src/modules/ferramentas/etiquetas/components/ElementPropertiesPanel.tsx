@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { LabelElement, LabelTemplate, BarcodeFormat, TextFontFamily, TextFontWeight } from '../lib/types';
 import { getAllSystemVariables } from '../lib/systemVariables';
+import CampoPreencherEditor from './CampoPreencherEditor';
 
 interface ElementPropertiesPanelProps {
   template: LabelTemplate;
@@ -489,6 +490,11 @@ export default function ElementPropertiesPanel({
               className={areaCls}
             />
           </Field>
+          <CampoPreencherEditor
+            texto={(p.text || '') as string}
+            rotulos={(p.rotulos || {}) as Record<string, string>}
+            onChange={(texto, rotulos) => onUpdateProps(element.id, { ...p, text: texto, rotulos })}
+          />
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[11px] text-zinc-500">Inserir dado do sistema</span>
