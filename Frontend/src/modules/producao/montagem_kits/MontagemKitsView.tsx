@@ -8,6 +8,7 @@ import {
   UploadCloud, Plus
 } from 'lucide-react';
 import KitCompositionDrawer from '../components/KitCompositionDrawer';
+import LancarKitErpDrawer from './LancarKitErpDrawer';
 import { api } from '../../geral/lib/api';
 import { Category } from '../../geral/lib/types';
 import { SeloOrdemParada } from '../lib/ordemParada';
@@ -99,6 +100,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   const [editComponentUsedQty, setEditComponentUsedQty] = useState({});
   const [editQuantityAssembled, setEditQuantityAssembled] = useState<number | string>(0);
   const [editErpLaunched, setEditErpLaunched] = useState(false);
+  const [lancarErpOrdemId, setLancarErpOrdemId] = useState<number | null>(null);
   const [submittingEditOrder, setSubmittingEditOrder] = useState(false);
 
   // States: Vira de Produto (Reetiquetagem / Reenvase)
@@ -1092,7 +1094,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         assembledBy: editAssembledBy,
         checkedBy: editCheckedBy,
         observations: editNotes,
-        erpLaunched: editErpLaunched ? 1 : 0,
         componentsLotes: list.length > 0 ? JSON.stringify(list) : null,
         quantityAssembled: parseFloat(String(editQuantityAssembled)) || 0
       };
@@ -1122,6 +1123,10 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
         if (andPrint) {
           handlePrintOrder(updatedOrder);
+        }
+        // Ordem concluída e ainda fora do ERP: abre a prévia do lançamento para confirmar.
+        if (editStatus === 'COMPLETED' && selectedOrder.erpLaunched !== 1) {
+          setLancarErpOrdemId(selectedOrder.id);
         }
       } else {
         avisar("Erro ao atualizar ordem de montagem", 'erro');
@@ -1172,6 +1177,15 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   return (
     <div className="flex flex-1 w-full h-full overflow-hidden animate-in fade-in duration-200">
       {previaElemento}
+      {lancarErpOrdemId !== null && (
+        <div className="relative z-[60]">
+          <LancarKitErpDrawer
+            ordemId={lancarErpOrdemId}
+            onClose={() => setLancarErpOrdemId(null)}
+            onGravado={fetchOrders}
+          />
+        </div>
+      )}
       {aviso}
       {/* Printable Sheet */}
       {printingOrder && (
@@ -2882,15 +2896,19 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                   />
                 </div>
                 <div className="space-y-1 col-span-1 flex items-end">
-                  <label className="flex items-center gap-1.5 border border-zinc-300 rounded-xl p-2.5 w-full bg-zinc-50/50 cursor-pointer select-none font-bold text-zinc-800 text-[10px] h-10">
-                    <input 
-                      type="checkbox"
-                      checked={editErpLaunched}
-                      onChange={(e) => setEditErpLaunched(e.target.checked)}
-                      className="accent-zinc-900 rounded"
-                    />
-                    ERP Lançado
-                  </label>
+                  {selectedOrder.erpLaunched === 1 ? (
+                    <span className="flex items-center justify-center border border-emerald-200 rounded-xl p-2.5 w-full bg-emerald-50 font-bold text-emerald-800 text-[10px] h-10">
+                      Lançado no ERP
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setLancarErpOrdemId(selectedOrder.id)}
+                      className="flex items-center justify-center border border-zinc-900 rounded-xl p-2.5 w-full bg-zinc-900 text-white font-bold text-[10px] h-10 min-h-11 sm:min-h-10"
+                    >
+                      Lançar no ERP
+                    </button>
+                  )}
                 </div>
               </div>
 
