@@ -124,7 +124,7 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
   return (
     <>
       <ReportHeader
-        titulo={sem ? 'Etiquetas de coloração' : kit ? 'Etiquetas de kit' : 'Etiquetas de lote'}
+        titulo={sem ? 'Etiquetas de coloração' : kit ? 'Etiquetas de kit' : 'Etiquetas de caixa'}
         subtitulo={sem ? 'Produtos de Coloração. Não tem lote: imprima a quantidade que precisar.' : kit ? 'Ordens de montagem de kit, da mais recente para a mais antiga. O lote é o número da ordem.' : 'Lotes do ERP, do mais recente para o mais antigo. Busque por lote, código ou produto.'}
         acoes={
           <>

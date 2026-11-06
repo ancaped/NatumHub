@@ -151,7 +151,14 @@ fn montar_zpl(dpi: f64, largura: u32, altura: u32, pag: &PaginaNativa, imagem: O
                 s.push_str(&format!("^FO{x},{y}^BY{modulo}^BEN,{h_barras},N,N^FD{digitos}^FS"));
             }
             "code39" => s.push_str(&format!("^FO{x},{y}^BY{modulo},3,{h}^B3N,N,{h},N,N^FD{valor}^FS")),
-            _ => s.push_str(&format!("^FO{x},{y}^BY{modulo},3,{h}^BCN,{h},N,N,N,A^FD{valor}^FS")),
+            _ => {
+                // Subconjunto fixo, o mesmo que o front usou para contar os módulos (C para dígitos em
+                // quantidade par, senão B). No modo automático da Zebra a largura muda e o código sai
+                // fora do centro.
+                let so_digitos = !valor.is_empty() && valor.chars().all(|c| c.is_ascii_digit());
+                let inicio = if so_digitos && valor.len() % 2 == 0 && valor.len() >= 4 { ">;" } else { ">:" };
+                s.push_str(&format!("^FO{x},{y}^BY{modulo},3,{h}^BCN,{h},N,N,N,N^FD{inicio}{valor}^FS"))
+            }
         }
     }
     s.push_str(&format!("^PQ{}^XZ", copias.max(1)));

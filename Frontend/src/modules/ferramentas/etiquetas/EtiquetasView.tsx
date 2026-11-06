@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Boxes, Package, Palette, Calendar as CalendarIcon, History, Plus, RefreshCw, Tag } from 'lucide-react';
+import { Boxes, Package, Palette, FlaskConical, Calendar as CalendarIcon, History, Plus, RefreshCw, Tag } from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
 import { BotaoAcao, FilterBar, ReportHeader, ReportTabs, StatusBadge, TabelaPainel, type AbaRelatorio } from '../../geral/components/ui/ReportKit';
 import { pedirMotivoExclusao } from '../../producao/lib/useMotivoExclusao';
 import LabelsCalendarTab from './components/LabelsCalendarTab';
+import AprovacaoTab from './components/AprovacaoTab';
 import LotesTab from './components/LotesTab';
 import ModeloCard from './components/ModeloCard';
 import ModeloDrawer from './components/ModeloDrawer';
@@ -20,7 +21,7 @@ interface EtiquetasViewProps {
   onNavigateToEditor?: (template?: LabelTemplate) => void;
 }
 
-type Secao = 'modelos' | 'lotes' | 'kits' | 'coloracao' | 'calendario' | 'historico';
+type Secao = 'modelos' | 'lotes' | 'kits' | 'coloracao' | 'aprovacao' | 'calendario' | 'historico';
 
 
 const muted = { color: 'hsl(var(--text-secondary-hsl))' } as const;
@@ -115,9 +116,10 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
 
   const sidebarItems: SidebarItem[] = [
     { id: 'modelos', label: 'Modelos', icon: Tag, badge: modelos.length },
-    { id: 'lotes', label: 'Lotes', icon: Boxes },
+    { id: 'lotes', label: 'Caixas', icon: Boxes },
     { id: 'kits', label: 'Kits', icon: Package },
     { id: 'coloracao', label: 'Coloração', icon: Palette },
+    { id: 'aprovacao', label: 'Aprovação', icon: FlaskConical },
     { id: 'calendario', label: 'Calendário', icon: CalendarIcon },
     { id: 'historico', label: 'Histórico', icon: History },
   ];
@@ -195,6 +197,13 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
           <LotesTab
             tipo="coloracoes"
             modelo={modelos.find((t) => t.chave === 'coloracao_erp')}
+            onImpresso={carregarHistorico}
+          />
+        )}
+
+        {secao === 'aprovacao' && (
+          <AprovacaoTab
+            modelo={modelos.find((t) => t.chave === 'fisco_lote')}
             onImpresso={carregarHistorico}
           />
         )}

@@ -7,7 +7,7 @@ import type { LabelElement, LabelTemplate } from './types';
  * Modelos que imprimem com texto e código de barras **nativos** da Zebra (fontes da própria impressora).
  * A migração é por modelo, uma etiqueta de cada vez; os demais seguem como imagem.
  */
-export const CHAVES_NATIVAS = ['lote_erp'];
+export const CHAVES_NATIVAS = ['lote_erp', 'kit_erp', 'coloracao_erp'];
 
 export interface TextoNativo {
   x_mm: number;
