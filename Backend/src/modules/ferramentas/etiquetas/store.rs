@@ -441,40 +441,45 @@ pub async fn list_lotes_etiqueta(
     limit: i64,
 ) -> Result<Vec<super::models::LoteEtiquetaItem>, sqlx::Error> {
     let termo = q.map(str::trim).filter(|t| !t.is_empty()).map(|t| format!("%{}%", t));
-    let rows = sqlx::query_as::<_, (String, String, Option<String>, i32, Option<String>, Option<i32>, Option<String>, i64, Option<String>, Option<f64>, Option<String>)>(
+    // Uma linha por item de cada ordem do ERP (entradas de produto): ordem com 2 ou mais itens mostra todos,
+    // cada um com a própria quantidade. As etiquetas impressas contam por lote + produto.
+    let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, Option<i32>, Option<String>, i64, Option<String>, f64, Option<String>)>(
         r#"
+        WITH ent AS (
+            SELECT m.document_number AS lote, m.item_code AS codigo,
+                   SUM(m.quantity)::float8 AS kg,
+                   MAX(m.date) AS data,
+                   string_agg(m.details, '|') AS det
+            FROM stock_movements m
+            WHERE m.item_type = 'produto' AND m.movement_type = 'entrada'
+              AND COALESCE(m.document_number, '') <> '' AND m.date::timestamp <= NOW()
+            GROUP BY m.document_number, m.item_code
+        )
         SELECT
-            h.lote_erp,
-            h.codigo,
+            ent.lote,
+            ent.codigo,
             p.descricao,
-            h.quantidade,
-            h.data_producao,
+            ent.data,
             NULLIF(p.qtde_cx, 0),
             NULLIF(TRIM(p.codigo_barras), ''),
             COALESCE(e.copias, 0)::bigint,
             e.ultima,
-            m.kg::float8,
-            m.det
-        FROM historico_producao h
-        LEFT JOIN produtos p ON p.codigo = h.codigo
-        LEFT JOIN LATERAL (
-            SELECT SUM(sm.quantity) AS kg, string_agg(sm.details, '|') AS det
-            FROM stock_movements sm
-            WHERE sm.document_number = h.lote_erp AND sm.item_code = h.codigo
-              AND sm.item_type = 'produto' AND sm.movement_type = 'entrada'
-        ) m ON true
+            ent.kg,
+            ent.det
+        FROM ent
+        LEFT JOIN produtos p ON p.codigo = ent.codigo
         LEFT JOIN (
-            SELECT lot_number, SUM(copies) AS copias, to_char(MAX(printed_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS ultima
+            SELECT lot_number, product_code, SUM(copies) AS copias,
+                   to_char(MAX(printed_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS ultima
             FROM hub_label_print_history
             WHERE template_name = 'Etiqueta de Lote (ERP)'
-            GROUP BY lot_number
-        ) e ON e.lot_number = h.lote_erp
-        WHERE h.lote_erp IS NOT NULL AND h.lote_erp <> ''
-          AND ($1::text IS NULL
-               OR h.lote_erp ILIKE $1
-               OR h.codigo ILIKE $1
+            GROUP BY lot_number, product_code
+        ) e ON e.lot_number = ent.lote AND COALESCE(e.product_code, ent.codigo) = ent.codigo
+        WHERE ($1::text IS NULL
+               OR ent.lote ILIKE $1
+               OR ent.codigo ILIKE $1
                OR p.descricao ILIKE $1)
-        ORDER BY h.data_producao DESC, h.id DESC
+        ORDER BY ent.data DESC, ent.lote DESC, ent.codigo
         LIMIT $2
         "#,
     )
@@ -485,27 +490,30 @@ pub async fn list_lotes_etiqueta(
 
     Ok(rows
         .into_iter()
-        .map(|(lote, codigo, descricao, quantidade, data_producao, qtde_cx, ean, impressas, ultima, kg, det)| {
+        .map(|(lote, codigo, descricao, data_producao, qtde_cx, ean, impressas, ultima, kg, det)| {
             // O lote do ERP entra em kg. Unidades: as conferidas no envase ("Unidades: N" nos detalhes)
             // ou, sem conferência, kg / peso da unidade pela descrição (mesma regra da conferência da Produção).
-            let conferidas = det
-                .as_deref()
-                .unwrap_or("")
-                .split('|')
-                .filter_map(|p| p.trim().strip_prefix("Unidades:").and_then(|v| v.trim().parse::<f64>().ok()))
-                .find(|u| *u > 0.0);
-            let peso = crate::modules::producao::lotes::parse_unit_weight_from_desc(descricao.as_deref().unwrap_or(""));
-            let kg = kg.unwrap_or(quantidade as f64);
-            let (unidades, estimada) = match conferidas {
-                Some(u) => (u.round() as i32, false),
-                None if peso > 0.0 => ((kg / peso).round() as i32, true),
-                None => (kg.round() as i32, true),
-            };
+            let (unidades, estimada) = unidades_do_lote(kg, det.as_deref(), descricao.as_deref());
             let mut item = item_etiqueta(lote, codigo, descricao, unidades, data_producao, qtde_cx, ean, impressas, ultima, None);
             item.quantidade_estimada = estimada;
             item
         })
         .collect())
+}
+
+/// Unidades do item de um lote e se foram estimadas (kg / peso da unidade) em vez de conferidas no envase.
+fn unidades_do_lote(kg: f64, detalhes: Option<&str>, descricao: Option<&str>) -> (i32, bool) {
+    let conferidas = detalhes
+        .unwrap_or("")
+        .split('|')
+        .filter_map(|p| p.trim().strip_prefix("Unidades:").and_then(|v| v.trim().parse::<f64>().ok()))
+        .find(|u| *u > 0.0);
+    let peso = crate::modules::producao::lotes::parse_unit_weight_from_desc(descricao.unwrap_or(""));
+    match conferidas {
+        Some(u) => (u.round() as i32, false),
+        None if peso > 0.0 => ((kg / peso).round() as i32, true),
+        None => (kg.round() as i32, true),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -646,4 +654,21 @@ pub async fn list_coloracoes_etiqueta(
             ultima_impressao: ultima,
         })
         .collect())
+}
+
+#[cfg(test)]
+mod testes_lotes {
+    use super::unidades_do_lote;
+
+    #[test]
+    fn unidades_conferidas_tem_prioridade_sobre_o_peso() {
+        assert_eq!(unidades_do_lote(150.0, Some("Lote X|Unidades: 480"), Some("SH 300 ML")), (480, false));
+    }
+
+    #[test]
+    fn sem_conferencia_estima_pelo_peso_da_descricao() {
+        let (u, estimada) = unidades_do_lote(30.0, None, Some("SH HOMEM 300 ML"));
+        assert!(estimada);
+        assert!(u > 0);
+    }
 }
