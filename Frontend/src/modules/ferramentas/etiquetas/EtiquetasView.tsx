@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Boxes, Package, Palette, FlaskConical, Calendar as CalendarIcon, History, Plus, RefreshCw, Tag } from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
 import { BotaoAcao, FilterBar, ReportHeader, ReportTabs, StatusBadge, TabelaPainel, type AbaRelatorio } from '../../geral/components/ui/ReportKit';
@@ -7,13 +7,12 @@ import LabelsCalendarTab from './components/LabelsCalendarTab';
 import AprovacaoTab from './components/AprovacaoTab';
 import LotesTab from './components/LotesTab';
 import ModeloCard from './components/ModeloCard';
-import ModeloDrawer from './components/ModeloDrawer';
+import ModeloDrawer, { type PedidoImpressao } from './components/ModeloDrawer';
 import PrintModal from './components/PrintModal';
-import PrintWithSystemDataModal from './components/PrintWithSystemDataModal';
 import { labelsApi, type LabelPrintHistoryItem } from './lib/labelsApi';
 import { DEFAULT_LABEL_TEMPLATES } from './lib/defaultTemplates';
 import { FAMILIAS, familiaDe } from './lib/familias';
-import { ehDoSistema, foiEditado, mesclarModelos, preencherModelo } from './lib/modelos';
+import { ehDoSistema, foiEditado, mesclarModelos } from './lib/modelos';
 import { camposApi } from './lib/campos';
 import type { LabelTemplate } from './lib/types';
 
@@ -44,15 +43,7 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
   const [carregandoHist, setCarregandoHist] = useState(false);
 
   const [aberto, setAberto] = useState<LabelTemplate | null>(null);
-  const [imprimirCom, setImprimirCom] = useState<LabelTemplate | null>(null);
-  const [imprimirRapido, setImprimirRapido] = useState<LabelTemplate | null>(null);
-  /** Valores digitados nos campos do modelo da impressão em andamento; vão para as sugestões quando imprime. */
-  const valoresImpressos = useRef<Record<string, string>>({});
-
-  const imprimirComCampos = (modelo: LabelTemplate, valores: Record<string, string>, abrir: (m: LabelTemplate) => void) => {
-    valoresImpressos.current = valores;
-    abrir(preencherModelo(modelo, valores));
-  };
+  const [imprimir, setImprimir] = useState<PedidoImpressao | null>(null);
 
   const carregarModelos = useCallback(async () => {
     setCarregando(true);
@@ -119,7 +110,7 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
 
   const reimprimir = (item: LabelPrintHistoryItem) => {
     const modelo = modelos.find((t) => t.id === item.template_id || t.name === item.template_name);
-    if (modelo) setImprimirCom(modelo);
+    if (modelo) setAberto(modelo);
   };
 
   const sidebarItems: SidebarItem[] = [
@@ -282,18 +273,29 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
         <ModeloDrawer
           modelo={aberto}
           onClose={() => setAberto(null)}
-          onImprimir={(v) => imprimirComCampos(aberto, v, setImprimirRapido)}
-          onImprimirComLote={(v) => imprimirComCampos(aberto, v, setImprimirCom)}
+          onImprimir={setImprimir}
           onAbrirEditor={() => onNavigateToEditor?.(aberto)}
           rotuloExcluir={foiEditado(aberto) ? 'Restaurar padrão' : 'Excluir'}
           onExcluir={aberto.is_default && !foiEditado(aberto) ? undefined : () => excluir(aberto)}
         />
       )}
 
-      {imprimirCom && (
-        <PrintWithSystemDataModal template={imprimirCom} isOpen onClose={() => setImprimirCom(null)} onPrintSuccess={() => { carregarHistorico(); camposApi.gravar(valoresImpressos.current); }} />
+      {imprimir && (
+        <PrintModal
+          template={imprimir.modelo}
+          isOpen
+          onClose={() => setImprimir(null)}
+          onPrintSuccess={() => {
+            carregarHistorico();
+            camposApi.gravar(imprimir.valores);
+          }}
+          initialCopies={imprimir.copias}
+          initialEnableSequence={imprimir.sequencia}
+          initialSequenceStart={imprimir.inicio}
+          initialSequenceTotal={imprimir.total}
+          history={imprimir.history}
+        />
       )}
-      {imprimirRapido && <PrintModal template={imprimirRapido} isOpen onClose={() => setImprimirRapido(null)} onPrintSuccess={() => camposApi.gravar(valoresImpressos.current)} />}
     </AppLayout>
   );
 }

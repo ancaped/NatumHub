@@ -57,3 +57,16 @@ export const camposApi = {
     }
   },
 };
+
+/** O modelo usa campos do sistema (produto, lote, datas, caixa): o Drawer pede o produto e os dados do lote. */
+export function usaDadosDoSistema(modelo: LabelTemplate): boolean {
+  const sistema = new Set(getAllSystemVariables().map((v) => v.token.toLowerCase()));
+  for (const el of Array.isArray(modelo.elements_json) ? modelo.elements_json : []) {
+    const props = (el.props ?? {}) as unknown as Record<string, unknown>;
+    for (const texto of [props.text, props.value]) {
+      if (typeof texto !== 'string') continue;
+      for (const m of texto.matchAll(/\{([a-z_0-9]+)\}/gi)) if (sistema.has(`{${m[1].toLowerCase()}}`)) return true;
+    }
+  }
+  return false;
+}

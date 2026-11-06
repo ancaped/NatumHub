@@ -14,9 +14,10 @@ import {
   Loader2,
   ChevronRight,
 } from 'lucide-react';
-import type { LabelTemplate, LabelElement } from '../lib/types';
+import type { LabelTemplate } from '../lib/types';
 import { labelsApi, type CatalogProduct } from '../lib/labelsApi';
 import PrintModal from './PrintModal';
+import { hidratarModelo } from '../lib/hidratar';
 
 interface PrintWithSystemDataModalProps {
   template: LabelTemplate;
@@ -109,78 +110,14 @@ export default function PrintWithSystemDataModal({
     }
   };
 
-  // Build the hydrated template with replaced variables
-  const buildHydratedTemplate = (): LabelTemplate => {
-    const pCode = selectedProduct?.codigo || '1.00.001';
-    const pName = selectedProduct?.descricao || 'PRODUTO NÁTUM COSMÉTICOS';
-    const pEan = selectedProduct?.codigo_barras || '7898912345678';
-    const pDun = selectedProduct?.codigo_barras_caixa || (pEan.length === 13 ? `1${pEan.slice(0, 12)}` : pEan);
-    const pLine = selectedProduct?.linha || 'Linha Profissional';
-
-    const hydratedElements: LabelElement[] = template.elements_json.map((el) => {
-      const cloned = JSON.parse(JSON.stringify(el)) as LabelElement;
-
-      // Text and Badge elements
-      if (cloned.type === 'text' || cloned.type === 'badge') {
-        let text = (cloned.props.text || '') as string;
-        text = text
-          .replace(/{product_code}/g, pCode)
-          .replace(/{product_name}/g, pName)
-          .replace(/{barcode}/g, pEan)
-          .replace(/{box_barcode}/g, pDun)
-          .replace(/{box_qty}/g, `${boxQuantity} un.`)
-          .replace(/{lot}/g, lotNumber)
-          .replace(/{manufacturing_date}/g, manufacturingDate)
-          .replace(/{expiry_date}/g, expiryDate)
-          .replace(/{line}/g, pLine);
-
-        // Also replace generic sample strings if present
-        if (text.includes('1.30.139') || text.includes('03.13.011') || text.includes('01.01.001')) {
-          text = text.replace(/1\.30\.139|03\.13\.011|01\.01\.001/g, pCode);
-        }
-        if (text.includes('NÁTUM') && (text.includes('300ML') || text.includes('250 ML') || text.includes('SHAMPOO'))) {
-          text = pName;
-        }
-
-        cloned.props.text = text;
-      }
-
-      // Barcode elements
-      if (cloned.type === 'barcode') {
-        let val = (cloned.props.value || '') as string;
-        if (val.includes('{barcode}') || val.includes('78989') || val.includes('79087')) {
-          val = pEan;
-        } else if (val.includes('{box_barcode}') || val.includes('178989') || val.includes('DUN')) {
-          val = pDun;
-        } else if (val.includes('{product_code}')) {
-          val = pCode;
-        } else if (val.includes('{lot}')) {
-          val = lotNumber;
-        } else if (pEan) {
-          // If it's a barcode element on a product or box label, use the product/box barcode
-          val = template.category === 'expedicao' || template.name.toLowerCase().includes('caixa') ? pDun : pEan;
-        }
-        cloned.props.value = val;
-      }
-
-      // QR Code elements
-      if (cloned.type === 'qrcode') {
-        let val = (cloned.props.value || '') as string;
-        val = val
-          .replace(/{product_code}/g, pCode)
-          .replace(/{lot}/g, lotNumber)
-          .replace(/{barcode}/g, pEan);
-        cloned.props.value = val;
-      }
-
-      return cloned;
+  const buildHydratedTemplate = (): LabelTemplate =>
+    hidratarModelo(template, {
+      produto: selectedProduct,
+      lote: lotNumber,
+      fabricacao: manufacturingDate,
+      validade: expiryDate,
+      unidadesPorCaixa: boxQuantity,
     });
-
-    return {
-      ...template,
-      elements_json: hydratedElements,
-    };
-  };
 
   const openPreview = () => {
     setPreviewTemplate(buildHydratedTemplate());

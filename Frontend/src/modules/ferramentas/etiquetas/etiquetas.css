@@ -167,3 +167,25 @@
 .campo-sug-lista button { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 0 10px; font-size: 0.85rem; text-align: left; background: transparent; border: 0; border-radius: 6px; cursor: pointer; }
 .campo-sug-lista button:hover, .campo-sug-lista button.ativo { background: hsl(var(--card-border-hsl) / 0.5); }
 .campo-sug-lista small { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; color: hsl(var(--text-secondary-hsl)); }
+
+/* Dados do sistema (produto, lote, quantidade) dentro do Drawer do modelo */
+.dados-sis { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.dados-sis-titulo { font-size: 0.78rem; font-weight: 700; margin-top: 6px; }
+.dados-sis-produto { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid hsl(var(--card-border-hsl)); border-radius: 8px; }
+.dados-sis-nome { font-size: 0.82rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.dados-sis-ean { font-size: 0.68rem; font-family: monospace; color: hsl(var(--text-secondary-hsl)); }
+.dados-sis-trocar { min-height: 44px; padding: 0 14px; font-size: 0.78rem; font-weight: 700; border: 1px solid hsl(var(--card-border-hsl)); border-radius: 8px; background: transparent; cursor: pointer; flex-shrink: 0; }
+.dados-sis-busca { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 1px solid hsl(var(--card-border-hsl)); border-radius: 8px; }
+.dados-sis-busca input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 0.9rem; }
+.dados-sis-lista { display: flex; flex-direction: column; max-height: 240px; overflow-y: auto; border: 1px solid hsl(var(--card-border-hsl)); border-radius: 8px; }
+.dados-sis-lista button { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 12px; text-align: left; background: transparent; border: 0; border-bottom: 1px solid hsl(var(--card-border-hsl)); cursor: pointer; }
+.dados-sis-lista button:last-child { border-bottom: 0; }
+.dados-sis-lista button:hover { background: hsl(var(--card-border-hsl) / 0.5); }
+.dados-sis-lista .dados-sis-nome { white-space: nowrap; }
+.dados-sis-vazio { padding: 16px; text-align: center; font-size: 0.78rem; color: hsl(var(--text-secondary-hsl)); }
+.dados-sis-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.dados-sis-grade label { display: flex; flex-direction: column; gap: 4px; font-size: 0.72rem; font-weight: 700; color: hsl(var(--text-secondary-hsl)); }
+.dados-sis-abas { display: flex; gap: 4px; padding: 3px; background: hsl(var(--card-border-hsl) / 0.6); border-radius: 8px; }
+.dados-sis-abas button { flex: 1; min-height: 40px; font-size: 0.78rem; font-weight: 600; border: 0; border-radius: 6px; background: transparent; cursor: pointer; }
+.dados-sis-abas button.ativo { background: #fff; font-weight: 700; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); }
+.dados-sis-aviso { margin: 0; font-size: 0.74rem; font-weight: 600; color: hsl(0 70% 40%); }

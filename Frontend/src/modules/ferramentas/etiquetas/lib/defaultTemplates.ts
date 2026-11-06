@@ -505,7 +505,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         height_mm: 8,
         zIndex: 2,
         props: {
-          text: 'MÁSCARA HIDRATANTE BANHO DE VERNIZ',
+          text: '{product_name}',
           fontSize: 11,
           fontWeight: '800',
           fontFamily: 'Inter',
@@ -523,7 +523,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         height_mm: 4.5,
         zIndex: 2,
         props: {
-          text: 'LOTE: 2026-081',
+          text: 'LOTE: {lot}',
           fontSize: 8,
           fontWeight: 'bold',
           fontFamily: 'JetBrains Mono',
@@ -540,7 +540,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         height_mm: 4.5,
         zIndex: 2,
         props: {
-          text: 'FAB: 13/08/2026',
+          text: 'FAB: {manufacturing_date}',
           fontSize: 8,
           fontWeight: '600',
           fontFamily: 'Inter',
@@ -557,7 +557,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         height_mm: 4.5,
         zIndex: 2,
         props: {
-          text: 'VAL: 13/08/2028',
+          text: 'VAL: {expiry_date}',
           fontSize: 8,
           fontWeight: 'bold',
           fontFamily: 'Inter',
@@ -575,7 +575,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         height_mm: 16,
         zIndex: 2,
         props: {
-          value: '7898912345678',
+          value: '{barcode}',
           format: 'ean13',
           showText: true,
           fontSize: 8.5,

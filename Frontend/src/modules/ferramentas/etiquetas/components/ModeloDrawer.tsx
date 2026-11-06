@@ -5,17 +5,29 @@ import { BotaoAcao } from '../../../geral/components/ui/ReportKit';
 import { renderLabelPngDataUrl } from '../lib/printCanvasRenderer';
 import { comExemplo } from '../lib/previaExemplo';
 import { preencherModelo } from '../lib/modelos';
-import { camposDoModelo, nomeDoCampo } from '../lib/campos';
+import { camposDoModelo, nomeDoCampo, usaDadosDoSistema } from '../lib/campos';
+import { dadosIniciais, hidratarModelo, type DadosDoSistema } from '../lib/hidratar';
+import DadosSistemaForm, { type QuantidadeEtiquetas } from './DadosSistemaForm';
 import CampoComSugestao from './CampoComSugestao';
 import type { LabelTemplate } from '../lib/types';
 import { FAMILIAS, familiaDe } from '../lib/familias';
 
+/** O que o Drawer entrega para imprimir: o modelo já preenchido e como imprimir. */
+export interface PedidoImpressao {
+  modelo: LabelTemplate;
+  /** Valores dos campos de texto (só os preenchidos), para virarem sugestão depois de imprimir. */
+  valores: Record<string, string>;
+  sequencia: boolean;
+  copias: number;
+  inicio: number;
+  total: number;
+  history?: { product_code?: string; product_name?: string; lot_number?: string };
+}
+
 interface ModeloDrawerProps {
   modelo: LabelTemplate;
   onClose: () => void;
-  /** Recebem os valores digitados nos campos do modelo (só os preenchidos). */
-  onImprimir: (valores: Record<string, string>) => void;
-  onImprimirComLote: (valores: Record<string, string>) => void;
+  onImprimir: (pedido: PedidoImpressao) => void;
   onAbrirEditor: () => void;
   /** Ausente nos modelos padrão: eles não se excluem. */
   onExcluir?: () => void;
@@ -35,26 +47,49 @@ function Linha({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
 }
 
 /** Ficha do modelo: prévia fiel (mesmo desenho que vai para a impressora), dados e ações. */
-export default function ModeloDrawer({ modelo, onClose, onImprimir, onImprimirComLote, onAbrirEditor, onExcluir, rotuloExcluir = 'Excluir' }: ModeloDrawerProps) {
+export default function ModeloDrawer({ modelo, onClose, onImprimir, onAbrirEditor, onExcluir, rotuloExcluir = 'Excluir' }: ModeloDrawerProps) {
   const [previa, setPrevia] = useState<string | null>(null);
   const [erro, setErro] = useState(false);
   const campos = useMemo(() => camposDoModelo(modelo), [modelo]);
   const [valores, setValores] = useState<Record<string, string>>({});
   const preenchidos = useMemo(() => Object.fromEntries(Object.entries(valores).filter(([, v]) => v.trim())), [valores]);
 
-  useEffect(() => setValores({}), [modelo.id]);
+  const usaSistema = useMemo(() => usaDadosDoSistema(modelo), [modelo]);
+  const [dados, setDados] = useState<DadosDoSistema>(dadosIniciais);
+  const [qtd, setQtd] = useState<QuantidadeEtiquetas>({ sequencia: true, copias: 1, inicio: 1, total: 10 });
+
+  useEffect(() => {
+    setValores({});
+    setDados(dadosIniciais());
+    setQtd({ sequencia: true, copias: 1, inicio: 1, total: 10 });
+  }, [modelo.id]);
+
+  /** Modelo com os dados do sistema e os campos de texto já no lugar. */
+  const preparado = useMemo(() => preencherModelo(usaSistema ? hidratarModelo(modelo, dados) : modelo, preenchidos), [modelo, usaSistema, dados, preenchidos]);
+  const faltaProduto = usaSistema && !dados.produto;
+
+  const imprimir = () =>
+    onImprimir({
+      modelo: preparado,
+      valores: preenchidos,
+      sequencia: usaSistema && qtd.sequencia,
+      copias: qtd.copias,
+      inicio: qtd.inicio,
+      total: qtd.total,
+      history: usaSistema ? { product_code: dados.produto?.codigo, product_name: dados.produto?.descricao, lot_number: dados.lote } : undefined,
+    });
 
   useEffect(() => {
     let vivo = true;
     setPrevia(null);
     setErro(false);
-    renderLabelPngDataUrl(comExemplo(preencherModelo(modelo, preenchidos)), 0, 1, 1, 3, 300)
+    renderLabelPngDataUrl(comExemplo(preparado), 0, 1, 1, 3, 300)
       .then((url) => vivo && setPrevia(url))
       .catch(() => vivo && setErro(true));
     return () => {
       vivo = false;
     };
-  }, [modelo, preenchidos]);
+  }, [preparado]);
 
   const elementos = Array.isArray(modelo.elements_json) ? modelo.elements_json.length : 0;
   const atualizado = modelo.updated_at || modelo.created_at;
@@ -79,11 +114,8 @@ export default function ModeloDrawer({ modelo, onClose, onImprimir, onImprimirCo
             <BotaoAcao onClick={onAbrirEditor}>
               <Edit3 size={14} /> Abrir no editor
             </BotaoAcao>
-            <BotaoAcao onClick={() => onImprimir(preenchidos)}>
+            <BotaoAcao primario disabled={faltaProduto} onClick={imprimir} title={faltaProduto ? 'Escolha o produto para imprimir' : undefined}>
               <Printer size={14} /> Imprimir
-            </BotaoAcao>
-            <BotaoAcao primario onClick={() => onImprimirComLote(preenchidos)} title="Preenche produto, lote e códigos de barras do sistema">
-              <Printer size={14} /> Imprimir com lote
             </BotaoAcao>
           </div>
         </div>
@@ -97,6 +129,8 @@ export default function ModeloDrawer({ modelo, onClose, onImprimir, onImprimirCo
             <span style={{ fontSize: '0.75rem', ...muted }}>{erro ? 'Não foi possível desenhar a prévia.' : 'Desenhando prévia...'}</span>
           )}
         </div>
+
+        {usaSistema && <DadosSistemaForm dados={dados} onDados={setDados} qtd={qtd} onQtd={setQtd} />}
 
         {campos.length > 0 && (
           <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
