@@ -4,6 +4,7 @@ import { loginOperator } from '../lib/auth';
 import { ApiError } from '../lib/http';
 import { getApiOrigin, checkServerHealth } from '../lib/connectionConfig';
 import NexusLogo from '../components/NexusLogo';
+import { useAppVersion } from '../lib/useAppVersion';
 
 interface LoginViewProps {
   message: { text: string; type: 'success' | 'error' } | null;
@@ -16,6 +17,7 @@ export default function LoginView({
   fetchSqlConfig,
   onLoginSuccess,
 }: LoginViewProps) {
+  const versao = useAppVersion();
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -87,7 +89,9 @@ export default function LoginView({
           <div>
             <div className="flex items-center justify-center gap-2">
               <h1 className="text-2xl font-black tracking-tight text-zinc-900 uppercase">Nexus</h1>
-              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-zinc-900 text-white">0.1b</span>
+              {versao && (
+                <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-zinc-900 text-white">{versao}</span>
+              )}
             </div>
             <p className="text-xs text-zinc-500 mt-1">Entre com sua conta de operador</p>
           </div>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { cn } from '../lib/utils';
+import { useAppVersion } from '../lib/useAppVersion';
 
 export interface NexusIconProps extends React.SVGProps<SVGSVGElement> {
   size?: number | string;
@@ -72,6 +73,7 @@ export default function NexusLogo({
   subtitle,
   dark = false,
 }: NexusLogoProps) {
+  const versao = useAppVersion();
   const iconSizes = {
     sm: 18,
     md: 24,
@@ -134,7 +136,7 @@ export default function NexusLogo({
           >
             Nexus
           </span>
-          {showVersion && (
+          {showVersion && versao && (
             <span
               className={cn(
                 'text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md border',
@@ -143,7 +145,7 @@ export default function NexusLogo({
                   : 'bg-zinc-100 text-zinc-600 border-zinc-200'
               )}
             >
-              0.1b
+              {versao}
             </span>
           )}
         </div>

@@ -1351,8 +1351,9 @@ pub fn is_public_path(path: &str) -> bool {
 
 /// Settings com segredo ou que decidem onde o servidor conecta no ERP/Tiny: só o supervisor lê e grava.
 /// (Antes qualquer operador logado lia `sql_password` e podia trocar `sql_host`.)
-const SETTINGS_SO_SUPERVISOR: [&str; 6] = [
+const SETTINGS_SO_SUPERVISOR: [&str; 7] = [
     "sql_host",
+    "sql_fallback_host",
     "sql_port",
     "sql_user",
     "sql_password",
@@ -1761,7 +1762,7 @@ mod tests {
 
     #[test]
     fn segredos_em_settings_so_para_supervisor_em_qualquer_metodo() {
-        for chave in ["sql_password", "sql_host", "sql_user", "sql_port", "sql_database", "tiny_api_token"] {
+        for chave in ["sql_password", "sql_host", "sql_fallback_host", "sql_user", "sql_port", "sql_database", "tiny_api_token"] {
             for m in ["GET", "POST", "PUT", "DELETE"] {
                 assert!(requires_supervisor(&format!("/api/settings/{chave}"), m), "{chave} {m}");
             }

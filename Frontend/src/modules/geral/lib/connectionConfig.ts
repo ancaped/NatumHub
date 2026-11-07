@@ -102,6 +102,7 @@ export interface HealthCheckResult {
   ok: boolean;
   apiOrigin: string;
   status?: string;
+  version?: string;
   error?: string;
   latencyMs?: number;
   dbProvider?: string;
@@ -123,6 +124,7 @@ export async function checkServerHealth(apiOrigin?: string): Promise<HealthCheck
       ok: true,
       apiOrigin: origin,
       status: body.status,
+      version: typeof body.version === 'string' ? body.version : undefined,
       latencyMs,
       dbProvider: typeof body.dbProvider === 'string' ? body.dbProvider : undefined,
       dbHostMasked: typeof body.dbHostMasked === 'string' ? body.dbHostMasked : undefined,

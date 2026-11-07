@@ -5,6 +5,7 @@ import { isDeprecatedHubView, resolveDeprecatedHubView } from '../../lib/nav/nav
 import AppTopBar from './AppTopBar';
 import { NavShellProvider } from './NavShellContext';
 import NexusLogo from '../NexusLogo';
+import { useAppVersion } from '../../lib/useAppVersion';
 
 interface AppShellProps {
   view: string;
@@ -16,6 +17,7 @@ interface AppShellProps {
 }
 
 function HubWelcome() {
+  const versao = useAppVersion();
   return (
     <div className="flex-1 flex items-center justify-center p-8 bg-zinc-50">
       <div className="text-center space-y-4 max-w-md flex flex-col items-center">
@@ -23,7 +25,9 @@ function HubWelcome() {
         <div className="space-y-1">
           <div className="flex items-center justify-center gap-2">
             <h2 className="text-2xl font-black text-zinc-900 tracking-tight uppercase">Nexus</h2>
-            <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-zinc-900 text-white">0.1b</span>
+            {versao && (
+              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-zinc-900 text-white">{versao}</span>
+            )}
           </div>
           <p className="text-sm text-zinc-500">
             No celular, toque em Módulos. No computador, use a barra superior.
