@@ -312,6 +312,7 @@ mod tests {
             include_str!("../modules/administrativo/acompanhamento_producao/mod.rs"),
             include_str!("../modules/producao/sem_peso.rs"),
             include_str!("../modules/producao/kits_erp.rs"),
+            include_str!("../modules/producao/vira_erp.rs"),
             include_str!("../modules/expedicao/mod.rs"),
             include_str!("../modules/financeiro/mod.rs"),
             include_str!("../modules/geral/agentes/mod.rs"),

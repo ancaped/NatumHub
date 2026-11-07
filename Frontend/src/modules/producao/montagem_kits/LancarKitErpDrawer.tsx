@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react';
 import { apiFetch } from '../../geral/lib/http';
 import Drawer from '../../geral/components/ui/Drawer';
 
-type Tipo = 'montagem' | 'desmontagem';
+type Tipo = 'montagem' | 'desmontagem' | 'conversao' | 'reversao';
+
+const ROTULOS: Record<Tipo, string> = {
+  montagem: 'Montagem',
+  desmontagem: 'Desmontagem',
+  conversao: 'Conversão',
+  reversao: 'Reversão',
+};
 
 interface LinhaErp {
   codigo: string;
@@ -13,11 +20,13 @@ interface LinhaErp {
 
 interface Previa {
   lancamento: { observacao: string; linhas: LinhaErp[] };
-  ordem: { numero: string; kit: string; kits: number; jaLancadaNoErp: boolean };
+  ordem: { numero: string; kit?: string; kits?: number; de?: string; para?: string; jaLancadaNoErp: boolean };
 }
 
 interface Props {
   ordemId: number;
+  /** `kit` (padrão): ordem de montagem; `vira`: ordem de conversão. */
+  origem?: 'kit' | 'vira';
   onClose: () => void;
   /** Chamado depois de gravar no ERP, para a tela recarregar a lista. */
   onGravado: () => void;
@@ -33,8 +42,11 @@ async function mensagemDeErro(res: Response): Promise<string> {
 }
 
 /** Prévia e gravação da montagem/desmontagem de kit no ERP (2 passos: prévia, depois confirmar). */
-export default function LancarKitErpDrawer({ ordemId, onClose, onGravado }: Props) {
-  const [tipo, setTipo] = useState<Tipo>('montagem');
+export default function LancarKitErpDrawer({ ordemId, origem = 'kit', onClose, onGravado }: Props) {
+  const vira = origem === 'vira';
+  const base = vira ? '/turnovers/orders' : '/kits/orders';
+  const tipos: Tipo[] = vira ? ['conversao', 'reversao'] : ['montagem', 'desmontagem'];
+  const [tipo, setTipo] = useState<Tipo>(tipos[0]);
   const [previa, setPrevia] = useState<Previa | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [gravando, setGravando] = useState(false);
@@ -46,7 +58,7 @@ export default function LancarKitErpDrawer({ ordemId, onClose, onGravado }: Prop
     setCarregando(true);
     setErro('');
     setFeito('');
-    apiFetch(`/kits/orders/${ordemId}/lancamento-erp?tipo=${tipo}`)
+    apiFetch(`${base}/${ordemId}/lancamento-erp?tipo=${tipo}`)
       .then(async (res) => {
         if (!vivo) return;
         if (res.ok) setPrevia(await res.json());
@@ -60,13 +72,13 @@ export default function LancarKitErpDrawer({ ordemId, onClose, onGravado }: Prop
     return () => {
       vivo = false;
     };
-  }, [ordemId, tipo]);
+  }, [base, ordemId, tipo]);
 
   const gravar = async () => {
     setGravando(true);
     setErro('');
     try {
-      const res = await apiFetch(`/kits/orders/${ordemId}/lancamento-erp?tipo=${tipo}&confirmar=true`, {
+      const res = await apiFetch(`${base}/${ordemId}/lancamento-erp?tipo=${tipo}&confirmar=true`, {
         method: 'POST',
       });
       if (res.ok) {
@@ -83,14 +95,20 @@ export default function LancarKitErpDrawer({ ordemId, onClose, onGravado }: Prop
     }
   };
 
-  const jaLancada = previa?.ordem.jaLancadaNoErp && tipo === 'montagem';
+  const jaLancada = previa?.ordem.jaLancadaNoErp && tipo === tipos[0];
 
   return (
     <Drawer
       onClose={onClose}
       size="md"
-      title="Lançar kit no ERP"
-      subtitle={previa ? `OM ${previa.ordem.numero} · kit ${previa.ordem.kit} · ${previa.ordem.kits} un` : undefined}
+      title={vira ? 'Lançar conversão no ERP' : 'Lançar kit no ERP'}
+      subtitle={
+        previa
+          ? vira
+            ? `OV ${previa.ordem.numero} · ${previa.ordem.de} → ${previa.ordem.para}`
+            : `OM ${previa.ordem.numero} · kit ${previa.ordem.kit} · ${previa.ordem.kits} un`
+          : undefined
+      }
       loading={carregando}
       footer={
         <div className="flex flex-wrap gap-2 justify-end">
@@ -103,7 +121,7 @@ export default function LancarKitErpDrawer({ ordemId, onClose, onGravado }: Prop
               disabled={gravando || !previa || !!erro}
               className="min-h-11 px-4 rounded-xl bg-zinc-900 text-white text-xs font-bold disabled:opacity-40"
             >
-              {gravando ? 'Gravando…' : `Gravar ${tipo} no ERP`}
+              {gravando ? 'Gravando…' : `Gravar ${ROTULOS[tipo].toLowerCase()} no ERP`}
             </button>
           )}
         </div>
@@ -111,7 +129,7 @@ export default function LancarKitErpDrawer({ ordemId, onClose, onGravado }: Prop
     >
       <div className="space-y-4">
         <div className="flex flex-wrap gap-2">
-          {(['montagem', 'desmontagem'] as Tipo[]).map((t) => (
+          {tipos.map((t) => (
             <button
               key={t}
               onClick={() => setTipo(t)}
@@ -120,14 +138,14 @@ export default function LancarKitErpDrawer({ ordemId, onClose, onGravado }: Prop
                 tipo === t ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-700 border-zinc-300'
               }`}
             >
-              {t === 'montagem' ? 'Montagem' : 'Desmontagem'}
+              {ROTULOS[t]}
             </button>
           ))}
         </div>
 
         {jaLancada && !feito && (
           <p className="text-xs rounded-xl bg-amber-50 border border-amber-200 text-amber-800 p-3 font-semibold">
-            Esta ordem já teve a montagem lançada no ERP. O servidor recusa um segundo lançamento igual.
+            Esta ordem já teve o lançamento ({ROTULOS[tipos[0]].toLowerCase()}) feito no ERP. O servidor recusa um segundo lançamento igual.
           </p>
         )}
         {erro && <p className="text-xs rounded-xl bg-red-50 border border-red-200 text-red-700 p-3 font-semibold">{erro}</p>}

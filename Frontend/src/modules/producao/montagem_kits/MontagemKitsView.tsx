@@ -101,6 +101,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   const [editQuantityAssembled, setEditQuantityAssembled] = useState<number | string>(0);
   const [editErpLaunched, setEditErpLaunched] = useState(false);
   const [lancarErpOrdemId, setLancarErpOrdemId] = useState<number | null>(null);
+  const [lancarErpViraId, setLancarErpViraId] = useState<number | null>(null);
   const [submittingEditOrder, setSubmittingEditOrder] = useState(false);
 
   // States: Vira de Produto (Reetiquetagem / Reenvase)
@@ -606,7 +607,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         assembledBy: editViraAssembledBy,
         checkedBy: editViraCheckedBy,
         observations: editViraNotes,
-        erpLaunched: editViraErpLaunched ? 1 : 0,
         quantityAssembled: parseFloat(String(editViraQuantityAssembled)) || 0,
         motivo: editViraMotivo.trim() || null,
       };
@@ -621,6 +621,10 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
       if (res.ok) {
         setShowEditViraOrderModal(false);
         await fetchViraOrders();
+        // Conversão concluída e ainda fora do ERP: abre a prévia do lançamento para confirmar.
+        if (editViraStatus === 'COMPLETED' && selectedViraOrder.erpLaunched !== 1) {
+          setLancarErpViraId(selectedViraOrder.id);
+        }
       } else {
         const err = await res.json();
         avisar(err.error || 'Erro ao atualizar ordem de vira.', 'erro');
@@ -1177,6 +1181,16 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   return (
     <div className="flex flex-1 w-full h-full overflow-hidden animate-in fade-in duration-200">
       {previaElemento}
+      {lancarErpViraId !== null && (
+        <div className="relative z-[60]">
+          <LancarKitErpDrawer
+            ordemId={lancarErpViraId}
+            origem="vira"
+            onClose={() => setLancarErpViraId(null)}
+            onGravado={fetchViraOrders}
+          />
+        </div>
+      )}
       {lancarErpOrdemId !== null && (
         <div className="relative z-[60]">
           <LancarKitErpDrawer
@@ -3360,17 +3374,21 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Lançado no ERP?</label>
-                  <div className="flex items-center h-[36px]">
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editViraErpLaunched}
-                        onChange={(e) => setEditViraErpLaunched(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-zinc-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-zinc-900"></div>
-                      <span className="ml-3 text-xs font-bold text-zinc-700">Confirmar Lançamento</span>
-                    </label>
+                  <div className="flex items-center min-h-11 sm:min-h-[36px]">
+                    {selectedViraOrder.erpLaunched === 1 ? (
+                      <span className="px-3 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-bold text-emerald-800">
+                        Lançado no ERP
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setLancarErpViraId(selectedViraOrder.id)}
+                        title="Salve a ordem antes: o lançamento usa o que está salvo"
+                        className="px-3 py-1.5 min-h-11 sm:min-h-0 rounded-xl bg-zinc-900 text-white text-xs font-bold cursor-pointer"
+                      >
+                        Lançar no ERP
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

@@ -36,6 +36,7 @@ pub mod modules {
         pub mod bases;
         pub mod kits;
         pub mod kits_erp;
+        pub mod vira_erp;
         pub mod calculo;
         pub mod lotes;
         pub mod historico;

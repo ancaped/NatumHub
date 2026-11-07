@@ -22,6 +22,7 @@ use crate::modules::producao::gerenciamento::calculations::calculate_products;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .merge(crate::modules::producao::kits_erp::router())
+        .merge(crate::modules::producao::vira_erp::router())
         .route("/api/kits", get(list_kits))
         .route("/api/producao/insumos-status/:code", get(get_insumos_status))
 }
@@ -29,6 +30,7 @@ pub fn router() -> Router<Arc<AppState>> {
 /// Ações de kits e de insumos por produto descritas para agentes (ver `core::catalogo`).
 pub fn acoes() -> Vec<Acao> {
     let mut v = crate::modules::producao::kits_erp::acoes();
+    v.extend(crate::modules::producao::vira_erp::acoes());
     v.extend(vec![
         Acao::leitura(
             "listar_kits",

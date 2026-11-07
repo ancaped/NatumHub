@@ -192,7 +192,7 @@ struct LancarQuery {
 }
 
 /// Só códigos de produto/insumo comuns entram em SQL montado à mão (a consulta de saldo usa IN).
-fn codigo_seguro(c: &str) -> bool {
+pub(crate) fn codigo_seguro(c: &str) -> bool {
     !c.is_empty() && c.len() <= 30 && c.chars().all(|ch| ch.is_ascii_alphanumeric() || ".-_ ".contains(ch))
 }
 
@@ -236,7 +236,7 @@ async fn lancar_no_erp(
         return ErroApi::conflito(format!("A ordem {} já foi lançada no ERP como {}.", o.numero, texto_tipo(tipo)))
             .into_response();
     }
-    match gravar_no_erp(pool, &lanc, tipo, id, &o, &ctx.display_name).await {
+    match gravar_no_erp(pool, &lanc, texto_tipo(tipo), id, &o.numero, &o.kit, "kit_assembly_orders", &ctx.display_name).await {
         Ok(res) => {
             audit::record_domain(
                 pool,
@@ -256,21 +256,25 @@ async fn lancar_no_erp(
     }
 }
 
-struct GravacaoErp {
-    lancamento_id: i64,
-    data_registro: String,
-    n_registro: i32,
+pub(crate) struct GravacaoErp {
+    pub lancamento_id: i64,
+    pub data_registro: String,
+    pub n_registro: i32,
 }
 
 /// Grava as linhas no SQL Server numa transação. Antes guarda no Postgres o saldo em cache dos itens
 /// tocados e as linhas (`kit_erp_lancamentos`); só depois toca o ERP. Qualquer erro desfaz o ERP.
 /// Não altera Produtos/Insumos.nQtdeEstoque: o ERP recalcula pelos movimentos.
-async fn gravar_no_erp(
+/// `tabela_ordem` é uma constante dos chamadores (`kit_assembly_orders` ou `vira_ordens`), nunca texto de usuário.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn gravar_no_erp(
     pool: &PgPool,
     lanc: &Lancamento,
-    tipo: Tipo,
+    tipo_txt: &str,
     ordem_id: i64,
-    o: &OrdemCarregada,
+    numero: &str,
+    produto: &str,
+    tabela_ordem: &str,
     operador: &str,
 ) -> Result<GravacaoErp, String> {
     let mut sql = connect_sql_server(pool).await.map_err(|e| format!("Sem conexão com o ERP: {e}"))?;
@@ -312,9 +316,9 @@ async fn gravar_no_erp(
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",
     )
     .bind(ordem_id)
-    .bind(&o.numero)
-    .bind(texto_tipo(tipo))
-    .bind(&o.kit)
+    .bind(numero)
+    .bind(tipo_txt)
+    .bind(produto)
     .bind(&lanc.observacao)
     .bind(json!(lanc.linhas))
     .bind(serde_json::Value::Object(backup))
@@ -328,7 +332,7 @@ async fn gravar_no_erp(
         Ok(n) => {
             let _ = sqlx::query("UPDATE kit_erp_lancamentos SET status='gravado', data_registro=$2, n_registro=$3 WHERE id=$1")
                 .bind(lanc_id).bind(&hoje).bind(n).execute(pool).await;
-            let _ = sqlx::query("UPDATE kit_assembly_orders SET erp_launched = 1 WHERE id = $1").bind(ordem_id).execute(pool).await;
+            let _ = sqlx::query(&format!("UPDATE {tabela_ordem} SET erp_launched = 1 WHERE id = $1")).bind(ordem_id).execute(pool).await;
             Ok(GravacaoErp { lancamento_id: lanc_id, data_registro: hoje, n_registro: n })
         }
         Err(e) => {
