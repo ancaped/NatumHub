@@ -1,7 +1,6 @@
 /**
  * Configuração local do dispositivo + URL da API.
  * Persistido em localStorage e Saves/client_config.json (Tauri).
- * PC Principal = master (API+Postgres). Terminal = client (API remota).
  */
 
 export type AppMode = 'master' | 'client';
@@ -105,50 +104,6 @@ export function isPrincipalPc(): boolean {
 /** @deprecated Use isPrincipalPc() */
 export function isSyncMaster(): boolean {
   return isPrincipalPc();
-}
-
-export function isConnectionSetupCompleted(): boolean {
-  const cfg = loadConnectionConfig();
-  if (cfg.connectionSetupCompleted) return true;
-
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return false;
-    const parsed = JSON.parse(raw) as Partial<ClientConfig>;
-    if (parsed.connectionSetupCompleted) return true;
-    // Migração: instalações anteriores ao wizard
-    if (parsed.appMode === 'client' || parsed.setupLocked) {
-      const migrated = normalizeClientConfig({
-        ...loadConnectionConfig(),
-        connectionSetupCompleted: true,
-        installRole: parsed.appMode === 'client' ? 'terminal' : cfg.installRole,
-      });
-      saveConnectionConfig(migrated);
-      return true;
-    }
-  } catch {
-    /* ignore */
-  }
-  return false;
-}
-
-export function markConnectionSetupCompleted(
-  config: ClientConfig,
-  role: ClientConfig['installRole']
-): ClientConfig {
-  return normalizeClientConfig({
-    ...config,
-    connectionSetupCompleted: true,
-    installRole: role,
-  });
-}
-
-export function resetConnectionSetupForWizard(): void {
-  const cfg = loadConnectionConfig();
-  saveConnectionConfig({
-    ...cfg,
-    connectionSetupCompleted: false,
-  });
 }
 
 /** Aguarda API local/remota ficar online (bootstrap). */

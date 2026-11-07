@@ -1,7 +1,6 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import LoginView from './modules/geral/acesso/LoginView';
 import SetupSupervisorView from './modules/geral/acesso/SetupSupervisorView';
-import SetupConnectionView from './modules/geral/acesso/SetupConnectionView';
 import RestartRequiredView from './modules/geral/acesso/RestartRequiredView';
 const ConfiguracoesView = lazy(() => import('./modules/geral/configuracoes/ConfiguracoesView'));
 const DesenvolvimentoView = lazy(() => import('./modules/geral/desenvolvimento/DesenvolvimentoView'));
@@ -63,10 +62,8 @@ import { apiJson, getSettings, setSettings } from './modules/geral/lib/http';
 import { cleanupPrintIframes } from './modules/geral/lib/printCleanup';
 
 import {
-  isConnectionSetupCompleted,
   syncConfigFromTauri,
   waitForServerHealth,
-  resetConnectionSetupForWizard,
   getApiOrigin,
   ensureBrowserClientConfig,
 } from './modules/geral/lib/connectionConfig';
@@ -104,8 +101,6 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<any>(() => getAuthUser());
   const [authReady, setAuthReady] = useState(false);
   const [needsSupervisorSetup, setNeedsSupervisorSetup] = useState(false);
-  const [needsConnectionSetup, setNeedsConnectionSetup] = useState(false);
-  const [connectionWizardReason, setConnectionWizardReason] = useState<string | null>(null);
   const [needsAppRestart, setNeedsAppRestart] = useState(false);
   const [restartMessage, setRestartMessage] = useState('');
   const [setupChecked, setSetupChecked] = useState(false);
@@ -247,38 +242,6 @@ export default function App() {
     fetchSqlConfig();
   };
 
-  const openConnectionWizard = (reason?: string) => {
-    resetConnectionSetupForWizard();
-    setConnectionWizardReason(reason ?? null);
-    setNeedsConnectionSetup(true);
-    setNeedsSupervisorSetup(false);
-  };
-
-  const afterConnectionSetup = async () => {
-    setNeedsConnectionSetup(false);
-    setConnectionWizardReason(null);
-
-    const online = await waitForServerHealth(25000);
-    if (!online) {
-      openConnectionWizard(
-        'API local não respondeu na porta 3001. Reinicie o aplicativo e tente novamente.'
-      );
-      return;
-    }
-    try {
-      const setup = await fetchSetupStatus();
-      setNeedsSupervisorSetup(setup.needsSupervisorSetup);
-      if (setup.needsSupervisorSetup) {
-        clearAuthSession();
-        setCurrentUser(null);
-      }
-    } catch {
-      setNeedsSupervisorSetup(true);
-      clearAuthSession();
-      setCurrentUser(null);
-    }
-  };
-
   useEffect(() => {
     let cancelled = false;
 
@@ -305,21 +268,12 @@ export default function App() {
 
       if (cancelled) return;
 
-      if (!isConnectionSetupCompleted()) {
-        setNeedsConnectionSetup(true);
-        setNeedsSupervisorSetup(false);
-        setSetupChecked(true);
-        setAuthReady(true);
-        return;
-      }
-
       fetchSqlConfig();
       const online = await waitForServerHealth(25000);
       if (cancelled) return;
       if (!online) {
-        openConnectionWizard(
-          'API local ainda não respondeu. Reinicie o aplicativo e tente novamente.'
-        );
+        setNeedsAppRestart(true);
+        setRestartMessage('O servidor do Nexus não respondeu. Confira a conexão deste dispositivo e tente de novo.');
         setSetupChecked(true);
         setAuthReady(true);
         return;
@@ -381,12 +335,6 @@ export default function App() {
       return <RestartRequiredView message={restartMessage} />;
     }
 
-    if (needsConnectionSetup) {
-      return (
-        <SetupConnectionView reason={connectionWizardReason} onComplete={() => afterConnectionSetup()} />
-      );
-    }
-
     if (needsSupervisorSetup) {
       return <SetupSupervisorView onComplete={() => finishSupervisorSetup()} />;
     }
@@ -396,9 +344,6 @@ export default function App() {
         <LoginView
           message={message}
           fetchSqlConfig={fetchSqlConfig}
-          onReconfigureConnection={() =>
-            openConnectionWizard('Reconfigure o nome deste dispositivo se necessário.')
-          }
           onLoginSuccess={() => {
             setCurrentUser(getAuthUser());
           }}
@@ -1315,7 +1260,6 @@ export default function App() {
     authReady &&
     setupChecked &&
     !needsAppRestart &&
-    !needsConnectionSetup &&
     !(needsSupervisorSetup);
 
   return (

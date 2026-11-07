@@ -9,14 +9,12 @@ interface LoginViewProps {
   message: { text: string; type: 'success' | 'error' } | null;
   fetchSqlConfig: () => void;
   onLoginSuccess?: () => void;
-  onReconfigureConnection?: () => void;
 }
 
 export default function LoginView({
   message,
   fetchSqlConfig,
   onLoginSuccess,
-  onReconfigureConnection,
 }: LoginViewProps) {
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
@@ -153,17 +151,6 @@ export default function LoginView({
             )}
           </button>
         </form>
-
-        {onReconfigureConnection && (
-          <button
-            type="button"
-            onClick={onReconfigureConnection}
-            className="w-full text-xs text-zinc-500 hover:text-zinc-800 underline cursor-pointer"
-          >
-            Reconfigurar dispositivo
-          </button>
-        )}
-
       </div>
     </div>
   );
