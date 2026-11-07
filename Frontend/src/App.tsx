@@ -420,6 +420,7 @@ export default function App() {
           <ProducaoView
             onBackToHub={() => setView('producao_hub')}
             buscaInicial={buscaInicial?.destino === 'producao' ? buscaInicial.busca : undefined}
+            onAbrirKits={() => setView('montagem_kits')}
           />
         </ErrorBoundary>
       );
@@ -428,7 +429,7 @@ export default function App() {
     if (view === 'producao_rotina') {
       return (
         <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Produção">
-          <ProducaoView onBackToHub={() => setView('producao_hub')} />
+          <ProducaoView onBackToHub={() => setView('producao_hub')} onAbrirKits={() => setView('montagem_kits')} />
         </ErrorBoundary>
       );
     }
@@ -436,7 +437,7 @@ export default function App() {
     if (view === 'producao_lotes') {
       return (
         <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Produção">
-          <ProducaoView onBackToHub={() => setView('producao_hub')} />
+          <ProducaoView onBackToHub={() => setView('producao_hub')} onAbrirKits={() => setView('montagem_kits')} />
         </ErrorBoundary>
       );
     }

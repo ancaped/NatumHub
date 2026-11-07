@@ -12,7 +12,6 @@ import {
   Search, RefreshCw, HelpCircle, Edit3, CheckCircle2, ChevronRight as ChevronRightIcon,
   Layers, Package, Boxes, Plus, FlaskConical, X
 } from 'lucide-react';
-import { MontagemKitsPainel } from './MontagemKitsPainel';
 import { BatchOpportunityModal } from './BatchOpportunityModal';
 
 const fmt = (n: any) => (n == null || !Number.isFinite(Number(n)) ? '—' : Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 1 }));
@@ -73,10 +72,10 @@ export function KitsTab({
   onOpenComposition,
   onToggleApenasKit,
   onShowDetails,
+  onAbrirKits,
 }: any) {
   const { avisar, aviso } = useAviso();
   const { pedir: pedirPrevia, elemento: previaElemento } = usePreviaServidor(avisar);
-  const [centralSubTab, setCentralSubTab] = useState<'demandas' | 'montagem'>('demandas');
   const [queuedMap, setQueuedMap] = useState<Map<string, any>>(new Map());
   const [editingQueueCode, setEditingQueueCode] = useState<string | null>(null);
   const [editingQueueQty, setEditingQueueQty] = useState<number>(100);
@@ -631,26 +630,20 @@ export function KitsTab({
     <div className="view-container animate-in fade-in duration-200">
       {previaElemento}
       {aviso}
-      {/* Central de Kits: Sub-abas de topo */}
-      <div className="flex items-center justify-between mb-4 pb-2 border-b border-zinc-200">
-        <div className="inline-flex p-1 bg-zinc-100 rounded-lg border border-zinc-200 text-xs font-semibold">
-          <button type="button" onClick={() => setCentralSubTab('demandas')} className={botaoSeg(centralSubTab === 'demandas')}>
-            <Package size={14} />
-            <span>Demandas de Kits</span>
-          </button>
-          <button type="button" onClick={() => setCentralSubTab('montagem')} className={botaoSeg(centralSubTab === 'montagem')}>
+      {/* Central de Kits: só planejamento; as ordens de montagem ficam em Produção > Kits */}
+      {onAbrirKits && (
+        <div className="flex justify-end mb-3">
+          <button
+            type="button"
+            onClick={onAbrirKits}
+            className="min-h-11 sm:min-h-0 px-3 py-1.5 rounded-lg border border-zinc-200 bg-white text-xs font-bold text-zinc-700 hover:bg-zinc-50 flex items-center gap-1.5 cursor-pointer"
+          >
             <Boxes size={14} />
-            <span>Ordens de Montagem</span>
+            <span>Ordens de montagem (Produção &gt; Kits)</span>
           </button>
         </div>
-      </div>
+      )}
 
-      {centralSubTab === 'montagem' ? (
-        <MontagemKitsPainel
-          tabOptions={tabOptions}
-          onOpenComposition={onOpenComposition}
-        />
-      ) : (
         <>
           {/* Faixa de situação (mesmo estilo de Demandas de Produção) */}
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4 bg-zinc-100 p-1.5 rounded-xl border border-zinc-200">
@@ -750,7 +743,6 @@ export function KitsTab({
             </div>
           </div>
         </>
-      )}
 
       {/* Modal Rápido: Criar Ordem de Montagem de Kit */}
       {kitOrderModal && (() => {

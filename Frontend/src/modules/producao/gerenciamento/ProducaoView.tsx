@@ -19,7 +19,6 @@ import { InventoryTab } from './components/InventoryTab';
 import { ProgramadasTab } from './components/ProgramadasTab';
 import { ProducoesFixasTab } from './components/ProducoesFixasTab';
 import { KitsTab } from './components/KitsTab';
-import { MontagemKitsPainel } from './components/MontagemKitsPainel';
 import { BasesTab } from './components/BasesTab';
 import ItemRegistry from '../../compras/planejamento/components/ItemRegistry';
 import { HistoryTab } from './components/HistoryTab';
@@ -36,8 +35,11 @@ export default function ProducaoView({
   onBackToHub,
   lockedView = null,
   buscaInicial,
+  onAbrirKits,
 }: {
   onBackToHub: () => void;
+  /** Abre Produção > Kits (ordens de montagem). */
+  onAbrirKits?: () => void;
   lockedView?: ProducaoLockedView | null;
   /** Preenche a busca da tela de Demandas uma vez, ao abrir. */
   buscaInicial?: string;
@@ -1508,8 +1510,6 @@ export default function ProducaoView({
       setCurrentView('erros');
       setSelectedLoteStatus('ERR_ANY_ERROR');
       fetchLotes();
-    } else if (tabId === 'montagem_kits') {
-      setCurrentView('montagem_kits');
     } else if (tabId === 'kits') {
       setCurrentView('kits');
       setKitsActiveTab('ALL');
@@ -1664,13 +1664,6 @@ export default function ProducaoView({
             />
           )}
 
-          {currentView === 'montagem_kits' && (
-            <MontagemKitsPainel
-              tabOptions={tabOptions}
-              onOpenComposition={handleOpenKitComposition}
-            />
-          )}
-
           {/* VIEW: KITS MANAGEMENT */}
           {currentView === 'kits' && (
             <KitsTab
@@ -1681,6 +1674,7 @@ export default function ProducaoView({
               onOpenComposition={handleOpenKitComposition}
               onToggleApenasKit={handleToggleComponentApenasKit}
               onShowDetails={fetchProductDetails}
+              onAbrirKits={onAbrirKits}
             />
           )}
 
