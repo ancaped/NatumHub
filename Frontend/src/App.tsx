@@ -56,7 +56,7 @@ import {
 } from 'lucide-react';
 import { APP_NAME } from './modules/geral/lib/utils';
 import { localAuth } from './modules/geral/lib/api';
-import { clearAuthSession, getAuthUser, validateSession, fetchSetupStatus, type AuthUser } from './modules/geral/lib/auth';
+import { clearAuthSession, getAuthUser, validateSession, fetchSetupStatus, isSupervisor, type AuthUser } from './modules/geral/lib/auth';
 import { canAccessView } from './modules/geral/lib/modules/permissions';
 import { apiJson, getSettings, setSettings } from './modules/geral/lib/http';
 import { cleanupPrintIframes } from './modules/geral/lib/printCleanup';
@@ -156,15 +156,17 @@ export default function App() {
   const [savingSql, setSavingSql] = useState(false);
   const [syncingSql, setSyncingSql] = useState(false);
 
+  // Conexão do ERP: só o supervisor lê (o servidor recusa os demais). A senha nunca volta para a tela:
+  // o campo fica vazio e só grava se for digitada.
   const fetchSqlConfig = async () => {
+    if (!isSupervisor(getAuthUser())) return;
     try {
       const vals = await getSettings([
-        'sql_host', 'sql_port', 'sql_user', 'sql_password', 'sql_database',
+        'sql_host', 'sql_port', 'sql_user', 'sql_database',
       ]);
       if (vals.sql_host) setSqlHost(vals.sql_host);
       if (vals.sql_port) setSqlPort(vals.sql_port);
       if (vals.sql_user) setSqlUser(vals.sql_user);
-      if (vals.sql_password) setSqlPassword(vals.sql_password);
       if (vals.sql_database) setSqlDatabase(vals.sql_database);
     } catch (e) {
       console.error("Error fetching SQL config:", e);
@@ -178,9 +180,10 @@ export default function App() {
         sql_host: sqlHost,
         sql_port: sqlPort,
         sql_user: sqlUser,
-        sql_password: sqlPassword,
+        ...(sqlPassword ? { sql_password: sqlPassword } : {}),
         sql_database: sqlDatabase,
       });
+      setSqlPassword('');
       setMessage({ text: "Configurações de conexão salvas!", type: 'success' });
     } catch (e) {
       console.error(e);

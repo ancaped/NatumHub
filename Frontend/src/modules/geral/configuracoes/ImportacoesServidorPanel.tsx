@@ -405,7 +405,7 @@ export default function ImportacoesServidorPanel({
                 type="password"
                 value={sqlPassword}
                 onChange={(e) => setSqlPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="Deixe vazio para manter a senha atual"
                 className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs bg-white text-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
               />
             </div>

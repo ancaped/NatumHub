@@ -1349,7 +1349,51 @@ pub fn is_public_path(path: &str) -> bool {
         || path.starts_with("/api/google/callback")
 }
 
+/// Settings com segredo ou que decidem onde o servidor conecta no ERP/Tiny: só o supervisor lê e grava.
+/// (Antes qualquer operador logado lia `sql_password` e podia trocar `sql_host`.)
+const SETTINGS_SO_SUPERVISOR: [&str; 6] = [
+    "sql_host",
+    "sql_port",
+    "sql_user",
+    "sql_password",
+    "sql_database",
+    "tiny_api_token",
+];
+
+/// Decodifica `%XX` (o middleware vê o caminho cru; o axum decodifica a chave depois).
+fn decodificar_percentual(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            let hex = |c: u8| (c as char).to_digit(16);
+            if let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2])) {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn setting_so_supervisor(path: &str) -> bool {
+    let Some(resto) = path.strip_prefix("/api/settings/") else {
+        return false;
+    };
+    let chave = decodificar_percentual(resto.split('?').next().unwrap_or(""))
+        .trim_end_matches('/')
+        .to_lowercase();
+    SETTINGS_SO_SUPERVISOR.contains(&chave.as_str())
+}
+
 pub fn requires_supervisor(path: &str, method: &str) -> bool {
+    if setting_so_supervisor(path) {
+        return true;
+    }
     if path.starts_with("/api/server-manager") {
         return matches!(method, "POST" | "PUT" | "DELETE");
     }
@@ -1713,6 +1757,25 @@ mod tests {
         assert!(has_read_access_com(&op, "/api/settings/qualquer", "GET", true), "settings gerais seguem liberadas");
         assert!(has_read_access_com(&op, "/api/health", "GET", true));
         assert!(has_read_access_com(&op, "/api/producao/lotes", "POST", true), "restrição é só de leitura");
+    }
+
+    #[test]
+    fn segredos_em_settings_so_para_supervisor_em_qualquer_metodo() {
+        for chave in ["sql_password", "sql_host", "sql_user", "sql_port", "sql_database", "tiny_api_token"] {
+            for m in ["GET", "POST", "PUT", "DELETE"] {
+                assert!(requires_supervisor(&format!("/api/settings/{chave}"), m), "{chave} {m}");
+            }
+        }
+        // tentativas de burlar com codificação, caixa ou barra no fim
+        assert!(requires_supervisor("/api/settings/sql%5Fpassword", "GET"));
+        assert!(requires_supervisor("/api/settings/SQL_PASSWORD", "GET"));
+        assert!(requires_supervisor("/api/settings/sql_password/", "GET"));
+        assert!(requires_supervisor("/api/settings/sql_password?x=1", "GET"));
+        // o resto das settings segue como estava
+        assert!(!requires_supervisor("/api/settings/dias_comerciais", "GET"));
+        assert!(!requires_supervisor("/api/settings/limit_per_page", "POST"));
+        assert!(!requires_supervisor("/api/settings/report-logo", "GET"));
+        assert!(!requires_supervisor("/api/settings/sql_passwordx", "GET"));
     }
 
     #[test]
