@@ -62,7 +62,6 @@ import { apiJson, getSettings, setSettings } from './modules/geral/lib/http';
 import { cleanupPrintIframes } from './modules/geral/lib/printCleanup';
 
 import {
-  syncConfigFromTauri,
   waitForServerHealth,
   getApiOrigin,
   ensureBrowserClientConfig,
@@ -248,20 +247,6 @@ export default function App() {
     async function initAuth() {
       try {
         ensureBrowserClientConfig();
-        await syncConfigFromTauri();
-        ensureBrowserClientConfig();
-        const { repairDevConnectionIfNeeded } = await import('./modules/geral/lib/connectionConfig');
-        if (await repairDevConnectionIfNeeded()) {
-          if (!cancelled) {
-            setNeedsAppRestart(true);
-            setRestartMessage(
-              'A configuração foi ajustada para servidor local de desenvolvimento. Reinicie o aplicativo para o banco e a API subirem neste PC.'
-            );
-            setSetupChecked(true);
-            setAuthReady(true);
-          }
-          return;
-        }
       } catch {
         /* localStorage */
       }

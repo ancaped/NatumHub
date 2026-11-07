@@ -140,7 +140,7 @@ export default function NotificationsPanel({ currentUser }: NotificationsPanelPr
                   ? 'Verificando...'
                   : serverOnline
                     ? `Online${latencyMs != null ? ` · ${latencyMs}ms` : ''}`
-                    : 'Offline — verifique rede ou PC principal'}
+                    : 'Offline — verifique a rede ou o servidor'}
               </p>
             </div>
           </div>

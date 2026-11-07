@@ -168,7 +168,7 @@ export default function PostgresBackupPanel({ setMessage }: PostgresBackupPanelP
       </div>
 
       <p className="text-xs text-zinc-600 leading-relaxed">
-        Agenda <code className="text-[10px] bg-zinc-100 px-1 rounded">pg_dump</code> no PC Principal
+        Agenda <code className="text-[10px] bg-zinc-100 px-1 rounded">pg_dump</code> no servidor
         (formato custom). Defina quantos arquivos manter em cada faixa — <strong>0</strong> desliga a
         faixa. Destino somente em disco local por enquanto.
       </p>

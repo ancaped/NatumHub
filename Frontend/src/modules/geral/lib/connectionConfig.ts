@@ -1,44 +1,19 @@
 /**
- * Configuração local do dispositivo + URL da API.
- * Persistido em localStorage e Saves/client_config.json (Tauri).
+ * Configuração local do dispositivo (localStorage): URL da API e identificação do aparelho.
+ * O Nexus roda no navegador, servido pelo próprio servidor: a API é sempre a mesma origem.
  */
 
-export type AppMode = 'master' | 'client';
-
 export interface ClientConfig {
-  appMode: AppMode;
   apiOrigin: string;
-  /** Derivado automaticamente — true quando appMode === 'master' */
-  isSyncMaster: boolean;
-  apiBindHost: string;
   apiPort: number;
-  /** Bloqueia troca de modo após definir este PC como Cliente (exceto admin) */
-  setupLocked?: boolean;
-  /** Identificador único desta instalação */
+  /** Identificador único deste aparelho (navegador) */
   deviceId?: string;
   deviceLabel?: string;
-  /** Wizard de primeira instalação concluído */
-  connectionSetupCompleted?: boolean;
-  /** server | terminal | development — definido no wizard */
-  installRole?: 'server' | 'terminal' | 'development';
 }
 
 const STORAGE_KEY = 'natum_client_config';
 
 export const DEFAULT_API_PORT = 3001;
-
-export function defaultConfig(): ClientConfig {
-  return {
-    appMode: 'master',
-    apiOrigin: `http://127.0.0.1:${DEFAULT_API_PORT}`,
-    isSyncMaster: true,
-    apiBindHost: '0.0.0.0',
-    apiPort: DEFAULT_API_PORT,
-    setupLocked: false,
-    deviceId: generateDeviceId(),
-    deviceLabel: getDefaultDeviceLabel(),
-  };
-}
 
 function generateDeviceId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -54,18 +29,12 @@ function getDefaultDeviceLabel(): string {
   return 'Nexus';
 }
 
-export function ensureDeviceId(config: ClientConfig): ClientConfig {
-  if (config.deviceId) return config;
-  return { ...config, deviceId: generateDeviceId(), deviceLabel: config.deviceLabel || getDefaultDeviceLabel() };
-}
-
-export function normalizeClientConfig(config: ClientConfig): ClientConfig {
-  const withDevice = ensureDeviceId(config);
-  const isMaster = withDevice.appMode === 'master';
+function defaultConfig(): ClientConfig {
   return {
-    ...withDevice,
-    isSyncMaster: isMaster,
-    setupLocked: isMaster ? withDevice.setupLocked : true,
+    apiOrigin: `http://127.0.0.1:${DEFAULT_API_PORT}`,
+    apiPort: DEFAULT_API_PORT,
+    deviceId: generateDeviceId(),
+    deviceLabel: getDefaultDeviceLabel(),
   };
 }
 
@@ -74,39 +43,43 @@ export function loadConnectionConfig(): ClientConfig {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultConfig();
     const parsed = JSON.parse(raw) as Partial<ClientConfig>;
-    return normalizeClientConfig({ ...defaultConfig(), ...parsed });
+    const cfg = { ...defaultConfig(), ...parsed };
+    if (!cfg.deviceId) cfg.deviceId = generateDeviceId();
+    return cfg;
   } catch {
     return defaultConfig();
   }
 }
 
-export function saveConnectionConfig(config: ClientConfig): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeClientConfig(config)));
+function saveConnectionConfig(config: ClientConfig): void {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
 }
 
 export function getApiOrigin(): string {
   return loadConnectionConfig().apiOrigin.replace(/\/$/, '');
 }
 
-export function isClientMode(): boolean {
-  return loadConnectionConfig().appMode === 'client';
+/** UI servida pelo Axum (navegador na LAN / Tailscale) — não Vite dev server. */
+function isAxumServedUi(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.location.port === '5175') return false;
+  return /^https?:$/.test(window.location.protocol);
 }
 
-export function isMasterMode(): boolean {
-  return loadConnectionConfig().appMode === 'master';
+/** No navegador (SPA no Axum), usa a mesma origem como API e guarda a identificação do aparelho. */
+export function ensureBrowserClientConfig(): ClientConfig {
+  let cfg = loadConnectionConfig();
+  if (!isAxumServedUi()) return cfg;
+  cfg = {
+    ...cfg,
+    apiOrigin: window.location.origin.replace(/\/$/, ''),
+    apiPort: DEFAULT_API_PORT,
+  };
+  saveConnectionConfig(cfg);
+  return cfg;
 }
 
-/** PC principal = servidor com banco local, sync ERP e backups */
-export function isPrincipalPc(): boolean {
-  return isMasterMode();
-}
-
-/** @deprecated Use isPrincipalPc() */
-export function isSyncMaster(): boolean {
-  return isPrincipalPc();
-}
-
-/** Aguarda API local/remota ficar online (bootstrap). */
+/** Aguarda a API ficar online (bootstrap). */
 export async function waitForServerHealth(
   maxMs = 20000,
   intervalMs = 600,
@@ -123,88 +96,6 @@ export async function waitForServerHealth(
     await new Promise((r) => setTimeout(r, intervalMs));
   }
   return false;
-}
-
-export function isSetupLocked(): boolean {
-  const cfg = loadConnectionConfig();
-  return cfg.appMode === 'client' && !!cfg.setupLocked;
-}
-
-/** Dev (`tauri dev` / Vite :5175) nunca pode ser servidor de produção. */
-export function isDevRuntime(): boolean {
-  return import.meta.env.DEV;
-}
-
-/** UI servida pelo Axum (navegador na LAN / Tailscale) — não Vite dev server. */
-export function isAxumServedUi(): boolean {
-  if (typeof window === 'undefined') return false;
-  if (window.location.port === '5175') return false;
-  return /^https?:$/.test(window.location.protocol);
-}
-
-export interface BuildInfo {
-  channel: string;
-  identifier: string;
-  productName: string;
-  version: string;
-  canBePrincipalServer: boolean;
-  isDeveloperInstall: boolean;
-}
-
-export async function getBuildInfo(): Promise<BuildInfo | null> {
-  return {
-    channel: 'stable',
-    identifier: 'com.nexus.hub',
-    productName: 'Nexus',
-    version: '1.0.0',
-    canBePrincipalServer: true,
-    isDeveloperInstall: false,
-  };
-}
-
-/** Pode ser PC Principal / Servidor. */
-export async function canBePrincipalServer(): Promise<boolean> {
-  return true;
-}
-
-export async function isDeveloperInstall(): Promise<boolean> {
-  return false;
-}
-
-/**
- * No navegador (SPA no Axum), força cliente same-origin e marca setup concluído.
- */
-export function ensureBrowserClientConfig(): ClientConfig {
-  let cfg = loadConnectionConfig();
-  if (!isAxumServedUi()) return cfg;
-  const origin = window.location.origin.replace(/\/$/, '');
-  cfg = normalizeClientConfig({
-    ...cfg,
-    appMode: 'client',
-    isSyncMaster: false,
-    apiOrigin: origin,
-    apiBindHost: '127.0.0.1',
-    apiPort: DEFAULT_API_PORT,
-    setupLocked: true,
-    connectionSetupCompleted: true,
-    installRole: 'terminal',
-  });
-  saveConnectionConfig(cfg);
-  return cfg;
-}
-
-/** Legacy no-op: terminais (`client`) são válidos e não devem ser forçados a master. */
-export async function repairDevConnectionIfNeeded(): Promise<boolean> {
-  return false;
-}
-
-export async function syncConfigFromTauri(): Promise<ClientConfig> {
-  return loadConnectionConfig();
-}
-
-export async function saveConfigToTauri(config: ClientConfig): Promise<void> {
-  const normalized = normalizeClientConfig(config);
-  saveConnectionConfig(normalized);
 }
 
 export interface HealthCheckResult {

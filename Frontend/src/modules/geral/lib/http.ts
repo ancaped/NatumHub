@@ -1,6 +1,6 @@
 /**
- * Cliente HTTP centralizado para o servidor Axum (master).
- * URL dinâmica: master local ou remoto via Tailscale.
+ * Cliente HTTP centralizado para o servidor Axum.
+ * URL: a mesma origem que serve o app (LAN ou Tailscale).
  */
 
 import { getApiOrigin, loadConnectionConfig } from './connectionConfig';

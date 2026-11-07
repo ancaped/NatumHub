@@ -78,7 +78,7 @@ export default function OperadoresPanel({
     try {
       const health = await checkServerHealth();
       if (!health.ok) {
-        throw new Error(health.error || 'Servidor master offline. Verifique a conexão em Configurações → Rede.');
+        throw new Error(health.error || 'Servidor offline. Verifique a conexão deste dispositivo.');
       }
       const ops = await fetchOperatorsManage();
       setOperators(ops);
