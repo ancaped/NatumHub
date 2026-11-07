@@ -345,6 +345,15 @@ pub async fn login(
     Json(body): Json<LoginRequest>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
+    let limitador = super::limite_login::global();
+
+    if let Some(espera) = limitador.bloqueado(&body.display_name, std::time::Instant::now()) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({ "error": super::limite_login::mensagem_bloqueio(espera) })),
+        )
+            .into_response();
+    }
 
     let _ = store::init_auth_tables(pool).await;
     let _ = store::purge_expired_sessions(pool).await;
@@ -360,6 +369,7 @@ pub async fn login(
     .await
     {
         Ok((token, operator, modules, expires_at)) => {
+            limitador.limpar(&body.display_name);
             let user = store::build_auth_user(
                 pool,
                 &operator,
@@ -390,11 +400,14 @@ pub async fn login(
             )
                 .into_response()
         }
-        Err(_) => (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "Nome ou senha inválidos." })),
-        )
-            .into_response(),
+        Err(_) => {
+            limitador.registrar_falha(&body.display_name, std::time::Instant::now());
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": "Nome ou senha inválidos." })),
+            )
+                .into_response()
+        }
     }
 }
 

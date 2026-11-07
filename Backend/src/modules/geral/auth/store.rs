@@ -246,6 +246,12 @@ pub fn hash_password(password: &str) -> Result<String, String> {
         .map_err(|e| format!("Erro ao gerar hash: {e}"))
 }
 
+/// Hash de mentira, só para gastar o mesmo tempo quando o nome não existe (não dá para descobrir nomes pelo tempo de resposta).
+fn hash_falso() -> &'static str {
+    static H: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    H.get_or_init(|| hash_password("senha-falsa-para-igualar-tempo").unwrap_or_default())
+}
+
 pub fn verify_password(password: &str, hash: &str) -> bool {
     if hash.is_empty() {
         return false;
@@ -898,9 +904,13 @@ pub async fn create_session(
         return Err("Nome do operador é obrigatório.".to_string());
     }
 
-    let operator = find_operator_by_name(pool, name)
-        .await?
-        .ok_or_else(|| "Nome ou senha inválidos.".to_string())?;
+    let operator = match find_operator_by_name(pool, name).await? {
+        Some(o) => o,
+        None => {
+            let _ = verify_password(password, hash_falso());
+            return Err("Nome ou senha inválidos.".to_string());
+        }
+    };
 
     // Agente de IA não entra por senha: só pelo token próprio (`nxa_...`).
     // Sem a coluna `kind` (migração 056 não aplicada) não há agentes: o login segue normal.
@@ -910,6 +920,7 @@ pub async fn create_session(
         .await
         .unwrap_or(None);
     if kind.as_deref() == Some("agente") {
+        let _ = verify_password(password, hash_falso());
         return Err("Nome ou senha inválidos.".to_string());
     }
 
@@ -921,6 +932,7 @@ pub async fn create_session(
             }
         }
         _ => {
+            let _ = verify_password(password, hash_falso());
             return Err("Nome ou senha inválidos.".to_string());
         }
     }

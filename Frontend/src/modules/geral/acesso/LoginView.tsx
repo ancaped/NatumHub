@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, AlertCircle, Loader2, Lock } from 'lucide-react';
 import { loginOperator } from '../lib/auth';
+import { ApiError } from '../lib/http';
 import { getApiOrigin, checkServerHealth } from '../lib/connectionConfig';
 import NexusLogo from '../components/NexusLogo';
 
@@ -73,8 +74,8 @@ export default function LoginView({
       } else {
         window.location.reload();
       }
-    } catch {
-      setErrorMsg('Nome ou senha inválidos.');
+    } catch (e) {
+      setErrorMsg(e instanceof ApiError && e.status === 429 ? e.message : 'Nome ou senha inválidos.');
     } finally {
       setSubmitting(false);
     }
