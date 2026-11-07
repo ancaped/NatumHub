@@ -332,7 +332,9 @@ pub(crate) async fn gravar_no_erp(
         Ok(n) => {
             let _ = sqlx::query("UPDATE kit_erp_lancamentos SET status='gravado', data_registro=$2, n_registro=$3 WHERE id=$1")
                 .bind(lanc_id).bind(&hoje).bind(n).execute(pool).await;
-            let _ = sqlx::query(&format!("UPDATE {tabela_ordem} SET erp_launched = 1 WHERE id = $1")).bind(ordem_id).execute(pool).await;
+            // Desmontagem/reversão desfazem o lançamento: a ordem volta a "não lançada".
+            let lancada = if matches!(tipo_txt, "desmontagem" | "reversao") { 0 } else { 1 };
+            let _ = sqlx::query(&format!("UPDATE {tabela_ordem} SET erp_launched = {lancada} WHERE id = $1")).bind(ordem_id).execute(pool).await;
             Ok(GravacaoErp { lancamento_id: lanc_id, data_registro: hoje, n_registro: n })
         }
         Err(e) => {
