@@ -1430,99 +1430,11 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         <FolhaImpressaoOrdem ctx={ctx} />
       )}
 
-      {/* Sidebar */}
-      <div className="print:hidden hidden md:flex w-64 bg-white border-r border-zinc-200 flex-col shrink-0 -mt-px">
-
-          {/* Back Button */}
-          <div className="p-3 border-b border-zinc-100">
-            <button
-              onClick={onBackToHub}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-all cursor-pointer border border-zinc-200"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Voltar ao Estoque Hub
-            </button>
-          </div>
-
-          {/* Navigation Tabs */}
-          <div className="p-2 border-b border-zinc-100 space-y-1">
-            <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-              Menu Montagem
-            </div>
-            <button
-              onClick={() => setActiveSubTab('ordens')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeSubTab === 'ordens' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
-              }`}
-            >
-              <ClipboardList className="h-4 w-4" />
-              Ordens de Montagem
-              <span className="ml-auto bg-zinc-200 text-zinc-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                {orders.length}
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveSubTab('componentes')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeSubTab === 'componentes' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
-              }`}
-            >
-              <Layers className="h-4 w-4" />
-              Componentes e Alertas
-            </button>
-            <button
-              onClick={() => setActiveSubTab('composicao')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeSubTab === 'composicao' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
-              }`}
-            >
-              <Settings className="h-4 w-4" />
-              Composição de Kits
-            </button>
-          </div>
-
-          <div className="p-2 border-b border-zinc-100 space-y-1">
-            <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-              Menu Conversão de Produto
-            </div>
-            <button
-              onClick={() => setActiveSubTab('vira_ordens')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeSubTab === 'vira_ordens' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
-              }`}
-            >
-              <RefreshCw className="h-4 w-4" />
-              Ordens de Conversão
-              <span className="ml-auto bg-zinc-200 text-zinc-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                {viraOrders.length}
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveSubTab('vira_composicao')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeSubTab === 'vira_composicao' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
-              }`}
-            >
-              <Settings className="h-4 w-4" />
-              Fórmulas de Conversão
-            </button>
-          </div>
-
-          {/* Info/Stats Block */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            <div className="bg-zinc-50 rounded-xl p-4 space-y-3 border border-zinc-100">
-              <h3 className="text-xs font-bold text-zinc-700 uppercase tracking-wider">Módulos Nexus</h3>
-              <p className="text-xs text-zinc-550 leading-relaxed">
-                Controle o fluxo fabril e logístico. Gerencie montagens de kits comerciais e ordens de conversão de produtos (reetiquetagem e reenvase).
-              </p>
-            </div>
-          </div>
-        </div>
-
         {/* Main Content Area */}
         <div className="print:hidden flex-1 flex flex-col overflow-hidden relative">
           <main className="flex-1 overflow-y-auto p-3 md:p-6 flex flex-col min-w-0">
-            <div className="md:hidden no-print mb-3 flex shrink-0 gap-1.5 overflow-x-auto pb-1" role="tablist">
+            <div className="no-print mb-3 md:mb-5 flex flex-col md:flex-row md:items-start md:justify-between gap-2 md:gap-4 shrink-0">
+            <div className="flex gap-1.5 overflow-x-auto md:flex-wrap pb-1 md:pb-0" role="tablist">
               {([
                 ['ordens', 'Ordens de Montagem', orders.length],
                 ['componentes', 'Componentes e Alertas', null],
@@ -1535,15 +1447,15 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                   role="tab"
                   aria-selected={activeSubTab === k}
                   onClick={() => setActiveSubTab(k)}
-                  className={`shrink-0 min-h-11 px-3.5 rounded-xl text-xs font-bold border whitespace-nowrap cursor-pointer ${
-                    activeSubTab === k ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-600 border-zinc-200'
+                  className={`shrink-0 min-h-11 md:min-h-9 px-3.5 rounded-xl text-xs font-bold border whitespace-nowrap cursor-pointer transition-colors ${
+                    activeSubTab === k ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
                   }`}
                 >
                   {label}{n !== null ? ` (${n})` : ''}
                 </button>
               ))}
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2 mb-4 md:mb-6 no-print">
+            <div className="flex flex-wrap items-center md:justify-end gap-2 no-print">
               <div className="flex flex-wrap items-center gap-2 md:gap-3">
                 {activeSubTab === 'ordens' && (
                   <button 
@@ -1571,6 +1483,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                   Recarregar
                 </button>
               </div>
+            </div>
             </div>
             <style>{`
               @media print {
