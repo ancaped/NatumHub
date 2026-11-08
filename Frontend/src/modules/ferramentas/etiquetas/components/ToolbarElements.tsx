@@ -553,10 +553,10 @@ export default function ToolbarElements({
   ];
 
   const botaoTopo =
-    'flex-1 h-8 flex items-center justify-center gap-1 rounded-lg border border-zinc-200 bg-white text-xs text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default';
+    'flex-1 h-11 lg:h-8 flex items-center justify-center gap-1 rounded-lg border border-zinc-200 bg-white text-xs text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default';
 
   return (
-    <div className="w-60 border-r border-zinc-200 bg-white flex flex-col h-full overflow-y-auto select-none">
+    <div className="w-full lg:w-60 lg:border-r border-zinc-200 bg-white flex flex-col h-full overflow-y-auto select-none">
       <div className="p-3 space-y-2">
         <div className="flex gap-1.5">
           <button
@@ -585,7 +585,7 @@ export default function ToolbarElements({
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar elemento…"
-            className="w-full h-8 pl-8 pr-2 rounded-lg border border-zinc-200 bg-white text-xs text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-400"
+            className="w-full h-11 lg:h-8 pl-8 pr-2 rounded-lg border border-zinc-200 bg-white text-xs text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-400"
           />
         </div>
       </div>
@@ -612,7 +612,7 @@ export default function ToolbarElements({
                         key={i.label}
                         type="button"
                         onClick={i.onClick}
-                        className="h-16 flex flex-col items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-white text-xs text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition-colors cursor-pointer"
+                        className="h-20 lg:h-16 flex flex-col items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-white text-xs text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition-colors cursor-pointer"
                       >
                         <i.icon className="h-4 w-4 text-zinc-500" />
                         <span>{i.label}</span>
@@ -626,7 +626,7 @@ export default function ToolbarElements({
                         key={i.label}
                         type="button"
                         onClick={i.onClick}
-                        className="w-full h-8 flex items-center justify-between gap-2 px-2 rounded-md text-xs text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                        className="w-full h-11 lg:h-8 flex items-center justify-between gap-2 px-2 rounded-md text-xs text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
                       >
                         <span className="truncate text-left">{i.label}</span>
                         {i.hint && <span className="text-[10px] text-zinc-400 shrink-0">{i.hint}</span>}

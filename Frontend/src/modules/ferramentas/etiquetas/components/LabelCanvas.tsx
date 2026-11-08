@@ -302,11 +302,13 @@ export default function LabelCanvas({
       setDragState(null);
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('pointermove', handleMouseMove);
+    window.addEventListener('pointercancel', handleMouseUp);
+    window.addEventListener('pointerup', handleMouseUp);
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('pointermove', handleMouseMove);
+      window.removeEventListener('pointercancel', handleMouseUp);
+      window.removeEventListener('pointerup', handleMouseUp);
     };
   }, [
     dragState,
@@ -396,7 +398,7 @@ export default function LabelCanvas({
     return (
       <div
         key={el.id}
-        onMouseDown={(e) => handleStartMove(e, el)}
+        onPointerDown={(e) => handleStartMove(e, el)}
         onClick={(e) => {
           e.stopPropagation();
           onSelectElement(el.id, e.shiftKey || e.ctrlKey || e.metaKey);
@@ -409,6 +411,7 @@ export default function LabelCanvas({
           height: `${height}px`,
           zIndex: el.zIndex || 1,
           cursor: isSelected ? 'move' : 'pointer',
+          touchAction: isSelected ? 'none' : 'auto',
         }}
         className={`group select-none ${
           isSelected
@@ -606,36 +609,36 @@ export default function LabelCanvas({
 
             {/* Corner Resize Handles */}
             <div
-              onMouseDown={(e) => handleStartResize(e, el, 'nw')}
+              onPointerDown={(e) => handleStartResize(e, el, 'nw')}
               onClick={(e) => e.stopPropagation()}
-              className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-white border-2 border-blue-600 rounded-xs cursor-nwse-resize z-30"
+              className="absolute -top-3 -left-3 w-6 h-6 sm:-top-1.5 sm:-left-1.5 sm:w-3 sm:h-3 touch-none bg-white border-2 border-blue-600 rounded-xs cursor-nwse-resize z-30"
             />
             <div
-              onMouseDown={(e) => handleStartResize(e, el, 'ne')}
+              onPointerDown={(e) => handleStartResize(e, el, 'ne')}
               onClick={(e) => e.stopPropagation()}
-              className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-white border-2 border-blue-600 rounded-xs cursor-nesw-resize z-30"
+              className="absolute -top-3 -right-3 w-6 h-6 sm:-top-1.5 sm:-right-1.5 sm:w-3 sm:h-3 touch-none bg-white border-2 border-blue-600 rounded-xs cursor-nesw-resize z-30"
             />
             <div
-              onMouseDown={(e) => handleStartResize(e, el, 'se')}
+              onPointerDown={(e) => handleStartResize(e, el, 'se')}
               onClick={(e) => e.stopPropagation()}
-              className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-white border-2 border-blue-600 rounded-xs cursor-nwse-resize z-30"
+              className="absolute -bottom-3 -right-3 w-6 h-6 sm:-bottom-1.5 sm:-right-1.5 sm:w-3 sm:h-3 touch-none bg-white border-2 border-blue-600 rounded-xs cursor-nwse-resize z-30"
             />
             <div
-              onMouseDown={(e) => handleStartResize(e, el, 'sw')}
+              onPointerDown={(e) => handleStartResize(e, el, 'sw')}
               onClick={(e) => e.stopPropagation()}
-              className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-white border-2 border-blue-600 rounded-xs cursor-nesw-resize z-30"
+              className="absolute -bottom-3 -left-3 w-6 h-6 sm:-bottom-1.5 sm:-left-1.5 sm:w-3 sm:h-3 touch-none bg-white border-2 border-blue-600 rounded-xs cursor-nesw-resize z-30"
             />
 
             {/* Side Resize Handles */}
             <div
-              onMouseDown={(e) => handleStartResize(e, el, 'e')}
+              onPointerDown={(e) => handleStartResize(e, el, 'e')}
               onClick={(e) => e.stopPropagation()}
-              className="absolute top-1/2 -translate-y-1/2 -right-1.5 w-2.5 h-4 bg-white border-2 border-blue-600 rounded-xs cursor-ew-resize z-30"
+              className="absolute top-1/2 -translate-y-1/2 -right-3 w-5 h-8 sm:-right-1.5 sm:w-2.5 sm:h-4 touch-none bg-white border-2 border-blue-600 rounded-xs cursor-ew-resize z-30"
             />
             <div
-              onMouseDown={(e) => handleStartResize(e, el, 's')}
+              onPointerDown={(e) => handleStartResize(e, el, 's')}
               onClick={(e) => e.stopPropagation()}
-              className="absolute left-1/2 -translate-x-1/2 -bottom-1.5 w-4 h-2.5 bg-white border-2 border-blue-600 rounded-xs cursor-ns-resize z-30"
+              className="absolute left-1/2 -translate-x-1/2 -bottom-3 w-8 h-5 sm:-bottom-1.5 sm:w-4 sm:h-2.5 touch-none bg-white border-2 border-blue-600 rounded-xs cursor-ns-resize z-30"
             />
           </>
         )}
