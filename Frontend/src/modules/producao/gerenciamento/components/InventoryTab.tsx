@@ -786,7 +786,7 @@ export function InventoryTab({
                             </span>
                           )}
                           {!p.has_formulation && (
-                            <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase bg-rose-50 text-rose-700 border border-rose-200 rounded">
+                            <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase bg-red-50 text-red-700 border border-red-200 rounded">
                               Sem Fórmula
                             </span>
                           )}
@@ -828,7 +828,7 @@ export function InventoryTab({
                           </div>
                           <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
                             <div 
-                              className={`h-full rounded-full ${p.status === 'critico' ? 'bg-rose-500' : p.status === 'ordem' ? 'bg-amber-500' : 'bg-emerald-500'}`} 
+                              className={`h-full rounded-full ${p.status === 'critico' ? 'bg-red-500' : p.status === 'ordem' ? 'bg-amber-500' : 'bg-emerald-500'}`} 
                               style={{ width: `${pct}%` }}
                             ></div>
                           </div>
@@ -841,7 +841,7 @@ export function InventoryTab({
                       <td className="px-4 py-2.5 border-b border-zinc-100 align-middle">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
                           p.status === 'critico' 
-                            ? 'bg-rose-50 text-rose-700 border border-rose-200' 
+                            ? 'bg-red-50 text-red-700 border border-red-200' 
                             : p.status === 'ordem' 
                             ? 'bg-amber-50 text-amber-700 border border-amber-200' 
                             : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
@@ -947,7 +947,7 @@ export function InventoryTab({
                                           type="button"
                                           disabled={isBusyQueue}
                                           onClick={() => handleRemoveFromQueue(p, m.id)}
-                                          className="px-1.5 py-0.5 text-[10px] font-bold rounded border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 cursor-pointer"
+                                          className="px-1.5 py-0.5 text-[10px] font-bold rounded border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 cursor-pointer"
                                         >
                                           {m.rotulo}
                                         </button>
@@ -964,7 +964,7 @@ export function InventoryTab({
                                         type="button"
                                         disabled={isBusyQueue || !motivoOutro.trim()}
                                         onClick={() => handleRemoveFromQueue(p, `outro: ${motivoOutro.trim()}`)}
-                                        className="px-1.5 py-0.5 text-[10px] font-bold rounded border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-50 cursor-pointer"
+                                        className="px-1.5 py-0.5 text-[10px] font-bold rounded border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50 cursor-pointer"
                                       >
                                         OK
                                       </button>
@@ -985,7 +985,7 @@ export function InventoryTab({
                                       setMotivoPara(p.codigo);
                                       setMotivoOutro('');
                                     }}
-                                    className="w-full py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer"
+                                    className="w-full py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer"
                                   >
                                     <Trash2 size={11} />
                                     Remover da Fila

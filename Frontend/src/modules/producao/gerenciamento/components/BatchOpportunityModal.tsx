@@ -226,7 +226,7 @@ export function BatchOpportunityModal({
                               <span>Chegada prev.: {ing.next_delivery_date}</span>
                             </div>
                           ) : (
-                            <span className="text-[10px] text-rose-600 font-medium">Sem pedido em trânsito</span>
+                            <span className="text-[10px] text-red-600 font-medium">Sem pedido em trânsito</span>
                           )}
                         </div>
                       ))}

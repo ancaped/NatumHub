@@ -152,7 +152,7 @@ export function piorResultado(rs: Array<ResultadoOrdem | undefined>): ResultadoO
 const ESTILO: Record<StatusCobertura, { cls: string; rotulo: string }> = {
   ok: { cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', rotulo: 'Insumos OK' },
   atencao: { cls: 'bg-amber-50 text-amber-800 border-amber-200', rotulo: 'Atenção' },
-  falta: { cls: 'bg-rose-50 text-rose-700 border-rose-200', rotulo: 'Falta insumo' },
+  falta: { cls: 'bg-red-50 text-red-700 border-red-200', rotulo: 'Falta insumo' },
   sem_formula: { cls: 'bg-zinc-100 text-zinc-600 border-zinc-200', rotulo: 'Sem fórmula' },
 };
 

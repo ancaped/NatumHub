@@ -487,7 +487,7 @@ export function BasesTab({
                                 {form.length} insumos na fórmula
                               </span>
                             ) : (
-                              <span className="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded font-semibold">
+                              <span className="text-[10px] text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded font-semibold">
                                 Sem fórmula cadastrada
                               </span>
                             )}
@@ -614,7 +614,7 @@ export function BasesTab({
                                       type="button"
                                       disabled={savingQueue}
                                       onClick={() => handleRemoveFromQueue(b)}
-                                      className="px-2 py-1 rounded text-[10px] font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-1 cursor-pointer"
+                                      className="px-2 py-1 rounded text-[10px] font-bold text-red-600 hover:bg-red-50 flex items-center gap-1 cursor-pointer"
                                     >
                                       <Trash2 size={11} />
                                       Remover
@@ -713,7 +713,7 @@ export function BasesTab({
                                             <td className="py-2 px-2 text-right font-mono">
                                               {dp.producao_recomendada > 0 ? (
                                                 <div>
-                                                  <span className="font-bold text-rose-700">
+                                                  <span className="font-bold text-red-700">
                                                     {dp.producao_recomendada} un
                                                   </span>
                                                   <span className="text-[10px] text-zinc-500 ml-1">
@@ -800,7 +800,7 @@ export function BasesTab({
                                                 className={
                                                   Number(f.current_stock || 0) > 0
                                                     ? 'text-emerald-700'
-                                                    : 'text-rose-600'
+                                                    : 'text-red-600'
                                                 }
                                               >
                                                 {Number(f.current_stock || 0).toFixed(1)}

@@ -8,7 +8,7 @@ import {
 function DuracaoEstoque({ dias }: { dias: number }) {
   const semConsumo = !Number.isFinite(dias) || dias >= 900;
   const largura = semConsumo ? 100 : Math.max(6, Math.min(100, (dias / 90) * 100));
-  const cor = semConsumo ? 'bg-zinc-300' : dias < 30 ? 'bg-rose-500' : dias <= 60 ? 'bg-amber-500' : 'bg-emerald-600';
+  const cor = semConsumo ? 'bg-zinc-300' : dias < 30 ? 'bg-red-500' : dias <= 60 ? 'bg-amber-500' : 'bg-emerald-600';
   return (
     <div className="min-w-[92px]">
       <div className="h-2 rounded-full bg-zinc-100 overflow-hidden">
@@ -119,12 +119,12 @@ export function ProgramadasTab({
         </div>
 
         <div className="bg-white rounded-xl border border-zinc-200 p-3.5 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 rounded-lg bg-rose-50 text-rose-600 shrink-0">
+          <div className="p-2.5 rounded-lg bg-red-50 text-red-600 shrink-0">
             <Zap size={20} />
           </div>
           <div>
             <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Disparos Ativos (Produzir)</div>
-            <div className="text-xl font-bold text-rose-600">{summaryStats.disparados}</div>
+            <div className="text-xl font-bold text-red-600">{summaryStats.disparados}</div>
           </div>
         </div>
 
@@ -312,7 +312,7 @@ export function ProgramadasTab({
                   const isDisparado = efp <= disparo;
 
                   return (
-                    <tr key={p.codigo} className={`hover:bg-zinc-50/40 transition-colors ${isDisparado ? 'bg-rose-50/20' : ''}`}>
+                    <tr key={p.codigo} className={`hover:bg-zinc-50/40 transition-colors ${isDisparado ? 'bg-red-50/20' : ''}`}>
                       <td className="px-4 py-2.5 border-b border-zinc-150 align-middle font-mono font-bold text-zinc-600">
                         <button 
                           onClick={() => onShowDetails(p.codigo)} 
@@ -357,7 +357,7 @@ export function ProgramadasTab({
                         )}
                       </td>
                       <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-right font-bold text-zinc-900">
-                        <span className={isDisparado ? 'text-rose-600 font-extrabold text-sm' : 'text-zinc-900 font-bold'}>
+                        <span className={isDisparado ? 'text-red-600 font-extrabold text-sm' : 'text-zinc-900 font-bold'}>
                           {efp.toLocaleString('pt-BR')} un
                         </span>
                         <div className="text-[10px] text-zinc-400 font-semibold mt-0.5">
@@ -385,8 +385,8 @@ export function ProgramadasTab({
                       </td>
                       <td className="px-4 py-2.5 border-b border-zinc-150 align-middle">
                         {isDisparado ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-200 animate-pulse">
-                            <Zap size={12} className="text-rose-600" /> Disparar Produção
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-100 text-red-800 border border-red-200 animate-pulse">
+                            <Zap size={12} className="text-red-600" /> Disparar Produção
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
@@ -396,7 +396,7 @@ export function ProgramadasTab({
                       </td>
                       <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-right font-bold" style={{ color: p.producao_recomendada > 0 ? 'hsl(var(--danger-hsl))' : 'inherit' }}>
                         {p.producao_recomendada > 0 ? (
-                          <span className="text-rose-600 text-sm font-extrabold">{p.producao_recomendada.toLocaleString('pt-BR')} un</span>
+                          <span className="text-red-600 text-sm font-extrabold">{p.producao_recomendada.toLocaleString('pt-BR')} un</span>
                         ) : (
                           <span className="text-zinc-400 font-normal">—</span>
                         )}

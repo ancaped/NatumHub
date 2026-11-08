@@ -373,7 +373,7 @@ function LoteInicioTab({
               details.status.toUpperCase() === 'EA'
                 ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
                 : details.status.toUpperCase() === 'CA'
-                ? 'bg-rose-50 text-rose-700 border-rose-100'
+                ? 'bg-red-50 text-red-700 border-red-100'
                 : 'bg-amber-50 text-amber-700 border-amber-100'
             )}>
               {details.status_label}
@@ -441,7 +441,7 @@ function LoteInicioTab({
               <button
                 disabled={resolveLoading}
                 onClick={onUndoResolve}
-                className="text-xs text-rose-600 hover:text-rose-700 font-bold hover:underline cursor-pointer disabled:opacity-50"
+                className="text-xs text-red-600 hover:text-red-700 font-bold hover:underline cursor-pointer disabled:opacity-50"
               >
                 Estornar Justificativa (Reabrir Desvios)
               </button>
@@ -486,7 +486,7 @@ function LoteInicioTab({
           <div className="bg-white border border-zinc-200 rounded-2xl p-5 space-y-4 text-left shadow-sm">
             <div className="flex items-start justify-between gap-3 border-b border-zinc-100 pb-3">
               <div className="flex items-center gap-2 min-w-0">
-                <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-rose-50 text-rose-600 border border-rose-100 shrink-0">
+                <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-red-50 text-red-600 border border-red-100 shrink-0">
                   <AlertTriangle className="h-4 w-4" />
                 </div>
                 <div className="min-w-0">
@@ -590,7 +590,7 @@ function LoteInicioTab({
                           <button
                             type="button"
                             onClick={() => setMappedSwaps(mappedSwaps.filter((_: any, i: number) => i !== idx))}
-                            className="text-rose-600 hover:text-rose-700 font-bold ml-2 cursor-pointer shrink-0"
+                            className="text-red-600 hover:text-red-700 font-bold ml-2 cursor-pointer shrink-0"
                           >
                             Remover
                           </button>
@@ -689,7 +689,7 @@ function LotePesagemTab({ details, highlightInsumoCode }: { details: any; highli
                 <td className={cn(
                   'px-4 py-3 text-right font-bold font-mono',
                   Math.abs(item.difference ?? 0) < 0.0001 ? 'text-zinc-500' :
-                  (item.difference ?? 0) > 0.0 ? 'text-emerald-600' : 'text-rose-600'
+                  (item.difference ?? 0) > 0.0 ? 'text-emerald-600' : 'text-red-600'
                 )}>
                   {(item.difference ?? 0) > 0.0 ? '+' : ''}{(item.difference ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg
                   {item.expected_qty > 0.0 && (
@@ -706,7 +706,7 @@ function LotePesagemTab({ details, highlightInsumoCode }: { details: any; highli
                     'px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border',
                     item.status === 'OK' ? 'bg-emerald-50 text-emerald-700 border-emerald-200/50' :
                     (item.status === 'OK (Na Base)' || item.status === 'OK (Base)' || item.status === 'OK_BASE') ? 'bg-sky-50 text-sky-700 border-sky-200/50' :
-                    item.status === 'MISSING' ? 'bg-rose-50 text-rose-700 border-rose-200/50' :
+                    item.status === 'MISSING' ? 'bg-red-50 text-red-700 border-red-200/50' :
                     item.status === 'EXTRA' ? 'bg-blue-50 text-blue-700 border-blue-200/50' :
                     'bg-amber-50 text-amber-700 border-amber-200/50'
                   )}>
@@ -791,7 +791,7 @@ function LoteEnvaseTab({ details }: { details: any }) {
                       <td className={cn(
                         'px-4 py-2.5 text-right font-bold font-mono',
                         Math.abs(item.difference ?? 0) < 0.01 ? 'text-zinc-500' :
-                        (item.difference ?? 0) > 0.0 ? 'text-emerald-600' : 'text-rose-600'
+                        (item.difference ?? 0) > 0.0 ? 'text-emerald-600' : 'text-red-600'
                       )}>
                         {(item.difference ?? 0) > 0.0 ? '+' : ''}{(item.difference ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
                       </td>
@@ -803,7 +803,7 @@ function LoteEnvaseTab({ details }: { details: any }) {
                           'px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border',
                           item.status === 'OK' ? 'bg-emerald-50 text-emerald-700 border-emerald-200/50' :
                           (item.status === 'OK (Na Base)' || item.status === 'OK (Base)' || item.status === 'OK_BASE') ? 'bg-sky-50 text-sky-700 border-sky-200/50' :
-                          item.status === 'MISSING' ? 'bg-rose-50 text-rose-700 border-rose-200/50' :
+                          item.status === 'MISSING' ? 'bg-red-50 text-red-700 border-red-200/50' :
                           'bg-amber-50 text-amber-700 border-amber-200/50'
                         )}>
                           {item.status === 'OK' ? 'OK' : (item.status === 'OK (Na Base)' || item.status === 'OK (Base)' || item.status === 'OK_BASE') ? 'Na Base' : item.status === 'MISSING' ? 'Ausente' : 'Desvio'}
@@ -876,7 +876,7 @@ function LoteConferenciaTab({ details }: { details: any }) {
                     </td>
                     <td className={cn(
                       'px-4 py-3 text-right font-bold font-mono',
-                      (item.discrepancy ?? 0) == 0.0 ? 'text-zinc-500' : 'text-rose-600'
+                      (item.discrepancy ?? 0) == 0.0 ? 'text-zinc-500' : 'text-red-600'
                     )}>
                       {(item.discrepancy ?? 0) > 0.0 ? '+' : ''}{(item.discrepancy ?? 0).toLocaleString('pt-BR')} un
                     </td>
@@ -884,7 +884,7 @@ function LoteConferenciaTab({ details }: { details: any }) {
                       <span className={cn(
                         'px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border',
                         item.status === 'OK' ? 'bg-emerald-50 text-emerald-700 border-emerald-250/50' :
-                        'bg-rose-50 text-rose-700 border-rose-250/50'
+                        'bg-red-50 text-red-700 border-red-250/50'
                       )}>
                         {item.status === 'OK' ? 'Aprovado' : 'Discrepante'}
                       </span>

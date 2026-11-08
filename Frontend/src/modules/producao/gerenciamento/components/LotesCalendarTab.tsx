@@ -636,16 +636,16 @@ export function LotesCalendarTab({
           className={cn(
             "p-3 rounded-xl border text-left transition-all cursor-pointer",
             statusFilter === 'ERRORS'
-              ? "bg-rose-50 border-rose-400 ring-2 ring-rose-400 shadow-sm"
+              ? "bg-red-50 border-red-400 ring-2 ring-red-400 shadow-sm"
               : "bg-white border-zinc-200 hover:border-zinc-300 shadow-xs"
           )}
           title="Filtrar lotes com desvios / alertas pendentes (lotes de 2026 em diante)"
         >
-          <span className="text-[10px] font-bold uppercase tracking-wider text-rose-700 block flex items-center gap-1">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-red-700 block flex items-center gap-1">
             <AlertTriangle size={11} /> Desvios
           </span>
           <div className="flex items-baseline justify-between mt-1">
-            <span className="text-xl font-black text-rose-700">{statusMetrics.erros}</span>
+            <span className="text-xl font-black text-red-700">{statusMetrics.erros}</span>
             <span className="text-[10px] font-mono text-zinc-400">2026+</span>
           </div>
         </button>
@@ -725,7 +725,7 @@ export function LotesCalendarTab({
                         <span
                           className={cn(
                             "w-2 h-2 rounded-full animate-pulse",
-                            isSelected ? "bg-rose-400" : "bg-rose-500"
+                            isSelected ? "bg-red-400" : "bg-red-500"
                           )}
                           title="Lote com desvio/alerta nesta data"
                         />
@@ -805,8 +805,8 @@ export function LotesCalendarTab({
 
             {/* Alerta de Desvios no dia */}
             {selectedDayInfo && selectedDayInfo.errorCount > 0 && (
-              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center gap-2 font-semibold">
-                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <div className="p-2.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800 flex items-center gap-2 font-semibold">
+                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
                 <span>{selectedDayInfo.errorCount} {selectedDayInfo.errorCount === 1 ? 'lote com alerta pendente' : 'lotes com alertas pendentes'}</span>
               </div>
             )}
@@ -838,7 +838,7 @@ export function LotesCalendarTab({
                       onClick={() => onOpenDetails && onOpenDetails(l.loteNumber)}
                       className={cn(
                         "p-3.5 rounded-xl border transition-all bg-white space-y-2 cursor-pointer hover:border-zinc-400 hover:shadow-xs",
-                        l.hasError ? "border-rose-200 bg-rose-50/20" : "border-zinc-200"
+                        l.hasError ? "border-red-200 bg-red-50/20" : "border-zinc-200"
                       )}
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -866,7 +866,7 @@ export function LotesCalendarTab({
                             </span>
                           )}
                           {l.pesagemError && (
-                            <span className="bg-rose-100 text-rose-800 border border-rose-200 px-1.5 py-0.5 rounded text-[8px] font-bold flex items-center gap-1">
+                            <span className="bg-red-100 text-red-800 border border-red-200 px-1.5 py-0.5 rounded text-[8px] font-bold flex items-center gap-1">
                               <AlertTriangle size={9} /> PESAGEM
                             </span>
                           )}

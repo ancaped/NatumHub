@@ -649,9 +649,10 @@ tr:hover td {
 }
 
 .status-badge.aguardando {
-  background-color: #eff6ff;
-  color: #1d4ed8;
-  border-color: #93c5fd;
+  background-color: #f4f4f5;
+  color: #3f3f46;
+  border-color: #d4d4d8;
+  border-style: dashed; /* distingue de "descontinuado" (também cinza) */
 }
 
 .status-badge.saudavel {

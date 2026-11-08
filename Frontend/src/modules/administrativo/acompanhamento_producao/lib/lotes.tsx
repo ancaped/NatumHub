@@ -879,7 +879,7 @@ export function getPrevisaoBadge(dateIso?: string | null) {
   if (diffDays < 0) {
     return {
       label: `${dateFormatted} (${Math.abs(diffDays)}d atraso)`,
-      colorClass: 'bg-rose-100 text-rose-800 border-rose-300 font-bold',
+      colorClass: 'bg-red-100 text-red-800 border-red-300 font-bold',
       isOverdue: true,
       diffDays,
       formatted: dateFormatted
