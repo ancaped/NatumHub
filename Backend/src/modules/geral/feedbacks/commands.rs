@@ -76,219 +76,12 @@ pub async fn get_feedbacks_admin_query(pool: PgPool) -> Result<Vec<Feedback>, St
     Ok(rows.iter().map(map_feedback_list_row).collect())
 }
 
-pub fn get_root_feedbacks_dir() -> std::path::PathBuf {
-    if let Ok(mut path) = std::env::current_exe() {
-        while path.pop() {
-            if path.join("Backend").is_dir() && path.join("Frontend").is_dir() {
-                return path.join("Feedbacks");
-            }
-        }
-    }
-    std::path::PathBuf::from("../Feedbacks")
-}
-
 fn format_datetime_display(raw: &str) -> String {
     if raw.contains('T') {
         raw.replace('T', " ").split('.').next().unwrap_or(raw).to_string()
     } else {
         raw.to_string()
     }
-}
-
-/// Espelho opcional em `Feedbacks/feedback_index.md` (NÃO sobrescreve `feedback.md` — playbook da IA).
-/// Fonte de verdade = PostgreSQL. Não cria pastas por feedback.
-pub async fn sync_feedback_md(pool: PgPool) -> Result<(), String> {
-    let rows = sqlx::query(FEEDBACK_SELECT)
-        .fetch_all(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let mut queue: Vec<(i32, String)> = Vec::new();
-    let mut planned: Vec<(i32, String)> = Vec::new();
-    let mut pending: Vec<(i32, String)> = Vec::new();
-    let mut review: Vec<(i32, String)> = Vec::new();
-    let mut wont_fix: Vec<(i32, String)> = Vec::new();
-    let mut resolved: Vec<(i32, String)> = Vec::new();
-
-    for row in &rows {
-        let id: String = row.get(0);
-        let fb_type: String = row.get(1);
-        let desc: String = row.get(2);
-        let page: String = row.get(3);
-        let status: String = row.get(6);
-        let created: Option<String> = row.get(7);
-        let resolved_at: Option<String> = row.get(8);
-        let requested_by: Option<String> = row.get(9);
-        let priority: i32 = row.try_get::<i32, _>(10).unwrap_or(100);
-        let admin_notes: Option<String> = row.get(11);
-
-        let desc_clean = desc.replace('\n', " ").replace('|', "\\|");
-        let page_clean = page.replace('\n', " ").replace('|', "\\|");
-        let created_disp = created
-            .as_deref()
-            .map(format_datetime_display)
-            .unwrap_or_else(|| "-".to_string());
-        let short_id = id.get(0..8).unwrap_or(&id);
-        let solicitante = requested_by.unwrap_or_else(|| "-".to_string());
-        let tipo = if fb_type == "bug" {
-            "🔴 Bug"
-        } else {
-            "🔵 Sugestão"
-        };
-        let notes = admin_notes
-            .unwrap_or_default()
-            .replace('\n', " ")
-            .replace('|', "\\|");
-
-        let row_line = format!(
-            "| {} | `{}` | {} | {} | {} | {} | {} | {} | {} |",
-            priority,
-            short_id,
-            solicitante,
-            created_disp,
-            tipo,
-            page_clean,
-            status,
-            desc_clean,
-            if notes.is_empty() {
-                "-".to_string()
-            } else {
-                notes
-            },
-        );
-
-        match status.as_str() {
-            "resolved" => {
-                let res_date = resolved_at
-                    .as_deref()
-                    .map(format_datetime_display)
-                    .unwrap_or_else(|| "-".to_string());
-                resolved.push((
-                    priority,
-                    format!(
-                        "| {} | `{}` | {} | {} | {} | {} | {} |",
-                        priority, short_id, solicitante, created_disp, tipo, page_clean, res_date
-                    ),
-                ));
-            }
-            "wont_fix" => wont_fix.push((priority, row_line)),
-            "pending" => pending.push((priority, row_line)),
-            "awaiting_review" => review.push((priority, row_line)),
-            "planned" => planned.push((priority, row_line)),
-            "queued" | "in_progress" => queue.push((priority, row_line)),
-            _ => pending.push((priority, row_line)),
-        }
-    }
-
-    queue.sort_by_key(|(p, _)| *p);
-    planned.sort_by_key(|(p, _)| *p);
-    pending.sort_by_key(|(p, _)| *p);
-    review.sort_by_key(|(p, _)| *p);
-    wont_fix.sort_by_key(|(p, _)| *p);
-    resolved.sort_by_key(|(p, _)| *p);
-
-    let mut md = String::new();
-    md.push_str("# Feedback e Relatórios — Nexus\n\n");
-    md.push_str(
-        "> Espelho opcional do PostgreSQL. **Playbook da IA:** `Feedbacks/feedback.md`. Fonte de verdade = banco.\n\n",
-    );
-
-    md.push_str("## 🟡 1. Triagem (pending)\n\n");
-    if pending.is_empty() {
-        md.push_str("_Nenhum item em triagem._\n\n");
-    } else {
-        md.push_str(
-            "| Prio | ID | Solicitante | Data/Hora | Tipo | Página | Status | Descrição | Notas admin |\n",
-        );
-        md.push_str("| ---: | --- | --- | --- | --- | --- | --- | --- | --- |\n");
-        for (_, line) in pending {
-            md.push_str(&line);
-            md.push('\n');
-        }
-        md.push('\n');
-    }
-
-    md.push_str("## 📋 2. Fila (queued / in_progress)\n\n");
-    md.push_str("Status `queued` ou `in_progress`, ordenados por prioridade.\n\n");
-    if queue.is_empty() {
-        md.push_str("_Fila vazia._\n\n");
-    } else {
-        md.push_str(
-            "| Prio | ID | Solicitante | Data/Hora | Tipo | Página | Status | Descrição | Notas admin |\n",
-        );
-        md.push_str("| ---: | --- | --- | --- | --- | --- | --- | --- | --- |\n");
-        for (_, line) in queue {
-            md.push_str(&line);
-            md.push('\n');
-        }
-        md.push('\n');
-    }
-
-    md.push_str("## 📐 3. Planejados (planned)\n\n");
-    md.push_str("Status `planned`. Planos arquiteturais detalhados em `feedback_plan.md`.\n\n");
-    if planned.is_empty() {
-        md.push_str("_Nenhum item planejado no momento._\n\n");
-    } else {
-        md.push_str(
-            "| Prio | ID | Solicitante | Data/Hora | Tipo | Página | Status | Descrição | Notas admin |\n",
-        );
-        md.push_str("| ---: | --- | --- | --- | --- | --- | --- | --- | --- |\n");
-        for (_, line) in planned {
-            md.push_str(&line);
-            md.push('\n');
-        }
-        md.push('\n');
-    }
-
-    md.push_str("## 🔵 4. Em aberto (awaiting_review)\n\n");
-    if review.is_empty() {
-        md.push_str("_Nenhum aguardando conferência._\n\n");
-    } else {
-        md.push_str(
-            "| Prio | ID | Solicitante | Data/Hora | Tipo | Página | Status | Descrição | Notas admin |\n",
-        );
-        md.push_str("| ---: | --- | --- | --- | --- | --- | --- | --- | --- |\n");
-        for (_, line) in review {
-            md.push_str(&line);
-            md.push('\n');
-        }
-        md.push('\n');
-    }
-
-    md.push_str("## ⛔ Reprovados\n\n");
-    if wont_fix.is_empty() {
-        md.push_str("_Nenhum._\n\n");
-    } else {
-        md.push_str(
-            "| Prio | ID | Solicitante | Data/Hora | Tipo | Página | Status | Descrição | Notas admin |\n",
-        );
-        md.push_str("| ---: | --- | --- | --- | --- | --- | --- | --- | --- |\n");
-        for (_, line) in wont_fix {
-            md.push_str(&line);
-            md.push('\n');
-        }
-        md.push('\n');
-    }
-
-    md.push_str("## 🟢 Finalizados\n\n");
-    if resolved.is_empty() {
-        md.push_str("_Nenhum._\n\n");
-    } else {
-        md.push_str(
-            "| Prio | ID | Solicitante | Data/Hora | Tipo | Página | Resolvido em |\n",
-        );
-        md.push_str("| ---: | --- | --- | --- | --- | --- | --- |\n");
-        for (_, line) in resolved {
-            md.push_str(&line);
-            md.push('\n');
-        }
-        md.push('\n');
-    }
-
-    let feedbacks_dir = get_root_feedbacks_dir();
-    let _ = std::fs::create_dir_all(&feedbacks_dir);
-    let _ = std::fs::write(feedbacks_dir.join("feedback_index.md"), &md);
-    Ok(())
 }
 
 pub fn infer_module_key_from_page(page: &str) -> Option<String> {
@@ -394,43 +187,6 @@ pub async fn save_feedback_from_user_query(
     .await
     .map_err(|e| e.to_string())?;
 
-    let _ = sync_feedback_md(pool.clone()).await;
-    Ok(())
-}
-
-pub async fn save_feedback_query(pool: PgPool, feedback: &Feedback) -> Result<(), String> {
-    sqlx::query(
-        r#"INSERT INTO feedbacks (id, "type", description, page, logs, screenshot, status, "createdAt", "resolvedAt", requested_by, priority, admin_notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-         ON CONFLICT (id) DO UPDATE SET
-           "type" = EXCLUDED."type",
-           description = EXCLUDED.description,
-           page = EXCLUDED.page,
-           logs = EXCLUDED.logs,
-           screenshot = EXCLUDED.screenshot,
-           status = EXCLUDED.status,
-           "createdAt" = EXCLUDED."createdAt",
-           "resolvedAt" = EXCLUDED."resolvedAt",
-           requested_by = EXCLUDED.requested_by,
-           priority = EXCLUDED.priority,
-           admin_notes = EXCLUDED.admin_notes"#,
-    )
-    .bind(&feedback.id)
-    .bind(&feedback.feedback_type)
-    .bind(&feedback.description)
-    .bind(&feedback.page)
-    .bind(&feedback.logs)
-    .bind(&feedback.screenshot)
-    .bind(&feedback.status)
-    .bind(&feedback.created_at)
-    .bind(&feedback.resolved_at)
-    .bind(&feedback.requested_by)
-    .bind(feedback.priority)
-    .bind(&feedback.admin_notes)
-    .execute(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
-    let _ = sync_feedback_md(pool.clone()).await;
     Ok(())
 }
 
@@ -503,7 +259,6 @@ pub async fn update_feedback_admin_query(
             .map_err(|e| e.to_string())?;
     }
 
-    let _ = sync_feedback_md(pool.clone()).await;
     Ok(())
 }
 
@@ -532,11 +287,6 @@ pub async fn get_feedback_notes_query(
         .collect())
 }
 
-pub async fn sync_feedback_files_query(pool: PgPool, _id: &str) -> Result<(), String> {
-    let _ = sync_feedback_md(pool).await;
-    Ok(())
-}
-
 pub async fn get_feedback_detail_query(pool: PgPool, id: &str) -> Result<FeedbackDetail, String> {
     let mut fb = fetch_feedback_by_id(&pool, id).await?;
     let notes = get_feedback_notes_query(pool.clone(), id).await?;
@@ -546,53 +296,62 @@ pub async fn get_feedback_detail_query(pool: PgPool, id: &str) -> Result<Feedbac
     Ok(FeedbackDetail { feedback: fb, notes })
 }
 
+/// Grava a nota e recompõe `admin_notes` (texto corrido de todas as notas). Serve ao POST de notas e às ações em
+/// transação (`resolver`/`devolver`), que passam a conexão da transação.
+pub(super) async fn inserir_nota(
+    conn: &mut sqlx::PgConnection,
+    id: &str,
+    author: &str,
+    body: &str,
+) -> Result<String, sqlx::Error> {
+    let note_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query("INSERT INTO feedback_notes (id, feedback_id, author, body) VALUES ($1, $2, $3, $4)")
+        .bind(&note_id)
+        .bind(id)
+        .bind(author)
+        .bind(body.trim())
+        .execute(&mut *conn)
+        .await?;
+
+    let rows = sqlx::query(
+        "SELECT author, body, created_at FROM feedback_notes WHERE feedback_id = $1 ORDER BY created_at ASC, id ASC",
+    )
+    .bind(id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let combined: String = rows
+        .iter()
+        .map(|r| {
+            let when = r
+                .get::<Option<String>, _>(2)
+                .as_deref()
+                .map(format_datetime_display)
+                .unwrap_or_else(|| "-".to_string());
+            format!("[{}] {}:\n{}", when, r.get::<String, _>(0), r.get::<String, _>(1).trim())
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    sqlx::query("UPDATE feedbacks SET admin_notes = $1 WHERE id = $2")
+        .bind(&combined)
+        .bind(id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(note_id)
+}
+
 pub async fn add_feedback_note_query(
     pool: PgPool,
     id: &str,
     author: &str,
     body: &str,
 ) -> Result<FeedbackNote, String> {
-    let trimmed = body.trim();
-    if trimmed.is_empty() {
+    if body.trim().is_empty() {
         return Err("Nota vazia.".to_string());
     }
-
-    let note_id = uuid::Uuid::new_v4().to_string();
-    sqlx::query(
-        "INSERT INTO feedback_notes (id, feedback_id, author, body) VALUES ($1, $2, $3, $4)",
-    )
-    .bind(&note_id)
-    .bind(&id)
-    .bind(&author)
-    .bind(trimmed)
-    .execute(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    let notes = get_feedback_notes_query(pool.clone(), id).await?;
-    let combined: String = notes
-        .iter()
-        .map(|n| {
-            let when = n
-                .created_at
-                .as_deref()
-                .map(format_datetime_display)
-                .unwrap_or_else(|| "-".to_string());
-            format!("[{}] {}:\n{}", when, n.author, n.body.trim())
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n");
-
-    sqlx::query("UPDATE feedbacks SET admin_notes = $1 WHERE id = $2")
-        .bind(&combined)
-        .bind(&id)
-        .execute(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    sync_feedback_files_query(pool.clone(), id).await?;
-
-    notes
+    let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
+    let note_id = inserir_nota(&mut conn, id, author, body).await.map_err(|e| e.to_string())?;
+    get_feedback_notes_query(pool, id)
+        .await?
         .into_iter()
         .find(|n| n.id == note_id)
         .ok_or_else(|| "Nota não encontrada após insert.".to_string())
@@ -610,24 +369,5 @@ pub async fn reorder_feedbacks_query(
             .await
             .map_err(|e| e.to_string())?;
     }
-    let _ = sync_feedback_md(pool.clone()).await;
     Ok(())
-}
-
-pub async fn resolve_feedback_query(pool: PgPool, id: &str) -> Result<(), String> {
-    update_feedback_admin_query(
-        pool,
-        id,
-        &FeedbackAdminUpdate {
-            status: Some("resolved".to_string()),
-            priority: None,
-            admin_notes: None,
-        },
-    )
-    .await
-}
-
-// Legacy alias for old get_feedbacks_conn callers
-pub async fn get_feedbacks_query(pool: PgPool) -> Result<Vec<Feedback>, String> {
-    get_feedbacks_admin_query(pool).await
 }

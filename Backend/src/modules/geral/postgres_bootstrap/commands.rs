@@ -425,6 +425,10 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         "101_kit_erp_lancamentos_tipos_vira.sql",
         include_str!("../../../../supabase/101_kit_erp_lancamentos_tipos_vira.sql"),
     ),
+    (
+        "102_feedbacks_module_key.sql",
+        include_str!("../../../../supabase/102_feedbacks_module_key.sql"),
+    ),
 ];
 
 #[derive(Debug, Serialize)]

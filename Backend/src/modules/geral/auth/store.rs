@@ -1545,6 +1545,7 @@ pub fn modulos_da_rota(path: &str) -> Option<&'static [&'static str]> {
         ("/api/compras", COMPRAS),
         ("/api/hub/microbio", &[MODULE_MICROBIOLOGIA]),
         ("/api/hub/fisco", &[MODULE_FISCO_QUIMICA]),
+        ("/api/hub/feedbacks", &[MODULE_CONFIGURACOES]),
         ("/api/qualidade/recebimento-mp", &[MODULE_QUALIDADE_RECEBIMENTO_MP]),
         ("/api/qualidade/avarias", &[MODULE_QUALIDADE_AVARIAS]),
         ("/api/qualidade/devolucoes", &[MODULE_QUALIDADE_DEVOLUCOES]),

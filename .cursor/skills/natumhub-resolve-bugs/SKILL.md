@@ -2,7 +2,7 @@
 name: natumhub-resolve-bugs
 description: >-
   Resolve bugs do Nexus a partir da fila no PostgreSQL (feedbacks com status
-  queued/in_progress): lê logs/screenshot no banco, corrige código FE/BE, grava
+  queued/in_progress): lê logs/print pela API, corrige código FE/BE, grava
   nota de resolução e marca awaiting_review (Em aberto). Use quando o usuário
   pedir resolver bug, corrigir feedback, executar fila ou analisar report pendente.
 ---
@@ -15,45 +15,34 @@ Executar correções a partir da **fila de feedbacks no banco** (ou ID pedido pe
 
 ## Workflow (obrigatório)
 
+Pela API do Nexus com o token do agente (nada de SQL direto). O agente precisa do módulo Configurações (`hub_settings`) em **editar**. As rotas aparecem no catálogo: `GET /api/agentes/acoes`.
+
 ```
-- [ ] 1. Consultar Postgres: status IN ('queued','in_progress') ORDER BY priority ASC
-- [ ] 2. Escolher menor priority (ou ID pedido)
-- [ ] 3. Ler description, page, logs, screenshot, admin_notes + feedback_notes
+- [ ] 1. GET /api/hub/feedbacks/fila?status=queued,in_progress   (já vem por prioridade, menor = mais urgente)
+- [ ] 2. Escolher o de menor prioridade (ou o ID pedido)
+- [ ] 3. GET /api/hub/feedbacks/:id?print=false   (descrição inteira, logs, notas; tire print=false só se precisar da imagem)
 - [ ] 4. Reproduzir mentalmente: página, logs, descrição
 - [ ] 5. Localizar código (mapa no ai-memory: `concepts/arquitetura-geral.md`)
 - [ ] 6. Fix mínimo — seguir convenções do módulo vizinho
 - [ ] 7. cargo check + npm run build
-- [ ] 8. INSERT em feedback_notes com o texto de resolução (author = 'IA')
-- [ ] 9. UPDATE feedbacks SET status = 'awaiting_review' (vai para Em aberto)
-- [ ] 10. Informar o usuário: item em Em aberto para conferencia/finalização
+- [ ] 8. POST /api/hub/feedbacks/:id/resolver   corpo {"nota": "..."}   → prévia (de → para)
+- [ ] 9. Repetir com ?confirmar=true: grava a nota e passa para awaiting_review (Em aberto), auditado
+- [ ] 10. Informar o usuário: item em Em aberto para conferência/finalização
 ```
 
-**Não** marcar `resolved` — isso é do supervisor na aba Em aberto.  
+**Não** marcar `resolved` — isso é do supervisor na aba Em aberto. A rota `resolver` só aceita itens da fila (`queued`, `in_progress`, `planned`); o que está em triagem (`pending`) o supervisor aprova antes.
 **Não** usar pastas `Feedbacks/feedback_<id>/` nem `resolucao.md`.
 
-## SQL de referência
+## Rotas de referência
 
-```sql
--- Fila
-SELECT id, priority, type AS feedback_type, description, page, logs,
-       LEFT(screenshot, 80) AS screenshot_preview, admin_notes, requested_by
-FROM feedbacks
-WHERE status IN ('queued', 'in_progress')
-ORDER BY priority ASC, "createdAt" ASC
-LIMIT 20;
+| Ação | Rota |
+|------|------|
+| Fila enxuta | `GET /api/hub/feedbacks/fila?status=abertos\|todos\|lista&modulo=&limite=` |
+| Detalhe | `GET /api/hub/feedbacks/:id?print=false` |
+| Entregar para conferência | `POST /api/hub/feedbacks/:id/resolver` `{nota}` + `confirmar=true` |
+| Devolver à fila (só supervisor) | `POST /api/hub/feedbacks/:id/devolver` `{nota}` + `confirmar=true` |
 
--- Fechar trabalho do agente (após INSERT da nota)
-UPDATE feedbacks
-SET status = 'awaiting_review'
-WHERE id = $1 AND status IN ('queued', 'in_progress');
-```
-
-Acesso obrigatório ao banco:
-1. Ler `DATABASE_URL` em `Saves/postgres.env` (workspace)
-2. Tabelas `feedbacks` / `feedback_notes`
-3. Playbook no ai-memory: `concepts/fluxo-feedbacks-playbook.md`
-
-Instalado: `%LOCALAPPDATA%\Nexus\Saves\postgres.env` ou `/DATA/AppData/nexus/`
+Acesso direto ao banco só em último caso (API fora do ar): `DATABASE_URL` em `Saves/postgres.env`, tabelas `feedbacks` / `feedback_notes`.
 
 ## Leitura dirigida (economia de tokens via ai-memory)
 
@@ -91,6 +80,6 @@ Validação: cargo check ✓ · npm run build ✓
 ## Regras
 
 - Um bug por vez quando possível — diff focado.
-- Após o fix: nota + `awaiting_review` (Em aberto). Nunca `resolved` pelo agente.
+- Após o fix: `resolver` com a nota (vai para `awaiting_review`). Nunca `resolved` pelo agente.
 - Se `wont_fix`: documentar motivo em nota e parar (só admin deve setar esse status).
 - Respostas ao usuário em **pt-BR**.

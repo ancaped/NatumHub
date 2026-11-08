@@ -23,20 +23,20 @@ Triagem admin, alterar fluxo de envio, API de feedbacks, ou schema das tabelas d
 
 | Papel | Ação |
 |-------|------|
-| Operador | Widget flutuante → envia bug/sugestão |
-| Backend | Grava **só PostgreSQL** (`feedbacks`) |
-| Admin | Perfil → **Gestão de Feedbacks** |
-| Agente | SQL na fila → nota de resolução → `awaiting_review` |
-| Supervisor | Aba **Em aberto** → Finalizar (`resolved`) ou devolver |
+| Operador | Widget flutuante → envia bug/sugestão (precisa estar logado) |
+| Backend | Grava **só PostgreSQL** (`feedbacks`) e audita (`producao_auditoria`, ação `feedback_*`) |
+| Supervisor | Perfil → **Desenvolvimento** → Fila de Demandas |
+| Agente | `fila` → `detalhar` → corrige → `resolver` (2 passos) → `awaiting_review` |
+| Supervisor | Aba **Em aberto** → Finalizar (`resolved`) ou `devolver` com nota |
 
-**Não** criar pastas `Feedbacks/feedback_<id>/`.
+**Não** criar pastas `Feedbacks/feedback_<id>/` nem espelho `.md`: a fila vive no banco.
 
 ## Status e prioridade
 
 | Status | Aba |
 |--------|-----|
 | `pending` | Triagem |
-| `queued` / `in_progress` | Fila |
+| `queued` / `in_progress` / `planned` | Fila |
 | `awaiting_review` | Em aberto (conferência) |
 | `wont_fix` | Reprovados |
 | `resolved` | Finalizados |
@@ -45,14 +45,21 @@ Prioridade: **menor número = mais urgente**.
 
 ## API
 
+Todas exigem sessão (a rota é pública no middleware, a checagem é em `feedbacks/handlers.rs`).
+
 | Método | Rota | Quem |
 |--------|------|------|
-| POST | `/api/hub/feedbacks` | Autenticado (submit) |
-| GET | `/api/hub/feedbacks/manage` | Admin |
-| GET | `/api/hub/feedbacks/:id` | Admin |
-| PUT | `/api/hub/feedbacks/:id` | Admin |
-| POST | `/api/hub/feedbacks/:id/notes` | Admin |
-| POST | `/api/hub/feedbacks/reorder` | Admin |
+| POST | `/api/hub/feedbacks` | Qualquer sessão válida (enviar) |
+| GET | `/api/hub/feedbacks/manage` | Ler: supervisor ou quem tem `hub_settings` |
+| GET | `/api/hub/feedbacks/fila` | Ler (JSON enxuto; `status`, `modulo`, `limite`) |
+| GET | `/api/hub/feedbacks/:id` | Ler (`?print=false` omite a imagem) |
+| PUT | `/api/hub/feedbacks/:id` | Supervisor |
+| POST | `/api/hub/feedbacks/:id/notes` | Editar (`hub_settings` em editar) |
+| POST | `/api/hub/feedbacks/:id/resolver` | Editar; 2 passos (`confirmar=true`), nota obrigatória |
+| POST | `/api/hub/feedbacks/:id/devolver` | Supervisor; 2 passos, nota obrigatória |
+| POST | `/api/hub/feedbacks/reorder` | Supervisor |
+
+Serviços reutilizáveis em `feedbacks/acoes.rs` (catálogo de ações para agentes: `listar_fila_feedbacks`, `detalhar_feedback`, `resolver_feedback`, `devolver_feedback`).
 
 Frontend: `api.submitFeedback`, `getFeedbacksManage`, `getFeedbackDetail`, `updateFeedback`, `addFeedbackNote`, `reorderFeedbacks` em `geral/lib/api.ts`.
 
@@ -60,7 +67,7 @@ Frontend: `api.submitFeedback`, `getFeedbacksManage`, `getFeedbackDetail`, `upda
 
 - Fonte de verdade = Postgres (`feedbacks` / `feedback_notes`). Playbook no ai-memory: `concepts/fluxo-feedbacks-playbook.md`.
 - Solicitante vem de `AuthContext.display_name` no submit.
-- Gestão admin: **somente** `role === 'admin'`.
+- Mudar status/prioridade e reordenar: **supervisor**. Agente só entrega para conferência (`resolver`).
 - `awaiting_review` exige nota em `feedback_notes`.
 - Após mudanças: `cargo check` + `npm run build`.
 - Escopo mínimo; respostas em **pt-BR**.
@@ -68,6 +75,6 @@ Frontend: `api.submitFeedback`, `getFeedbacksManage`, `getFeedbackDetail`, `upda
 ## Checklist de entrega
 
 - [ ] Status/prioridade refletem no Postgres (e no painel admin)
-- [ ] Admin panel só no dropdown do perfil
-- [ ] Widget sem lista/resolver (só envio)
+- [ ] Gestão só pela central Desenvolvimento
+- [ ] Widget só envia (sem lista/resolver)
 - [ ] Contrato API: consultar e atualizar `concepts/api-routes.md` no ai-memory se mudou
