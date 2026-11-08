@@ -630,7 +630,9 @@ pub async fn create_module(
     if grupo.is_none() {
         return Err(format!("Grupo {} não existe", input.group_key.trim()));
     }
-    let purpose = input.purpose.clone().unwrap_or_else(|| "Novo módulo (planned).".into());
+    let purpose = input.purpose.clone().filter(|p| !p.trim().is_empty()).unwrap_or_else(|| "Novo módulo (planned).".into());
+    let caminho = |c: &Option<String>| c.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
+    let (fe, be, prefixo) = (caminho(&input.frontend_path), caminho(&input.backend_path), caminho(&input.router_prefix));
     insert_module(
         &mut *conn,
         &key,
@@ -640,9 +642,9 @@ pub async fn create_module(
         "planned",
         input.pos_x.unwrap_or(80.0),
         input.pos_y.unwrap_or(200.0),
-        None,
-        None,
-        None,
+        fe.as_deref(),
+        be.as_deref(),
+        prefixo.as_deref(),
         &json!([]),
         &json!({"tabs":[],"functions":[],"notes":"Criado pelo mapa. Complete o detalhe."}),
         0,

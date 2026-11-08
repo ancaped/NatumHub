@@ -44,6 +44,7 @@ export default function DemandasQueueTab({
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'bug' | 'feedback'>('all');
   const [selecionados, setSelecionados] = useState<string[]>([]);
+  const mostraEtapa = subTab === 'execucao' || subTab === 'finalizados';
   const [loteOcupado, setLoteOcupado] = useState(false);
 
   const counts = useMemo(() => {
@@ -187,7 +188,7 @@ export default function DemandasQueueTab({
                 <th>Módulo</th>
                 <th>Chamado</th>
                 <th>Quando</th>
-                <th>Status</th>
+                {mostraEtapa && <th>Etapa</th>}
               </tr>
             </thead>
             <tbody>
@@ -230,7 +231,7 @@ export default function DemandasQueueTab({
                       </span>
                     </td>
                     <td>{idade(f.createdAt) || '—'}</td>
-                    <td>{statusChamado(f.status)}</td>
+                    {mostraEtapa && <td>{statusChamado(f.status)}</td>}
                   </tr>
                 );
               })}
