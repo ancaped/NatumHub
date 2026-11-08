@@ -21,6 +21,7 @@ import {
   Database,
   Eye,
   EyeOff,
+  SlidersHorizontal,
 } from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
 import Drawer from '../../geral/components/ui/Drawer';
@@ -44,6 +45,18 @@ interface EditorEtiquetasViewProps {
   initialTemplate?: LabelTemplate;
 }
 
+function useCelular() {
+  const q = '(max-width: 1023px)';
+  const [v, setV] = useState(() => typeof window !== 'undefined' && window.matchMedia(q).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(q);
+    const f = () => setV(mq.matches);
+    mq.addEventListener('change', f);
+    return () => mq.removeEventListener('change', f);
+  }, []);
+  return v;
+}
+
 export default function EditorEtiquetasView({
   onBackToHub,
   initialTemplate,
@@ -51,13 +64,17 @@ export default function EditorEtiquetasView({
   // Active template state
   const [template, setTemplate] = useState<LabelTemplate>(() => initialTemplate || DEFAULT_LABEL_TEMPLATES[0]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const celular = useCelular();
+  const [painelCelular, setPainelCelular] = useState<'elementos' | 'propriedades' | null>(null);
 
   // History stack for Undo / Redo
   const [history, setHistory] = useState<LabelElement[][]>([template.elements_json]);
   const [historyIndex, setHistoryIndex] = useState<number>(0);
 
   // UI state
-  const [zoomScale, setZoomScale] = useState<number>(1.25); // 125% default
+  const [zoomScale, setZoomScale] = useState<number>(() =>
+    typeof window !== 'undefined' && window.innerWidth < 640 ? 0.6 : 1.25
+  ); // 125% no desktop; menor no celular
   const [showGrid, setShowGrid] = useState<boolean>(true);
   const [snapToGrid, setSnapToGrid] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
@@ -600,6 +617,47 @@ export default function EditorEtiquetasView({
     { id: 'modelos', label: 'Modelos', icon: LayoutTemplate },
   ];
 
+  const toolbar = (
+      <ToolbarElements
+        onAddElement={(el) => {
+        handleAddElement(el);
+        setPainelCelular(null);
+      }}
+        onOpenProductSearch={() => {
+        setPainelCelular(null);
+        setIsProductSearchOpen(true);
+      }}
+        onOpenTemplatesModal={() => {
+        setPainelCelular(null);
+        setIsTemplatesModalOpen(true);
+      }}
+        onOpenSystemVariablesModal={() => {
+        setPainelCelular(null);
+        setIsSystemVariablesModalOpen(true);
+      }}
+      />
+  );
+
+  const propriedades = (
+      <ElementPropertiesPanel
+        template={template}
+        selectedIds={selectedIds}
+        onSelectAll={handleSelectAll}
+        onUpdateElement={handleUpdateElement}
+        onUpdateProps={handleUpdateProps}
+        onDeleteElement={handleDeleteElement}
+        onDeleteMultipleElements={handleDeleteMultipleElements}
+        onDuplicateElement={handleDuplicateElement}
+        onAlignElement={handleAlignElement}
+        onAlignGroup={handleAlignGroup}
+        onTemplateChange={(updates) => setTemplate((prev) => ({ ...prev, ...updates }))}
+        onOpenSystemVariablesModal={() => {
+        setPainelCelular(null);
+        setIsSystemVariablesModalOpen(true);
+      }}
+      />
+  );
+
   return (
     <AppLayout
       studio
@@ -612,11 +670,11 @@ export default function EditorEtiquetasView({
       }}
       headerActions={
         <>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={() => setPreviewMode(!previewMode)}
-              className={`flex items-center gap-1.5 h-8 px-3 rounded-lg border text-xs font-medium cursor-pointer transition-colors ${
+              className={`flex items-center gap-1.5 h-11 lg:h-8 px-3 shrink-0 whitespace-nowrap rounded-lg border text-xs font-medium cursor-pointer transition-colors ${
                 previewMode
                   ? 'bg-zinc-900 text-white border-zinc-900'
                   : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
@@ -633,7 +691,7 @@ export default function EditorEtiquetasView({
                   const match = productionLots.find((l) => String(l.id) === e.target.value);
                   if (match) setSelectedPreviewLot(match);
                 }}
-                className="h-8 text-xs font-mono bg-white border border-zinc-200 rounded-lg px-2 focus:outline-none focus:border-zinc-900"
+                className="h-11 lg:h-8 text-xs font-mono bg-white border border-zinc-200 rounded-lg px-2 focus:outline-none focus:border-zinc-900"
               >
                 {productionLots.map((lot) => (
                   <option key={lot.id} value={lot.id}>
@@ -643,7 +701,7 @@ export default function EditorEtiquetasView({
               </select>
             )}
           </div>
-          <div className="h-5 w-px bg-zinc-200" />
+          <div className="h-5 w-px bg-zinc-200 shrink-0" />
           <button
             type="button"
             onClick={() => {
@@ -651,23 +709,23 @@ export default function EditorEtiquetasView({
               setSaveAsCategory(template.category || 'custom');
               setIsSaveAsModalOpen(true);
             }}
-            className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 h-11 lg:h-8 px-3 shrink-0 whitespace-nowrap rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50"
           >
             <FilePlus2 className="h-3.5 w-3.5" />
             <span>Salvar como</span>
           </button>
-          <button type="button" onClick={() => setIsPrintModalOpen(true)} className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50">
+          <button type="button" onClick={() => setIsPrintModalOpen(true)} className="flex items-center gap-1.5 h-11 lg:h-8 px-3 shrink-0 whitespace-nowrap rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50">
             <Printer className="h-3.5 w-3.5" />
             <span>Imprimir</span>
           </button>
-          <button type="button" onClick={() => setIsSystemPrintModalOpen(true)} className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50">
+          <button type="button" onClick={() => setIsSystemPrintModalOpen(true)} className="flex items-center gap-1.5 h-11 lg:h-8 px-3 shrink-0 whitespace-nowrap rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50">
             <span>Imprimir com lote</span>
           </button>
           <button
             type="button"
             onClick={handleSaveCurrent}
             disabled={saving}
-            className="flex items-center gap-1.5 h-8 px-4 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-1.5 h-11 lg:h-8 px-4 shrink-0 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
             <span>Salvar</span>
@@ -679,7 +737,7 @@ export default function EditorEtiquetasView({
       {/* Status Bar */}
       {statusMessage && (
         <div
-          className={`mx-6 mt-3 p-3 rounded-xl border text-xs font-bold flex items-center justify-between animate-in fade-in duration-150 ${
+          className={`mx-3 lg:mx-6 mt-3 p-3 rounded-xl border text-xs font-bold flex items-center justify-between animate-in fade-in duration-150 ${
             statusMessage.type === 'success'
               ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
               : 'bg-red-50 text-red-800 border-red-200'
@@ -697,26 +755,21 @@ export default function EditorEtiquetasView({
       )}
 
       {/* Main Studio Area */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 min-h-0 flex overflow-hidden">
         {/* Left Toolbar */}
-        <ToolbarElements
-          onAddElement={handleAddElement}
-          onOpenProductSearch={() => setIsProductSearchOpen(true)}
-          onOpenTemplatesModal={() => setIsTemplatesModalOpen(true)}
-          onOpenSystemVariablesModal={() => setIsSystemVariablesModalOpen(true)}
-        />
+        {!celular && toolbar}
 
         {/* Central Canvas Studio */}
         <div className="flex-1 flex flex-col bg-zinc-200/70 overflow-hidden relative">
           {/* Studio Top Control Bar */}
-          <div className="bg-white border-b border-zinc-200 px-4 py-2.5 flex items-center justify-between gap-3 shrink-0">
-            <div className="flex items-center gap-3">
+          <div className="bg-white border-b border-zinc-200 px-3 lg:px-4 py-2 lg:py-2.5 flex flex-wrap items-center justify-between gap-2 lg:gap-3 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 lg:gap-3">
               <div className="flex items-center gap-1 bg-zinc-100 p-1 rounded-xl">
                 <button
                   type="button"
                   onClick={handleUndo}
                   disabled={historyIndex === 0}
-                  className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded-lg disabled:opacity-30 cursor-pointer transition-colors"
+                  className="p-3 lg:p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded-lg disabled:opacity-30 cursor-pointer transition-colors"
                   title="Desfazer (Ctrl+Z)"
                 >
                   <RotateCcw className="h-4 w-4" />
@@ -725,21 +778,21 @@ export default function EditorEtiquetasView({
                   type="button"
                   onClick={handleRedo}
                   disabled={historyIndex >= history.length - 1}
-                  className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded-lg disabled:opacity-30 cursor-pointer transition-colors"
+                  className="p-3 lg:p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded-lg disabled:opacity-30 cursor-pointer transition-colors"
                   title="Refazer (Ctrl+Y)"
                 >
                   <RotateCw className="h-4 w-4" />
                 </button>
               </div>
 
-              <div className="h-4 w-[1px] bg-zinc-200" />
+              <div className="hidden sm:block h-4 w-[1px] bg-zinc-200" />
 
               {/* Zoom Controls */}
               <div className="flex items-center gap-1 bg-zinc-100 p-1 rounded-xl text-xs font-bold text-zinc-700">
                 <button
                   type="button"
                   onClick={() => setZoomScale((z) => Math.max(0.6, z - 0.15))}
-                  className="p-1 hover:bg-white rounded-md cursor-pointer"
+                  className="min-h-11 min-w-11 flex items-center justify-center lg:min-h-0 lg:min-w-0 lg:p-1 hover:bg-white rounded-md cursor-pointer"
                   title="Diminuir Zoom"
                 >
                   <ZoomOut className="h-3.5 w-3.5" />
@@ -748,7 +801,7 @@ export default function EditorEtiquetasView({
                 <button
                   type="button"
                   onClick={() => setZoomScale((z) => Math.min(2.5, z + 0.15))}
-                  className="p-1 hover:bg-white rounded-md cursor-pointer"
+                  className="min-h-11 min-w-11 flex items-center justify-center lg:min-h-0 lg:min-w-0 lg:p-1 hover:bg-white rounded-md cursor-pointer"
                   title="Aumentar Zoom"
                 >
                   <ZoomIn className="h-3.5 w-3.5" />
@@ -760,7 +813,7 @@ export default function EditorEtiquetasView({
                 <button
                   type="button"
                   onClick={() => setShowGrid(!showGrid)}
-                  className={`p-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors ${
+                  className={`p-3 lg:p-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors ${
                     showGrid
                       ? 'bg-zinc-900 text-white border-zinc-900'
                       : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
@@ -774,7 +827,7 @@ export default function EditorEtiquetasView({
                 <button
                   type="button"
                   onClick={() => setSnapToGrid(!snapToGrid)}
-                  className={`p-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors ${
+                  className={`p-3 lg:p-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors ${
                     snapToGrid
                       ? 'bg-zinc-900 text-white border-zinc-900'
                       : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
@@ -787,8 +840,8 @@ export default function EditorEtiquetasView({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-zinc-700">{template.name}</span>
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-xs font-bold text-zinc-700 truncate">{template.name}</span>
               <span className="text-[10px] font-mono bg-zinc-100 text-zinc-600 px-2 py-0.5 rounded-md font-semibold">
                 {template.width_mm}x{template.height_mm}mm ({template.orientation})
               </span>
@@ -796,7 +849,7 @@ export default function EditorEtiquetasView({
           </div>
 
           {/* Canvas Area */}
-          <div className="flex-1 overflow-auto p-8 flex items-center justify-center">
+          <div className="flex-1 min-h-0 overflow-auto p-1 lg:p-8 flex items-start lg:items-center justify-center">
             <LabelCanvas
               template={displayTemplate}
               selectedIds={selectedIds}
@@ -813,21 +866,44 @@ export default function EditorEtiquetasView({
         </div>
 
         {/* Right Properties Panel */}
-        <ElementPropertiesPanel
-          template={template}
-          selectedIds={selectedIds}
-          onSelectAll={handleSelectAll}
-          onUpdateElement={handleUpdateElement}
-          onUpdateProps={handleUpdateProps}
-          onDeleteElement={handleDeleteElement}
-          onDeleteMultipleElements={handleDeleteMultipleElements}
-          onDuplicateElement={handleDuplicateElement}
-          onAlignElement={handleAlignElement}
-          onAlignGroup={handleAlignGroup}
-          onTemplateChange={(updates) => setTemplate((prev) => ({ ...prev, ...updates }))}
-          onOpenSystemVariablesModal={() => setIsSystemVariablesModalOpen(true)}
-        />
+        {!celular && propriedades}
       </div>
+
+      {/* Celular: barra de baixo abre os painéis em Drawer */}
+      {celular && (
+        <div className="shrink-0 grid grid-cols-2 gap-2 p-2 bg-white border-t border-zinc-200 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <button
+            type="button"
+            onClick={() => setPainelCelular('elementos')}
+            className="h-11 flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-white text-xs font-medium text-zinc-700 cursor-pointer"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Adicionar</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPainelCelular('propriedades')}
+            className="h-11 flex items-center justify-center gap-1.5 rounded-lg bg-zinc-900 text-xs font-semibold text-white cursor-pointer"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            <span>Propriedades{selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}</span>
+          </button>
+        </div>
+      )}
+      {celular && painelCelular === 'elementos' && (
+        <Drawer onClose={() => setPainelCelular(null)} title="Adicionar elemento" size="sm">
+          {toolbar}
+        </Drawer>
+      )}
+      {celular && painelCelular === 'propriedades' && (
+        <Drawer
+          onClose={() => setPainelCelular(null)}
+          title={selectedIds.length === 0 ? 'Etiqueta' : 'Propriedades'}
+          size="sm"
+        >
+          {propriedades}
+        </Drawer>
+      )}
 
       {/* MODAL: System Variables Library */}
       <SystemVariablesModal
@@ -914,7 +990,7 @@ export default function EditorEtiquetasView({
           size="sm"
           footer={
             <div className="flex justify-end gap-2 p-3">
-              <button type="button" onClick={() => setIsSaveAsModalOpen(false)} className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50">
+              <button type="button" onClick={() => setIsSaveAsModalOpen(false)} className="flex items-center gap-1.5 h-11 lg:h-8 px-3 shrink-0 whitespace-nowrap rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50">
                 Cancelar
               </button>
               <button
