@@ -308,20 +308,22 @@ export default function DesenvolvimentoView({
             {activeTab === 'mapa' && (
               <div className="flex-1 min-h-0 flex flex-col gap-3">
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <ReportTabs
-                    abas={[
-                      { id: 'lista', label: 'Lista' },
-                      { id: 'organograma', label: 'Organograma' },
-                    ]}
-                    ativa={vistaMapa}
-                    onChange={(id) => setVistaMapa(id as 'lista' | 'organograma')}
-                  />
+                  <div className="hidden md:block">
+                    <ReportTabs
+                      abas={[
+                        { id: 'lista', label: 'Lista' },
+                        { id: 'organograma', label: 'Organograma' },
+                      ]}
+                      ativa={vistaMapa}
+                      onChange={(id) => setVistaMapa(id as 'lista' | 'organograma')}
+                    />
+                  </div>
                   <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
                     <BotaoAcao onClick={() => setActiveTab('timeline')}>Atividades</BotaoAcao>
                     <BotaoAcao onClick={() => setActiveTab('novo_modulo')}>Novo módulo</BotaoAcao>
                   </div>
                 </div>
-                {vistaMapa === 'lista' ? (
+                <div className={cn('flex-1 min-h-0 flex-col', vistaMapa === 'lista' ? 'flex' : 'flex md:hidden')}>
                   <ModulosLista
                     groups={snap?.groups || []}
                     modules={snap?.modules || []}
@@ -329,7 +331,9 @@ export default function DesenvolvimentoView({
                     abertosPorModulo={abertosPorModulo}
                     onSelectModule={setSelectedModuleKey}
                   />
-                ) : (
+                </div>
+                {vistaMapa === 'organograma' && (
+                  <div className="hidden md:flex flex-1 min-h-0 flex-col">
                   <OrganogramaMapCanvas
                     snap={snap}
                     positions={positions}
@@ -344,6 +348,7 @@ export default function DesenvolvimentoView({
                     onPointerUpNode={onPointerUpNode}
                     feedbacks={feedbacks}
                   />
+                  </div>
                 )}
               </div>
             )}
@@ -374,7 +379,7 @@ export default function DesenvolvimentoView({
                 <button
                   type="button"
                   onClick={() => setActiveTab('mapa')}
-                  className="self-start px-3 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-bold text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                  className="self-start min-h-[44px] sm:min-h-0 px-3 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-bold text-zinc-700 hover:bg-zinc-50 cursor-pointer"
                 >
                   Voltar aos módulos
                 </button>
@@ -391,7 +396,7 @@ export default function DesenvolvimentoView({
                 <button
                   type="button"
                   onClick={() => setActiveTab('mapa')}
-                  className="self-start px-3 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-bold text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                  className="self-start min-h-[44px] sm:min-h-0 px-3 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-bold text-zinc-700 hover:bg-zinc-50 cursor-pointer"
                 >
                   Voltar aos módulos
                 </button>

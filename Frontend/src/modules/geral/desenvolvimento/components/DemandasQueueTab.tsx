@@ -136,6 +136,57 @@ export default function DemandasQueueTab({
         <div className="panel-card py-16 text-center text-sm text-zinc-500">Nenhum chamado nesta etapa.</div>
       ) : (
         <div className="flex-1 min-h-0 overflow-auto">
+          {/* Celular: cartões com alvo de toque de 44 px. */}
+          <ul className="md:hidden flex flex-col gap-2">
+            {filteredItems.map((f) => {
+              const hasShot = Boolean(f.hasScreenshot || f.screenshot);
+              const hasLogs = Boolean(f.hasLogs || f.logs?.trim());
+              const marcado = selecionados.includes(f.id);
+              const frase = (f.description || '').replace(/\s+/g, ' ').trim();
+              return (
+                <li
+                  key={f.id}
+                  className={`flex items-stretch rounded-xl border bg-white ${selectedId === f.id ? 'border-zinc-900' : 'border-zinc-200'}`}
+                >
+                  {subTab === 'homologacao' && (
+                    <label className="flex items-center justify-center w-11 shrink-0 border-r border-zinc-100 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={marcado}
+                        onChange={() => {
+                          setSelecionados((prev) => (
+                            prev.includes(f.id) ? prev.filter((id) => id !== f.id) : [...prev, f.id]
+                          ));
+                        }}
+                        aria-label={`Selecionar ${f.id}`}
+                      />
+                    </label>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onSelectFeedback(f)}
+                    className="flex-1 min-w-0 min-h-[44px] text-left px-3 py-2.5 flex flex-col gap-1"
+                  >
+                    <span className="flex items-center gap-2 text-xs text-zinc-500">
+                      <StatusBadge variante={varianteTipo(f.feedbackType)}>
+                        {f.feedbackType === 'bug' ? 'Bug' : 'Sugestão'}
+                      </StatusBadge>
+                      <span className="truncate">{f.moduleKey || f.page || '—'}</span>
+                      <span className="ml-auto shrink-0">{idade(f.createdAt) || '—'}</span>
+                    </span>
+                    <span className="text-sm text-zinc-900 line-clamp-2">{frase}</span>
+                    <span className="flex items-center gap-2 text-xs text-zinc-500">
+                      {STATUS_LABEL[f.status] || f.status}
+                      {hasShot && <ImageIcon className="h-3.5 w-3.5 text-zinc-400 shrink-0" />}
+                      {hasLogs && <Terminal className="h-3.5 w-3.5 text-zinc-400 shrink-0" />}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="hidden md:block">
           <TabelaPainel>
             <thead>
               <tr>
@@ -193,6 +244,7 @@ export default function DemandasQueueTab({
               })}
             </tbody>
           </TabelaPainel>
+          </div>
         </div>
       )}
     </div>

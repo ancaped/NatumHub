@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import {
-  X, Bug, MessageSquare, Terminal, Image as ImageIcon, CheckCircle2,
+  Bug, MessageSquare, Terminal, Image as ImageIcon, CheckCircle2,
   AlertTriangle, RotateCcw, Send, Copy, Check, ChevronUp, ChevronDown,
   Maximize2, Sparkles, UserRound, ArrowLeft, Loader2, Compass
 } from 'lucide-react';
 import type { Feedback, FeedbackDetail, FeedbackNote } from '../types';
 import { cn } from '../../lib/utils';
 import Drawer from '../../components/ui/Drawer';
+import Modal from '../../components/ui/Modal';
 
 interface DemandaDetailDrawerProps {
   feedback: FeedbackDetail | null;
@@ -382,25 +383,13 @@ export default function DemandaDetailDrawer({
 
       {/* Modal de Zoom do Screenshot em Tela Cheia */}
       {showFullImage && (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200"
-          onClick={() => setShowFullImage(false)}
-        >
-          <div className="relative max-w-5xl max-h-[90vh] bg-zinc-950 p-2 rounded-2xl border border-zinc-800 shadow-2xl flex flex-col items-center">
-            <button
-              onClick={() => setShowFullImage(false)}
-              className="absolute top-4 right-4 p-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl cursor-pointer"
-            >
-              <X className="h-5 w-5" />
-            </button>
-            <img
-              src={shotUrl}
-              alt="Screenshot ampliado"
-              className="max-h-[85vh] max-w-full object-contain rounded-lg"
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-        </div>
+        <Modal onClose={() => setShowFullImage(false)} title="Captura de tela" size="max">
+          <img
+            src={shotUrl}
+            alt="Captura de tela ampliada"
+            className="max-h-[75dvh] w-full object-contain rounded-lg"
+          />
+        </Modal>
       )}
     </>
   );
