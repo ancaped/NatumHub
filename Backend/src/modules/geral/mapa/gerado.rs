@@ -114,13 +114,26 @@ fn donos_front<'a>(arquivo: &str, mods: &[ModuloRef<'a>]) -> Vec<&'a str> {
     v
 }
 
+/// Prefixos de rota de um módulo: `router_prefix` pode ter vários, separados por vírgula.
+fn prefixos_do_modulo(router_prefix: Option<&str>) -> Vec<&str> {
+    router_prefix
+        .map(|s| s.split(',').map(|p| p.trim().trim_end_matches('/')).filter(|p| !p.is_empty()).collect())
+        .unwrap_or_default()
+}
+
 /// Dono de uma rota. Vence quem tem o arquivo da rota como `backend_path` (e, se tiver prefixo, ele casa); depois, o maior
 /// `router_prefix` que a contém (empate: `backend_path` mais específico); sem prefixo, o `backend_path` mais específico.
 fn dono_da_rota<'a>(caminho: &str, arquivo: &str, mods: &[ModuloRef<'a>]) -> Option<&'a str> {
     let mut melhor: Option<((bool, usize, usize), &str)> = None;
     for m in mods {
-        let prefixo = m.router_prefix.map(|s| s.trim().trim_end_matches('/')).filter(|s| !s.is_empty());
-        let casa_prefixo = prefixo.map(|p| caminho == p || caminho.starts_with(&format!("{p}/")));
+        // `router_prefix` aceita vários prefixos separados por vírgula; vale o maior que casa.
+        let prefixos = prefixos_do_modulo(m.router_prefix);
+        let prefixo = prefixos
+            .iter()
+            .copied()
+            .filter(|p| caminho == *p || caminho.starts_with(&format!("{p}/")))
+            .max_by_key(|p| p.len());
+        let casa_prefixo = (!prefixos.is_empty()).then_some(prefixo.is_some());
         let alvo_be = m.backend_path.filter(|s| !s.trim().is_empty()).map(alvo_caminho);
         let arquivo_exato = alvo_be.as_deref().map_or(false, |a| !a.ends_with('/') && a == arquivo);
         let pontua = match (casa_prefixo, arquivo_exato) {
@@ -333,6 +346,19 @@ mod tests {
             ModuloRef { key: "producao_a", frontend_path: Some("Frontend/src/modules/producao/a/"), backend_path: Some("Backend/src/modules/producao/"), router_prefix: Some("/api/producao") },
             ModuloRef { key: "producao_b", frontend_path: Some("Frontend/src/modules/producao/b/"), backend_path: Some("Backend/src/modules/producao/"), router_prefix: Some("/api/producao/b") },
         ]
+    }
+
+    #[test]
+    fn modulo_com_varios_prefixos_e_o_maior_prefixo_vence() {
+        let ms = vec![
+            ModuloRef { key: "compras", frontend_path: None, backend_path: Some("Backend/src/modules/compras/"), router_prefix: Some("/api/compras, /api/hub/compras") },
+            ModuloRef { key: "compras_categorias", frontend_path: None, backend_path: Some("Backend/src/modules/compras/planejamento/commands/"), router_prefix: Some("/api/hub/compras/categorias, /api/hub/compras/categories/") },
+        ];
+        let arq = "Backend/src/modules/hub_api/compras.rs";
+        assert_eq!(dono_da_rota("/api/hub/compras/suppliers", arq, &ms), Some("compras"));
+        assert_eq!(dono_da_rota("/api/hub/compras/categories/:id", arq, &ms), Some("compras_categorias"));
+        assert_eq!(dono_da_rota("/api/compras/pedidos", "Backend/src/modules/compras/mod.rs", &ms), Some("compras"));
+        assert_eq!(dono_da_rota("/api/hub/fisco/x", arq, &ms), None);
     }
 
     #[test]

@@ -8,8 +8,9 @@ export function chamadoDoModulo(f: Feedback, module: MapaModule): boolean {
   const pagina = (f.page || '').toLowerCase();
   if (!pagina) return false;
   if (pagina.includes(alvo)) return true;
-  if (module.routerPrefix && pagina.includes(module.routerPrefix.toLowerCase())) return true;
-  return false;
+  // routerPrefix pode ter vários prefixos separados por vírgula.
+  const prefixos = (module.routerPrefix || '').split(',').map((p) => p.trim().toLowerCase()).filter(Boolean);
+  return prefixos.some((p) => pagina.includes(p));
 }
 
 export function chamadoAberto(f: Feedback): boolean {
