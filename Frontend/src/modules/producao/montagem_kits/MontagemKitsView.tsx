@@ -1635,7 +1635,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
       )}
 
       {/* Sidebar */}
-      <div className="print:hidden w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0 -mt-px">
+      <div className="print:hidden hidden md:flex w-64 bg-white border-r border-zinc-200 flex-col shrink-0 -mt-px">
 
           {/* Back Button */}
           <div className="p-3 border-b border-zinc-100">
@@ -1725,10 +1725,30 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
         {/* Main Content Area */}
         <div className="print:hidden flex-1 flex flex-col overflow-hidden relative">
-          <main className="flex-1 overflow-y-auto p-6 flex flex-col">
-            <div className="flex items-center justify-between mb-6 no-print">
-              <div />
-              <div className="flex items-center gap-3">
+          <main className="flex-1 overflow-y-auto p-0 md:p-6 flex flex-col min-w-0">
+            <div className="md:hidden no-print mb-3 flex gap-1.5 overflow-x-auto pb-1" role="tablist">
+              {([
+                ['ordens', 'Ordens de Montagem', orders.length],
+                ['componentes', 'Componentes e Alertas', null],
+                ['composicao', 'Composição de Kits', null],
+                ['vira_ordens', 'Ordens de Conversão', viraOrders.length],
+                ['vira_composicao', 'Fórmulas de Conversão', null],
+              ] as [string, string, number | null][]).map(([k, label, n]) => (
+                <button
+                  key={k}
+                  role="tab"
+                  aria-selected={activeSubTab === k}
+                  onClick={() => setActiveSubTab(k)}
+                  className={`shrink-0 min-h-11 px-3.5 rounded-xl text-xs font-bold border whitespace-nowrap cursor-pointer ${
+                    activeSubTab === k ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-600 border-zinc-200'
+                  }`}
+                >
+                  {label}{n !== null ? ` (${n})` : ''}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2 mb-4 md:mb-6 no-print">
+              <div className="flex flex-wrap items-center gap-2 md:gap-3">
                 {activeSubTab === 'ordens' && (
                   <button 
                     onClick={() => handleOpenNewOrderModal()}
