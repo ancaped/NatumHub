@@ -2048,7 +2048,95 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                   <span className="text-xs font-bold text-zinc-700">Nenhum kit encontrado com os filtros selecionados</span>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <>
+                <div className="md:hidden divide-y divide-zinc-100">
+                  {kits.map((k) => {
+                    const isExpanded = expandedKits.includes(k.codigo);
+                    const currentQty = kitMontarQtys[k.codigo] !== undefined
+                      ? kitMontarQtys[k.codigo]
+                      : (k.producao_recomendada > 0 ? k.producao_recomendada : (k.max_montavel > 0 ? k.max_montavel : 10));
+                    const capClass = k.max_montavel === 0
+                      ? 'bg-red-50 text-red-700 border-red-200'
+                      : k.max_montavel < k.producao_recomendada
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                    return (
+                      <div key={k.codigo} className="p-3 space-y-2.5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <span className="font-extrabold text-zinc-950 text-sm">{k.codigo}</span>
+                            <span className="block font-bold text-zinc-900 text-xs break-words">{k.descricao}</span>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="font-extrabold text-zinc-900 block">{k.estoque} un</span>
+                            <span className="text-[10px] text-zinc-400">Ped: {k.pedidos_aberto} un</span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className={`px-2 py-1 rounded-full text-[9px] font-extrabold tracking-wide uppercase ${
+                            k.status === 'critico' ? 'bg-red-50 text-red-700 border border-red-200' :
+                            k.status === 'ordem' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                            k.status === 'montar' ? 'bg-orange-50 text-orange-700 border border-orange-200' :
+                            k.status === 'aguardando' ? 'bg-zinc-100 text-zinc-700 border border-zinc-200' :
+                            'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          }`}>{k.status_label}</span>
+                          <span className={`px-2 py-1 rounded border text-[9px] font-extrabold ${capClass}`}>Máx: {k.max_montavel} un</span>
+                          {k.producao_recomendada > 0 && (
+                            <span className="text-[10px] font-bold text-red-600 ml-auto">Produzir {k.producao_recomendada} un</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            inputMode="numeric"
+                            value={currentQty}
+                            onChange={(e) => { const val = e.target.value; setKitMontarQtys(prev => ({ ...prev, [k.codigo]: val })); }}
+                            className="w-20 min-h-11 text-right border border-zinc-300 rounded-xl px-2 text-sm font-bold text-zinc-900 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                            aria-label="Quantidade a montar"
+                          />
+                          <span className="text-[10px] text-zinc-400 font-semibold">un</span>
+                          <button onClick={() => handleOpenNewOrderModal(k.codigo)} className="flex-1 min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl bg-zinc-900 text-white text-xs font-bold cursor-pointer">
+                            <PlusCircle size={14} /> Ordem
+                          </button>
+                          <button onClick={() => handleQuickCreateAndPrintKit(k, currentQty)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 cursor-pointer" aria-label="Gerar e imprimir ordem" title="Gerar e imprimir">
+                            <Printer size={16} />
+                          </button>
+                          <button onClick={() => toggleKitExpanded(k.codigo)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 cursor-pointer" aria-label="Ver componentes" aria-expanded={isExpanded}>
+                            {isExpanded ? <X size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                        {isExpanded && (
+                          <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 divide-y divide-zinc-100">
+                            <div className="px-3 py-2 text-[10px] font-extrabold uppercase text-zinc-500">Componentes ({k.componentes?.length || 0})</div>
+                            {k.componentes?.map(comp => (
+                              <div key={comp.codigo} className="px-3 py-2 text-xs space-y-0.5">
+                                <div className="flex justify-between gap-2">
+                                  <span className="font-bold text-zinc-800">{comp.codigo}</span>
+                                  <span className="font-bold text-zinc-900">
+                                    {formatQtyPerKitLabel(Number(comp.quantidade) || 1, comp.fator_proporcao_qtd, comp.fator_proporcao_kits)}
+                                  </span>
+                                </div>
+                                <span className="block text-zinc-700 break-words">{comp.descricao}</span>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-zinc-500">
+                                  <span>Estoque <b className="text-zinc-900">{comp.estoque} un</b></span>
+                                  <span>Produção {comp.producao} un</span>
+                                  <span>Pedidos {comp.pedidos_aberto} un</span>
+                                  {comp.fonte === 'item' ? (
+                                    <span className="font-bold uppercase text-amber-700">embalagem/insumo</span>
+                                  ) : comp.necessita_producao ? (
+                                    <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-700 font-bold">Produzir</span>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-xs text-left border-collapse">
                     <thead>
                       <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-550 font-bold uppercase text-[9px]">
@@ -2214,6 +2302,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           </div>
