@@ -131,6 +131,7 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
   const [checagensBrutas, setChecagensBrutas] = useState<ChecagemSaude[]>([]);
   const [faltasBrutas, setFaltasBrutas] = useState<RelatorioFaltas | null>(null);
   const [pedidosBrutos, setPedidosBrutos] = useState<PedidoCompra[]>([]);
+  const [avisosBrutos, setAvisosBrutos] = useState<HubNotification[]>([]);
   const podeVerFaltas = canAccessView(currentUser, 'admin_produtos_ativos_relatorios');
   const podeVerPedidos = canAccessView(currentUser, 'compras_pedidos');
   const [ultimaChecagem, setUltimaChecagem] = useState<string | null>(null);
@@ -149,6 +150,7 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
     ]);
     const lista: ItemAtencao[] = [];
     if (avisos.status === 'fulfilled') {
+      setAvisosBrutos(avisos.value);
       lista.push(...avisos.value.filter((n) => !n.read).slice(0, 30).map(itemDeNotificacao));
     }
     if (saude.status === 'fulfilled') {
@@ -192,8 +194,9 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
       checagens: checagensBrutas,
       faltas: podeVerFaltas ? faltasBrutas : null,
       pedidos: podeVerPedidos ? pedidosBrutos : [],
+      avisos: avisosBrutos,
     }),
-    [checagensBrutas, faltasBrutas, pedidosBrutos, podeVerFaltas, podeVerPedidos]
+    [checagensBrutas, faltasBrutas, pedidosBrutos, avisosBrutos, podeVerFaltas, podeVerPedidos]
   );
   const mostrarGraficos = haGraficos(dadosGraficos);
 
@@ -223,7 +226,7 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto bg-zinc-50">
-      <div className="w-full max-w-[1600px] mx-auto p-3 pb-24 sm:p-6 sm:pb-24 xl:px-10">
+      <div className="w-full max-w-[1600px] 2xl:max-w-[1900px] mx-auto p-3 pb-24 sm:p-6 sm:pb-24 xl:px-10">
         <ReportHeader
           titulo={nome ? `Olá, ${nome}` : 'Início'}
           subtitulo={
@@ -258,7 +261,7 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
         {aba === 'atencao' && (
           <div
             className={`grid gap-4 items-start ${
-              mostrarGraficos ? 'xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]' : ''
+              mostrarGraficos ? 'xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] 2xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]' : ''
             }`}
           >
           <div className="panel-card min-w-0" style={{ padding: 0 }}>
