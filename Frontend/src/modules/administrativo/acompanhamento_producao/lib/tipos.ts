@@ -1,3 +1,5 @@
+import type React from 'react';
+
 export interface StatusHistoryEntry {
   id: number;
   loteNumber: string;
@@ -223,4 +225,53 @@ export interface AcompanhamentoProducaoProps {
   onBack?: () => void;
   mode?: 'planejamento' | 'administrativo';
   initialTab?: TabType;
+}
+
+/** Linha da prévia do servidor ao redefinir o status de um lote (o que será apagado). */
+export interface StatusApagadoPrevia {
+  loteNumber: string;
+  statusAnterior: string;
+  category?: string | null;
+  motivoEspera?: string | null;
+}
+
+export interface CaldeiraRegistro {
+  id: string;
+  ligouEm: string;
+  desligouEm?: string;
+  operador: string;
+  lotes: string[];
+  observacoes?: string;
+  duracaoMinutos?: number;
+}
+
+export interface AdiarModalItem {
+  loteNumber: string;
+  productCode: string;
+  productDescription: string;
+  currentDate: string; // YYYY-MM-DD
+  targetDate: string;  // YYYY-MM-DD
+  etapaLabel: string;
+  origem: 'envase_linha' | 'envase_liberados' | 'ordens' | 'pesagem' | 'producao' | 'rotulagem';
+  realLote?: AcompanhamentoLote;
+  envaseItem?: ProgramacaoEnvaseItem;
+}
+
+export interface UnifiedQuadroHeaderProps {
+  title: string;
+  subtitle: string;
+  icon: React.ReactNode;
+  selectedDate: string;
+  setSelectedDate: (d: string) => void;
+  showAllDates: boolean;
+  setShowAllDates: (all: boolean) => void;
+  badgeCount?: number;
+  badgeCountLabel?: string;
+  badgeKg?: number;
+  badgeUn?: number;
+  badgeExtra?: React.ReactNode;
+  operationalMetrics?: React.ReactNode;
+  actionButtons?: React.ReactNode;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }
