@@ -4,6 +4,13 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Tonalidades intermediárias de zinc que o código já usa (~290 lugares) e o Tailwind não traz:
+     ponto médio entre as vizinhas da escala padrão. Sem isso, a classe não gera CSS e a borda cai em currentColor. */
+  --color-zinc-150: oklch(94.35% 0.0025 286.35);
+  --color-zinc-250: oklch(89.55% 0.005 286.3);
+  --color-zinc-350: oklch(78.8% 0.0105 286.18);
+  --color-zinc-650: oklch(40.6% 0.015 285.79);
 }
 
 @layer base {
