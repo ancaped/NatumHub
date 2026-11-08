@@ -27,56 +27,26 @@ import {
   type ViraPackagingLine,
 } from '../lib/viraPackaging';
 
+import { ReportHeader, BotaoAcao, FilterBar, FiltroSelect, StatusBadge } from '../../geral/components/ui/ReportKit';
+
 export default function AbaComposicaoKits({ ctx }: { ctx: any }) {
   const { handleUploadKitsConfig, kitCompSearch, kitComposicao, masterKitsList, setIsDrawerOpen, setIsNewKitModalOpen, setKitCompSearch, setSelectedDrawerKitCode, setSelectedDrawerKitDesc, uploadingKitsConfig } = ctx;
   return (
     <>
           <div className="space-y-4 animate-in fade-in duration-200 flex-1 flex flex-col overflow-hidden">
-            {/* Toolbar com importação Excel e busca */}
-            <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-3 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4 shrink-0">
-              <div className="flex items-center gap-3 min-w-0 flex-1">
-                <div className="relative w-full max-w-md">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-                  <input
-                    type="text"
-                    placeholder="Buscar kit por código ou descrição..."
-                    value={kitCompSearch}
-                    onChange={(e) => setKitCompSearch(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900 text-xs font-medium transition-all"
-                  />
-                </div>
-                <p className="hidden lg:block text-[11px] text-zinc-400 font-medium max-w-xs leading-snug shrink-0">
-                  Estrutura principal vem do ERP (sync). Excel/CRUD só alteram linhas manuais.
-                </p>
-              </div>
-
-              {/* Excel import & Compor Novo Kit */}
-              <div className="shrink-0 flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsNewKitModalOpen(true)}
-                  className="bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center justify-center gap-1.5 min-h-11 md:min-h-9"
-                >
-                  <Plus className="w-4 h-4" />
-                  Compor Novo Kit
-                </button>
-
-                <label className="bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center justify-center gap-1.5 min-h-11 md:min-h-9">
-                  <UploadCloud className="w-4 h-4 text-zinc-500" />
-                  {uploadingKitsConfig ? 'Importando...' : 'Importar Excel (.xlsx)'}
-                  <input
-                    type="file"
-                    accept=".xlsx"
-                    className="hidden"
-                    onChange={handleUploadKitsConfig}
-                    disabled={uploadingKitsConfig}
-                  />
-                </label>
-              </div>
-            </div>
+            <FilterBar busca={kitCompSearch} onBusca={setKitCompSearch} placeholder="Buscar kit por código ou descrição...">
+              <BotaoAcao primario className="min-h-11 md:min-h-0" onClick={() => setIsNewKitModalOpen(true)}>
+                <Plus size={14} /> Compor novo kit
+              </BotaoAcao>
+              <label className="tab-btn min-h-11 md:min-h-0 cursor-pointer" style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', fontSize: '0.75rem' }}>
+                <UploadCloud size={14} />
+                {uploadingKitsConfig ? 'Importando...' : 'Importar Excel (.xlsx)'}
+                <input type="file" accept=".xlsx" className="hidden" onChange={handleUploadKitsConfig} disabled={uploadingKitsConfig} />
+              </label>
+            </FilterBar>
 
             {/* Lista Mestre-Detalhe dos Kits Montáveis */}
-            <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col flex-1">
+            <div className="panel-card" style={{ padding: 0, overflow: 'hidden' }}>
               <div className="px-4 md:px-6 py-3.5 bg-zinc-50 border-b border-zinc-200 flex flex-wrap items-center justify-between gap-1 text-xs font-bold text-zinc-600">
                 <span>Catálogo de Kits Montáveis ({masterKitsList.length})</span>
                 <span className="text-[11px] text-zinc-400 font-normal">Clique em um kit para gerenciar seus insumos/proporções</span>

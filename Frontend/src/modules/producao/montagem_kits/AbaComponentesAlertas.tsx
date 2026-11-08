@@ -27,51 +27,31 @@ import {
   type ViraPackagingLine,
 } from '../lib/viraPackaging';
 
+import { ReportHeader, BotaoAcao, FilterBar, FiltroSelect, StatusBadge } from '../../geral/components/ui/ReportKit';
+
 export default function AbaComponentesAlertas({ ctx }: { ctx: any }) {
   const { setKitDetalheCodigo, fetchKits, handleOpenNewOrderModal, handleQuickCreateAndPrintKit, kitMontarQtys, kits, kitsSearch, kitsSelectedStatus, loading, setKitMontarQtys, setKitsPage, setKitsSearch, setKitsSelectedStatus } = ctx;
   return (
     <>
           <div className="space-y-4 animate-in fade-in duration-200">
-            {/* Toolbar */}
-            <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-zinc-50 p-3 rounded-xl border border-zinc-200">
-              <div className="relative w-full sm:w-80">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
-                <input 
-                  type="text" 
-                  placeholder="Buscar kit por código ou descrição..." 
-                  className="w-full text-xs border border-zinc-300 rounded-xl pl-9 pr-3 py-2.5 focus:outline-none focus:ring-1 focus:ring-zinc-950 bg-white"
-                  value={kitsSearch}
-                  onChange={(e) => { setKitsSearch(e.target.value); setKitsPage(1); }}
-                />
-              </div>
-
-              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                <select 
-                  className="text-xs border border-zinc-300 rounded-xl px-3 py-2 bg-white focus:outline-none"
-                  value={kitsSelectedStatus}
-                  onChange={(e) => { setKitsSelectedStatus(e.target.value); setKitsPage(1); }}
-                >
-                  <option value="ALL">Todos os Alertas</option>
-                  <option value="critico">Crítico: Produzir</option>
-                  <option value="ordem">Abrir Ordem</option>
-                  <option value="montar">Montar Urgente</option>
-                  <option value="aguardando">Aguardando Produção</option>
-                  <option value="saudavel">Estoque OK</option>
-                  <option value="abundante">Abundante</option>
-                </select>
-
-                <button 
-                  onClick={fetchKits}
-                  className="p-2.5 bg-white border border-zinc-300 rounded-xl text-zinc-550 hover:text-zinc-900 cursor-pointer"
-                  title="Atualizar"
-                >
-                  {loading ? <RefreshCw className="animate-spin h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
+            <FilterBar busca={kitsSearch} onBusca={(v) => { setKitsSearch(v); setKitsPage(1); }} placeholder="Buscar kit por código ou descrição...">
+              <FiltroSelect
+                value={kitsSelectedStatus}
+                onChange={(v) => { setKitsSelectedStatus(v); setKitsPage(1); }}
+                opcoes={[
+                  { valor: 'ALL', rotulo: 'Todos os alertas' },
+                  { valor: 'critico', rotulo: 'Crítico: produzir' },
+                  { valor: 'ordem', rotulo: 'Abrir ordem' },
+                  { valor: 'montar', rotulo: 'Montar urgente' },
+                  { valor: 'aguardando', rotulo: 'Aguardando produção' },
+                  { valor: 'saudavel', rotulo: 'Estoque OK' },
+                  { valor: 'abundante', rotulo: 'Abundante' },
+                ]}
+              />
+            </FilterBar>
 
             {/* List Table */}
-            <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
+            <div className="panel-card" style={{ padding: 0, overflow: 'hidden' }}>
               {loading ? (
                 <div className="py-16 text-center text-zinc-400 flex flex-col items-center gap-2">
                   <RefreshCw className="animate-spin h-8 w-8 text-zinc-300" />
@@ -107,13 +87,7 @@ export default function AbaComponentesAlertas({ ctx }: { ctx: any }) {
                           </div>
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className={`px-2 py-1 rounded-full text-[9px] font-extrabold tracking-wide uppercase ${
-                            k.status === 'critico' ? 'bg-red-50 text-red-700 border border-red-200' :
-                            k.status === 'ordem' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                            k.status === 'montar' ? 'bg-amber-100 text-amber-800 border border-amber-300' :
-                            k.status === 'aguardando' ? 'bg-zinc-100 text-zinc-700 border border-zinc-200' :
-                            'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          }`}>{k.status_label}</span>
+                          <StatusBadge variante={k.status}>{k.status_label}</StatusBadge>
                           <span className={`px-2 py-1 rounded border text-[9px] font-extrabold ${capClass}`}>Máx: {k.max_montavel} un</span>
                           {k.producao_recomendada > 0 && (
                             <span className="text-[10px] font-bold text-red-600 ml-auto">Produzir {k.producao_recomendada} un</span>
@@ -144,7 +118,7 @@ export default function AbaComponentesAlertas({ ctx }: { ctx: any }) {
                 <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-xs text-left border-collapse">
                     <thead>
-                      <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-550 font-bold uppercase text-[9px]">
+                      <tr>
                                                 <th style={{ width: '10%' }}>Código</th>
                         <th style={{ width: '26%' }}>Descrição</th>
                         <th style={{ width: '10%' }} className="text-right">Estoque</th>
@@ -171,36 +145,28 @@ export default function AbaComponentesAlertas({ ctx }: { ctx: any }) {
                         return (
                           <React.Fragment key={k.codigo}>
                             <tr onClick={() => setKitDetalheCodigo(k.codigo)} className="border-b border-zinc-150 hover:bg-zinc-50 cursor-pointer">
-                              <td className="p-3 font-extrabold text-zinc-955">{k.codigo}</td>
-                              <td className="p-3 font-bold text-zinc-900">{k.descricao}</td>
-                              <td className="p-3 text-right font-bold text-zinc-900">
+                              <td className="font-extrabold text-zinc-955">{k.codigo}</td>
+                              <td className="font-bold text-zinc-900">{k.descricao}</td>
+                              <td className="text-right font-bold text-zinc-900">
                                 {k.estoque} un
                                 <span className="block font-medium text-[10px] text-zinc-400">Ped: {k.pedidos_aberto} un</span>
                               </td>
-                              <td className="p-3">
-                                <span className={`px-2 py-1 rounded-full text-[9px] font-extrabold tracking-wide uppercase ${
-                                  k.status === 'critico' ? 'bg-red-50 text-red-700 border border-red-200' :
-                                  k.status === 'ordem' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                                  k.status === 'montar' ? 'bg-amber-100 text-amber-800 border border-amber-300' :
-                                  k.status === 'aguardando' ? 'bg-zinc-900 text-white border border-zinc-900' :
-                                  'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                }`}>
-                                  {k.status_label}
-                                </span>
+                              <td>
+                                <StatusBadge variante={k.status}>{k.status_label}</StatusBadge>
                               </td>
-                              <td className="p-3 text-right font-extrabold text-zinc-900">
+                              <td className="text-right font-extrabold text-zinc-900">
                                 {k.producao_recomendada > 0 ? (
                                   <span className="text-red-600">{k.producao_recomendada} un</span>
                                 ) : (
                                   <span className="text-zinc-450">-</span>
                                 )}
                               </td>
-                              <td className="p-3">
+                              <td>
                                 <span className={`px-2 py-1 rounded border text-[9px] font-extrabold tracking-wide ${capacityClass}`}>
                                   Máx: {k.max_montavel} un
                                 </span>
                               </td>
-                              <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
+                              <td className="text-right" onClick={(e) => e.stopPropagation()}>
                                 <div className="flex items-center justify-end gap-1">
                                   <input
                                     type="number"
@@ -210,13 +176,13 @@ export default function AbaComponentesAlertas({ ctx }: { ctx: any }) {
                                       const val = e.target.value;
                                       setKitMontarQtys(prev => ({ ...prev, [k.codigo]: val }));
                                     }}
-                                    className="w-16 text-right border border-zinc-300 rounded-lg px-2 py-1 text-xs font-bold text-zinc-900 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                                    className="w-20 text-right border border-zinc-300 rounded-lg px-2 py-1 text-xs font-bold text-zinc-900 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
                                     title="Editar quantidade a montar para este kit"
                                   />
                                   <span className="text-[10px] text-zinc-400 font-semibold">un</span>
                                 </div>
                               </td>
-                              <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                              <td className="text-center" onClick={(e) => e.stopPropagation()}>
                                 <div className="flex items-center justify-center gap-1">
                                   <button 
                                     onClick={() => handleQuickCreateAndPrintKit(k, currentQty)}

@@ -27,38 +27,27 @@ import {
   type ViraPackagingLine,
 } from '../lib/viraPackaging';
 
+import { ReportHeader, BotaoAcao, FilterBar, FiltroSelect, StatusBadge } from '../../geral/components/ui/ReportKit';
+
 export default function AbaOrdensConversao({ ctx }: { ctx: any }) {
   const { buildViraPrintPayload, filterViraStatus, handleDeleteViraOrder, handleOpenEditViraOrderModal, loadingVira, setFilterViraStatus, setPrintingOrder, setViraSearch, viraOrders, viraOrdersFiltradas, viraSearch } = ctx;
   return (
     <>
           <div className="space-y-4 animate-in fade-in duration-200 flex-1 flex flex-col overflow-hidden">
-            {/* Search and filter toolbar */}
-            <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
-              <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0 sm:min-w-[280px]">
-                <div className="relative flex-1 min-w-[12rem] max-w-md">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-                  <input
-                    type="text"
-                    placeholder="Buscar por lote, produto de origem ou destino..."
-                    value={viraSearch}
-                    onChange={(e) => setViraSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-955 text-xs font-semibold text-zinc-900"
-                  />
-                </div>
-                <select
-                  value={filterViraStatus}
-                  onChange={(e) => setFilterViraStatus(e.target.value)}
-                  className="bg-white border border-zinc-200 rounded-xl px-3 py-2 text-xs font-bold text-zinc-700 focus:outline-none cursor-pointer"
-                >
-                  <option value="ALL">Todos os Status</option>
-                  <option value="PENDING">Em Montagem (Pendente)</option>
-                  <option value="COMPLETED">Concluídas</option>
-                </select>
-              </div>
-            </div>
+            <FilterBar busca={viraSearch} onBusca={setViraSearch} placeholder="Buscar por lote, produto de origem ou destino...">
+              <FiltroSelect
+                value={filterViraStatus}
+                onChange={setFilterViraStatus}
+                opcoes={[
+                  { valor: 'ALL', rotulo: 'Todos os status' },
+                  { valor: 'PENDING', rotulo: 'Em montagem' },
+                  { valor: 'COMPLETED', rotulo: 'Concluídas' },
+                ]}
+              />
+            </FilterBar>
 
             {/* List of Vira Orders */}
-            <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col flex-1">
+            <div className="panel-card" style={{ padding: 0, overflow: 'hidden' }}>
               {loadingVira ? (
                 <div className="flex-1 flex items-center justify-center p-12 text-zinc-400 font-semibold text-xs">
                   Carregando ordens de conversão...
@@ -85,15 +74,9 @@ export default function AbaOrdensConversao({ ctx }: { ctx: any }) {
                         <div className="text-zinc-900 font-extrabold break-words"><span className="text-[10px] text-zinc-500 font-mono">PARA </span>{o.paraProdutoDescricao} <span className="text-[10px] text-zinc-500">({o.paraProdutoCodigo})</span></div>
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className={`px-2 py-1 rounded-full text-[9px] font-extrabold tracking-wide uppercase ${
-                          o.status === 'COMPLETED'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-amber-50 text-amber-700 border border-amber-200'
-                        }`}>{o.status === 'COMPLETED' ? 'Concluída' : 'Em Montagem'}</span>
+                        <StatusBadge variante={o.status === 'COMPLETED' ? 'saudavel' : 'ordem'}>{o.status === 'COMPLETED' ? 'Concluída' : 'Em montagem'}</StatusBadge>
                         <SeloOrdemParada ordem={o} />
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
-                          o.erpLaunched === 1 ? 'bg-zinc-900 text-white border border-zinc-900' : 'bg-zinc-100 text-zinc-500 border border-zinc-200'
-                        }`}>ERP: {o.erpLaunched === 1 ? 'Sim' : 'Não'}</span>
+                        <StatusBadge variante={o.erpLaunched === 1 ? 'saudavel' : 'descontinuado'} title="Lançado no ERP">ERP: {o.erpLaunched === 1 ? 'Sim' : 'Não'}</StatusBadge>
                         <span className="text-[10px] text-zinc-500 ml-auto">{o.completedAt ? `Concluída ${o.completedAt}${o.assembledBy ? ` por ${o.assembledBy}` : ''}` : `Emitida ${o.createdAt}`}</span>
                       </div>
                       <div className="flex gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
@@ -108,18 +91,18 @@ export default function AbaOrdensConversao({ ctx }: { ctx: any }) {
                   ))}
                 </div>
                 <div className="hidden md:block overflow-y-auto flex-1">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500 sticky top-0 z-10">
+                  <table className="data-table compacta w-full text-left">
+                    <thead>
                       <tr>
-                        <th className="p-4">Nº Ordem / Lote</th>
-                        <th className="p-4">Conversão (De ➔ Para)</th>
-                        <th className="p-4 text-right">Qtd. Programada</th>
-                        <th className="p-4 text-right">Qtd. Real</th>
-                        <th className="p-4">Data Emissão</th>
-                        <th className="p-4">Conclusão / Operador</th>
-                        <th className="p-4 text-center">Status</th>
-                        <th className="p-4 text-center">ERP</th>
-                        <th className="p-4 text-center">Ações</th>
+                        <th>Nº Ordem / Lote</th>
+                        <th>Conversão (De ➔ Para)</th>
+                        <th className="text-right">Qtd. Programada</th>
+                        <th className="text-right">Qtd. Real</th>
+                        <th>Data Emissão</th>
+                        <th>Conclusão / Operador</th>
+                        <th className="text-center">Status</th>
+                        <th className="text-center">ERP</th>
+                        <th className="text-center">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100">
@@ -151,8 +134,8 @@ export default function AbaOrdensConversao({ ctx }: { ctx: any }) {
 
                         return filtered.map(o => (
                           <tr key={o.id} onClick={() => handleOpenEditViraOrderModal(o)} className="border-b border-zinc-150 hover:bg-zinc-50 cursor-pointer">
-                            <td className="p-4 font-extrabold text-zinc-955">{o.orderNumber}</td>
-                            <td className="p-4 space-y-1">
+                            <td className="font-extrabold text-zinc-955">{o.orderNumber}</td>
+                            <td className="space-y-1">
                               <div className="flex items-center gap-1.5 text-zinc-800 font-bold">
                                 <span className="text-[10px] text-zinc-400 font-mono">DE:</span>
                                 <span>{o.deProdutoDescricao}</span>
@@ -164,12 +147,12 @@ export default function AbaOrdensConversao({ ctx }: { ctx: any }) {
                                 <span className="text-[9px] text-zinc-500">({o.paraProdutoCodigo})</span>
                               </div>
                             </td>
-                            <td className="p-4 text-right font-extrabold text-zinc-650">{o.quantity} un</td>
-                            <td className="p-4 text-right font-black text-zinc-950">
+                            <td className="text-right font-extrabold text-zinc-650">{o.quantity} un</td>
+                            <td className="text-right font-black text-zinc-950">
                               {o.status === 'COMPLETED' ? `${o.quantityAssembled !== null && o.quantityAssembled !== undefined ? o.quantityAssembled : o.quantity} un` : '—'}
                             </td>
-                            <td className="p-4 text-zinc-500 font-medium">{o.createdAt}</td>
-                            <td className="p-4 text-zinc-550 font-medium">
+                            <td className="text-zinc-500 font-medium">{o.createdAt}</td>
+                            <td className="text-zinc-550 font-medium">
                               {o.completedAt ? (
                                 <div>
                                   <span className="block font-bold text-zinc-700">{o.completedAt}</span>
@@ -179,26 +162,14 @@ export default function AbaOrdensConversao({ ctx }: { ctx: any }) {
                                 <span className="text-[10px] italic text-zinc-400">Pendente de Produção</span>
                               )}
                             </td>
-                            <td className="p-4 text-center">
-                              <span className={`px-2 py-1 rounded-full text-[9px] font-extrabold tracking-wide uppercase ${
-                                o.status === 'COMPLETED' 
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
-                                  : 'bg-amber-50 text-amber-700 border border-amber-200'
-                              }`}>
-                                {o.status === 'COMPLETED' ? 'Concluída' : 'Em Montagem'}
-                              </span>
+                            <td className="text-center">
+                              <StatusBadge variante={o.status === 'COMPLETED' ? 'saudavel' : 'ordem'}>{o.status === 'COMPLETED' ? 'Concluída' : 'Em montagem'}</StatusBadge>
                               <SeloOrdemParada ordem={o} />
                             </td>
-                            <td className="p-4 text-center">
-                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase ${
-                                o.erpLaunched === 1
-                                  ? 'bg-zinc-900 text-white border border-zinc-900'
-                                  : 'bg-zinc-100 text-zinc-450 border border-zinc-200'
-                              }`}>
-                                {o.erpLaunched === 1 ? 'Sim' : 'Não'}
-                              </span>
+                            <td className="text-center">
+                              <StatusBadge variante={o.erpLaunched === 1 ? 'saudavel' : 'descontinuado'} title="Lançado no ERP">{o.erpLaunched === 1 ? 'Sim' : 'Não'}</StatusBadge>
                             </td>
-                            <td className="p-4">
+                            <td>
                               <div className="flex gap-2 justify-center items-center" onClick={(e) => e.stopPropagation()}>
                                 <button 
                                   onClick={() => {
