@@ -47,23 +47,6 @@ pub struct MapaEdge {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MapaTask {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub type_: String,
-    pub title: String,
-    pub payload: Value,
-    pub targets: Value,
-    pub acceptance: Value,
-    pub notes: String,
-    pub status: String,
-    pub created_by: Option<String>,
-    pub created_at: String,
-    pub done_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct MapaActivity {
     pub id: String,
     pub at: String,
@@ -78,7 +61,6 @@ pub struct MapaSnapshot {
     pub groups: Vec<MapaGroup>,
     pub modules: Vec<MapaModule>,
     pub edges: Vec<MapaEdge>,
-    pub tasks_open: Vec<MapaTask>,
     pub activity: Vec<MapaActivity>,
     /// Ações geradas do código (catálogo `core::catalogo`), só leitura.
     pub acoes: Vec<crate::core::catalogo::Acao>,
@@ -116,31 +98,6 @@ pub struct EdgeCreate {
     pub to_key: String,
     pub kind: Option<String>,
     pub note: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskCreate {
-    #[serde(rename = "type")]
-    pub type_: String,
-    pub title: String,
-    pub payload: Option<Value>,
-    pub targets: Option<Value>,
-    pub acceptance: Option<Value>,
-    pub notes: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskPatch {
-    pub status: Option<String>,
-    pub notes: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TasksQuery {
-    pub status: Option<String>,
-    pub limit: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]

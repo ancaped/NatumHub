@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
-  X, ExternalLink, Route, Bug, ListTodo, FileText, CheckCircle2,
+  X, ExternalLink, Route, Bug, FileText, CheckCircle2,
   Clock, Shield, ArrowRight, Plus, Code, Network,
   Copy, Check
 } from 'lucide-react';
-import type { MapaModule, MapaEdge, Feedback, MapaTask, MapaDetail, CatalogoAcao } from '../types';
+import type { MapaModule, MapaEdge, Feedback, MapaDetail, CatalogoAcao } from '../types';
 import { chamadoAberto, chamadoDoModulo } from '../vinculo';
 import { cn } from '../../lib/utils';
 import Drawer from '../../components/ui/Drawer';
@@ -16,14 +16,13 @@ interface ModuleDetailDrawerProps {
   edges: MapaEdge[];
   groupName?: string;
   feedbacks: Feedback[];
-  tasks: MapaTask[];
   onOpenView?: (view: string) => void;
   onSelectFeedback?: (feedback: Feedback) => void;
   onCreateDemanda?: (moduleKey: string, description: string, feedbackType: string) => Promise<void>;
   onSelectModule?: (moduleKey: string) => void;
 }
 
-type DrawerTab = 'tecnica' | 'demandas' | 'tasks' | 'documentacao';
+type DrawerTab = 'tecnica' | 'demandas' | 'documentacao';
 
 const STATUS_STYLE: Record<string, string> = {
   live: 'bg-emerald-50 text-emerald-800 border-emerald-200',
@@ -96,7 +95,6 @@ export default function ModuleDetailDrawer({
   edges,
   groupName,
   feedbacks,
-  tasks,
   onOpenView,
   onSelectFeedback,
   onCreateDemanda,
@@ -148,12 +146,6 @@ export default function ModuleDetailDrawer({
 
   const moduleFeedbacks = feedbacks.filter((f) => chamadoDoModulo(f, module));
 
-  const moduleTasks = tasks.filter((t) => {
-    const title = (t.title || '').toLowerCase();
-    const k = module.moduleKey.toLowerCase();
-    return title.includes(k) || (typeof t.targets === 'string' && t.targets.toLowerCase().includes(k));
-  });
-
   return (
     <Drawer
       isOpen={Boolean(module)}
@@ -177,7 +169,6 @@ export default function ModuleDetailDrawer({
       tabs={[
         { id: 'tecnica', label: 'Ficha Técnica', icon: Route, badge: moduleAcoes.length || geradoRotas.length || undefined },
         { id: 'demandas', label: 'Demandas & Bugs', icon: Bug, badge: moduleFeedbacks.length || undefined },
-        { id: 'tasks', label: 'Tasks', icon: ListTodo, badge: moduleTasks.length || undefined },
         { id: 'documentacao', label: 'Documentação', icon: FileText },
       ]}
       activeTab={activeTab}
@@ -600,37 +591,6 @@ export default function ModuleDetailDrawer({
             ) : (
               <div className="py-12 text-center text-zinc-400 text-xs">
                 Nenhum bug ou demanda vinculada a este módulo.
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ABA: Tasks */}
-        {activeTab === 'tasks' && (
-          <div className="space-y-3">
-            <span className="text-xs font-bold text-zinc-700 block">
-              Tarefas de Engenharia do Módulo
-            </span>
-
-            {moduleTasks.length > 0 ? (
-              <div className="space-y-2">
-                {moduleTasks.map((t) => (
-                  <div key={t.id} className="p-3 rounded-xl border border-zinc-200 bg-white space-y-1.5 shadow-2xs">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-mono text-[10px] font-bold text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded">
-                        {t.id.slice(0, 8)}
-                      </span>
-                      <span className={cn('text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border', t.status === 'open' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200')}>
-                        {t.status === 'open' ? 'Pendente' : 'Concluído'}
-                      </span>
-                    </div>
-                    <p className="text-xs font-bold text-zinc-900">{t.title}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="py-12 text-center text-zinc-400 text-xs">
-                Nenhuma tarefa técnica aberta para este módulo.
               </div>
             )}
           </div>

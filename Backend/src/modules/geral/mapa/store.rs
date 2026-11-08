@@ -535,14 +535,12 @@ pub async fn snapshot(pool: &PgPool) -> Result<MapaSnapshot, String> {
     }
     edges.extend(montado.arestas);
 
-    let tasks_open = list_tasks(pool, Some("open"), 100).await?;
     let activity = list_activity(pool, 80).await?;
 
     Ok(MapaSnapshot {
         groups,
         modules,
         edges,
-        tasks_open,
         activity,
         acoes: crate::core::catalogo::todas(),
     })
@@ -634,43 +632,31 @@ pub async fn create_module(
     )
     .await?;
 
-    // auto task module_spec
-    let task_id = format!("task_{}", Uuid::new_v4());
-    let payload = json!({
-        "schemaVersion": 1,
-        "kind": "natumhub-module-spec",
-        "module": {
-            "key": key,
-            "label": input.label,
-            "group": input.group_key,
-            "purpose": purpose,
-            "status": "planned"
-        }
-    });
-    sqlx::query(
-        "INSERT INTO mapa_tasks (id, type, title, payload, targets, acceptance, notes, created_by)
-         VALUES ($1,'module_spec',$2,$3,$4,$5,$6,$7)",
+    // Fila única: o módulo novo vira um chamado na triagem do Desenvolvimento (tabela feedbacks).
+    let chamado = crate::modules::geral::feedbacks::models::FeedbackSubmitInput {
+        id: Uuid::new_v4().to_string(),
+        feedback_type: "feedback".into(),
+        description: format!(
+            "Implementar módulo {key} ({}): registrar no front e no back, tela e rotas. Finalidade: {purpose}",
+            input.label.trim()
+        ),
+        page: "Desenvolvimento".into(),
+        module_key: Some(key.clone()),
+        logs: String::new(),
+        screenshot: String::new(),
+    };
+    crate::modules::geral::feedbacks::commands::save_feedback_from_user_query(
+        pool.clone(),
+        &chamado,
+        actor.unwrap_or("mapa"),
     )
-    .bind(&task_id)
-    .bind(format!("Implementar módulo {key}"))
-    .bind(&payload)
-    .bind(json!([
-        "Frontend/src/modules/geral/lib/modules/registry.ts",
-        "Backend/src/modules/geral/auth/modules_registry.rs",
-        "Frontend/src/App.tsx"
-    ]))
-    .bind(json!(["Registrar FE/BE", "View + rotas", "npm run map:arch"]))
-    .bind("auto ao adicionar no mapa")
-    .bind(actor)
-    .execute(pool)
-    .await
-    .map_err(|e| e.to_string())?;
+    .await?;
 
     log_activity(
         pool,
         actor,
         "module_created",
-        json!({ "moduleKey": key, "taskId": task_id }),
+        json!({ "moduleKey": key, "feedbackId": chamado.id }),
     )
     .await?;
     get_module(pool, &key).await
@@ -713,138 +699,6 @@ pub async fn create_edge(
     })
 }
 
-pub async fn list_tasks(
-    pool: &PgPool,
-    status: Option<&str>,
-    limit: i64,
-) -> Result<Vec<MapaTask>, String> {
-    let limit = limit.clamp(1, 500);
-    let rows = if let Some(st) = status.filter(|s| !s.is_empty()) {
-        sqlx::query_as::<_, (String, String, String, Value, Value, Value, String, String, Option<String>, chrono::DateTime<Utc>, Option<chrono::DateTime<Utc>>)>(
-            "SELECT id, type, title, payload, targets, acceptance, notes, status, created_by, created_at, done_at
-             FROM mapa_tasks WHERE status = $1 ORDER BY created_at DESC LIMIT $2",
-        )
-        .bind(st)
-        .bind(limit)
-        .fetch_all(pool)
-        .await
-    } else {
-        sqlx::query_as::<_, (String, String, String, Value, Value, Value, String, String, Option<String>, chrono::DateTime<Utc>, Option<chrono::DateTime<Utc>>)>(
-            "SELECT id, type, title, payload, targets, acceptance, notes, status, created_by, created_at, done_at
-             FROM mapa_tasks ORDER BY created_at DESC LIMIT $1",
-        )
-        .bind(limit)
-        .fetch_all(pool)
-        .await
-    }
-    .map_err(|e| e.to_string())?;
-
-    Ok(rows
-        .into_iter()
-        .map(
-            |(
-                id,
-                type_,
-                title,
-                payload,
-                targets,
-                acceptance,
-                notes,
-                status,
-                created_by,
-                created_at,
-                done_at,
-            )| MapaTask {
-                id,
-                type_,
-                title,
-                payload,
-                targets,
-                acceptance,
-                notes,
-                status,
-                created_by,
-                created_at: created_at.to_rfc3339(),
-                done_at: done_at.map(|d| d.to_rfc3339()),
-            },
-        )
-        .collect())
-}
-
-pub async fn get_task(pool: &PgPool, id: &str) -> Result<MapaTask, String> {
-    list_tasks(pool, None, 500)
-        .await?
-        .into_iter()
-        .find(|t| t.id == id)
-        .ok_or_else(|| "Task não encontrada".into())
-}
-
-pub async fn create_task(
-    pool: &PgPool,
-    actor: Option<&str>,
-    input: TaskCreate,
-) -> Result<MapaTask, String> {
-    let id = format!("task_{}", Uuid::new_v4());
-    sqlx::query(
-        "INSERT INTO mapa_tasks (id, type, title, payload, targets, acceptance, notes, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
-    )
-    .bind(&id)
-    .bind(&input.type_)
-    .bind(input.title.trim())
-    .bind(input.payload.unwrap_or(json!({})))
-    .bind(input.targets.unwrap_or(json!([])))
-    .bind(input.acceptance.unwrap_or(json!([])))
-    .bind(input.notes.unwrap_or_default())
-    .bind(actor)
-    .execute(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-    log_activity(
-        pool,
-        actor,
-        "task_created",
-        json!({ "taskId": id, "type": input.type_ }),
-    )
-    .await?;
-    get_task(pool, &id).await
-}
-
-pub async fn patch_task(
-    pool: &PgPool,
-    actor: Option<&str>,
-    id: &str,
-    patch: TaskPatch,
-) -> Result<MapaTask, String> {
-    let status = patch.status.as_deref();
-    if let Some("done") = status {
-        sqlx::query(
-            "UPDATE mapa_tasks SET status = 'done', done_at = NOW(), notes = COALESCE($2, notes) WHERE id = $1",
-        )
-        .bind(id)
-        .bind(patch.notes.as_deref())
-        .execute(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-        log_activity(
-            pool,
-            actor,
-            "ai_implemented",
-            json!({ "taskId": id }),
-        )
-        .await?;
-    } else if let Some(st) = status {
-        sqlx::query("UPDATE mapa_tasks SET status = $2, notes = COALESCE($3, notes) WHERE id = $1")
-            .bind(id)
-            .bind(st)
-            .bind(patch.notes.as_deref())
-            .execute(pool)
-            .await
-            .map_err(|e| e.to_string())?;
-    }
-    get_task(pool, id).await
-}
-
 pub async fn list_activity(pool: &PgPool, limit: i64) -> Result<Vec<MapaActivity>, String> {
     let limit = limit.clamp(1, 500);
     let rows = sqlx::query_as::<_, (String, chrono::DateTime<Utc>, Option<String>, String, Value)>(
@@ -864,48 +718,6 @@ pub async fn list_activity(pool: &PgPool, limit: i64) -> Result<Vec<MapaActivity
             meta,
         })
         .collect())
-}
-
-pub async fn export_task_md(pool: &PgPool) -> Result<String, String> {
-    let open = list_tasks(pool, Some("open"), 200).await?;
-    let done = list_tasks(pool, Some("done"), 100).await?;
-    let mut out = String::from(
-        "# Nexus — Task queue\n\n> Exportado de Postgres (`mapa_tasks`). Skill: `natumhub-tasks`.\n\n## Open\n\n",
-    );
-    if open.is_empty() {
-        out.push_str("_(nenhuma task aberta)_\n\n");
-    } else {
-        for t in &open {
-            out.push_str(&format_task_md(t));
-        }
-    }
-    out.push_str("## Done\n\n");
-    if done.is_empty() {
-        out.push_str("_(vazio)_\n");
-    } else {
-        for t in &done {
-            out.push_str(&format_task_md(t));
-        }
-    }
-    Ok(out)
-}
-
-fn format_task_md(t: &MapaTask) -> String {
-    format!(
-        "### {} — {}\n- **Status:** {}\n- **Title:** {}\n- **Type:** {}\n- **Payload:** `{}`\n- **Targets:** {}\n- **Notes:** {}\n{}\n",
-        t.id,
-        t.type_,
-        t.status,
-        t.title,
-        t.type_,
-        t.payload,
-        t.targets,
-        t.notes,
-        t.done_at
-            .as_ref()
-            .map(|d| format!("- **Done at:** {d}\n"))
-            .unwrap_or_default()
-    )
 }
 
 #[cfg(test)]
