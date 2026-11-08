@@ -1,5 +1,6 @@
 import { apiFetch } from '../../geral/lib/http';
 import { useAviso } from '../../geral/components/ui/Aviso';
+import SeletorPessoa, { usePessoasKits } from './SeletorPessoa';
 import Drawer from '../../geral/components/ui/Drawer';
 import { usePreviaServidor, mensagemErroServidor } from '../lib/usePreviaServidor';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -28,7 +29,8 @@ import {
 } from '../lib/viraPackaging';
 
 export default function DrawerEditarOrdemConversao({ ctx }: { ctx: any }) {
-  const { editViraAssembledBy, editViraCheckedBy, editViraMotivo, editViraNotes, editViraPackagingLines, editViraQuantityAssembled, editViraStatus, handleUpdateViraOrder, selectedViraOrder, setEditViraAssembledBy, setEditViraCheckedBy, setEditViraMotivo, setEditViraNotes, setEditViraPackagingLines, setEditViraQuantityAssembled, setEditViraStatus, setLancarErpViraId, setShowEditViraOrderModal, submittingEditViraOrder } = ctx;
+  const { avisar, abrirPrevia, editViraAssembledBy, editViraCheckedBy, editViraMotivo, editViraNotes, editViraPackagingLines, editViraQuantityAssembled, editViraStatus, handleUpdateViraOrder, selectedViraOrder, setEditViraAssembledBy, setEditViraCheckedBy, setEditViraMotivo, setEditViraNotes, setEditViraPackagingLines, setEditViraQuantityAssembled, setEditViraStatus, setLancarErpViraId, setShowEditViraOrderModal, submittingEditViraOrder } = ctx;
+  const pessoas = usePessoasKits(avisar, abrirPrevia);
   return (
     <>
         <Drawer
@@ -73,24 +75,12 @@ export default function DrawerEditarOrdemConversao({ ctx }: { ctx: any }) {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Operador Montador</label>
-                  <input
-                    type="text"
-                    value={editViraAssembledBy}
-                    onChange={(e) => setEditViraAssembledBy(e.target.value)}
-                    placeholder="Nome do operador..."
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs font-semibold text-zinc-900"
-                  />
+                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Quem montou</label>
+                  <SeletorPessoa valor={editViraAssembledBy} onChange={setEditViraAssembledBy} pessoas={pessoas.pessoas} adicionar={pessoas.adicionar} remover={pessoas.remover} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Conferente Expedição</label>
-                  <input
-                    type="text"
-                    value={editViraCheckedBy}
-                    onChange={(e) => setEditViraCheckedBy(e.target.value)}
-                    placeholder="Nome do conferente..."
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs font-semibold text-zinc-900"
-                  />
+                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Quem conferiu</label>
+                  <SeletorPessoa valor={editViraCheckedBy} onChange={setEditViraCheckedBy} pessoas={pessoas.pessoas} adicionar={pessoas.adicionar} remover={pessoas.remover} />
                 </div>
               </div>
 

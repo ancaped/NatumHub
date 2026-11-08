@@ -1191,6 +1191,8 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
   const ctx: any = {
     allKitsDropdown,
+    abrirPrevia,
+    avisar,
     applyViraCompSelection,
     newViraFormula,
     newViraBaixaOrigem,

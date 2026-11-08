@@ -42,6 +42,36 @@ pub fn acoes_kits_composicao() -> Vec<Acao> {
             vec![],
         ),
         Acao::leitura(
+            "listar_pessoas_kits",
+            M,
+            "Lista os nomes de quem monta e confere ordens de kits e de conversão (lista compartilhada, usada nos campos \"Quem montou\" e \"Quem conferiu\").",
+            "/api/kits/pessoas",
+            vec![],
+        ),
+        Acao::gravacao(
+            "adicionar_pessoa_kits",
+            M,
+            "Acrescenta um nome à lista de quem monta e confere (ignora repetidos, sem diferenciar maiúsculas). Sem `confirmar=true` só devolve a prévia (lista como ficaria); com `confirmar=true` grava e devolve a lista.",
+            "POST",
+            "/api/kits/pessoas",
+            true,
+            vec![
+                param("nome", "corpo", "texto", true, "Nome da pessoa."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só mostra a prévia."),
+            ],
+        ),
+        Acao::exclusao(
+            "remover_pessoa_kits",
+            M,
+            "Tira um nome da lista de quem monta e confere (ordens antigas mantêm o nome). Exige `motivo` ao confirmar; a lista anterior fica na auditoria; agentes não podem usar. Sem `confirmar=true` devolve só a prévia.",
+            "DELETE",
+            "/api/kits/pessoas",
+            vec![
+                param("nome", "query", "texto", true, "Nome exato como está na lista."),
+                param("confirmar", "query", "booleano", false, "true remove; ausente só mostra a prévia."),
+            ],
+        ),
+        Acao::leitura(
             "listar_composicao_kits",
             M,
             "Lista as relações kit → componente (manuais e vindas do ERP): kit, componente, quantidade, fator de proporção, origem e estoque do componente. Use para ver do que cada kit é montado; para achar componentes novos use `buscar_candidatos_componente_kit`.",
@@ -1390,6 +1420,165 @@ mod testes_formula_mp {
     #[test]
     fn sem_formula_e_indisponivel() {
         assert_eq!(comparar_formulas_mp(&[], &f(&[("A", 1.0)])), "indisponivel");
+    }
+}
+
+// ---- Lista de pessoas (quem monta / quem confere) ----
+const CHAVE_PESSOAS_KITS: &str = "kits_pessoas";
+
+/// Nome como será guardado: sem espaços sobrando, no máximo 60 caracteres.
+pub fn normalizar_nome_pessoa(bruto: &str) -> String {
+    bruto.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(60).collect()
+}
+
+/// Acrescenta `nome` (sem repetir, ignorando maiúsculas) e mantém a lista em ordem alfabética.
+pub fn incluir_pessoa(lista: &mut Vec<String>, nome: &str) -> bool {
+    let n = normalizar_nome_pessoa(nome);
+    if n.is_empty() || lista.iter().any(|x| x.to_lowercase() == n.to_lowercase()) {
+        return false;
+    }
+    lista.push(n);
+    lista.sort_by_key(|x| x.to_lowercase());
+    true
+}
+
+async fn ler_pessoas_kits(state: &AppState) -> Vec<String> {
+    state
+        .db
+        .get_setting(CHAVE_PESSOAS_KITS)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok())
+        .unwrap_or_default()
+}
+
+async fn gravar_pessoas_kits(state: &AppState, lista: &[String]) -> Result<(), String> {
+    state
+        .db
+        .save_setting(CHAVE_PESSOAS_KITS, &serde_json::to_string(lista).unwrap_or_else(|_| "[]".into()))
+        .await
+}
+
+#[derive(Deserialize)]
+pub struct NovaPessoaKits {
+    pub nome: String,
+}
+
+#[derive(Deserialize)]
+pub struct RemoverPessoaKits {
+    pub nome: String,
+    #[serde(default)]
+    pub confirmar: bool,
+    #[serde(default)]
+    pub motivo: Option<String>,
+}
+
+// GET /api/kits/pessoas
+pub async fn list_pessoas_kits(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(ler_pessoas_kits(&state).await)
+}
+
+// POST /api/kits/pessoas { nome }
+pub async fn add_pessoa_kits(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<NovaPessoaKits>,
+) -> impl IntoResponse {
+    if let Err(r) = exigir_montagem(&ctx) {
+        return r;
+    }
+    if normalizar_nome_pessoa(&body.nome).is_empty() {
+        return ErroApi::invalido("Informe o nome da pessoa.").into_response();
+    }
+    let antes = ler_pessoas_kits(&state).await;
+    let mut lista = antes.clone();
+    if !c.confirmar {
+        incluir_pessoa(&mut lista, &body.nome);
+        return Json(json!({ "previa": true, "acao": "adicionar_pessoa_kits", "resultado": { "ficam": lista } })).into_response();
+    }
+    if incluir_pessoa(&mut lista, &body.nome) {
+        if let Err(e) = gravar_pessoas_kits(&state, &lista).await {
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response();
+        }
+        audit::record_domain(
+            state.db.pool(),
+            Some(&ctx),
+            MODULO_KITS,
+            "adicionar_pessoa_kits",
+            "settings",
+            CHAVE_PESSOAS_KITS,
+            &format!("Pessoa adicionada à lista de kits: {}", normalizar_nome_pessoa(&body.nome)),
+            Some(json!(antes)),
+            Some(json!(lista)),
+        )
+        .await;
+    }
+    (StatusCode::OK, Json(lista)).into_response()
+}
+
+// DELETE /api/kits/pessoas?nome=&confirmar=
+pub async fn remove_pessoa_kits(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(q): Query<RemoverPessoaKits>,
+) -> impl IntoResponse {
+    if let Err(r) = exigir_montagem(&ctx) {
+        return r;
+    }
+    let antes = ler_pessoas_kits(&state).await;
+    let alvo = normalizar_nome_pessoa(&q.nome).to_lowercase();
+    if !antes.iter().any(|x| x.to_lowercase() == alvo) {
+        return (StatusCode::NOT_FOUND, Json(json!({ "error": "Esse nome não está na lista." }))).into_response();
+    }
+    let lista: Vec<String> = antes.iter().filter(|x| x.to_lowercase() != alvo).cloned().collect();
+    if !q.confirmar {
+        return Json(json!({
+            "previa": true,
+            "acao": "remover_pessoa_kits",
+            "resultado": { "remove": q.nome, "ficam": lista },
+        }))
+        .into_response();
+    }
+    let motivo = match exigir_motivo(true, q.motivo.as_deref(), "o nome da lista") {
+        Ok(m) => m,
+        Err(e) => return e.into_response(),
+    };
+    if let Err(e) = gravar_pessoas_kits(&state, &lista).await {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response();
+    }
+    audit::record_domain(
+        state.db.pool(),
+        Some(&ctx),
+        MODULO_KITS,
+        "remover_pessoa_kits",
+        "settings",
+        CHAVE_PESSOAS_KITS,
+        &format!("Pessoa removida da lista de kits: {}", q.nome),
+        Some(json!({ "motivo": motivo, "copia": antes })),
+        Some(json!(lista)),
+    )
+    .await;
+    (StatusCode::OK, Json(lista)).into_response()
+}
+
+#[cfg(test)]
+mod testes_pessoas_kits {
+    use super::{incluir_pessoa, normalizar_nome_pessoa};
+
+    #[test]
+    fn nome_perde_espacos_sobrando() {
+        assert_eq!(normalizar_nome_pessoa("  Maria   da  Silva "), "Maria da Silva");
+    }
+
+    #[test]
+    fn inclui_sem_repetir_e_em_ordem() {
+        let mut l: Vec<String> = vec!["Zeca".into()];
+        assert!(incluir_pessoa(&mut l, "ana"));
+        assert!(!incluir_pessoa(&mut l, "ZECA"));
+        assert!(!incluir_pessoa(&mut l, "   "));
+        assert_eq!(l, vec!["ana".to_string(), "Zeca".to_string()]);
     }
 }
 

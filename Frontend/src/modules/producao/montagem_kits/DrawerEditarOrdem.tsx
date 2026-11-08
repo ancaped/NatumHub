@@ -1,5 +1,6 @@
 import { apiFetch } from '../../geral/lib/http';
 import { useAviso } from '../../geral/components/ui/Aviso';
+import SeletorPessoa, { usePessoasKits } from './SeletorPessoa';
 import Drawer from '../../geral/components/ui/Drawer';
 import { usePreviaServidor, mensagemErroServidor } from '../lib/usePreviaServidor';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -28,7 +29,8 @@ import {
 } from '../lib/viraPackaging';
 
 export default function DrawerEditarOrdem({ ctx }: { ctx: any }) {
-  const { editAssembledBy, editCheckedBy, editComponentLotes, editComponentUsedQty, editErpLaunched, editNotes, editOrderNumber, editQuantity, editQuantityAssembled, editStatus, handleKitQuantityAssembledChange, handlePrintOrder, handleUpdateOrder, selectedOrder, setEditAssembledBy, setEditCheckedBy, setEditComponentLotes, setEditComponentUsedQty, setEditNotes, setEditOrderNumber, setEditQuantity, setEditStatus, setLancarErpOrdemId, setShowEditOrderModal, submittingEditOrder } = ctx;
+  const { avisar, abrirPrevia, editAssembledBy, editCheckedBy, editComponentLotes, editComponentUsedQty, editErpLaunched, editNotes, editOrderNumber, editQuantity, editQuantityAssembled, editStatus, handleKitQuantityAssembledChange, handlePrintOrder, handleUpdateOrder, selectedOrder, setEditAssembledBy, setEditCheckedBy, setEditComponentLotes, setEditComponentUsedQty, setEditNotes, setEditOrderNumber, setEditQuantity, setEditStatus, setLancarErpOrdemId, setShowEditOrderModal, submittingEditOrder } = ctx;
+  const pessoas = usePessoasKits(avisar, abrirPrevia);
   return (
     <>
         <Drawer
@@ -168,26 +170,14 @@ export default function DrawerEditarOrdem({ ctx }: { ctx: any }) {
                     <User size={10} />
                     Quem Montou
                   </label>
-                  <input 
-                    type="text" 
-                    value={editAssembledBy}
-                    onChange={(e) => setEditAssembledBy(e.target.value)}
-                    placeholder="Nome do operador..."
-                    className="w-full border border-zinc-300 rounded-xl p-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                  />
+                  <SeletorPessoa valor={editAssembledBy} onChange={setEditAssembledBy} pessoas={pessoas.pessoas} adicionar={pessoas.adicionar} remover={pessoas.remover} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block flex items-center gap-1">
                     <User size={10} />
                     Quem Conferiu
                   </label>
-                  <input 
-                    type="text" 
-                    value={editCheckedBy}
-                    onChange={(e) => setEditCheckedBy(e.target.value)}
-                    placeholder="Nome do conferente..."
-                    className="w-full border border-zinc-300 rounded-xl p-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                  />
+                  <SeletorPessoa valor={editCheckedBy} onChange={setEditCheckedBy} pessoas={pessoas.pessoas} adicionar={pessoas.adicionar} remover={pessoas.remover} />
                 </div>
               </div>
 
