@@ -1179,6 +1179,67 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     return matchesSearch && matchesStatus;
   });
 
+  const viraOrdersFiltradas = viraOrders.filter(o => {
+    const q = viraSearch.toLowerCase();
+    const matchesSearch =
+      (o.orderNumber || '').toLowerCase().includes(q) ||
+      (o.deProdutoCodigo || '').toLowerCase().includes(q) ||
+      (o.deProdutoDescricao || '').toLowerCase().includes(q) ||
+      (o.paraProdutoCodigo || '').toLowerCase().includes(q) ||
+      (o.paraProdutoDescricao || '').toLowerCase().includes(q);
+    return matchesSearch && (filterViraStatus === 'ALL' || o.status === filterViraStatus);
+  });
+  const viraComposicaoFiltrada = viraComposicao.filter(row => {
+    const q = viraCompSearch.toLowerCase();
+    return (row.deProdutoCodigo || '').toLowerCase().includes(q) ||
+      (row.deProdutoDescricao || '').toLowerCase().includes(q) ||
+      (row.paraProdutoCodigo || '').toLowerCase().includes(q) ||
+      (row.paraProdutoDescricao || '').toLowerCase().includes(q);
+  });
+
+  const renderFormulaPreview = () => (
+    <>
+      {loadingFormulaPackaging ? (
+                                    <p className="text-[11px] text-zinc-500 font-medium">Carregando embalagens da formulação…</p>
+                                  ) : !formulaPackagingPreview ? (
+                                    <p className="text-[11px] text-zinc-500 font-medium">Sem dados de embalagem ou falha ao carregar.</p>
+                                  ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[11px]">
+                                      <div>
+                                        <p className="font-extrabold text-zinc-600 uppercase tracking-wide mb-1.5">Retorno (origem) / un</p>
+                                        {(formulaPackagingPreview.returns || []).length === 0 ? (
+                                          <p className="text-zinc-400">Nenhuma embalagem na formulação DE</p>
+                                        ) : (
+                                          <ul className="space-y-1">
+                                            {formulaPackagingPreview.returns.map((r) => (
+                                              <li key={`r-${r.code}`} className="flex justify-between gap-2 border-b border-zinc-100 py-0.5">
+                                                <span className="font-medium text-zinc-800 truncate">{r.code} · {r.description}</span>
+                                                <span className="font-bold text-zinc-600 shrink-0">{r.unitQty ?? r.qty}</span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        )}
+                                      </div>
+                                      <div>
+                                        <p className="font-extrabold text-zinc-600 uppercase tracking-wide mb-1.5">Saída (destino) / un destino</p>
+                                        {(formulaPackagingPreview.consumes || []).length === 0 ? (
+                                          <p className="text-zinc-400">Nenhuma embalagem na formulação PARA</p>
+                                        ) : (
+                                          <ul className="space-y-1">
+                                            {formulaPackagingPreview.consumes.map((c) => (
+                                              <li key={`c-${c.code}`} className="flex justify-between gap-2 border-b border-zinc-100 py-0.5">
+                                                <span className="font-medium text-zinc-800 truncate">{c.code} · {c.description}</span>
+                                                <span className="font-bold text-zinc-600 shrink-0">{c.unitQty ?? c.qty}</span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+    </>
+  );
+
   return (
     <div className="flex flex-1 w-full h-full overflow-hidden animate-in fade-in duration-200">
       {previaElemento}
@@ -2439,8 +2500,8 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
           <div className="space-y-4 animate-in fade-in duration-200 flex-1 flex flex-col overflow-hidden">
             {/* Search and filter toolbar */}
             <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
-              <div className="flex items-center gap-3 flex-1 min-w-[280px]">
-                <div className="relative flex-1 max-w-md">
+              <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0 sm:min-w-[280px]">
+                <div className="relative flex-1 min-w-[12rem] max-w-md">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                   <input
                     type="text"
@@ -2469,7 +2530,53 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                   Carregando ordens de vira...
                 </div>
               ) : (
-                <div className="overflow-y-auto flex-1">
+                <>
+                <div className="md:hidden divide-y divide-zinc-100">
+                  {viraOrdersFiltradas.length === 0 && (
+                    <p className="p-8 text-center text-zinc-500 font-bold text-xs">Nenhuma ordem de vira de produto encontrada.</p>
+                  )}
+                  {viraOrdersFiltradas.map(o => (
+                    <div key={o.id} className="p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="font-extrabold text-zinc-950 text-sm">{o.orderNumber}</span>
+                        <div className="text-right shrink-0">
+                          <span className="font-extrabold text-zinc-900 block">{o.status === 'COMPLETED' ? `${o.quantityAssembled !== null && o.quantityAssembled !== undefined ? o.quantityAssembled : o.quantity} un` : `${o.quantity} un`}</span>
+                          {o.status === 'COMPLETED' && o.quantityAssembled !== null && o.quantityAssembled !== undefined && o.quantityAssembled !== o.quantity && (
+                            <span className="text-[10px] font-bold text-zinc-500">Prog.: {o.quantity} un</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-xs space-y-0.5">
+                        <div className="text-zinc-800 font-bold break-words"><span className="text-[10px] text-zinc-400 font-mono">DE </span>{o.deProdutoDescricao} <span className="text-[10px] text-zinc-500">({o.deProdutoCodigo})</span></div>
+                        <div className="text-zinc-900 font-extrabold break-words"><span className="text-[10px] text-zinc-500 font-mono">PARA </span>{o.paraProdutoDescricao} <span className="text-[10px] text-zinc-500">({o.paraProdutoCodigo})</span></div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className={`px-2 py-1 rounded-full text-[9px] font-extrabold tracking-wide uppercase ${
+                          o.status === 'COMPLETED'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}>{o.status === 'COMPLETED' ? 'Concluída' : 'Em Montagem'}</span>
+                        <SeloOrdemParada ordem={o} />
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
+                          o.erpLaunched === 1 ? 'bg-zinc-900 text-white border border-zinc-900' : 'bg-zinc-100 text-zinc-500 border border-zinc-200'
+                        }`}>ERP: {o.erpLaunched === 1 ? 'Sim' : 'Não'}</span>
+                        <span className="text-[10px] text-zinc-500 ml-auto">{o.completedAt ? `Concluída ${o.completedAt}${o.assembledBy ? ` por ${o.assembledBy}` : ''}` : `Emitida ${o.createdAt}`}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleOpenEditViraOrderModal(o)} className="flex-1 min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl bg-zinc-900 text-white text-xs font-bold cursor-pointer">
+                          <Eye size={14} /> Abrir
+                        </button>
+                        <button onClick={() => { setPrintingOrder(buildViraPrintPayload(o)); setTimeout(() => window.print(), 100); }} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 cursor-pointer" aria-label="Imprimir folha">
+                          <Printer size={16} />
+                        </button>
+                        <button onClick={() => handleDeleteViraOrder(o.id)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-red-600 cursor-pointer" aria-label="Excluir ordem">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden md:block overflow-y-auto flex-1">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500 sticky top-0 z-10">
                       <tr>
@@ -2594,6 +2701,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           </div>
@@ -2650,7 +2758,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </div>
                 <button
                   type="submit"
-                  className="w-full bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-colors cursor-pointer h-[36px]"
+                  className="w-full bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-colors cursor-pointer min-h-11 md:min-h-9"
                 >
                   Vincular Conversão de Produto
                 </button>
@@ -2659,7 +2767,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
             <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col flex-1">
               <div className="p-4 border-b border-zinc-100 flex items-center shrink-0">
-                <div className="relative w-72">
+                <div className="relative w-full sm:w-72">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                   <input
                     type="text"
@@ -2671,7 +2779,34 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </div>
               </div>
 
-              <div className="overflow-y-auto flex-1">
+              <div className="md:hidden divide-y divide-zinc-100 overflow-y-auto">
+                {viraComposicaoFiltrada.length === 0 && (
+                  <p className="p-8 text-center text-zinc-500 font-bold text-xs">Nenhuma relação de vira cadastrada.</p>
+                )}
+                {viraComposicaoFiltrada.map(row => {
+                  const key = `${row.deProdutoCodigo}|${row.paraProdutoCodigo}`;
+                  const expanded = expandedViraFormulaKey === key;
+                  return (
+                    <div key={key} className="p-3 space-y-2">
+                      <div className="text-xs space-y-0.5">
+                        <div className="text-zinc-800 font-bold break-words"><span className="text-[10px] text-zinc-400 font-mono">DE </span>{row.deProdutoDescricao} <span className="font-mono text-[10px] text-zinc-500">({row.deProdutoCodigo})</span></div>
+                        <div className="text-zinc-900 font-extrabold break-words"><span className="text-[10px] text-zinc-500 font-mono">PARA </span>{row.paraProdutoDescricao} <span className="font-mono text-[10px] text-zinc-500">({row.paraProdutoCodigo})</span></div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-1 rounded-lg bg-zinc-100 text-zinc-900 text-xs font-extrabold">1 → {row.quantidade}</span>
+                        <button type="button" onClick={() => toggleFormulaPackagingPreview(row)} className="ml-auto min-h-11 px-3 inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 text-zinc-700 text-xs font-bold cursor-pointer" aria-expanded={expanded}>
+                          <Eye size={14} /> Embalagens
+                        </button>
+                        <button type="button" onClick={() => handleDeleteViraComposicao(row.deProdutoCodigo, row.paraProdutoCodigo)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-700 cursor-pointer" aria-label="Remover vínculo de vira">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                      {expanded && <div className="rounded-xl bg-zinc-50 border border-zinc-200 p-3">{renderFormulaPreview()}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="hidden md:block overflow-y-auto flex-1">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500 sticky top-0 z-10">
                     <tr>
@@ -2739,44 +2874,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                             {expanded && (
                               <tr className="bg-zinc-50/80">
                                 <td colSpan={6} className="px-6 py-3">
-                                  {loadingFormulaPackaging ? (
-                                    <p className="text-[11px] text-zinc-500 font-medium">Carregando embalagens da formulação…</p>
-                                  ) : !formulaPackagingPreview ? (
-                                    <p className="text-[11px] text-zinc-500 font-medium">Sem dados de embalagem ou falha ao carregar.</p>
-                                  ) : (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[11px]">
-                                      <div>
-                                        <p className="font-extrabold text-zinc-600 uppercase tracking-wide mb-1.5">Retorno (origem) / un</p>
-                                        {(formulaPackagingPreview.returns || []).length === 0 ? (
-                                          <p className="text-zinc-400">Nenhuma embalagem na formulação DE</p>
-                                        ) : (
-                                          <ul className="space-y-1">
-                                            {formulaPackagingPreview.returns.map((r) => (
-                                              <li key={`r-${r.code}`} className="flex justify-between gap-2 border-b border-zinc-100 py-0.5">
-                                                <span className="font-medium text-zinc-800 truncate">{r.code} · {r.description}</span>
-                                                <span className="font-bold text-zinc-600 shrink-0">{r.unitQty ?? r.qty}</span>
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        )}
-                                      </div>
-                                      <div>
-                                        <p className="font-extrabold text-zinc-600 uppercase tracking-wide mb-1.5">Saída (destino) / un destino</p>
-                                        {(formulaPackagingPreview.consumes || []).length === 0 ? (
-                                          <p className="text-zinc-400">Nenhuma embalagem na formulação PARA</p>
-                                        ) : (
-                                          <ul className="space-y-1">
-                                            {formulaPackagingPreview.consumes.map((c) => (
-                                              <li key={`c-${c.code}`} className="flex justify-between gap-2 border-b border-zinc-100 py-0.5">
-                                                <span className="font-medium text-zinc-800 truncate">{c.code} · {c.description}</span>
-                                                <span className="font-bold text-zinc-600 shrink-0">{c.unitQty ?? c.qty}</span>
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
+                                  {renderFormulaPreview()}
                                 </td>
                               </tr>
                             )}
@@ -3225,22 +3323,12 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
       )}
       {/* MODAL: NOVA ORDEM DE CONVERSÃO */}
       {showNewViraOrderModal && (
-        <div className="fixed inset-0 bg-black/55 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-1.5">
-                <RefreshCw className="h-5 w-5 text-zinc-900" />
-                Criar Ordem de Conversão de Produto
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowNewViraOrderModal(false)}
-                className="p-1 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
+        <Drawer
+          onClose={() => setShowNewViraOrderModal(false)}
+          title="Nova Ordem de Conversão"
+          subtitle="Conversão de produto (reetiquetagem / reenvase)"
+          size="lg"
+        >
             <form onSubmit={handleCreateViraOrder} className="space-y-4 text-xs font-medium text-zinc-700">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
@@ -3285,7 +3373,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                   <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">
                     Quantidade estimada (DE × fator → PARA)
                   </h4>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="space-y-1">
                       <label className="text-[9px] text-zinc-400 font-bold uppercase block">Qtd origem (DE)</label>
                       <input
@@ -3472,33 +3560,17 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Drawer>
       )}
 
       {/* MODAL: RETORNO DE ORDEM DE TRANSFORMAÇÃO */}
       {showEditViraOrderModal && selectedViraOrder && (
-        <div className="fixed inset-0 bg-black/55 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b pb-3">
-              <div className="flex flex-col">
-                <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-1.5">
-                  <RefreshCw className="h-5 w-5 text-zinc-900" />
-                  Retorno de Lote / Ordem de Transformação
-                </h3>
-                <span className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                  Lote: {selectedViraOrder.orderNumber}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowEditViraOrderModal(false)}
-                className="p-1 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
+        <Drawer
+          onClose={() => setShowEditViraOrderModal(false)}
+          title={`Lote ${selectedViraOrder.orderNumber}`}
+          subtitle="Retorno de lote / ordem de conversão"
+          size="lg"
+        >
             <form onSubmit={handleUpdateViraOrder} className="space-y-4 text-xs font-medium text-zinc-700">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
@@ -3560,7 +3632,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">
                   Ajuste de Quantidade Realizada (itens PARA)
                 </h4>
-                <div className="grid grid-cols-2 gap-4 items-end">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
                   <div className="space-y-0.5">
                     <span className="text-[9px] text-zinc-400 font-bold block">QTD. PROGRAMADA PARA:</span>
                     <span className="font-bold text-zinc-650 block">{selectedViraOrder.quantity} un</span>
@@ -3669,8 +3741,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Drawer>
       )}
 
       <KitCompositionDrawer
