@@ -42,6 +42,13 @@ pub fn acoes_kits_composicao() -> Vec<Acao> {
             vec![],
         ),
         Acao::leitura(
+            "listar_variacoes_conversao",
+            M,
+            "Para um produto de origem, lista os produtos com a MESMA formulação de matéria-prima (mesma proporção de cada ingrediente 9.15.*, tolerância de 0,5 ponto), com o conteúdo de cada um em kg (soma das quantidades de matéria-prima por unidade da formulação) e o fator de conversão (conteúdo da origem ÷ conteúdo do destino). `base_codigo` do produto não é usado: está vazio nos produtos acabados.",
+            "/api/turnovers/variacoes",
+            vec![param("de", "query", "texto", true, "Código do produto de origem.")],
+        ),
+        Acao::leitura(
             "listar_pessoas_kits",
             M,
             "Lista os nomes de quem monta e confere ordens de kits e de conversão (lista compartilhada, usada nos campos \"Quem montou\" e \"Quem conferiu\").",
@@ -1582,6 +1589,134 @@ mod testes_pessoas_kits {
     }
 }
 
+// ---- Variações com a mesma formulação (conversão) ----
+
+/// Conteúdo por unidade, em kg: soma das quantidades de matéria-prima (9.15.*) da formulação.
+pub fn conteudo_kg_por_unidade(mp: &[(String, f64)]) -> f64 {
+    mp.iter().map(|(_, q)| *q).sum()
+}
+
+/// Produtos de `todas` com a mesma formulação de matéria-prima da origem, com conteúdo e fator
+/// (conteúdo da origem ÷ conteúdo do destino). Fora a própria origem e fórmulas sem matéria-prima.
+pub fn variacoes_mesma_formulacao(
+    origem: &str,
+    todas: &std::collections::BTreeMap<String, Vec<(String, f64)>>,
+) -> Vec<(String, f64, f64)> {
+    let Some(f_origem) = todas.get(origem) else { return vec![] };
+    let c_origem = conteudo_kg_por_unidade(f_origem);
+    if c_origem <= 0.0 {
+        return vec![];
+    }
+    todas
+        .iter()
+        .filter(|(cod, f)| cod.as_str() != origem && comparar_formulas_mp(f_origem, f) == "igual")
+        .filter_map(|(cod, f)| {
+            let c = conteudo_kg_por_unidade(f);
+            if c > 0.0 { Some((cod.clone(), c, c_origem / c)) } else { None }
+        })
+        .collect()
+}
+
+#[derive(Deserialize)]
+pub struct VariacoesQuery {
+    pub de: String,
+}
+
+// GET /api/turnovers/variacoes?de=
+pub async fn listar_variacoes_conversao(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<VariacoesQuery>,
+) -> impl IntoResponse {
+    let de = q.de.trim().replace('"', "");
+    if de.is_empty() {
+        return ErroApi::invalido("Informe o produto de origem.").into_response();
+    }
+    let pool = state.db.pool();
+    let rows = match sqlx::query(
+        "SELECT TRIM(REPLACE(product_code, '\"', '')), TRIM(ingredient_code), quantity FROM formulations",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+    let mut todas: std::collections::BTreeMap<String, Vec<(String, f64)>> = std::collections::BTreeMap::new();
+    for row in rows {
+        let produto: String = row.get(0);
+        let ingrediente: String = row.get(1);
+        let qtd: f64 = crate::core::pg_row::pg_f64(&row, 2);
+        if !is_packaging_ingredient(&ingrediente) && qtd > 0.0 {
+            todas.entry(produto).or_default().push((ingrediente, qtd));
+        }
+    }
+    let origem_conteudo = todas.get(&de).map(|f| conteudo_kg_por_unidade(f)).unwrap_or(0.0);
+    let achadas = variacoes_mesma_formulacao(&de, &todas);
+
+    let mut variacoes = Vec::new();
+    for (codigo, conteudo, fator) in achadas {
+        let linha = sqlx::query(
+            "SELECT p.descricao, COALESCE(e.estoque, 0)
+             FROM produtos p LEFT JOIN estoque_atual e ON e.codigo = p.codigo
+             WHERE TRIM(REPLACE(p.codigo, '\"', '')) = $1 LIMIT 1",
+        )
+        .bind(&codigo)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+        let Some(linha) = linha else { continue };
+        let descricao: String = linha.get(0);
+        variacoes.push(json!({
+            "codigo": codigo,
+            "descricao": descricao,
+            "conteudoKg": conteudo,
+            "fator": fator,
+            "estoque": crate::core::pg_row::pg_f64(&linha, 1),
+        }));
+    }
+    variacoes.sort_by(|a, b| {
+        a["conteudoKg"].as_f64().partial_cmp(&b["conteudoKg"].as_f64()).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Json(json!({
+        "origem": { "codigo": de, "conteudoKg": origem_conteudo },
+        "variacoes": variacoes,
+    }))
+    .into_response()
+}
+
+#[cfg(test)]
+mod testes_variacoes_conversao {
+    use super::variacoes_mesma_formulacao;
+    use std::collections::BTreeMap;
+
+    fn f(v: &[(&str, f64)]) -> Vec<(String, f64)> {
+        v.iter().map(|(c, q)| (c.to_string(), *q)).collect()
+    }
+
+    #[test]
+    fn acha_so_as_de_mesma_formulacao_e_calcula_o_fator() {
+        let mut t = BTreeMap::new();
+        t.insert("250".to_string(), f(&[("9.15.1", 0.1875), ("9.15.2", 0.0625)])); // 250 g
+        t.insert("100".to_string(), f(&[("9.15.1", 0.075), ("9.15.2", 0.025)])); // 100 g, mesma proporção
+        t.insert("500".to_string(), f(&[("9.15.1", 0.375), ("9.15.2", 0.125)])); // 500 g, mesma proporção
+        t.insert("outra".to_string(), f(&[("9.15.1", 0.1), ("9.15.3", 0.1)])); // outra formulação
+        let mut v = variacoes_mesma_formulacao("250", &t);
+        v.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].0, "100");
+        assert!((v[0].2 - 2.5).abs() < 1e-9); // 1 de 250 g dá 2,5 de 100 g
+        assert_eq!(v[1].0, "500");
+        assert!((v[1].2 - 0.5).abs() < 1e-9); // 100 un de 250 g -> 50 un de 500 g
+    }
+
+    #[test]
+    fn origem_sem_formulacao_nao_tem_variacoes() {
+        let t: BTreeMap<String, Vec<(String, f64)>> = BTreeMap::new();
+        assert!(variacoes_mesma_formulacao("x", &t).is_empty());
+    }
+}
+
 /// Normaliza `packaging_deductions` para JSON tipado `{ meta?, items }`.
 /// Aceita legado: array puro de linhas.
 pub fn normalize_packaging_deductions_json(raw: &str) -> Result<String, String> {
@@ -1704,6 +1839,22 @@ pub async fn preview_vira_packaging(
         _ => "indisponivel",
     };
 
+    // Embalagens da última ordem do mesmo par (o que o operador confirmou da vez anterior).
+    let ultima = sqlx::query(
+        "SELECT order_number, packaging_deductions FROM vira_ordens
+         WHERE TRIM(REPLACE(de_produto_codigo, '\"', '')) = TRIM(REPLACE($1, '\"', ''))
+           AND TRIM(REPLACE(para_produto_codigo, '\"', '')) = TRIM(REPLACE($2, '\"', ''))
+           AND COALESCE(packaging_deductions, '') <> ''
+         ORDER BY id DESC LIMIT 1",
+    )
+    .bind(&de)
+    .bind(&para)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .map(|r| json!({ "orderNumber": r.get::<String, _>(0), "packagingDeductions": r.get::<String, _>(1) }));
+
     Json(json!({
         "fator": fator,
         "qtyDe": qty_de,
@@ -1711,6 +1862,7 @@ pub async fn preview_vira_packaging(
         "returns": returns,
         "consumes": consumes,
         "formula": formula,
+        "ultimaOrdem": ultima,
     }))
     .into_response()
 }

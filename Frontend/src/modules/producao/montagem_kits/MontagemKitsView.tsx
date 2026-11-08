@@ -14,7 +14,7 @@ import {
   kitOrderComponentNeed,
 } from '../lib/kitComponentQty';
 import {
-  linesFromPreview,
+  embalagensSugeridas,
   parsePackagingDeductions,
   serializePackagingDeductions,
   splitPackagingLines,
@@ -132,6 +132,10 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   const [newViraMotivo, setNewViraMotivo] = useState('');
   const [newViraFormula, setNewViraFormula] = useState('');
   const [newViraBaixaOrigem, setNewViraBaixaOrigem] = useState(false);
+  const [viraVariacoes, setViraVariacoes] = useState<any[]>([]);
+  const [viraConteudoOrigem, setViraConteudoOrigem] = useState<number | null>(null);
+  const [loadingVariacoes, setLoadingVariacoes] = useState(false);
+  const [viraEmbalagensFonte, setViraEmbalagensFonte] = useState('');
   const [loadingViraPackaging, setLoadingViraPackaging] = useState(false);
   const [newViraOrderNotes, setNewViraOrderNotes] = useState('');
   const [submittingNewViraOrder, setSubmittingNewViraOrder] = useState(false);
@@ -382,6 +386,9 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     setSelectedViraComp(null);
     setNewViraFormula('');
     setNewViraBaixaOrigem(false);
+    setViraVariacoes([]);
+    setViraConteudoOrigem(null);
+    setViraEmbalagensFonte('');
     setNewViraDeCodigo('');
     setNewViraParaCodigo('');
     setNewViraQtyDe(10);
@@ -398,21 +405,55 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   const parConversaoExistente = (de: string, para: string) =>
     viraComposicao.find((vc) => vc.deProdutoCodigo === de && vc.paraProdutoCodigo === para) || null;
 
-  // Escolheu origem e destino: carrega a receita do par (se existe) ou abre um par novo para preencher ali mesmo.
-  const atualizarParConversao = async (de: string, para: string) => {
-    setNewViraDeCodigo(de);
-    setNewViraParaCodigo(para);
-    const d = de.trim();
-    const pa = para.trim();
-    const conhece = (c: string) => products.some((pr) => String(pr.codigo || '').trim() === c);
-    if (!d || !pa || d === pa || !conhece(d) || !conhece(pa)) {
+  // Escolheu a origem: busca os produtos com a mesma formulação (com o conteúdo de cada um).
+  const escolherOrigemConversao = async (codigo: string) => {
+    setNewViraDeCodigo(codigo);
+    setNewViraParaCodigo('');
+    setSelectedViraComp(null);
+    setNewViraPackagingLines([]);
+    setNewViraFormula('');
+    setNewViraBaixaOrigem(false);
+    setViraEmbalagensFonte('');
+    setViraVariacoes([]);
+    setViraConteudoOrigem(null);
+    const d = codigo.trim();
+    if (!d) return;
+    setLoadingVariacoes(true);
+    try {
+      const res = await apiFetch(`/turnovers/variacoes?de=${encodeURIComponent(d)}`);
+      if (res.ok) {
+        const j = await res.json();
+        setViraVariacoes(j.variacoes || []);
+        setViraConteudoOrigem(j.origem?.conteudoKg > 0 ? j.origem.conteudoKg : null);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingVariacoes(false);
+    }
+  };
+
+  // Escolheu o destino: o fator vem do conteúdo (mesma formulação), do par já salvo ou 1; embalagens da última ordem do par.
+  const escolherDestinoConversao = async (codigo: string) => {
+    setNewViraParaCodigo(codigo);
+    const d = newViraDeCodigo.trim();
+    const pa = codigo.trim();
+    if (!d || !pa || d === pa) {
       setSelectedViraComp(null);
       setNewViraPackagingLines([]);
       setNewViraFormula('');
       return;
     }
     const existente = parConversaoExistente(d, pa);
-    await applyViraCompSelection(existente || { deProdutoCodigo: d, paraProdutoCodigo: pa, quantidade: Number(newViraFator) || 1, novo: true });
+    const variacao = viraVariacoes.find((v) => String(v.codigo).trim() === pa);
+    const fator = variacao?.fator > 0 ? variacao.fator : (existente ? parseFloat(existente.quantidade) || 1 : 1);
+    await applyViraCompSelection({
+      deProdutoCodigo: d,
+      paraProdutoCodigo: pa,
+      quantidade: Math.round(fator * 1e6) / 1e6,
+      baixaOrigemNaVenda: !!existente?.baixaOrigemNaVenda,
+      novo: !existente,
+    });
   };
 
   const applyViraCompSelection = async (found) => {
@@ -437,8 +478,9 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         qtyDe,
         qtyPara,
       );
-      setNewViraFator(preview.fator || fator);
-      setNewViraPackagingLines(linesFromPreview(preview));
+      const sug = embalagensSugeridas(preview, qtyDe, qtyPara);
+      setNewViraPackagingLines(sug.linhas);
+      setViraEmbalagensFonte(sug.fonte);
       setNewViraFormula(preview.formula || '');
     } catch (err) {
       console.error(err);
@@ -458,7 +500,9 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         qtyDe,
         qtyPara,
       );
-      setNewViraPackagingLines(linesFromPreview(preview));
+      const sug = embalagensSugeridas(preview, qtyDe, qtyPara);
+      setNewViraPackagingLines(sug.linhas);
+      setViraEmbalagensFonte(sug.fonte);
       setNewViraFormula(preview.formula || '');
     } catch (err) {
       console.error(err);
@@ -472,7 +516,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     if (!selectedViraComp || !newViraOrderNumber.trim()) return;
     setSubmittingNewViraOrder(true);
     try {
-      // Receita do par: cria ou atualiza (rota existente, com auditoria) quando é par novo ou o fator mudou.
+      // Fator do par: cria ou atualiza (rota existente, com auditoria) quando é par novo ou o fator mudou.
       const fatorReceita = Number(newViraFator) || 0;
       const jaExiste = parConversaoExistente(selectedViraComp.deProdutoCodigo, selectedViraComp.paraProdutoCodigo);
       if (fatorReceita <= 0) {
@@ -492,7 +536,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         });
         if (!rc.ok) {
           const err = await rc.json().catch(() => ({}));
-          avisar(err.error || 'Erro ao salvar a receita da conversão.', 'erro');
+          avisar(err.error || 'Erro ao salvar o fator de conversão.', 'erro');
           return;
         }
         await fetchViraComposicao();
@@ -1121,7 +1165,12 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     newViraFormula,
     newViraBaixaOrigem,
     setNewViraBaixaOrigem,
-    atualizarParConversao,
+    escolherOrigemConversao,
+    escolherDestinoConversao,
+    viraVariacoes,
+    viraConteudoOrigem,
+    loadingVariacoes,
+    viraEmbalagensFonte,
     parConversaoExistente,
     buildViraPrintPayload,
     editAssembledBy,
@@ -1311,7 +1360,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                   activeSubTab === 'ordens' ? 'Montagem de kits: do pedido da ordem ao retorno e ao lançamento no ERP.'
                   : activeSubTab === 'componentes' ? 'Estoque dos componentes de cada kit e o que precisa ser produzido.'
                   : activeSubTab === 'composicao' ? 'Do que cada kit é montado (ERP e linhas manuais).'
-                  : 'Troca de um produto por outro, com a receita do par e as embalagens.'
+                  : 'Troca de um produto por outro da mesma formulação (ou troca fixa), com o fator de conversão e as embalagens.'
                 }
                 acoes={
                   <>

@@ -31,7 +31,7 @@ export default function DrawerEditarOrdemConversao({ ctx }: { ctx: any }) {
   const receitaMudou = !receita || Math.abs((parseFloat(receita.quantidade) || 0) - fatorNovo) > 1e-9 || !!receita.baixaOrigemNaVenda !== receitaBaixa;
   const salvarReceita = async () => {
     if (fatorNovo <= 0) {
-      avisar('Informe o fator da receita (maior que zero).', 'erro');
+      avisar('Informe o fator de conversão (maior que zero).', 'erro');
       return;
     }
     setSalvandoReceita(true);
@@ -43,10 +43,10 @@ export default function DrawerEditarOrdemConversao({ ctx }: { ctx: any }) {
       });
       if (res.ok) {
         await fetchViraComposicao();
-        avisar('Receita do par salva. Vale para as próximas ordens.', 'sucesso');
+        avisar('Fator do par salvo. Vale para as próximas ordens.', 'sucesso');
       } else {
         const err = await res.json().catch(() => ({}));
-        avisar(err.error || 'Erro ao salvar a receita.', 'erro');
+        avisar(err.error || 'Erro ao salvar o fator.', 'erro');
       }
     } catch (e) {
       console.error(e);
@@ -224,12 +224,12 @@ export default function DrawerEditarOrdemConversao({ ctx }: { ctx: any }) {
 
             <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 space-y-3 text-xs">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">Ajustar receita deste par</h4>
+                <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">Ajustar embalagens e fator deste par</h4>
                 <span className="font-mono text-[10px] text-zinc-500">{de} → {para}</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
                 <div className="space-y-1">
-                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Fator da receita (1→N)</label>
+                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Fator de conversão (1→N)</label>
                   <input
                     type="number"
                     min="0"
@@ -246,7 +246,7 @@ export default function DrawerEditarOrdemConversao({ ctx }: { ctx: any }) {
                   onClick={() => void salvarReceita()}
                   className="min-h-11 sm:min-h-9 px-4 rounded-xl border border-zinc-300 bg-white text-xs font-bold text-zinc-800 hover:bg-zinc-100 disabled:opacity-50 cursor-pointer"
                 >
-                  {salvandoReceita ? 'Salvando...' : receita ? 'Salvar receita' : 'Criar receita'}
+                  {salvandoReceita ? 'Salvando...' : 'Salvar fator'}
                 </button>
               </div>
               <label className="flex items-start gap-2 cursor-pointer min-h-11 sm:min-h-0">
@@ -256,7 +256,7 @@ export default function DrawerEditarOrdemConversao({ ctx }: { ctx: any }) {
                 </span>
               </label>
               <p className="text-[10px] text-zinc-500">
-                A mudança vale para as próximas ordens. Não altera esta ordem nem lançamentos já feitos no ERP.
+                As embalagens confirmadas nesta ordem viram a sugestão da próxima ordem deste par. A mudança do fator vale para as próximas ordens; não altera esta ordem nem lançamentos já feitos no ERP.
               </p>
             </div>
         </Drawer>
