@@ -50,6 +50,12 @@ interface RelatorioFaltas {
   ordens: { linha: string; produtos: ProdutoFalta[] }[];
 }
 
+interface PedidoCompra {
+  nRegistro: number;
+  cNomeF?: string | null;
+  dPrevisao?: string | null;
+}
+
 interface ItemAtencao {
   id: string;
   origem: string;
@@ -125,13 +131,38 @@ function itensDeFaltas(rel: RelatorioFaltas): ItemAtencao[] {
     .sort((a, b) => a.peso - b.peso || a.assunto.localeCompare(b.assunto, 'pt-BR'));
 }
 
+const dataCurta = (d?: string | null) => (d ? d.slice(0, 10).split('-').slice(1).reverse().join('/') : '');
+
+/** Uma linha-resumo dos pedidos de compra que o ERP marca como atrasados (mesmo critério da aba Atrasado em Compras > Pedidos). */
+function itemDePedidosAtrasados(pedidos: PedidoCompra[]): ItemAtencao[] {
+  if (pedidos.length === 0) return [];
+  const maisAntigos = [...pedidos]
+    .sort((a, b) => (a.dPrevisao ?? '9999').localeCompare(b.dPrevisao ?? '9999'))
+    .slice(0, 3)
+    .map((p) => `${p.cNomeF?.trim() || 'Fornecedor sem nome'} (pedido ${p.nRegistro}${p.dPrevisao ? `, previsto ${dataCurta(p.dPrevisao)}` : ''})`);
+  return [
+    {
+      id: 'pedidos-atrasados',
+      origem: 'Compras',
+      assunto: `${pedidos.length} ${pedidos.length === 1 ? 'pedido de compra atrasado' : 'pedidos de compra atrasados'}`,
+      detalhe: `Mais antigos: ${maisAntigos.join(' · ')}`,
+      variante: 'critico',
+      rotulo: 'atrasado',
+      peso: 0,
+      destino: 'compras_pedidos',
+    },
+  ];
+}
+
 /** Tela inicial: o que pede atenção agora e atalhos para os módulos que a pessoa usa. */
 export default function HomeDashboard({ currentUser, usage, setView }: HomeDashboardProps) {
   const [aba, setAba] = useState<'atencao' | 'atalhos'>('atencao');
   const [avisosItens, setAvisosItens] = useState<ItemAtencao[]>([]);
   const [faltasItens, setFaltasItens] = useState<ItemAtencao[]>([]);
   const ultimaBuscaFaltas = useRef(0);
+  const [pedidosItens, setPedidosItens] = useState<ItemAtencao[]>([]);
   const podeVerFaltas = canAccessView(currentUser, 'admin_produtos_ativos_relatorios');
+  const podeVerPedidos = canAccessView(currentUser, 'compras_pedidos');
   const [ultimaChecagem, setUltimaChecagem] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [falhou, setFalhou] = useState(false);
@@ -140,10 +171,11 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
     setCarregando(true);
     // A simulação das faltas pesa no servidor: só refaz a cada 5 min (ou ao clicar em Atualizar).
     const buscarFaltas = podeVerFaltas && (forcar || Date.now() - ultimaBuscaFaltas.current > 5 * 60 * 1000);
-    const [avisos, saude, faltas] = await Promise.allSettled([
+    const [avisos, saude, faltas, pedidos] = await Promise.allSettled([
       fetchNotifications(),
       apiJson<RespostaSaude>('/import/saude'),
       buscarFaltas ? apiJson<RelatorioFaltas>('/producao/cobertura/faltas-por-linha') : Promise.resolve(null),
+      podeVerPedidos ? apiJson<PedidoCompra[]>('/compras/pedidos?status=ATRASADO') : Promise.resolve(null),
     ]);
     const lista: ItemAtencao[] = [];
     if (avisos.status === 'fulfilled') {
@@ -158,12 +190,15 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
       ultimaBuscaFaltas.current = Date.now();
       setFaltasItens(itensDeFaltas(faltas.value));
     }
+    if (pedidos.status === 'fulfilled' && Array.isArray(pedidos.value)) {
+      setPedidosItens(itemDePedidosAtrasados(pedidos.value));
+    }
     // Só considera falha quando nada respondeu (sem permissão na saúde do ERP é normal para operador comum).
-    setFalhou(avisos.status === 'rejected' && saude.status === 'rejected' && faltas.status === 'rejected');
+    setFalhou(avisos.status === 'rejected' && saude.status === 'rejected' && faltas.status === 'rejected' && pedidos.status === 'rejected');
     lista.sort((a, b) => a.peso - b.peso);
     setAvisosItens(lista);
     setCarregando(false);
-  }, [podeVerFaltas]);
+  }, [podeVerFaltas, podeVerPedidos]);
 
   useEffect(() => {
     carregar();
@@ -172,8 +207,11 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
   }, [carregar]);
 
   const itens = useMemo(
-    () => [...avisosItens, ...(podeVerFaltas ? faltasItens : [])].sort((a, b) => a.peso - b.peso),
-    [avisosItens, faltasItens, podeVerFaltas]
+    () =>
+      [...avisosItens, ...(podeVerFaltas ? faltasItens : []), ...(podeVerPedidos ? pedidosItens : [])].sort(
+        (a, b) => a.peso - b.peso
+      ),
+    [avisosItens, faltasItens, pedidosItens, podeVerFaltas, podeVerPedidos]
   );
 
   const grupos = useMemo(() => {
