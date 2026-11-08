@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Printer, RefreshCw, Search } from 'lucide-react';
 import PrintModal from '../../ferramentas/etiquetas/components/PrintModal';
-import type { LabelElement, LabelTemplate } from '../../ferramentas/etiquetas/lib/types';
+import type { LabelTemplate } from '../../ferramentas/etiquetas/lib/types';
+import { obterModeloPorChave, preencherModelo } from '../../ferramentas/etiquetas/lib/modelos';
 import Modal from '../../geral/components/ui/Modal';
 import { apiJson } from '../../geral/lib/http';
 import { cn } from '../../geral/lib/utils';
@@ -121,35 +122,14 @@ function fmtWhen(iso?: string | null) {
   return d.toLocaleDateString('pt-BR');
 }
 
-function textEl(
-  id: string, x: number, y: number, w: number, h: number, text: string, fontSize: number, align: 'left' | 'center' | 'right' = 'left',
-): LabelElement {
-  return {
-    id, type: 'text', x_mm: x, y_mm: y, width_mm: w, height_mm: h, zIndex: 2,
-    props: { text, fontSize, fontWeight: 'bold', fontFamily: 'Inter', textAlign: align, color: '#000000' },
-  };
-}
-
-function sheetLabel(sheet: Controle): LabelTemplate {
+async function etiquetaFolha(sheet: Controle): Promise<LabelTemplate> {
+  const modelo = await obterModeloPorChave('devolucao_folha');
+  if (!modelo) throw new Error('Modelo "devolucao_folha" não encontrado em Etiquetas');
   const boxes = Math.max(1, sheet.volumeCount || 1);
-  return {
-    id: `dev_ctrl_${sheet.id}`,
-    name: sheet.sheetNumber,
-    category: 'custom',
-    width_mm: 100,
-    height_mm: 50,
-    orientation: 'landscape',
-    elements_json: [
-      textEl('brand', 3, 2, 40, 4, 'NATUM', 8),
-      textEl('kind', 44, 2, 53, 4, 'DEVOLUÇÃO', 8, 'right'),
-      textEl('number', 3, 8, 94, 12, sheet.sheetNumber, 22, 'center'),
-      textEl('boxes', 3, 24, 94, 6, boxes === 1 ? '1 VOLUME' : `${boxes} VOLUMES`, 14, 'center'),
-      {
-        id: 'bar', type: 'barcode', x_mm: 18, y_mm: 35, width_mm: 64, height_mm: 12, zIndex: 2,
-        props: { value: sheet.sheetNumber, format: 'code128', showText: false },
-      },
-    ],
-  };
+  return preencherModelo(modelo, {
+    sheet_number: sheet.sheetNumber,
+    volumes: boxes === 1 ? '1 VOLUME' : `${boxes} VOLUMES`,
+  });
 }
 
 export default function DevolucoesControles({ canEdit, screen }: { canEdit: boolean; screen: 'retorno' | 'controles' }) {
@@ -158,7 +138,7 @@ export default function DevolucoesControles({ canEdit, screen }: { canEdit: bool
   const [picked, setPicked] = useState<number[]>([]);
   const [open, setOpen] = useState<Controle | null>(null);
   const [volumes, setVolumes] = useState('1');
-  const [labelSheet, setLabelSheet] = useState<Controle | null>(null);
+  const [labelSheet, setLabelSheet] = useState<{ sheet: Controle; etiqueta: LabelTemplate } | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -529,7 +509,7 @@ export default function DevolucoesControles({ canEdit, screen }: { canEdit: bool
               <button type="button" className="btn-primary" disabled={busy} onClick={() => { void persistVolumes(open).then((saved) => printControleDevolucao(saved)).catch((e: unknown) => setError(e instanceof Error ? e.message : 'Falha ao imprimir')); }}>
                 <Printer size={14} /> Imprimir relatório
               </button>
-              <button type="button" className="btn-secondary" disabled={busy} onClick={() => { void persistVolumes(open).then((saved) => setLabelSheet(saved)).catch((e: unknown) => setError(e instanceof Error ? e.message : 'Falha ao salvar os volumes')); }}>
+              <button type="button" className="btn-secondary" disabled={busy} onClick={() => { void persistVolumes(open).then(async (saved) => setLabelSheet({ sheet: saved, etiqueta: await etiquetaFolha(saved) })).catch((e: unknown) => setError(e instanceof Error ? e.message : 'Falha ao salvar os volumes')); }}>
                 Etiquetas 100×50
               </button>
               {canEdit && open.status === 'aberta' && (
@@ -545,11 +525,11 @@ export default function DevolucoesControles({ canEdit, screen }: { canEdit: bool
 
       {labelSheet && (
         <PrintModal
-          template={sheetLabel(labelSheet)}
+          template={labelSheet.etiqueta}
           isOpen
-          initialCopies={Math.max(1, labelSheet.volumeCount || 1)}
+          initialCopies={Math.max(1, labelSheet.sheet.volumeCount || 1)}
           onClose={() => setLabelSheet(null)}
-          history={{ product_name: labelSheet.sheetNumber, product_code: labelSheet.sheetNumber }}
+          history={{ product_name: labelSheet.sheet.sheetNumber, product_code: labelSheet.sheet.sheetNumber }}
         />
       )}
     </>

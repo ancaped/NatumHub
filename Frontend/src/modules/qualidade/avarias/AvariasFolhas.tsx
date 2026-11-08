@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Printer, RefreshCw, Search } from 'lucide-react';
 import PrintModal from '../../ferramentas/etiquetas/components/PrintModal';
-import type { LabelElement, LabelTemplate } from '../../ferramentas/etiquetas/lib/types';
+import type { LabelTemplate } from '../../ferramentas/etiquetas/lib/types';
+import { obterModeloPorChave, preencherModelo } from '../../ferramentas/etiquetas/lib/modelos';
 import Modal from '../../geral/components/ui/Modal';
 import { apiJson } from '../../geral/lib/http';
 import { cn } from '../../geral/lib/utils';
@@ -82,64 +83,15 @@ function esc(value: string) {
     .replace(/"/g, '&quot;');
 }
 
-function textEl(
-  id: string,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  text: string,
-  fontSize: number,
-  align: 'left' | 'center' | 'right' = 'left',
-): LabelElement {
-  return {
-    id,
-    type: 'text',
-    x_mm: x,
-    y_mm: y,
-    width_mm: w,
-    height_mm: h,
-    zIndex: 2,
-    props: {
-      text,
-      fontSize,
-      fontWeight: 'bold',
-      fontFamily: 'Inter',
-      textAlign: align,
-      color: '#000000',
-    },
-  };
-}
-
-function sheetLabel(sheet: Folha): LabelTemplate {
-  const dest = destLabel(sheet.destination);
+async function etiquetaFolha(sheet: Folha): Promise<LabelTemplate> {
+  const modelo = await obterModeloPorChave('avaria_folha');
+  if (!modelo) throw new Error('Modelo "avaria_folha" não encontrado em Etiquetas');
   const boxes = Math.max(1, sheet.boxCount || 1);
-  const elements: LabelElement[] = [
-    textEl('brand', 3, 2, 40, 4, 'NATUM', 8),
-    textEl('kind', 44, 2, 53, 4, 'AVARIAS', 8, 'right'),
-    textEl('number', 3, 8, 94, 12, sheet.sheetNumber, 22, 'center'),
-    textEl('dest', 3, 22, 94, 5, dest, 9, 'center'),
-    textEl('boxes', 3, 28, 94, 6, boxes === 1 ? '1 CAIXA' : `${boxes} CAIXAS`, 14, 'center'),
-    {
-      id: 'bar',
-      type: 'barcode',
-      x_mm: 18,
-      y_mm: 35,
-      width_mm: 64,
-      height_mm: 12,
-      zIndex: 2,
-      props: { value: sheet.sheetNumber, format: 'code128', showText: false },
-    },
-  ];
-  return {
-    id: `folha_${sheet.id}`,
-    name: sheet.sheetNumber,
-    category: 'custom',
-    width_mm: 100,
-    height_mm: 50,
-    orientation: 'landscape',
-    elements_json: elements,
-  };
+  return preencherModelo(modelo, {
+    sheet_number: sheet.sheetNumber,
+    destination: destLabel(sheet.destination),
+    boxes: boxes === 1 ? '1 CAIXA' : `${boxes} CAIXAS`,
+  });
 }
 
 async function printFolha(sheet: Folha) {
@@ -194,7 +146,7 @@ export default function AvariasFolhas({ canEdit, screen }: { canEdit: boolean; s
   const [picked, setPicked] = useState<number[]>([]);
   const [open, setOpen] = useState<Folha | null>(null);
   const [boxes, setBoxes] = useState('1');
-  const [labelSheet, setLabelSheet] = useState<Folha | null>(null);
+  const [labelSheet, setLabelSheet] = useState<{ sheet: Folha; etiqueta: LabelTemplate } | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -656,7 +608,7 @@ export default function AvariasFolhas({ canEdit, screen }: { canEdit: boolean; s
                 className="btn-secondary"
                 disabled={busy}
                 onClick={() => {
-                  void persistBoxes(open).then((saved) => setLabelSheet(saved)).catch(() => undefined);
+                  void persistBoxes(open).then(async (saved) => setLabelSheet({ sheet: saved, etiqueta: await etiquetaFolha(saved) })).catch(() => undefined);
                 }}
               >
                 Etiquetas 100×50
@@ -678,11 +630,11 @@ export default function AvariasFolhas({ canEdit, screen }: { canEdit: boolean; s
 
       {labelSheet && (
         <PrintModal
-          template={sheetLabel(labelSheet)}
+          template={labelSheet.etiqueta}
           isOpen
-          initialCopies={Math.max(1, labelSheet.boxCount || 1)}
+          initialCopies={Math.max(1, labelSheet.sheet.boxCount || 1)}
           onClose={() => setLabelSheet(null)}
-          history={{ product_name: labelSheet.sheetNumber, product_code: labelSheet.sheetNumber }}
+          history={{ product_name: labelSheet.sheet.sheetNumber, product_code: labelSheet.sheet.sheetNumber }}
         />
       )}
     </>
