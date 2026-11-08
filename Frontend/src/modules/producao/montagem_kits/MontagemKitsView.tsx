@@ -31,7 +31,6 @@ import AbaOrdensMontagem from './AbaOrdensMontagem';
 import AbaComponentesAlertas from './AbaComponentesAlertas';
 import AbaComposicaoKits from './AbaComposicaoKits';
 import AbaOrdensConversao from './AbaOrdensConversao';
-import AbaFormulasConversao from './AbaFormulasConversao';
 import DrawerNovaOrdem from './DrawerNovaOrdem';
 import DrawerEditarOrdem from './DrawerEditarOrdem';
 import DrawerNovaOrdemConversao from './DrawerNovaOrdemConversao';
@@ -120,14 +119,12 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   const [viraOrders, setViraOrders] = useState([]);
   const [viraComposicao, setViraComposicao] = useState([]);
   const [viraSearch, setViraSearch] = useState('');
-  const [viraCompSearch, setViraCompSearch] = useState('');
   const [filterViraStatus, setFilterViraStatus] = useState('ALL');
   const [loadingVira, setLoadingVira] = useState(false);
 
   // Vira Composicao Form
   const [newViraDeCodigo, setNewViraDeCodigo] = useState('');
   const [newViraParaCodigo, setNewViraParaCodigo] = useState('');
-  const [newViraQuantidade, setNewViraQuantidade] = useState<number | string>(1);
 
   // Nova Ordem de Conversão Modal & Form
   const [showNewViraOrderModal, setShowNewViraOrderModal] = useState(false);
@@ -145,9 +142,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   const [submittingNewViraOrder, setSubmittingNewViraOrder] = useState(false);
 
   // Preview embalagens na aba Fórmulas
-  const [expandedViraFormulaKey, setExpandedViraFormulaKey] = useState('');
-  const [formulaPackagingPreview, setFormulaPackagingPreview] = useState<PackagingPreviewResponse | null>(null);
-  const [loadingFormulaPackaging, setLoadingFormulaPackaging] = useState(false);
 
   // Editar/Visualizar Ordem de Vira
   const [showEditViraOrderModal, setShowEditViraOrderModal] = useState(false);
@@ -405,34 +399,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     }
   }, []);
 
-  const handleAddViraComposicao = async (e) => {
-    if (e) e.preventDefault();
-    if (!newViraDeCodigo.trim() || !newViraParaCodigo.trim()) return;
-    try {
-      const res = await apiFetch(`/turnovers/composicao`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          deProdutoCodigo: newViraDeCodigo.trim(), 
-          paraProdutoCodigo: newViraParaCodigo.trim(),
-          quantidade: parseFloat(String(newViraQuantidade)) || 1.0
-        })
-      });
-      if (res.ok) {
-        setNewViraDeCodigo('');
-        setNewViraParaCodigo('');
-        setNewViraQuantidade(1);
-        await fetchViraComposicao();
-      } else {
-        const err = await res.json();
-        avisar(err.error || 'Erro ao adicionar a fórmula de conversão.', 'erro');
-      }
-    } catch (e) {
-      console.error(e);
-      avisar('Erro de conexão.', 'erro');
-    }
-  };
-
   const handleDeleteViraComposicao = (de, para) => {
     abrirPrevia({
       titulo: 'Remover fórmula de conversão',
@@ -485,6 +451,8 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
   const handleOpenNewViraOrderModal = async () => {
     setSelectedViraComp(null);
+    setNewViraDeCodigo('');
+    setNewViraParaCodigo('');
     setNewViraQtyDe(10);
     setNewViraFator(1);
     setNewViraQtyPara(10);
@@ -494,6 +462,25 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     setNewViraOrderNotes('');
     await fetchNextViraOrderNumber();
     setShowNewViraOrderModal(true);
+  };
+
+  const parConversaoExistente = (de: string, para: string) =>
+    viraComposicao.find((vc) => vc.deProdutoCodigo === de && vc.paraProdutoCodigo === para) || null;
+
+  // Escolheu origem e destino: carrega a receita do par (se existe) ou abre um par novo para preencher ali mesmo.
+  const atualizarParConversao = async (de: string, para: string) => {
+    setNewViraDeCodigo(de);
+    setNewViraParaCodigo(para);
+    const d = de.trim();
+    const pa = para.trim();
+    const conhece = (c: string) => products.some((pr) => String(pr.codigo || '').trim() === c);
+    if (!d || !pa || d === pa || !conhece(d) || !conhece(pa)) {
+      setSelectedViraComp(null);
+      setNewViraPackagingLines([]);
+      return;
+    }
+    const existente = parConversaoExistente(d, pa);
+    await applyViraCompSelection(existente || { deProdutoCodigo: d, paraProdutoCodigo: pa, quantidade: Number(newViraFator) || 1, novo: true });
   };
 
   const applyViraCompSelection = async (found) => {
@@ -550,6 +537,30 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     if (!selectedViraComp || !newViraOrderNumber.trim()) return;
     setSubmittingNewViraOrder(true);
     try {
+      // Receita do par: cria ou atualiza (rota existente, com auditoria) quando é par novo ou o fator mudou.
+      const fatorReceita = Number(newViraFator) || 0;
+      const jaExiste = parConversaoExistente(selectedViraComp.deProdutoCodigo, selectedViraComp.paraProdutoCodigo);
+      if (fatorReceita <= 0) {
+        avisar('Informe o fator da conversão (maior que zero).', 'erro');
+        return;
+      }
+      if (!jaExiste || Math.abs((parseFloat(jaExiste.quantidade) || 0) - fatorReceita) > 1e-9) {
+        const rc = await apiFetch(`/turnovers/composicao`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deProdutoCodigo: selectedViraComp.deProdutoCodigo,
+            paraProdutoCodigo: selectedViraComp.paraProdutoCodigo,
+            quantidade: fatorReceita,
+          }),
+        });
+        if (!rc.ok) {
+          const err = await rc.json().catch(() => ({}));
+          avisar(err.error || 'Erro ao salvar a receita da conversão.', 'erro');
+          return;
+        }
+        await fetchViraComposicao();
+      }
       const packagingPayload = serializePackagingDeductions({
         meta: {
           qtyDe: Number(newViraQtyDe) || 0,
@@ -649,32 +660,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     }
   };
 
-  const toggleFormulaPackagingPreview = async (row) => {
-    const key = `${row.deProdutoCodigo}|${row.paraProdutoCodigo}`;
-    if (expandedViraFormulaKey === key) {
-      setExpandedViraFormulaKey('');
-      setFormulaPackagingPreview(null);
-      return;
-    }
-    setExpandedViraFormulaKey(key);
-    setLoadingFormulaPackaging(true);
-    setFormulaPackagingPreview(null);
-    try {
-      const preview = await fetchViraPackagingPreview(
-        row.deProdutoCodigo,
-        row.paraProdutoCodigo,
-        1,
-        parseFloat(row.quantidade) || 1,
-      );
-      setFormulaPackagingPreview(preview);
-    } catch (err) {
-      console.error(err);
-      setFormulaPackagingPreview(null);
-    } finally {
-      setLoadingFormulaPackaging(false);
-    }
-  };
-
   const buildViraPrintPayload = (o) => {
     const parsed = parsePackagingDeductions(o.packagingDeductions);
     const meta = parsed?.meta;
@@ -742,7 +727,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     // Produtos só quando a aba precisa (evita /products + /kits juntos no open)
     if (
       activeSubTab === 'composicao' ||
-      activeSubTab === 'vira_composicao' ||
       activeSubTab === 'vira_ordens' ||
       activeSubTab === 'componentes'
     ) {
@@ -758,7 +742,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
       fetchKits();
     } else if (activeSubTab === 'vira_ordens') {
       fetchViraOrders();
-    } else if (activeSubTab === 'vira_composicao') {
       fetchViraComposicao();
     } else {
       fetchOrders();
@@ -1200,60 +1183,12 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
       (o.paraProdutoDescricao || '').toLowerCase().includes(q);
     return matchesSearch && (filterViraStatus === 'ALL' || o.status === filterViraStatus);
   });
-  const viraComposicaoFiltrada = viraComposicao.filter(row => {
-    const q = viraCompSearch.toLowerCase();
-    return (row.deProdutoCodigo || '').toLowerCase().includes(q) ||
-      (row.deProdutoDescricao || '').toLowerCase().includes(q) ||
-      (row.paraProdutoCodigo || '').toLowerCase().includes(q) ||
-      (row.paraProdutoDescricao || '').toLowerCase().includes(q);
-  });
-
-  const renderFormulaPreview = () => (
-    <>
-      {loadingFormulaPackaging ? (
-                                    <p className="text-[11px] text-zinc-500 font-medium">Carregando embalagens da formulação…</p>
-                                  ) : !formulaPackagingPreview ? (
-                                    <p className="text-[11px] text-zinc-500 font-medium">Sem dados de embalagem ou falha ao carregar.</p>
-                                  ) : (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[11px]">
-                                      <div>
-                                        <p className="font-extrabold text-zinc-600 uppercase tracking-wide mb-1.5">Retorno (origem) / un</p>
-                                        {(formulaPackagingPreview.returns || []).length === 0 ? (
-                                          <p className="text-zinc-400">Nenhuma embalagem na formulação DE</p>
-                                        ) : (
-                                          <ul className="space-y-1">
-                                            {formulaPackagingPreview.returns.map((r) => (
-                                              <li key={`r-${r.code}`} className="flex justify-between gap-2 border-b border-zinc-100 py-0.5">
-                                                <span className="font-medium text-zinc-800 truncate">{r.code} · {r.description}</span>
-                                                <span className="font-bold text-zinc-600 shrink-0">{r.unitQty ?? r.qty}</span>
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        )}
-                                      </div>
-                                      <div>
-                                        <p className="font-extrabold text-zinc-600 uppercase tracking-wide mb-1.5">Saída (destino) / un destino</p>
-                                        {(formulaPackagingPreview.consumes || []).length === 0 ? (
-                                          <p className="text-zinc-400">Nenhuma embalagem na formulação PARA</p>
-                                        ) : (
-                                          <ul className="space-y-1">
-                                            {formulaPackagingPreview.consumes.map((c) => (
-                                              <li key={`c-${c.code}`} className="flex justify-between gap-2 border-b border-zinc-100 py-0.5">
-                                                <span className="font-medium text-zinc-800 truncate">{c.code} · {c.description}</span>
-                                                <span className="font-bold text-zinc-600 shrink-0">{c.unitQty ?? c.qty}</span>
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-    </>
-  );
 
   const ctx: any = {
     allKitsDropdown,
     applyViraCompSelection,
+    atualizarParConversao,
+    parConversaoExistente,
     buildViraPrintPayload,
     editAssembledBy,
     editCheckedBy,
@@ -1273,7 +1208,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     editViraQuantityAssembled,
     editViraStatus,
     expandedKits,
-    expandedViraFormulaKey,
     fetchKits,
     fetchOrders,
     filterStatus,
@@ -1281,7 +1215,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     filteredOrders,
     getViraDeNamePreview,
     getViraParaNamePreview,
-    handleAddViraComposicao,
     handleCreateOrder,
     handleCreateViraOrder,
     handleDeleteOrder,
@@ -1323,11 +1256,9 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     newViraQtyDe,
     newViraQtyPara,
     newViraQtyParaManual,
-    newViraQuantidade,
     printingOrder,
     products,
     refreshNewViraPackaging,
-    renderFormulaPreview,
     searchOrder,
     selectedKitCode,
     selectedKitObj,
@@ -1375,7 +1306,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     setNewViraQtyDe,
     setNewViraQtyPara,
     setNewViraQtyParaManual,
-    setNewViraQuantidade,
     setPrintingOrder,
     setSearchOrder,
     setSelectedDrawerKitCode,
@@ -1384,19 +1314,15 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     setShowEditViraOrderModal,
     setShowNewOrderModal,
     setShowNewViraOrderModal,
-    setViraCompSearch,
     setViraSearch,
     submittingEditOrder,
     submittingEditViraOrder,
     submittingNewOrder,
     submittingNewViraOrder,
-    toggleFormulaPackagingPreview,
     toggleKitExpanded,
     truncPrint,
     uploadingKitsConfig,
-    viraCompSearch,
     viraComposicao,
-    viraComposicaoFiltrada,
     viraOrders,
     viraOrdersFiltradas,
     viraSearch,
@@ -1404,7 +1330,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
   return (
     <div className="flex flex-1 w-full h-full overflow-hidden animate-in fade-in duration-200">
-      {previaElemento}
+      <div className="relative z-[60]">{previaElemento}</div>
       {lancarErpViraId !== null && (
         <div className="relative z-[60]">
           <LancarKitErpDrawer
@@ -1440,7 +1366,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 ['componentes', 'Componentes e Alertas', null],
                 ['composicao', 'Composição de Kits', null],
                 ['vira_ordens', 'Ordens de Conversão', viraOrders.length],
-                ['vira_composicao', 'Fórmulas de Conversão', null],
               ] as [string, string, number | null][]).map(([k, label, n]) => (
                 <button
                   key={k}
@@ -1529,9 +1454,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         )}
 
         {/* TAB 5: COMPOSIÇÃO DE CONVERSÕES */}
-        {activeSubTab === 'vira_composicao' && (
-          <AbaFormulasConversao ctx={ctx} />
-        )}
           </main>
         </div>
 

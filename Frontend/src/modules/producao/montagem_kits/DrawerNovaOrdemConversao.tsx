@@ -28,7 +28,7 @@ import {
 } from '../lib/viraPackaging';
 
 export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
-  const { applyViraCompSelection, handleCreateViraOrder, loadingViraPackaging, newViraFator, newViraMotivo, newViraOrderNotes, newViraOrderNumber, newViraPackagingLines, newViraQtyDe, newViraQtyPara, newViraQtyParaManual, refreshNewViraPackaging, selectedViraComp, setNewViraFator, setNewViraMotivo, setNewViraOrderNotes, setNewViraOrderNumber, setNewViraPackagingLines, setNewViraQtyDe, setNewViraQtyPara, setNewViraQtyParaManual, setShowNewViraOrderModal, submittingNewViraOrder, viraComposicao } = ctx;
+  const { atualizarParConversao, parConversaoExistente, newViraDeCodigo, newViraParaCodigo, getViraDeNamePreview, getViraParaNamePreview, handleDeleteViraComposicao, handleCreateViraOrder, loadingViraPackaging, newViraFator, newViraMotivo, newViraOrderNotes, newViraOrderNumber, newViraPackagingLines, newViraQtyDe, newViraQtyPara, newViraQtyParaManual, refreshNewViraPackaging, selectedViraComp, setNewViraFator, setNewViraMotivo, setNewViraOrderNotes, setNewViraOrderNumber, setNewViraPackagingLines, setNewViraQtyDe, setNewViraQtyPara, setNewViraQtyParaManual, setShowNewViraOrderModal, submittingNewViraOrder } = ctx;
   return (
     <>
         <Drawer
@@ -50,36 +50,68 @@ export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
                     required
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Conversão</label>
-                  <select
-                    value={selectedViraComp ? `${selectedViraComp.deProdutoCodigo}-${selectedViraComp.paraProdutoCodigo}` : ''}
-                    onChange={(e) => {
-                      const found = viraComposicao.find(
-                        (vc) => `${vc.deProdutoCodigo}-${vc.paraProdutoCodigo}` === e.target.value,
-                      );
-                      void applyViraCompSelection(found || null);
-                    }}
+                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Produto de origem (DE)</label>
+                  <input
+                    type="text"
+                    list="produtos-list"
+                    value={newViraDeCodigo}
+                    onChange={(e) => void atualizarParConversao(e.target.value, newViraParaCodigo)}
+                    placeholder="Código do produto de origem"
                     className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 font-semibold text-zinc-900 bg-white"
                     required
-                  >
-                    <option value="">Selecione uma conversão...</option>
-                    {viraComposicao.map((vc) => (
-                      <option
-                        key={`${vc.deProdutoCodigo}-${vc.paraProdutoCodigo}`}
-                        value={`${vc.deProdutoCodigo}-${vc.paraProdutoCodigo}`}
-                      >
-                        {vc.deProdutoDescricao} ➔ {vc.paraProdutoDescricao}
-                      </option>
-                    ))}
-                  </select>
+                  />
+                  {getViraDeNamePreview() && <p className="text-[10px] text-zinc-500 font-bold break-words">{getViraDeNamePreview()}</p>}
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Produto de destino (PARA)</label>
+                  <input
+                    type="text"
+                    list="produtos-list"
+                    value={newViraParaCodigo}
+                    onChange={(e) => void atualizarParConversao(newViraDeCodigo, e.target.value)}
+                    placeholder="Código do produto de destino"
+                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 font-semibold text-zinc-900 bg-white"
+                    required
+                  />
+                  {getViraParaNamePreview() && <p className="text-[10px] text-zinc-500 font-bold break-words">{getViraParaNamePreview()}</p>}
                 </div>
               </div>
+
+              {selectedViraComp && (() => {
+                const existente = parConversaoExistente(selectedViraComp.deProdutoCodigo, selectedViraComp.paraProdutoCodigo);
+                const fatorReceita = Number(newViraFator) || 0;
+                const mudou = existente && Math.abs((parseFloat(existente.quantidade) || 0) - fatorReceita) > 1e-9;
+                return (
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${existente ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                      {existente ? 'Receita encontrada' : 'Par novo'}
+                    </span>
+                    <span className="text-zinc-600 basis-full sm:basis-0 sm:flex-1 min-w-0">
+                      {existente
+                        ? (mudou ? `Receita atual 1 → ${existente.quantidade}; será atualizada para 1 → ${fatorReceita} ao criar a ordem.` : `Receita: 1 → ${existente.quantidade}. Ajuste o fator abaixo para alterá-la.`)
+                        : `A receita 1 → ${fatorReceita || '?'} será criada ao criar a ordem. Preencha o fator e as embalagens abaixo.`}
+                    </span>
+                    {existente && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteViraComposicao(selectedViraComp.deProdutoCodigo, selectedViraComp.paraProdutoCodigo)}
+                        className="text-[10px] font-bold text-zinc-400 hover:text-red-600 underline cursor-pointer min-h-11 sm:min-h-0"
+                      >
+                        Excluir receita deste par
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
 
               {selectedViraComp && (
                 <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-3">
                   <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">
-                    Quantidade estimada (DE × fator → PARA)
+                    Receita do par e quantidade (DE × fator → PARA)
                   </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="space-y-1">
@@ -106,7 +138,7 @@ export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[9px] text-zinc-400 font-bold uppercase block">Fator (1→N)</label>
+                      <label className="text-[9px] text-zinc-400 font-bold uppercase block">Fator da receita (1→N)</label>
                       <input
                         type="number"
                         min="0"
