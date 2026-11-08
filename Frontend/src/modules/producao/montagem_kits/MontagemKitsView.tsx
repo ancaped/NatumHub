@@ -1725,7 +1725,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
         {/* Main Content Area */}
         <div className="print:hidden flex-1 flex flex-col overflow-hidden relative">
-          <main className="flex-1 overflow-y-auto p-0 md:p-6 flex flex-col min-w-0">
+          <main className="flex-1 overflow-y-auto p-3 md:p-6 flex flex-col min-w-0">
             <div className="md:hidden no-print mb-3 flex gap-1.5 overflow-x-auto pb-1" role="tablist">
               {([
                 ['ordens', 'Ordens de Montagem', orders.length],
