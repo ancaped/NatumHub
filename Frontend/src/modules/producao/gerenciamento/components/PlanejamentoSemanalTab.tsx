@@ -2871,7 +2871,7 @@ export function PlanejamentoSemanalTab({
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); setCoberturaAberta(true); }}
-                          className="text-left px-2 py-1 rounded-md border border-rose-200 bg-rose-50 text-rose-700 text-[11px] md:text-[10px] font-semibold cursor-pointer"
+                          className="text-left px-2 py-1 rounded-md border border-red-200 bg-red-50 text-red-700 text-[11px] md:text-[10px] font-semibold cursor-pointer"
                           title="Ver cobertura de insumos da semana"
                         >
                           {prod._motivoSituacao

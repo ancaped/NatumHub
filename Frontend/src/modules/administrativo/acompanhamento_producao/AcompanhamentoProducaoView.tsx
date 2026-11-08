@@ -2603,16 +2603,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     return (
       <div className="flex items-center gap-1.5 flex-wrap pt-1.5 border-t border-zinc-100 text-[11px] md:text-[10px]">
         <span className="text-zinc-500 font-semibold flex items-center gap-1">
-          <EyeOff className="h-3 w-3 text-rose-500 shrink-0" />
+          <EyeOff className="h-3 w-3 text-red-500 shrink-0" />
           <span>Fora de:</span>
         </span>
         {raw.map((q: string) => (
-          <span key={q} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 capitalize font-medium">
+          <span key={q} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-50 text-red-700 border border-red-200 capitalize font-medium">
             <span>{quadroNomeMap[q.toLowerCase()] || q}</span>
             <button
               type="button"
               onClick={() => handleRestaurarLoteNoQuadro(lote.loteNumber, q)}
-              className="hover:text-rose-900 cursor-pointer ml-0.5 p-0.5 hover:bg-rose-100 rounded"
+              className="hover:text-red-900 cursor-pointer ml-0.5 p-0.5 hover:bg-red-100 rounded"
               title={`Restaurar lote no quadro de ${quadroNomeMap[q.toLowerCase()] || q}`}
             >
               <Undo2 className="h-2.5 w-2.5" />
@@ -2880,7 +2880,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         </div>
 
         {espera.insumoCodigo ? (
-          <div className="text-[11px] md:text-[10px] font-mono bg-rose-100/70 border border-rose-200 px-2 py-0.5 rounded text-rose-900 font-semibold truncate">
+          <div className="text-[11px] md:text-[10px] font-mono bg-red-100/70 border border-red-200 px-2 py-0.5 rounded text-red-900 font-semibold truncate">
             🚨 Faltante: [{espera.insumoCodigo}] {espera.insumoDescricao || ''}
           </div>
         ) : null}
@@ -2942,7 +2942,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         className={cn(
           "p-2 rounded-lg text-[11px] font-semibold flex flex-col gap-1 cursor-pointer transition-all shadow-2xs border",
           cod 
-            ? "bg-rose-50/90 border-rose-200 text-rose-950 hover:bg-rose-100" 
+            ? "bg-red-50/90 border-red-200 text-red-950 hover:bg-red-100" 
             : "bg-amber-50/90 border-amber-200 text-amber-950 hover:bg-amber-100"
         )}
         title="Clique para editar o motivo da pausa ou insumo faltante"
@@ -2950,7 +2950,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         <div className="flex items-center justify-between gap-1">
           <div className="flex items-center gap-1.5 font-bold truncate">
             {cod ? (
-              <AlertTriangle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
+              <AlertTriangle className="h-3.5 w-3.5 text-red-600 shrink-0" />
             ) : (
               <PauseCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
             )}
@@ -2964,7 +2964,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         </div>
 
         {cod && (
-          <div className="text-[11px] md:text-[10px] font-mono bg-rose-100/70 border border-rose-200 px-2 py-0.5 rounded text-rose-900 font-semibold truncate">
+          <div className="text-[11px] md:text-[10px] font-mono bg-red-100/70 border border-red-200 px-2 py-0.5 rounded text-red-900 font-semibold truncate">
             🚨 Faltante: [{cod}] {desc || ''}
           </div>
         )}
@@ -6067,13 +6067,13 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               "flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-lg border text-xs font-semibold backdrop-blur-md",
               toastMessage.type === 'success'
                 ? 'bg-zinc-900 text-white border-zinc-800'
-                : 'bg-rose-950 text-rose-100 border-rose-800'
+                : 'bg-red-950 text-red-100 border-red-800'
             )}
           >
             {toastMessage.type === 'success' ? (
               <CheckCircle2 className="h-4 w-4 text-emerald-400" />
             ) : (
-              <AlertTriangle className="h-4 w-4 text-rose-400" />
+              <AlertTriangle className="h-4 w-4 text-red-400" />
             )}
             {toastMessage.text}
           </div>
@@ -6177,7 +6177,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       <button
                         type="button"
                         onClick={handleClearAllLotesFilters}
-                        className="text-xs text-rose-600 hover:text-rose-800 underline font-medium cursor-pointer ml-1"
+                        className="text-xs text-red-600 hover:text-red-800 underline font-medium cursor-pointer ml-1"
                       >
                         Limpar todos os filtros
                       </button>
@@ -6553,7 +6553,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                     if (isEnvase) badges.push(<span key="env" className="px-2 py-0.5 rounded-md text-[11px] md:text-[10px] font-bold bg-zinc-100 text-zinc-800 border border-zinc-200 shadow-2xs">📦 Envase</span>);
                                     if (isRotulagem) badges.push(<span key="rot" className="px-2 py-0.5 rounded-md text-[11px] md:text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">🏷️ Rotulagem</span>);
                                     if (isOrdensFin) badges.push(<span key="ord" className="px-2 py-0.5 rounded-md text-[11px] md:text-[10px] font-bold bg-zinc-200 text-zinc-900 border border-zinc-300 shadow-2xs">🏁 Concluído</span>);
-                                    if (isEspera) badges.push(<span key="esp" className="px-2 py-0.5 rounded-md text-[11px] md:text-[10px] font-bold bg-rose-50 text-rose-900 border border-rose-200 truncate max-w-[140px] shadow-2xs" title={lote.motivoEspera || ''}>⏸️ {lote.motivoEspera}</span>);
+                                    if (isEspera) badges.push(<span key="esp" className="px-2 py-0.5 rounded-md text-[11px] md:text-[10px] font-bold bg-red-50 text-red-900 border border-red-200 truncate max-w-[140px] shadow-2xs" title={lote.motivoEspera || ''}>⏸️ {lote.motivoEspera}</span>);
 
                                     if (badges.length === 0) {
                                       return <span className="text-[11px] text-zinc-400 font-medium italic">Aguardando início</span>;
@@ -6955,7 +6955,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   <button
                     type="button"
                     onClick={handleClearAllKitsFilters}
-                    className="text-xs text-rose-600 hover:text-rose-800 underline font-medium cursor-pointer ml-1"
+                    className="text-xs text-red-600 hover:text-red-800 underline font-medium cursor-pointer ml-1"
                   >
                     Limpar todos os filtros
                   </button>
@@ -7372,7 +7372,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
                           dragOverTarget === `pesagem_ativa_${idx}` && "border-t-4 border-t-zinc-900 ring-2 ring-zinc-300",
                           isAdiadoOriginal
-                            ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
+                            ? "border-red-400 bg-red-50/25 ring-1 ring-red-300"
                             : isSearched
                               ? "border-zinc-400 ring-2 ring-zinc-300/80 bg-zinc-50/40"
                               : isPesagemConcluida
@@ -7398,16 +7398,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
-                                  <FastForward className="h-3 w-3 text-rose-600" />
+                                  <FastForward className="h-3 w-3 text-red-600" />
                                   Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                 </span>
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(lote.loteNumber, adiadoInfo.dataOriginal, 'pesagem', lote.productCode)}
-                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-red-700 hover:text-white bg-red-50 hover:bg-red-600 border border-red-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -7687,7 +7687,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         className={cn(
                           "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
                           isAdiadoOriginal
-                            ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
+                            ? "border-red-400 bg-red-50/25 ring-1 ring-red-300"
                             : isSearched
                               ? "border-amber-500 ring-2 ring-amber-300/80 bg-amber-50/20"
                               : isEspera
@@ -7712,16 +7712,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
-                                  <FastForward className="h-3 w-3 text-rose-600" />
+                                  <FastForward className="h-3 w-3 text-red-600" />
                                   Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                 </span>
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(lote.loteNumber, adiadoInfo.dataOriginal, 'pesagem', lote.productCode)}
-                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-red-700 hover:text-white bg-red-50 hover:bg-red-600 border border-red-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -7767,7 +7767,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   }
                                 }
                               }}
-                              className="p-1 hover:bg-rose-50 rounded text-zinc-400 hover:text-rose-600 cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
+                              className="p-1 hover:bg-red-50 rounded text-zinc-400 hover:text-red-600 cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover/Ocultar da Fila de Pesagem"
                             >
                               <X className="h-3.5 w-3.5" />
@@ -7982,7 +7982,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         className={cn(
                           "bg-white border rounded-xl p-3.5 shadow-2xs hover:shadow-xs transition-all space-y-2.5 cursor-grab active:cursor-grabbing hover:border-zinc-400",
                           isAdiadoOriginal
-                            ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
+                            ? "border-red-400 bg-red-50/25 ring-1 ring-red-300"
                             : isSearched
                               ? "border-zinc-500 ring-2 ring-zinc-300/80 bg-zinc-50/20"
                               : isProdConcluida
@@ -8008,16 +8008,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
-                                  <FastForward className="h-3 w-3 text-rose-600" />
+                                  <FastForward className="h-3 w-3 text-red-600" />
                                   Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                 </span>
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(lote.loteNumber, adiadoInfo.dataOriginal, 'producao', lote.productCode)}
-                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-red-700 hover:text-white bg-red-50 hover:bg-red-600 border border-red-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -8251,7 +8251,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         className={cn(
                           "bg-white border-2 rounded-xl p-3.5 shadow-2xs hover:shadow-xs transition-all space-y-2.5 ring-1 cursor-grab active:cursor-grabbing hover:border-amber-400",
                           isAdiadoOriginal
-                            ? "border-rose-400 bg-rose-50/25 ring-rose-300"
+                            ? "border-red-400 bg-red-50/25 ring-red-300"
                             : isSearched
                               ? "border-amber-500 ring-amber-300 bg-amber-50/20"
                               : isCaldeiraConcluida
@@ -8271,8 +8271,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 Concluído
                               </span>
                             ) : caldeiraAtiva ? (
-                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-900 border border-rose-300 animate-pulse flex items-center gap-1">
-                                <Flame className="h-3 w-3 fill-rose-600 text-rose-600" />
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-900 border border-red-300 animate-pulse flex items-center gap-1">
+                                <Flame className="h-3 w-3 fill-red-600 text-red-600" />
                                 Aquecendo
                               </span>
                             ) : (
@@ -8283,16 +8283,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
-                                  <FastForward className="h-3 w-3 text-rose-600" />
+                                  <FastForward className="h-3 w-3 text-red-600" />
                                   Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                 </span>
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(lote.loteNumber, adiadoInfo.dataOriginal, 'producao', lote.productCode)}
-                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-red-700 hover:text-white bg-red-50 hover:bg-red-600 border border-red-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -8335,7 +8335,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleToggleCaldeiraLote(lote.loteNumber)}
-                              className="p-1 text-zinc-500 hover:text-rose-700 hover:bg-rose-50 border border-zinc-200 rounded-md cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
+                              className="p-1 text-zinc-500 hover:text-red-700 hover:bg-red-50 border border-zinc-200 rounded-md cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover da Caldeira e retornar para os Reatores"
                             >
                               <Undo2 className="h-3.5 w-3.5" />
@@ -8549,7 +8549,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         className={cn(
                           "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing hover:border-amber-400",
                           isAdiadoOriginal
-                            ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
+                            ? "border-red-400 bg-red-50/25 ring-1 ring-red-300"
                             : isSearched
                               ? "border-amber-500 ring-2 ring-amber-300/80 bg-amber-50/20"
                               : isEspera
@@ -8574,16 +8574,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
-                                  <FastForward className="h-3 w-3 text-rose-600" />
+                                  <FastForward className="h-3 w-3 text-red-600" />
                                   Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                 </span>
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(lote.loteNumber, adiadoInfo.dataOriginal, 'producao', lote.productCode)}
-                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-red-700 hover:text-white bg-red-50 hover:bg-red-600 border border-red-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -8625,7 +8625,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleRemoverDaFila(lote.loteNumber, 'producao')}
-                              className="p-1 hover:bg-rose-50 rounded text-zinc-400 hover:text-rose-600 cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
+                              className="p-1 hover:bg-red-50 rounded text-zinc-400 hover:text-red-600 cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover da Fila de Produção"
                             >
                               <X className="h-3.5 w-3.5" />
@@ -8958,7 +8958,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
                             dragOverTarget === `rotulagem_MAQUINA_${idx}` && "border-t-4 border-t-zinc-900 ring-2 ring-zinc-400",
                             isAdiadoOriginal
-                              ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
+                              ? "border-red-400 bg-red-50/25 ring-1 ring-red-300"
                               : item.statusRotulagem === 'EM_ROTULAGEM'
                                 ? "border-amber-400 ring-1 ring-amber-300 bg-amber-50/20"
                                 : isConcluido
@@ -8974,16 +8974,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               {isAdiadoOriginal && (
                                 <div className="flex items-center gap-1 shrink-0">
                                   <span
-                                    className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                    className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-mono flex items-center gap-1"
                                     title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                   >
-                                    <FastForward className="h-3 w-3 text-rose-600" />
+                                    <FastForward className="h-3 w-3 text-red-600" />
                                     Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                   </span>
                                   <button
                                     type="button"
                                     onClick={() => handleCancelAdiarLote(item.loteNumber, adiadoInfo.dataOriginal, 'rotulagem', item.productCode)}
-                                    className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                    className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-red-700 hover:text-white bg-red-50 hover:bg-red-600 border border-red-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                     title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                   >
                                     <Undo2 className="h-2.5 w-2.5" />
@@ -9042,7 +9042,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <button
                                 type="button"
                                 onClick={() => handleRemoveRotulagem(item.id)}
-                                className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
+                                className="p-1 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Remover da rotulagem"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -9181,7 +9181,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
                             dragOverTarget === `rotulagem_MANUAL_${idx}` && "border-t-4 border-t-zinc-900 ring-2 ring-zinc-400",
                             isAdiadoOriginal
-                              ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
+                              ? "border-red-400 bg-red-50/25 ring-1 ring-red-300"
                               : item.statusRotulagem === 'EM_ROTULAGEM'
                                 ? "border-amber-400 ring-1 ring-amber-300 bg-amber-50/20"
                                 : isConcluido
@@ -9197,16 +9197,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               {isAdiadoOriginal && (
                                 <div className="flex items-center gap-1 shrink-0">
                                   <span
-                                    className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                    className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-mono flex items-center gap-1"
                                     title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                   >
-                                    <FastForward className="h-3 w-3 text-rose-600" />
+                                    <FastForward className="h-3 w-3 text-red-600" />
                                     Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                   </span>
                                   <button
                                     type="button"
                                     onClick={() => handleCancelAdiarLote(item.loteNumber, adiadoInfo.dataOriginal, 'rotulagem', item.productCode)}
-                                    className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                    className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-red-700 hover:text-white bg-red-50 hover:bg-red-600 border border-red-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                     title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                   >
                                     <Undo2 className="h-2.5 w-2.5" />
@@ -9265,7 +9265,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <button
                                 type="button"
                                 onClick={() => handleRemoveRotulagem(item.id)}
-                                className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
+                                className="p-1 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Remover da rotulagem"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -9491,7 +9491,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleRemoverDaFila(lote.loteNumber, 'rotulagem')}
-                              className="p-1 hover:bg-rose-50 rounded text-zinc-400 hover:text-rose-600 cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
+                              className="p-1 hover:bg-red-50 rounded text-zinc-400 hover:text-red-600 cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover da Fila de Rotulagem"
                             >
                               <X className="h-3.5 w-3.5" />
@@ -9769,7 +9769,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
                           dragOverTarget === `envase_Linha 1_${idx}` && "border-t-4 border-t-zinc-600 ring-2 ring-zinc-300",
                           isAdiadoOriginal
-                            ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
+                            ? "border-red-400 bg-red-50/25 ring-1 ring-red-300"
                             : item.statusEnvase === 'EM_ENVASE'
                               ? "border-zinc-400 ring-1 ring-zinc-300 bg-zinc-50/20"
                               : item.statusEnvase === 'EM_ESPERA'
@@ -9787,16 +9787,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
-                                  <FastForward className="h-3 w-3 text-rose-600" />
+                                  <FastForward className="h-3 w-3 text-red-600" />
                                   Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                 </span>
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(item.loteNumber, adiadoInfo.dataOriginal, 'envase', item.productCode)}
-                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-red-700 hover:text-white bg-red-50 hover:bg-red-600 border border-red-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -9856,7 +9856,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleRemoveEnvase(item.id, item.loteNumber)}
-                              className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
+                              className="p-1 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover do quadro"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -10044,7 +10044,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
                           dragOverTarget === `envase_Linha 2_${idx}` && "border-t-4 border-t-zinc-600 ring-2 ring-zinc-300",
                           isAdiadoOriginal
-                            ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
+                            ? "border-red-400 bg-red-50/25 ring-1 ring-red-300"
                             : item.statusEnvase === 'EM_ENVASE'
                               ? "border-zinc-400 ring-1 ring-zinc-300 bg-zinc-50/20"
                               : item.statusEnvase === 'EM_ESPERA'
@@ -10062,16 +10062,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
-                                  <FastForward className="h-3 w-3 text-rose-600" />
+                                  <FastForward className="h-3 w-3 text-red-600" />
                                   Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                 </span>
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(item.loteNumber, adiadoInfo.dataOriginal, 'envase', item.productCode)}
-                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-red-700 hover:text-white bg-red-50 hover:bg-red-600 border border-red-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -10131,7 +10131,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleRemoveEnvase(item.id, item.loteNumber)}
-                              className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
+                              className="p-1 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover do quadro"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -10320,7 +10320,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
                           dragOverTarget === `envase_Linha 3_${idx}` && "border-t-4 border-t-amber-600 ring-2 ring-amber-300",
                           isAdiadoOriginal
-                            ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
+                            ? "border-red-400 bg-red-50/25 ring-1 ring-red-300"
                             : item.statusEnvase === 'EM_ENVASE'
                               ? "border-zinc-400 ring-1 ring-zinc-300 bg-zinc-50/20"
                               : item.statusEnvase === 'EM_ESPERA'
@@ -10338,16 +10338,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
-                                  <FastForward className="h-3 w-3 text-rose-600" />
+                                  <FastForward className="h-3 w-3 text-red-600" />
                                   Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                 </span>
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(item.loteNumber, adiadoInfo.dataOriginal, 'envase', item.productCode)}
-                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-red-700 hover:text-white bg-red-50 hover:bg-red-600 border border-red-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -10407,7 +10407,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleRemoveEnvase(item.id, item.loteNumber)}
-                              className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
+                              className="p-1 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover do quadro"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -10678,7 +10678,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleRemoverDaFila(lote.loteNumber, 'envase')}
-                              className="p-1 hover:bg-rose-50 rounded text-zinc-400 hover:text-rose-600 cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
+                              className="p-1 hover:bg-red-50 rounded text-zinc-400 hover:text-red-600 cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover dos Liberados para Envase"
                             >
                               <X className="h-3.5 w-3.5" />
@@ -10731,7 +10731,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 <button
                                   type="button"
                                   onClick={() => handleRemoveEnvase(scheduledItem.id, lote.loteNumber)}
-                                  className="text-[11px] md:text-[10px] font-bold text-rose-600 hover:text-rose-800 hover:underline cursor-pointer flex items-center gap-0.5"
+                                  className="text-[11px] md:text-[10px] font-bold text-red-600 hover:text-red-800 hover:underline cursor-pointer flex items-center gap-0.5"
                                   title="Remover do quadro de envase"
                                 >
                                   <Trash2 className="h-3 w-3" />
@@ -11544,7 +11544,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                     {/* Feriado */}
                     {cell.holiday && (
-                      <span className="text-[11px] md:text-[9px] font-semibold text-rose-600 truncate block mt-0.5" title={cell.holiday.name}>
+                      <span className="text-[11px] md:text-[9px] font-semibold text-red-600 truncate block mt-0.5" title={cell.holiday.name}>
                         {cell.holiday.name}
                       </span>
                     )}
@@ -13542,7 +13542,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             : rendimentoPct >= 90
                               ? "bg-amber-500"
                               : rendimentoPct > 0
-                                ? "bg-rose-500"
+                                ? "bg-red-500"
                                 : "bg-zinc-300"
                         )}
                         style={{ width: `${Math.max(4, rendimentoPct)}%` }}
@@ -13652,20 +13652,20 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     <div className={cn(
                       "p-3 rounded-xl border text-xs space-y-1.5 transition-all",
                       caldeiraLigadaNoLote
-                        ? "bg-rose-50 border-rose-300 text-rose-950"
+                        ? "bg-red-50 border-red-300 text-red-950"
                         : hasCaldeira
                           ? "bg-amber-50 border-amber-200 text-amber-950"
                           : "bg-zinc-50 border-zinc-200 text-zinc-700"
                     )}>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5 font-bold">
-                          <Flame className={cn("h-4 w-4", caldeiraLigadaNoLote ? "fill-rose-500 text-rose-500 animate-pulse" : hasCaldeira ? "fill-amber-500 text-amber-500" : "text-zinc-400")} />
+                          <Flame className={cn("h-4 w-4", caldeiraLigadaNoLote ? "fill-red-500 text-red-500 animate-pulse" : hasCaldeira ? "fill-amber-500 text-amber-500" : "text-zinc-400")} />
                           <span>Status do Vapor</span>
                         </div>
                         <span className={cn(
                           "px-2 py-0.5 rounded text-[11px] md:text-[10px] font-mono font-bold uppercase",
                           caldeiraLigadaNoLote
-                            ? "bg-rose-600 text-white animate-pulse"
+                            ? "bg-red-600 text-white animate-pulse"
                             : hasCaldeira
                               ? "bg-amber-200 text-amber-900"
                               : "bg-zinc-200 text-zinc-700"
@@ -13675,7 +13675,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       </div>
 
                       {caldeiraLigadaNoLote && caldeiraAtiva && (
-                        <p className="text-[11px] text-rose-800 font-medium">
+                        <p className="text-[11px] text-red-800 font-medium">
                           🔥 Caldeira ligada desde <strong>{formatDateTime(caldeiraAtiva.ligouEm)}</strong> ({formatDurationBetween(caldeiraAtiva.ligouEm)}) pelo operador <strong>{caldeiraAtiva.operador}</strong>.
                         </p>
                       )}
@@ -13892,15 +13892,15 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   const reg = lotesAdiadosHistorico.find(r => r.loteNumber === adiarModalItem.loteNumber);
                   if (!reg || !reg.dataOriginal) return null;
                   return (
-                    <div className="pt-2 border-t border-rose-200 flex items-center justify-between gap-2 text-xs bg-rose-50/70 p-2.5 rounded-lg border border-rose-200">
-                      <div className="text-[11px] text-rose-950 leading-tight">
-                        <span className="font-extrabold block text-rose-800">⚠️ Lote com adiamento registrado:</span>
+                    <div className="pt-2 border-t border-red-200 flex items-center justify-between gap-2 text-xs bg-red-50/70 p-2.5 rounded-lg border border-red-200">
+                      <div className="text-[11px] text-red-950 leading-tight">
+                        <span className="font-extrabold block text-red-800">⚠️ Lote com adiamento registrado:</span>
                         <span className="text-zinc-600 font-medium">Original: <strong>{formatDateOnly(reg.dataOriginal)}</strong> ➔ Previsto: <strong>{formatDateOnly(reg.dataAdiadoPara)}</strong></span>
                       </div>
                       <button
                         type="button"
                         onClick={() => handleCancelAdiarLote(adiarModalItem.loteNumber, reg.dataOriginal, adiarModalItem.origem, adiarModalItem.productCode)}
-                        className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] rounded-lg shadow-2xs flex items-center gap-1.5 cursor-pointer shrink-0 transition-colors"
+                        className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] rounded-lg shadow-2xs flex items-center gap-1.5 cursor-pointer shrink-0 transition-colors"
                         title="Cancelar o adiamento deste lote e retornar para a data de origem"
                       >
                         <Undo2 className="h-3 w-3" />
@@ -14562,7 +14562,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 "px-2 py-0.5 rounded text-[11px] md:text-[10px] font-bold font-mono",
                                 it.statusEnvase === 'CONCLUIDO' ? "bg-emerald-100 text-emerald-800" :
                                 it.statusEnvase === 'EM_ENVASE' ? "bg-amber-100 text-amber-800" :
-                                it.statusEnvase === 'EM_ESPERA' ? "bg-rose-100 text-rose-800" :
+                                it.statusEnvase === 'EM_ESPERA' ? "bg-red-100 text-red-800" :
                                 "bg-zinc-100 text-zinc-700"
                               )}>
                                 {it.statusEnvase}

@@ -64,7 +64,7 @@ export default function LimparFilaDrawer({ onClose, onLimpa }: { onClose: () => 
       }
     >
       <div className="flex flex-col gap-4 p-4 text-xs">
-        {erro && <div className="px-2 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 font-semibold">{erro}</div>}
+        {erro && <div className="px-2 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 font-semibold">{erro}</div>}
 
         {previa && previa.total === 0 && <div className="text-zinc-500">A fila já está vazia.</div>}
         {previa && previa.total > 0 && (

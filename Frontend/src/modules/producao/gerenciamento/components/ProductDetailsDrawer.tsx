@@ -223,7 +223,7 @@ export const ProductDetailsDrawer: React.FC<ProductDetailsDrawerProps> = ({
                                   </td>
                                   <td className="px-3 py-2 text-center">
                                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                      isOk ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                      isOk ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
                                     }`}>
                                       {isOk ? 'OK' : 'Falta'}
                                     </span>
