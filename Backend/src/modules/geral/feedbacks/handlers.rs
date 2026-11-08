@@ -23,16 +23,19 @@ use super::models::{
 };
 
 /// Quem pode o quê. A rota é pública no middleware (o widget envia de qualquer tela), então a checagem é aqui:
-/// sem sessão válida nada passa. Supervisor faz tudo; operador ou agente depende do módulo Configurações.
+/// sem sessão válida nada passa. Operador de tela vê a fila e comenta (a "Fila de Feedbacks" do widget); decidir é do
+/// supervisor. Agente só entra se tiver o módulo Configurações.
 #[derive(Clone, Copy)]
 enum Nivel {
     /// Qualquer sessão válida (enviar feedback).
     Logado,
-    /// Ver a fila e os detalhes.
+    /// Ver a fila e os detalhes: operador de tela, ou agente com Configurações.
     Leitura,
-    /// Gravar notas, mudar status e prioridade.
-    Edicao,
-    /// Decidir: devolver à fila o que está em conferência.
+    /// Gravar notas: operador de tela, ou agente com Configurações em editar.
+    Nota,
+    /// Entregar para conferência (`resolver`): supervisor, ou agente com Configurações em editar.
+    Entrega,
+    /// Decidir: status, prioridade, ordem e devolver à fila.
     Supervisor,
 }
 
@@ -43,8 +46,9 @@ fn exigir(ctx: &Option<Extension<AuthContext>>, nivel: Nivel) -> Result<&AuthCon
         .0;
     let ok = match nivel {
         Nivel::Logado => true,
-        Nivel::Leitura => c.has_module(MODULE_CONFIGURACOES),
-        Nivel::Edicao => c.can_edit_module(MODULE_CONFIGURACOES),
+        Nivel::Leitura => !c.is_agente() || c.has_module(MODULE_CONFIGURACOES),
+        Nivel::Nota => !c.is_agente() || c.can_edit_module(MODULE_CONFIGURACOES),
+        Nivel::Entrega => c.role.is_supervisor() || (c.is_agente() && c.can_edit_module(MODULE_CONFIGURACOES)),
         Nivel::Supervisor => c.role.is_supervisor(),
     };
     if ok {
@@ -52,7 +56,8 @@ fn exigir(ctx: &Option<Extension<AuthContext>>, nivel: Nivel) -> Result<&AuthCon
     } else {
         Err(ErroApi::sem_permissao(match nivel {
             Nivel::Supervisor => "Apenas supervisores podem fazer isso.",
-            Nivel::Edicao => "Sem permissão para alterar feedbacks.",
+            Nivel::Entrega => "Só supervisor ou agente com Configurações em editar entrega para conferência.",
+            Nivel::Nota => "Sem permissão para comentar feedbacks.",
             _ => "Sem permissão para ver a fila de feedbacks.",
         }))
     }
@@ -165,7 +170,7 @@ async fn add_note_handler(
     Path(id): Path<String>,
     Json(body): Json<FeedbackNoteInput>,
 ) -> impl IntoResponse {
-    let c = match exigir(&ctx, Nivel::Edicao) {
+    let c = match exigir(&ctx, Nivel::Nota) {
         Ok(c) => c,
         Err(e) => return e.into_response(),
     };
@@ -213,7 +218,7 @@ async fn transicao_handler(
     confirmar_query: bool,
     corpo: TransicaoCorpo,
 ) -> axum::response::Response {
-    let nivel = if t == Transicao::Devolver { Nivel::Supervisor } else { Nivel::Edicao };
+    let nivel = if t == Transicao::Devolver { Nivel::Supervisor } else { Nivel::Entrega };
     let c = match exigir(&ctx, nivel) {
         Ok(c) => c,
         Err(e) => return e.into_response(),
@@ -272,36 +277,50 @@ mod tests {
         Some(Extension(AuthContext { operator_id: "1".into(), display_name: "Teste".into(), role, modules, permissions, origem }))
     }
 
+    const TODOS: [Nivel; 5] = [Nivel::Logado, Nivel::Leitura, Nivel::Nota, Nivel::Entrega, Nivel::Supervisor];
+
     #[test]
     fn sem_sessao_nada_passa_nem_o_envio() {
-        for n in [Nivel::Logado, Nivel::Leitura, Nivel::Edicao, Nivel::Supervisor] {
+        for n in TODOS {
             assert_eq!(exigir(&None, n).unwrap_err().codigo, "nao_autenticado");
         }
     }
 
     #[test]
-    fn operador_comum_so_envia() {
+    fn operador_de_tela_envia_ve_e_comenta_mas_nao_decide() {
         let c = ctx(OperatorRole::Operador, Origem::Tela, None);
-        assert!(exigir(&c, Nivel::Logado).is_ok());
-        for n in [Nivel::Leitura, Nivel::Edicao, Nivel::Supervisor] {
+        for n in [Nivel::Logado, Nivel::Leitura, Nivel::Nota] {
+            assert!(exigir(&c, n).is_ok());
+        }
+        for n in [Nivel::Entrega, Nivel::Supervisor] {
             assert_eq!(exigir(&c, n).unwrap_err().codigo, "sem_permissao");
         }
     }
 
     #[test]
-    fn agente_le_ou_edita_conforme_o_nivel_e_nunca_decide() {
+    fn agente_sem_configuracoes_nao_ve_nada_da_fila() {
+        let c = ctx(OperatorRole::Operador, Origem::Agente, None);
+        assert!(exigir(&c, Nivel::Logado).is_ok());
+        for n in [Nivel::Leitura, Nivel::Nota, Nivel::Entrega, Nivel::Supervisor] {
+            assert!(exigir(&c, n).is_err());
+        }
+    }
+
+    #[test]
+    fn agente_le_ou_entrega_conforme_o_nivel_e_nunca_decide() {
         let ver = ctx(OperatorRole::Operador, Origem::Agente, Some("view"));
         assert!(exigir(&ver, Nivel::Leitura).is_ok());
-        assert!(exigir(&ver, Nivel::Edicao).is_err());
+        assert!(exigir(&ver, Nivel::Entrega).is_err());
         let editar = ctx(OperatorRole::Operador, Origem::Agente, Some("edit"));
-        assert!(exigir(&editar, Nivel::Edicao).is_ok());
+        assert!(exigir(&editar, Nivel::Entrega).is_ok());
+        assert!(exigir(&editar, Nivel::Nota).is_ok());
         assert!(exigir(&editar, Nivel::Supervisor).is_err());
     }
 
     #[test]
     fn supervisor_faz_tudo() {
         let c = ctx(OperatorRole::Supervisor, Origem::Tela, None);
-        for n in [Nivel::Logado, Nivel::Leitura, Nivel::Edicao, Nivel::Supervisor] {
+        for n in TODOS {
             assert!(exigir(&c, n).is_ok());
         }
     }
