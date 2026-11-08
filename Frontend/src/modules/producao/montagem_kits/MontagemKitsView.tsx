@@ -1,5 +1,6 @@
 import { apiFetch } from '../../geral/lib/http';
 import { useAviso } from '../../geral/components/ui/Aviso';
+import Drawer from '../../geral/components/ui/Drawer';
 import { usePreviaServidor, mensagemErroServidor } from '../lib/usePreviaServidor';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
@@ -1726,7 +1727,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         {/* Main Content Area */}
         <div className="print:hidden flex-1 flex flex-col overflow-hidden relative">
           <main className="flex-1 overflow-y-auto p-3 md:p-6 flex flex-col min-w-0">
-            <div className="md:hidden no-print mb-3 flex gap-1.5 overflow-x-auto pb-1" role="tablist">
+            <div className="md:hidden no-print mb-3 flex shrink-0 gap-1.5 overflow-x-auto pb-1" role="tablist">
               {([
                 ['ordens', 'Ordens de Montagem', orders.length],
                 ['componentes', 'Componentes e Alertas', null],
@@ -1850,7 +1851,56 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                   <p className="text-[10px] text-zinc-550">Gere uma nova ordem clicando no botão no topo.</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <>
+                <div className="md:hidden divide-y divide-zinc-100">
+                  {filteredOrders.map((o) => (
+                    <div key={o.id} className="p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <span className="font-extrabold text-zinc-950 text-sm">Lote {o.orderNumber}</span>
+                          <span className="block font-bold text-zinc-900 text-xs break-words">{o.kitProductDescription}</span>
+                          <span className="text-[10px] text-zinc-500">REF: {o.kitProductCode}</span>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="font-extrabold text-zinc-900 block">{o.quantity} un</span>
+                          {o.quantityAssembled !== null && o.quantityAssembled !== undefined && o.quantityAssembled !== o.quantity && (
+                            <span className="text-[10px] font-bold text-zinc-500 block">Real: {o.quantityAssembled} un</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className={`px-2 py-1 rounded-full text-[9px] font-extrabold tracking-wide uppercase ${
+                          o.status === 'COMPLETED'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}>
+                          {o.status === 'COMPLETED' ? 'Concluída' : 'Em Montagem'}
+                        </span>
+                        <SeloOrdemParada ordem={o} />
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
+                          o.erpLaunched === 1
+                            ? 'bg-zinc-900 text-white border border-zinc-900'
+                            : 'bg-zinc-100 text-zinc-500 border border-zinc-200'
+                        }`}>
+                          ERP: {o.erpLaunched === 1 ? 'Sim' : 'Não'}
+                        </span>
+                        <span className="text-[10px] text-zinc-500 ml-auto">{o.completedAt ? `Montado ${o.completedAt}${o.assembledBy ? ` por ${o.assembledBy}` : ''}` : `Emitida ${o.createdAt}`}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleOpenEditModal(o)} className="flex-1 min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl bg-zinc-900 text-white text-xs font-bold cursor-pointer">
+                          <Eye size={14} /> Abrir
+                        </button>
+                        <button onClick={() => handlePrintOrder(o)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 cursor-pointer" title="Imprimir" aria-label="Imprimir ordem">
+                          <Printer size={16} />
+                        </button>
+                        <button onClick={() => handleDeleteOrder(o.id)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-red-600 cursor-pointer" title="Excluir" aria-label="Excluir ordem">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-xs text-left border-collapse">
                     <thead>
                       <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-550 font-bold uppercase text-[9px]">
@@ -1938,6 +1988,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           </div>
@@ -2655,23 +2706,14 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
       {/* MODAL: NOVA ORDEM */}
       {showNewOrderModal && (
-        <div className="fixed inset-0 bg-black/55 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-1.5">
-                <Layers className="h-5 w-5 text-zinc-900" />
-                Criar Ordem de Montagem de Kit
-              </h3>
-              <button 
-                onClick={() => setShowNewOrderModal(false)}
-                className="p-1 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
+        <Drawer
+          onClose={() => setShowNewOrderModal(false)}
+          title="Nova Ordem de Montagem"
+          subtitle="Criar ordem de montagem de kit"
+          size="md"
+        >
             <form onSubmit={handleCreateOrder} className="space-y-4 text-xs font-medium text-zinc-700">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Lote da Ordem</label>
                   <input 
@@ -2801,20 +2843,17 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Drawer>
       )}
 
       {/* MODAL: EDITAR / VISUALIZAR ORDEM */}
       {showEditOrderModal && selectedOrder && (
-        <div className="fixed inset-0 bg-black/55 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-1.5">
-                <ClipboardList className="h-5 w-5 text-zinc-900" />
-                Retorno / Edição de Ordem: Lote {editOrderNumber || selectedOrder.orderNumber}
-              </h3>
-              <div className="flex items-center gap-2">
+        <Drawer
+          onClose={() => setShowEditOrderModal(false)}
+          title={`Lote ${editOrderNumber || selectedOrder.orderNumber}`}
+          subtitle="Retorno / edição da ordem de montagem"
+          size="lg"
+          headerActions={
                 <button
                   type="button"
                   onClick={() => {
@@ -2853,22 +2892,15 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                   <Printer size={13} />
                   <span>Imprimir Folha</span>
                 </button>
-                <button 
-                  onClick={() => setShowEditOrderModal(false)}
-                  className="p-1 hover:bg-zinc-100 rounded-full text-zinc-455 hover:text-zinc-900 cursor-pointer"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-
+          }
+        >
             <form onSubmit={handleUpdateOrder} className="space-y-4 text-xs font-medium text-zinc-700">
               <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3.5 space-y-3">
                 <div>
                   <span className="text-[10px] text-zinc-400 font-extrabold uppercase block">Produto Kit</span>
                   <span className="font-bold text-zinc-900">{selectedOrder.kitProductDescription} ({selectedOrder.kitProductCode})</span>
                 </div>
-                <div className="grid grid-cols-3 gap-3 pt-2 border-t border-zinc-200/60">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-zinc-200/60">
                   <div className="space-y-1">
                     <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Lote da Ordem</label>
                     <input 
@@ -2898,7 +2930,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1 col-span-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Status</label>
                   <select
@@ -2947,7 +2979,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
               </div>
 
               {/* Responsible Operator Fields */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block flex items-center gap-1">
                     <User size={10} />
@@ -3100,8 +3132,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Drawer>
       )}
       {/* MODAL: NOVA ORDEM DE CONVERSÃO */}
       {showNewViraOrderModal && (
@@ -3122,7 +3153,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
             </div>
 
             <form onSubmit={handleCreateViraOrder} className="space-y-4 text-xs font-medium text-zinc-700">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Lote da Ordem</label>
                   <input
@@ -3380,7 +3411,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
             </div>
 
             <form onSubmit={handleUpdateViraOrder} className="space-y-4 text-xs font-medium text-zinc-700">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Status da Produção</label>
                   <select
@@ -3413,7 +3444,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Operador Montador</label>
                   <input
