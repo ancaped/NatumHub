@@ -177,274 +177,199 @@ export default function ConfiguracoesTab({ products, categories, setCategories, 
     });
   };
 
+  const SUBABAS = [
+    { id: 'parametros' as const, label: 'Parâmetros', icon: Settings },
+    { id: 'status' as const, label: 'Status ignorados', icon: Filter, badge: configIgnoredStatuses.length },
+    { id: 'categorias' as const, label: 'Subcategorias', icon: Layers },
+  ];
+  const campo = 'w-full min-h-[44px] md:min-h-0 px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-sm md:text-xs font-semibold text-zinc-800';
+  const rotulo = 'text-[11px] font-bold text-zinc-600 block';
+  const dica = 'text-[11px] text-zinc-500 leading-snug block';
+  const painel = 'bg-white border border-zinc-200 rounded-2xl shadow-sm p-4 md:p-5';
+  const titulo = 'text-xs font-bold text-zinc-500 uppercase tracking-wider';
+  const subcategorias = categories.filter(c => c.parentId !== null);
+
   return (
-            <div className="flex-1 flex flex-col space-y-4">
-              {/* Secondary Sub-Tabs Nav */}
-              <div className="flex gap-1.5 p-1 bg-zinc-100/80 border border-zinc-200 rounded-2xl shrink-0 w-fit">
-                <button
-                  onClick={() => setConfigSubTab('parametros')}
-                  className={cn(
-                    "px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-2 focus:outline-none",
-                    configSubTab === 'parametros'
-                      ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
-                      : "text-zinc-500 hover:text-zinc-800"
-                  )}
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                  Parâmetros
-                </button>
-                <button
-                  onClick={() => setConfigSubTab('status')}
-                  className={cn(
-                    "px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-2 focus:outline-none",
-                    configSubTab === 'status'
-                      ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
-                      : "text-zinc-500 hover:text-zinc-800"
-                  )}
-                >
-                  <Filter className="w-3.5 h-3.5" />
-                  Status
-                </button>
-                <button
-                  onClick={() => setConfigSubTab('categorias')}
-                  className={cn(
-                    "px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-2 focus:outline-none",
-                    configSubTab === 'categorias'
-                      ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
-                      : "text-zinc-500 hover:text-zinc-800"
-                  )}
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                  Categorias
-                </button>
-              </div>
+    <div className="flex-1 flex flex-col gap-4 min-w-0">
+      <div className="flex gap-2 overflow-x-auto shrink-0 -mx-1 px-1">
+        {SUBABAS.map(a => {
+          const Icon = a.icon;
+          const ativa = configSubTab === a.id;
+          return (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => setConfigSubTab(a.id)}
+              className={cn(
+                'shrink-0 min-h-[44px] md:min-h-0 px-4 py-2 rounded-full border text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer',
+                ativa ? 'bg-zinc-900 border-zinc-900 text-white' : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50'
+              )}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {a.label}
+              {a.badge !== undefined && (
+                <span className={cn('rounded-full px-1.5 text-[10px] tabular-nums', ativa ? 'bg-zinc-700' : 'bg-zinc-100 text-zinc-600')}>{a.badge}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-              {/* Sub-Tab Contents */}
-              <div className="flex-1 overflow-y-auto pr-1">
-                {configSubTab === 'parametros' && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-                    <div className="md:col-span-1 bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 space-y-4">
-                      <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider border-b border-zinc-100 pb-2">
-                        Parâmetros Globais
-                      </h3>
-                      <form onSubmit={handleSaveGlobalSettings} className="space-y-3.5 text-left">
-                        <div className="space-y-1">
-                          <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Dias Comerciais por Mês</label>
-                          <input
-                            type="number"
-                            className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold text-zinc-800"
-                            min={1}
-                            max={31}
-                            value={globalDiasComerciais}
-                            onChange={(e) => setGlobalDiasComerciais(e.target.value)}
-                            required
-                          />
-                          <span className="text-[10px] text-zinc-450 block leading-tight">
-                            Converte meses ideais e prazos em dias na tabela.
-                          </span>
-                        </div>
-
-                        <div className="space-y-1">
-                          <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Itens por Página</label>
-                          <input
-                            type="number"
-                            className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold text-zinc-800"
-                            min={10}
-                            max={1000}
-                            value={globalLimitPerPage}
-                            onChange={(e) => setGlobalLimitPerPage(e.target.value)}
-                            required
-                          />
-                          <span className="text-[10px] text-zinc-450 block leading-tight">
-                            Paginação padrão de estoque e produção.
-                          </span>
-                        </div>
-
-                        <div className="space-y-1">
-                          <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Meta de Giro (Lançamentos)</label>
-                          <input
-                            type="number"
-                            className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold text-zinc-800"
-                            min={1}
-                            max={36}
-                            value={globalLancamentoMeta}
-                            onChange={(e) => setGlobalLancamentoMeta(e.target.value)}
-                            required
-                          />
-                          <span className="text-[10px] text-zinc-450 block leading-tight">
-                            Meses padrão até graduar Lançamento → Ativo.
-                          </span>
-                        </div>
-
-                        <button
-                          type="submit"
-                          disabled={globalSettingsSaving}
-                          className="w-full bg-zinc-900 hover:bg-zinc-850 disabled:bg-zinc-300 text-white text-xs font-bold py-2 rounded-xl shadow-sm transition-all cursor-pointer flex justify-center items-center"
-                        >
-                          {globalSettingsSaving ? 'Salvando...' : 'Salvar Parâmetros'}
-                        </button>
-                      </form>
-                    </div>
-
-                    <div className="md:col-span-2 bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 space-y-4">
-                      <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider border-b border-zinc-100 pb-2">
-                        Regras de negócio
-                      </h3>
-                      
-                      <div className="space-y-4 text-xs text-zinc-650 leading-relaxed text-left">
-                        <div>
-                          <h4 className="font-bold text-zinc-800 mb-1.5">Status do produto (ciclo de vida)</h4>
-                          <ul className="space-y-1 text-zinc-500 text-[11px]">
-                            {PRODUCT_LINE_STATUSES.map(st => (
-                              <li key={st.value}><strong className="text-zinc-700">{st.label}:</strong> {st.description}.</li>
-                            ))}
-                          </ul>
-                        </div>
-
-                        <div>
-                          <h4 className="font-bold text-zinc-800 mb-1.5">Tipo e roteamento</h4>
-                          <ul className="space-y-1 text-zinc-500 text-[11px]">
-                            <li><strong className="text-zinc-700">Base:</strong> tipo de produto próprio (fórmula interna); pode estar ativa ou inativa e em várias linhas; roteada para Gestão de Bases em Produção.</li>
-                            <li><strong className="text-zinc-700">MP / Embalagem:</strong> painel geral de Compras.</li>
-                            {PRODUCT_ROUTING_CATEGORIES.filter(c => c.id !== 'cat_base').map(c => (
-                              <li key={c.id}><strong className="text-zinc-700">{c.label}:</strong> {c.description}.</li>
-                            ))}
-                          </ul>
-                        </div>
-
-                        <div className="bg-zinc-50 border border-zinc-200 rounded-xl px-3.5 py-3">
-                          <p className="text-[11px] text-zinc-600 leading-relaxed">
-                            <strong className="text-zinc-800">Fim de linha:</strong> embalagens exclusivas suspendem na hora; MPs seguem enquanto houver saldo de embalagem, para escoar o acabado.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {configSubTab === 'status' && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-                    <div className="md:col-span-1 bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 space-y-4">
-                      <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider border-b border-zinc-100 pb-2">
-                        Status ignorados no planejamento
-                      </h3>
-                      <p className="text-[11px] text-zinc-500 leading-relaxed">
-                        Ciclo de vida desconsiderado na demanda. Categorias de roteamento ficam na aba Categorias.
-                      </p>
-                      
-                      <div className="space-y-1.5 pt-1">
-                        {PRODUCT_LINE_STATUSES.map(st => (
-                          <label key={st.value} className="flex items-start gap-3 p-2.5 hover:bg-zinc-50 rounded-xl transition-colors cursor-pointer border border-zinc-100">
-                            <input
-                              type="checkbox"
-                              checked={configIgnoredStatuses.includes(st.value)}
-                              onChange={() => handleToggleIgnoredStatus(st.value)}
-                              className="mt-0.5 rounded border-zinc-350 text-zinc-900 focus:ring-zinc-900 h-4 w-4"
-                            />
-                            <div className="min-w-0">
-                              <div className="text-xs font-bold text-zinc-800">{st.label}</div>
-                              <span className="text-[10px] text-zinc-400 font-medium leading-snug block">{st.description}</span>
-                            </div>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="md:col-span-2 bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 space-y-3 text-xs text-zinc-600 leading-relaxed text-left">
-                      <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Como funciona</h4>
-                      <p>
-                        Status <strong>ignorado</strong> sai das planilhas de demanda e estimativas de dias de estoque — evita alertas falsos para itens fora de catálogo ou terceirizados.
-                      </p>
-                      <p>
-                        <strong>Saindo de Linha</strong> mantém comportamento dinâmico para MPs mesmo se marcado, visando consumir embalagens remanescentes.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {configSubTab === 'categorias' && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-                    <div className="md:col-span-3 bg-zinc-50 border border-zinc-200 rounded-2xl px-4 py-3 text-[11px] text-zinc-600">
-                      <strong className="text-zinc-800">Categorias ≠ Status.</strong> Status = ciclo de vida. Categorias = roteamento (Compras / Estoque / Produção).
-                    </div>
-                    <div className="md:col-span-1 bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 space-y-4">
-                      <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider border-b border-zinc-100 pb-2">
-                        Nova Subcategoria
-                      </h3>
-                      
-                      <form onSubmit={handleAddCategory} className="space-y-3">
-                        <div className="space-y-1">
-                          <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Nome</label>
-                          <input
-                            type="text"
-                            placeholder="Ex: Tonalizantes, Fragrâncias..."
-                            value={configNewCatName}
-                            onChange={(e) => setConfigNewCatName(e.target.value)}
-                            className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-medium"
-                            required
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Categoria Pai</label>
-                          <select
-                            value={configNewCatParent}
-                            onChange={(e) => setConfigNewCatParent(e.target.value)}
-                            className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-medium"
-                            required
-                          >
-                            <option value="">Selecione...</option>
-                            <option value="cat_mp">Matéria Prima</option>
-                            <option value="cat_emb">Embalagem</option>
-                            <option value="cat_mat">Materiais</option>
-                            <option value="cat_coloracao">Coloração</option>
-                            <option value="cat_apoio">Material de Apoio</option>
-                            <option value="cat_base">Base de Produção</option>
-                          </select>
-                        </div>
-                        <button
-                          type="submit"
-                          className="w-full bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold py-2 rounded-xl shadow-sm transition-all cursor-pointer"
-                        >
-                          Adicionar Subcategoria
-                        </button>
-                      </form>
-                    </div>
-
-                    <div className="md:col-span-2 bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 space-y-4">
-                      <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider border-b border-zinc-100 pb-2">
-                        Subcategorias cadastradas
-                      </h3>
-                      
-                      <div className="overflow-y-auto max-h-[350px] border border-zinc-100 rounded-xl divide-y divide-zinc-50">
-                        {categories.filter(c => c.parentId !== null).length === 0 ? (
-                          <div className="p-4 text-center text-zinc-400 text-xs italic">
-                            Nenhuma subcategoria personalizada cadastrada.
-                          </div>
-                        ) : (
-                          categories.filter(c => c.parentId !== null).map(cat => {
-                            const parentName = categories.find(p => p.id === cat.parentId)?.name || cat.parentId;
-                            return (
-                              <div key={cat.id} className="flex justify-between items-center p-3 text-xs hover:bg-zinc-50 transition-colors">
-                                <div>
-                                  <div className="font-bold text-zinc-800">{cat.name}</div>
-                                  <div className="text-[10px] text-zinc-400 uppercase font-semibold tracking-wider">Pai: {parentName}</div>
-                                </div>
-                                <button
-                                  onClick={() => handleDeleteCategory(cat.id)}
-                                  className="p-1.5 hover:bg-zinc-100 text-zinc-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
-                                  title="Excluir subcategoria"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
+      {configSubTab === 'parametros' && (
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
+          <form onSubmit={handleSaveGlobalSettings} className={cn(painel, 'lg:col-span-2 space-y-4 text-left')}>
+            <h3 className={titulo}>Parâmetros globais</h3>
+            <div className="space-y-1.5">
+              <label className={rotulo}>Dias comerciais por mês</label>
+              <input type="number" className={campo} min={1} max={31} value={globalDiasComerciais} onChange={(e) => setGlobalDiasComerciais(e.target.value)} required />
+              <span className={dica}>Converte meses ideais e prazos em dias.</span>
             </div>
+            <div className="space-y-1.5">
+              <label className={rotulo}>Itens por página</label>
+              <input type="number" className={campo} min={10} max={1000} value={globalLimitPerPage} onChange={(e) => setGlobalLimitPerPage(e.target.value)} required />
+              <span className={dica}>Paginação padrão de estoque e produção.</span>
+            </div>
+            <div className="space-y-1.5">
+              <label className={rotulo}>Meta de giro dos lançamentos (meses)</label>
+              <input type="number" className={campo} min={1} max={36} value={globalLancamentoMeta} onChange={(e) => setGlobalLancamentoMeta(e.target.value)} required />
+              <span className={dica}>Meses até graduar de Lançamento para Ativo.</span>
+            </div>
+            <button
+              type="submit"
+              disabled={globalSettingsSaving}
+              className="w-full min-h-[44px] md:min-h-0 bg-zinc-900 hover:bg-zinc-800 disabled:bg-zinc-300 text-white text-xs font-bold py-2 rounded-xl shadow-sm transition-colors cursor-pointer"
+            >
+              {globalSettingsSaving ? 'Salvando...' : 'Salvar parâmetros'}
+            </button>
+          </form>
+
+          <div className={cn(painel, 'lg:col-span-3 space-y-5 text-left')}>
+            <h3 className={titulo}>Regras de negócio</h3>
+            <div>
+              <h4 className="text-xs font-bold text-zinc-800 mb-2">Status do produto (ciclo de vida)</h4>
+              <ul className="divide-y divide-zinc-100 border border-zinc-100 rounded-xl">
+                {PRODUCT_LINE_STATUSES.map(st => (
+                  <li key={st.value} className="px-3 py-2 text-[11px] text-zinc-500 leading-snug">
+                    <strong className="text-zinc-800">{st.label}</strong> · {st.description}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-zinc-800 mb-2">Tipo e roteamento</h4>
+              <ul className="divide-y divide-zinc-100 border border-zinc-100 rounded-xl">
+                <li className="px-3 py-2 text-[11px] text-zinc-500 leading-snug"><strong className="text-zinc-800">Base</strong> · tipo de produto próprio (fórmula interna); pode estar ativa ou inativa e em várias linhas; roteada para Gestão de Bases em Produção.</li>
+                <li className="px-3 py-2 text-[11px] text-zinc-500 leading-snug"><strong className="text-zinc-800">MP / Embalagem</strong> · painel geral de Compras.</li>
+                {PRODUCT_ROUTING_CATEGORIES.filter(c => c.id !== 'cat_base').map(c => (
+                  <li key={c.id} className="px-3 py-2 text-[11px] text-zinc-500 leading-snug"><strong className="text-zinc-800">{c.label}</strong> · {c.description}</li>
+                ))}
+              </ul>
+            </div>
+            <p className="text-[11px] text-zinc-600 leading-relaxed bg-zinc-50 border border-zinc-200 rounded-xl px-3.5 py-3">
+              <strong className="text-zinc-800">Fim de linha:</strong> embalagens exclusivas suspendem na hora; MPs seguem enquanto houver saldo de embalagem, para escoar o acabado.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {configSubTab === 'status' && (
+        <div className={cn(painel, 'space-y-3 text-left')}>
+          <div>
+            <h3 className={titulo}>Status ignorados no planejamento</h3>
+            <p className="text-[11px] text-zinc-500 leading-relaxed mt-1.5">
+              Status marcado sai das planilhas de demanda e das estimativas de dias de estoque (evita alertas falsos de itens fora de catálogo ou terceirizados). Saindo de Linha continua dinâmico para MPs, para consumir as embalagens que sobram. Cada mudança mostra a prévia antes de gravar.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {PRODUCT_LINE_STATUSES.map(st => {
+              const ignorado = configIgnoredStatuses.includes(st.value);
+              return (
+                <label
+                  key={st.value}
+                  className={cn(
+                    'flex items-start gap-3 px-3.5 py-3 min-h-[44px] rounded-xl border cursor-pointer transition-colors',
+                    ignorado ? 'bg-zinc-900 border-zinc-900 text-white' : 'bg-white border-zinc-200 hover:bg-zinc-50'
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={ignorado}
+                    onChange={() => handleToggleIgnoredStatus(st.value)}
+                    className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
+                  />
+                  <span className="min-w-0">
+                    <span className="text-xs font-bold block">{st.label}{ignorado && ' · ignorado'}</span>
+                    <span className={cn('text-[11px] leading-snug block', ignorado ? 'text-zinc-300' : 'text-zinc-500')}>{st.description}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {configSubTab === 'categorias' && (
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
+          <form onSubmit={handleAddCategory} className={cn(painel, 'lg:col-span-2 space-y-4 text-left')}>
+            <div>
+              <h3 className={titulo}>Nova subcategoria</h3>
+              <p className="text-[11px] text-zinc-500 leading-snug mt-1.5">Categoria é roteamento (Compras, Estoque, Produção); status é ciclo de vida.</p>
+            </div>
+            <div className="space-y-1.5">
+              <label className={rotulo}>Nome</label>
+              <input type="text" placeholder="Ex: Tonalizantes, Fragrâncias..." value={configNewCatName} onChange={(e) => setConfigNewCatName(e.target.value)} className={campo} required />
+            </div>
+            <div className="space-y-1.5">
+              <label className={rotulo}>Categoria pai</label>
+              <select value={configNewCatParent} onChange={(e) => setConfigNewCatParent(e.target.value)} className={campo} required>
+                <option value="">Selecione...</option>
+                <option value="cat_mp">Matéria Prima</option>
+                <option value="cat_emb">Embalagem</option>
+                <option value="cat_mat">Materiais</option>
+                <option value="cat_coloracao">Coloração</option>
+                <option value="cat_apoio">Material de Apoio</option>
+                <option value="cat_base">Base de Produção</option>
+              </select>
+            </div>
+            <button type="submit" className="w-full min-h-[44px] md:min-h-0 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold py-2 rounded-xl shadow-sm transition-colors cursor-pointer">
+              Adicionar subcategoria
+            </button>
+          </form>
+
+          <div className={cn(painel, 'lg:col-span-3 space-y-3')}>
+            <h3 className={cn(titulo, 'flex items-center justify-between')}>
+              Subcategorias cadastradas
+              <span className="text-[10px] font-bold bg-zinc-100 text-zinc-600 rounded-full px-2 py-0.5 tabular-nums">{subcategorias.length}</span>
+            </h3>
+            <div className="max-h-[420px] overflow-y-auto border border-zinc-100 rounded-xl divide-y divide-zinc-100">
+              {subcategorias.length === 0 ? (
+                <div className="p-4 text-center text-zinc-400 text-xs italic">Nenhuma subcategoria personalizada cadastrada.</div>
+              ) : (
+                subcategorias.map(cat => {
+                  const parentName = categories.find(p => p.id === cat.parentId)?.name || cat.parentId;
+                  return (
+                    <div key={cat.id} className="flex justify-between items-center gap-2 pl-3.5 pr-1.5 py-1.5 min-h-[44px] text-xs hover:bg-zinc-50 transition-colors">
+                      <div className="min-w-0">
+                        <div className="font-bold text-zinc-800 truncate">{cat.name}</div>
+                        <div className="text-[10px] text-zinc-500 uppercase font-semibold tracking-wider truncate">Pai: {parentName}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCategory(cat.id)}
+                        className="shrink-0 h-11 w-11 md:h-8 md:w-8 flex items-center justify-center hover:bg-zinc-100 text-zinc-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
+                        title="Excluir subcategoria"
+                        aria-label={`Excluir ${cat.name}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
