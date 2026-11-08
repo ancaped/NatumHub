@@ -21,14 +21,14 @@ export function VincularLoteDrawer({
           <button
             type="button"
             onClick={() => setLinkLoteModalItem(null)}
-            className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
+            className="px-3.5 py-1.5 max-md:min-h-11 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
           >
             Cancelar
           </button>
           <button
             type="button"
             onClick={handleConfirmLinkLote}
-            className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
+            className="px-4 py-1.5 max-md:min-h-11 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
           >
             Salvar Lote
           </button>
@@ -46,15 +46,15 @@ export function VincularLoteDrawer({
 
         {/* Histórico / Sugestão do Último Lote Adicionado */}
         {linkLoteModalItem.loadingUltimoLote ? (
-          <div className="flex items-center gap-2 p-2.5 bg-blue-50/60 border border-blue-150 rounded-lg text-xs text-blue-700">
-            <RefreshCw size={13} className="animate-spin text-blue-600 shrink-0" />
+          <div className="flex items-center gap-2 p-2.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs text-zinc-700">
+            <RefreshCw size={13} className="animate-spin text-zinc-600 shrink-0" />
             <span>Consultando histórico de lotes no ERP...</span>
           </div>
         ) : linkLoteModalItem.ultimoLote ? (
-          <div className="p-2.5 bg-blue-50/80 border border-blue-200 rounded-lg text-xs space-y-1.5">
+          <div className="p-2.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-zinc-600 text-[11px] font-medium">Último lote registrado:</span>
-              <span className="font-mono font-bold text-blue-900 bg-white px-2 py-0.5 rounded border border-blue-200 shadow-2xs">
+              <span className="font-mono font-bold text-zinc-900 bg-white px-2 py-0.5 rounded border border-zinc-200 shadow-2xs">
                 #{linkLoteModalItem.ultimoLote}
               </span>
             </div>
@@ -66,7 +66,7 @@ export function VincularLoteDrawer({
                 <span className="text-emerald-700 font-bold">Massa no ERP: {linkLoteModalItem.quantidadeKgLote} kg</span>
               )}
             </div>
-            <div className="flex items-center gap-1.5 pt-1.5 border-t border-blue-200/60">
+            <div className="flex items-center gap-1.5 pt-1.5 border-t border-zinc-200">
               <button
                 type="button"
                 onClick={() => {
@@ -79,7 +79,7 @@ export function VincularLoteDrawer({
                     autoQty: autoMassa,
                   });
                 }}
-                className="w-full py-1 bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 rounded text-xs font-semibold cursor-pointer transition-colors shadow-2xs text-center"
+                className="w-full py-1 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-300 rounded text-xs font-semibold cursor-pointer transition-colors shadow-2xs text-center"
               >
                 Usar Lote #{linkLoteModalItem.ultimoLote}
               </button>
@@ -110,7 +110,7 @@ export function VincularLoteDrawer({
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleConfirmLinkLote();
             }}
-            className="w-full p-2.5 font-mono text-sm border border-zinc-300 rounded-lg bg-white font-bold text-zinc-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            className="w-full p-2.5 font-mono text-sm border border-zinc-300 rounded-lg bg-white font-bold text-zinc-900 focus:ring-2 focus:ring-zinc-400 focus:outline-none"
           />
           <p className="text-[11px] text-zinc-500 mt-1">
             Ao salvar, o lote é sincronizado automaticamente com os quadros de acompanhamento de produção.

@@ -225,10 +225,10 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
       headerActions={
         <div style={{ display: 'flex', gap: 6 }}>
           <BotaoAcao onClick={imprimir} disabled={!dados} title="Imprime os insumos da semana com a mesma conta desta tela">
-            <Printer size={14} /> Imprimir
+            <Printer size={14} /> <span className="hidden sm:inline">Imprimir</span>
           </BotaoAcao>
-          <BotaoAcao onClick={carregar} disabled={loading}>
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Atualizar
+          <BotaoAcao onClick={carregar} disabled={loading} title="Atualizar">
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> <span className="hidden sm:inline">Atualizar</span>
           </BotaoAcao>
         </div>
       }
@@ -249,6 +249,7 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
                 ]}
               />
             </FilterBar>
+            <div className="hidden md:block">
             <div className="panel-card" style={{ overflowX: 'auto', padding: 0 }}>
               <table className="data-table compacta">
                 <thead>
@@ -339,11 +340,69 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
                 </tbody>
               </table>
             </div>
+            </div>
+            <div className="md:hidden flex flex-col gap-2">
+              {grupos.length === 0 && <p className="p-5 text-center text-xs text-zinc-500">Nenhuma falta de insumo. Todas as ordens da semana estão cobertas.</p>}
+              {grupos.map(({ o, itens }) => {
+                const aberta = abertas.has(o.id) || busca.trim().length > 0;
+                const [cod, desc, det] = partesOrdem(descreverOrdem(o.id));
+                const semCob = itens.filter((i) => i.status === 'falta').length;
+                return (
+                  <div key={o.id} className="rounded-xl border border-zinc-200 bg-white overflow-hidden">
+                    <button type="button" onClick={() => alternar(abertas, setAbertas, o.id)} className="w-full min-h-11 flex flex-col items-start gap-1 p-3 text-left bg-zinc-50 cursor-pointer">
+                      <span className="flex items-center gap-1.5 min-w-0 max-w-full">
+                        {aberta ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />}
+                        <span className="product-code">{cod}</span>
+                        <span className="text-xs font-semibold text-zinc-900 break-words">{desc}</span>
+                      </span>
+                      {det && <span className="text-[11px] text-zinc-500">{det}</span>}
+                      <span className="flex flex-wrap gap-1">
+                        {semCob > 0 && <StatusBadge variante="critico">{semCob} sem cobertura</StatusBadge>}
+                        {itens.length - semCob > 0 && <StatusBadge variante="ordem">{itens.length - semCob} chega depois</StatusBadge>}
+                      </span>
+                    </button>
+                    {aberta && (
+                      <div className="divide-y divide-zinc-100">
+                        {itens.map((i) => {
+                          const s = situacaoInsumo(i);
+                          const un = i.unidade ? ` ${i.unidade}` : '';
+                          const chave = `${o.id}-${i.codigo}`;
+                          const aberto = detalhe.has(chave);
+                          return (
+                            <div key={chave} className="p-3 flex flex-col gap-1.5">
+                              <button type="button" onClick={() => alternar(detalhe, setDetalhe, chave)} className="min-h-11 flex items-start gap-1.5 text-left cursor-pointer" title="Ver como foi calculado">
+                                {aberto ? <ChevronDown size={12} className="mt-1 shrink-0" /> : <ChevronRight size={12} className="mt-1 shrink-0" />}
+                                <span className="text-xs break-words"><strong>{i.descricao}</strong> <span className="product-code">{i.codigo}</span></span>
+                              </button>
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="flex flex-col gap-0.5">
+                                  <StatusBadge variante={s.variante}>{s.rotulo}</StatusBadge>
+                                  {i.pedido ? <span className="text-[11px]">{linkPedido(i.pedido)}{i.fornecedor ? ` · ${i.fornecedor}` : ''}</span> : null}
+                                </span>
+                                <span className="text-xs font-bold" style={{ color: i.falta > 0 ? 'hsl(var(--danger-hsl))' : undefined }}>
+                                  {i.falta > 0 ? `Falta ${fmt(i.falta)}${un}` : '-'}
+                                </span>
+                                <button type="button" className="tab-btn min-h-11 inline-flex items-center gap-1 text-xs" title="Sem controle, não usado mais ou trocado por outro insumo" onClick={() => setClassificar({ ordem: o, i })}>
+                                  <Tags size={12} /> Classificar
+                                </button>
+                              </div>
+                              {aberto && <div className="rounded-lg bg-zinc-50 p-2"><ComoFoiCalculado i={i} /></div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </>
         )}
 
         {aba === 'revisar' && dados && (
-          <div className="panel-card" style={{ overflowX: 'auto', padding: 0 }}>
+          <>
+          <div className="hidden md:block">
+            <div className="panel-card" style={{ overflowX: 'auto', padding: 0 }}>
             <table className="data-table compacta">
               <thead>
                 <tr>
@@ -394,10 +453,47 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
               </tbody>
             </table>
           </div>
+          </div>
+          <div className="md:hidden flex flex-col gap-2">
+            {avisos.length === 0 && <p className="p-5 text-center text-xs text-zinc-500">Nada para revisar agora.</p>}
+            {avisos.map((a, idx) => {
+              const t = TITULO_AVISO[a.tipo] ?? { rotulo: a.tipo, variante: 'ordem' as VarianteBadge };
+              const [cod, desc, det] = a.ordemId ? partesOrdem(descreverOrdem(a.ordemId)) : [a.insumo ?? 'Pedido', '', ''];
+              const alvo = a.candidatos?.[0];
+              return (
+                <div key={`m-${a.tipo}-${a.ordemId ?? a.insumo ?? ''}-${a.pedido ?? ''}-${idx}`} className="rounded-xl border border-zinc-200 bg-white p-3 flex flex-col gap-1.5">
+                  <div className="text-xs"><span className="product-code">{cod}</span> <strong className="break-words">{desc}</strong></div>
+                  {det && <div className="text-[11px] text-zinc-500">{det}</div>}
+                  <div><StatusBadge variante={t.variante}>{t.rotulo}</StatusBadge>
+                    {a.pedido ? <span className="text-[11px] ml-1">{linkPedido(a.pedido)}{a.fornecedor ? ` · ${a.fornecedor}` : ''}</span> : null}
+                  </div>
+                  <div className="text-xs text-zinc-500">{a.mensagem}</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {a.pedido ? (
+                      <button type="button" className="tab-btn min-h-11 text-xs" onClick={() => setPedido(a.pedido as number)}>Abrir pedido</button>
+                    ) : null}
+                    {a.tipo === 'lote_erp_sem_vinculo' && a.ordemId && a.lote && (
+                      <button type="button" className="tab-btn min-h-11 inline-flex items-center gap-1 text-xs" onClick={() => onVincular(a.ordemId as string, a.lote as string)}>
+                        <Link2 size={12} /> Vincular #{a.lote}
+                      </button>
+                    )}
+                    {(a.tipo === 'sugestao_base' || a.tipo === 'base_tambem_planejada') && a.ordemId && alvo && (
+                      <button type="button" className="tab-btn min-h-11 text-xs" disabled={salvando === a.ordemId} onClick={() => definirBaseFonte(a.ordemId as string, alvo as BaseFonte)}>
+                        {a.tipo === 'sugestao_base' ? 'Aplicar' : 'Usar ordem da base'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          </>
         )}
 
         {aba === 'bases' && dados && (
-          <div className="panel-card" style={{ overflowX: 'auto', padding: 0 }}>
+          <>
+          <div className="hidden md:block">
+            <div className="panel-card" style={{ overflowX: 'auto', padding: 0 }}>
             <table className="data-table compacta">
               <thead>
                 <tr>
@@ -441,6 +537,29 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
               </tbody>
             </table>
           </div>
+          </div>
+          <div className="md:hidden flex flex-col gap-2">
+            {ordensComBase.length === 0 && <p className="p-5 text-center text-xs text-zinc-500">Nenhuma ordem da semana usa base.</p>}
+            {ordensComBase.map((o) => {
+              const [cod, desc, det] = partesOrdem(descreverOrdem(o.id));
+              const atual = o.baseFonte ?? 'explodir';
+              return (
+                <div key={`m-${o.id}`} className="rounded-xl border border-zinc-200 bg-white p-3 flex flex-col gap-1.5">
+                  <div className="text-xs"><span className="product-code">{cod}</span> <strong className="break-words">{desc}</strong></div>
+                  {det && <div className="text-[11px] text-zinc-500">{det}</div>}
+                  <div className="text-xs">Base: {(o.bases ?? []).map((b) => b.descricao || b.codigo).join(', ')}</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(Object.keys(BASE_FONTE_ROTULO) as BaseFonte[]).map((f) => (
+                      <button key={f} type="button" className={`tab-btn min-h-11 text-xs ${atual === f ? 'active' : ''}`} disabled={salvando === o.id} onClick={() => atual !== f && definirBaseFonte(o.id, f)}>
+                        {BASE_FONTE_ROTULO[f]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          </>
         )}
 
         {aba === 'classificacao' && (
@@ -454,7 +573,9 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
         )}
 
         {aba === 'insumos' && dados && (
-          <div className="panel-card" style={{ overflowX: 'auto', padding: 0 }}>
+          <>
+          <div className="hidden md:block">
+            <div className="panel-card" style={{ overflowX: 'auto', padding: 0 }}>
             <table className="data-table compacta">
               <thead>
                 <tr>
@@ -490,6 +611,29 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
               </tbody>
             </table>
           </div>
+          </div>
+          <div className="md:hidden flex flex-col gap-2">
+            {insumos.length === 0 && <p className="p-5 text-center text-xs text-zinc-500">Nenhum insumo com consumo previsto.</p>}
+            {[...insumos]
+              .sort((a, b) => a.livre - a.consumoPrevisto - (b.livre - b.consumoPrevisto))
+              .slice(0, 60)
+              .map((i) => {
+                const saldo = i.livre - i.consumoPrevisto;
+                return (
+                  <div key={`m-${i.codigo}`} className="rounded-xl border border-zinc-200 bg-white p-3 flex flex-col gap-1.5">
+                    <div className="text-xs break-words"><strong>{i.descricao || i.codigo}</strong>{i.calibrado ? <span className="text-[11px] ml-1">(estoque ajustado)</span> : null} <span className="product-code">{i.codigo}</span></div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+                      <span className="text-zinc-500">Estoque <strong className="text-zinc-900">{fmt(i.estoque)}</strong></span>
+                      <span className="text-zinc-500">Reserva <strong className="text-zinc-900">{fmt(i.reserva)}</strong></span>
+                      <span className="text-zinc-500">Livre <strong className="text-zinc-900">{fmt(i.livre)}</strong></span>
+                      <span className="text-zinc-500">Consumo <strong className="text-zinc-900">{fmt(i.consumoPrevisto)}</strong></span>
+                    </div>
+                    <div className="text-xs font-bold" style={{ color: saldo < 0 ? 'hsl(var(--danger-hsl))' : undefined }}>Saldo {fmt(saldo)}</div>
+                  </div>
+                );
+              })}
+          </div>
+          </>
         )}
       </div>
 

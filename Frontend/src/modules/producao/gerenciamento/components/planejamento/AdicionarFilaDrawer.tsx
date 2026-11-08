@@ -126,7 +126,7 @@ export function AdicionarFilaDrawer({ products, codigosNaFila, inicial, onClose,
               />
             </div>
             {busca.trim() && resultados.length === 0 && <div className="py-4 text-center text-zinc-400">Nenhum produto encontrado.</div>}
-            <ul className="divide-y divide-zinc-100 border border-zinc-200 rounded-lg max-h-[60vh] overflow-y-auto empty:hidden">
+            <ul className="divide-y divide-zinc-100 border border-zinc-200 rounded-lg max-h-[60dvh] overflow-y-auto empty:hidden">
               {resultados.map(p => (
                 <li key={p.codigo}>
                   <button

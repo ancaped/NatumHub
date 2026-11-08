@@ -346,7 +346,10 @@ export function PlanejamentoSemanalTab({
   const [loadingProducts, setLoadingProducts] = useState(false);
 
   // Painel lateral e busca do Banco de Demandas
-  const [demandBankOpen, setDemandBankOpen] = useState(true);
+  // No celular (abaixo de lg) o Banco de Demandas começa fechado: a fila empilha embaixo da barra de comandos
+  const [demandBankOpen, setDemandBankOpen] = useState(() => {
+    try { return window.matchMedia('(min-width: 1024px)').matches; } catch { return true; }
+  });
   const [demandSearch, setDemandSearch] = useState('');
   const [filaAba, setFilaAba] = useState<'disponiveis' | 'falta' | 'bases'>('disponiveis');
   // Tudo o que o servidor manda (manuais da tabela + automáticos calculados); `filaDemandas` são só os manuais.
@@ -552,6 +555,11 @@ export function PlanejamentoSemanalTab({
     const ajustar = () => {
       const el = filaCardRef.current;
       if (!el) return;
+      // Altura calculada pela janela só em ≥1024 px; abaixo disso a fila empilha com altura natural (max-h em dvh)
+      if (!window.matchMedia('(min-width: 1024px)').matches) {
+        setFilaAltura(null);
+        return;
+      }
       const topo = Math.max(el.getBoundingClientRect().top, 12);
       setFilaAltura(Math.max(360, Math.floor(window.innerHeight - topo - 12)));
     };
@@ -1895,6 +1903,256 @@ export function PlanejamentoSemanalTab({
     });
   };
 
+  // Cartão de uma ordem/batelada: o mesmo JSX serve à grade (desktop) e à lista por dia (celular)
+  const renderCartaoOrdem = (batch: CellBatchGroup, cellItems: PlanejamentoItem[]) => (
+    <div
+      key={batch.key}
+      draggable={true}
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/plain', batch.primaryItem.id);
+        e.dataTransfer.effectAllowed = 'move';
+        setDraggedBatch(batch.items);
+        setDraggedItem(batch.primaryItem);
+      }}
+      onDragEnd={() => {
+        setDraggedBatch(null);
+        setDraggedItem(null);
+        setDragOverCell(null);
+      }}
+      className={`p-2 rounded-lg border transition-all text-xs flex flex-col gap-1.5 shadow-xs cursor-grab active:cursor-grabbing select-none ${
+        (draggedBatch?.some(b => b.id === batch.primaryItem.id) || draggedItem?.id === batch.primaryItem.id) ? 'opacity-30 border-dashed border-zinc-400 scale-95' : ''
+      } ${
+        batch.isAprovado || batch.loteErp
+          ? 'bg-white border-zinc-200 border-l-4 border-l-emerald-500 hover:border-zinc-300'
+          : 'bg-white border-zinc-200 border-l-4 border-l-zinc-400 hover:border-zinc-300'
+      }`}
+      title="Arraste para mover para outro dia ou reator"
+    >
+      {/* 1. Header: Ícone Térmico Discreto, Nome do Produto / Badge Batelada, Botões de Parâmetros e Lixeira */}
+      <div className="flex items-start justify-between gap-1 max-md:flex-col">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {/* Ícone Minimalista de Quente ou Frio */}
+          {batch.isQuente ? (
+            <Flame size={12} className="text-amber-500 shrink-0"><title>Processo Quente</title></Flame>
+          ) : (
+            <Snowflake size={12} className="text-zinc-400 shrink-0"><title>Processo Frio</title></Snowflake>
+          )}
+          {batch.isMulti ? (
+            <div 
+              onClick={() => handleOpenTechnicalModal(batch.primaryItem, batch.items)}
+              className="cursor-pointer flex items-center gap-1"
+              title="Batelada Conjunta - Clique para configurar parâmetros"
+            >
+              <span className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-800 text-[11px] md:text-[10px] font-bold uppercase tracking-wide border border-zinc-300 font-mono">
+                Batelada ({batch.items.length} itens)
+              </span>
+            </div>
+          ) : (
+            <span 
+              onClick={() => handleOpenTechnicalModal(batch.primaryItem)}
+              className="font-bold text-zinc-900 text-xs leading-tight line-clamp-2 cursor-pointer hover:text-zinc-600 transition-colors"
+              title="Clique para configurar parâmetros (Processo, Reator, Lote)"
+            >
+              {batch.primaryItem.descricao || batch.primaryItem.codigo_produto}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-0.5 shrink-0 ml-1 max-md:self-end max-md:ml-0">
+          {groupCellItems(cellItems).length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={() => handleMoveOrder(batch.primaryItem, 'up')}
+                className="p-1 max-md:min-h-11 max-md:min-w-11 max-md:flex max-md:items-center max-md:justify-center hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 rounded cursor-pointer"
+                title="Subir na sequência do dia"
+              >
+                <ChevronUp size={12} />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleMoveOrder(batch.primaryItem, 'down')}
+                className="p-1 max-md:min-h-11 max-md:min-w-11 max-md:flex max-md:items-center max-md:justify-center hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 rounded cursor-pointer"
+                title="Descer na sequência do dia"
+              >
+                <ChevronDown size={12} />
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => handleOpenTechnicalModal(batch.primaryItem, batch.items)}
+            className="p-1 max-md:min-h-11 max-md:min-w-11 max-md:flex max-md:items-center max-md:justify-center hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 rounded cursor-pointer transition-colors"
+            title="Configurar Parâmetros"
+          >
+            <Settings size={12} />
+          </button>
+          <button
+            onClick={() => handleDeleteBatch(batch.items)}
+            className="p-1 max-md:min-h-11 max-md:min-w-11 max-md:flex max-md:items-center max-md:justify-center hover:bg-red-50 text-zinc-400 hover:text-red-500 rounded cursor-pointer ml-0.5"
+            title="Remover do Planejamento"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Se for multi-produto, lista os itens com código, descrição e kg individual */}
+      {batch.isMulti && (
+        <div className="space-y-1 pl-1.5 border-l-2 border-zinc-300 my-0.5">
+          {batch.items.map((it) => {
+            const estUn = unidadesDeKg(it.quantidade_planejada, it.descricao, ehBaseProduto({ codigo: it.codigo_produto, descricao: it.descricao }));
+            return (
+              <div key={it.id} className="text-[11px] leading-tight">
+                <div className="font-bold text-zinc-800 line-clamp-1" title={it.descricao}>
+                  {it.descricao || it.codigo_produto}
+                </div>
+                <div className="flex items-center justify-between text-[11px] md:text-[10px] text-zinc-500 font-mono">
+                  <span>{it.codigo_produto}</span>
+                  <span><strong className="text-zinc-700">{it.quantidade_planejada} kg</strong> ({estUn == null ? "— un" : `~${estUn.toLocaleString("pt-BR")} un`})</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Ordens antigas no reator BOMBONAS (histórico): o tamanho aparece como selo; os reatores de bombona de hoje já são o tamanho */}
+      {batch.primaryItem.reator_id === 'BOMBONAS' && batch.primaryItem.recipiente_detalhe && (
+        <span className="self-start px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 text-[11px] md:text-[10px] font-semibold border border-zinc-200">
+          {batch.primaryItem.recipiente_detalhe.replace(/(\d)kg/i, '$1 kg')}
+        </span>
+      )}
+
+      {/* Envase previsto (dias até o envase definidos no produto) */}
+      {(() => {
+        const comEnvase = batch.items
+          .map(it => ({ it, dias: diasAteEnvasePorCodigo.get(it.codigo_produto) }))
+          .filter((x): x is { it: PlanejamentoItem; dias: number } => x.dias !== undefined);
+        if (comEnvase.length === 0) return null;
+        return (
+          <div className="flex flex-col gap-0.5">
+            {comEnvase.map(({ it, dias }) => (
+              <span
+                key={it.id}
+                className="text-[11px] md:text-[10px] text-zinc-500"
+                title={`Previsão: data planejada + ${dias} dia(s) até o envase (definido no produto). A liberação real continua sendo o laudo físico-químico.`}
+              >
+                Envase ≥ {previsaoEnvase(it.data_planejada, dias)}{batch.isMulti ? ` · ${it.codigo_produto}` : ''}
+              </span>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* 3. Métricas: Massa Total (kg) e Rendimento Previsto */}
+      {(() => {
+        const isBase = (batch.primaryItem.codigo_produto || '').includes('.36.') || 
+          (batch.primaryItem.descricao || '').toUpperCase().startsWith('BASE ') || 
+          (batch.primaryItem.descricao || '').toUpperCase().startsWith('PRE BASE ') ||
+          batch.primaryItem.codigo_produto === '8.11.002' ||
+          batch.primaryItem.codigo_produto === '8.12.002' ||
+          batch.primaryItem.codigo_produto === '8.13.001';
+
+        return (
+          <>
+            <div className="flex items-center justify-between text-[12px] md:text-[11px] bg-zinc-50 px-2 py-1 rounded border border-zinc-150">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (batch.isMulti) {
+                    handleOpenBatchMassEditModal(batch.items);
+                  } else {
+                    setEditQtyModalItem({ item: batch.primaryItem, newQty: batch.primaryItem.quantidade_planejada });
+                  }
+                }}
+                className="flex items-center gap-1 font-bold text-zinc-800 hover:text-zinc-900 hover:bg-zinc-100 px-1 py-0.5 max-md:min-h-11 rounded cursor-pointer transition-colors"
+                title="Clique para editar a massa (kg)"
+              >
+                <span className="font-mono font-extrabold text-zinc-900">{batch.totalKg} kg</span>
+                <Edit3 size={10} className="text-zinc-400 hover:text-zinc-700" />
+              </button>
+              <span className="text-zinc-500 font-medium text-[11px]">
+                {batch.isMulti 
+                  ? `${batch.items.length} produtos` 
+                  : (isBase 
+                      ? 'Base Granel' 
+                      : (() => {
+                          const yieldUnits = unidadesDeKg(batch.primaryItem.quantidade_planejada, batch.primaryItem.descricao, ehBaseProduto({ codigo: batch.primaryItem.codigo_produto, descricao: batch.primaryItem.descricao }));
+                          return yieldUnits == null ? '— un' : `~${yieldUnits.toLocaleString('pt-BR')} un`;
+                        })()
+                    )}
+              </span>
+            </div>
+
+            {/* 4. Rodapé: Lote ERP e Botão de Aprovação (Apenas Ícone) */}
+            <div className="flex items-center justify-between text-[11px] md:text-[10px] pt-0.5 max-md:gap-2">
+              <div className="flex items-center gap-1.5 overflow-hidden max-md:flex-wrap">
+                {batch.loteErp ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenLinkLoteModal(batch.primaryItem, batch.items);
+                    }}
+                    className="font-mono text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 font-bold text-[11px] md:text-[9px] px-1.5 py-0.5 max-md:min-h-11 rounded flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+                    title="Lote ERP compartilhado vinculado. Clique para editar."
+                  >
+                    <Tag size={9} className="text-emerald-600" />
+                    <span>#{batch.loteErp}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenLinkLoteModal(batch.primaryItem, batch.items);
+                    }}
+                    className="bg-zinc-50 hover:bg-zinc-100 text-zinc-700 border border-dashed border-zinc-300 font-medium text-[11px] md:text-[10px] px-2 py-0.5 max-md:min-h-11 rounded flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+                    title="Vincular Lote ERP compartilhado"
+                  >
+                    <Tag size={9} className="text-zinc-500" />
+                    <span>+ Vincular Lote</span>
+                  </button>
+                )}
+                <SeloCobertura
+                  resultado={piorResultado(batch.items.map(it => coberturaPorOrdem[it.id]))}
+                  onClick={() => setCoberturaAberta(true)}
+                  compacto
+                />
+              </div>
+
+              {/* Botão de Aprovação: APENAS O ÍCONE (Sem texto) */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (batch.isMulti) {
+                    handleToggleBatchAprovacao(batch.items);
+                  } else {
+                    handleToggleAprovacao(batch.primaryItem);
+                  }
+                }}
+                className={`p-1 max-md:min-h-11 max-md:min-w-11 max-md:flex max-md:items-center max-md:justify-center rounded cursor-pointer transition-all shadow-xs ${
+                  batch.isAprovado
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white' 
+                    : 'bg-zinc-100 hover:bg-emerald-50 text-zinc-400 hover:text-emerald-600 border border-zinc-200'
+                }`}
+                title={batch.isAprovado 
+                  ? "Batelada Aprovada (Clique para desaprovar)" 
+                  : "Aprovar Batelada"
+                }
+              >
+                <CheckCircle2 size={13} className={batch.isAprovado ? "text-white" : "text-zinc-400 hover:text-emerald-600"} />
+              </button>
+            </div>
+          </>
+        );
+      })()}
+    </div>
+  );
+
   return (
     <div className="flex flex-col gap-4 w-full">
       {aviso}
@@ -1902,24 +2160,24 @@ export function PlanejamentoSemanalTab({
       {/* BARRA SUPERIOR DE COMANDOS */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-zinc-200 shadow-xs">
         {/* Navegação Semanal */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center bg-zinc-100 p-1 rounded-lg border border-zinc-200">
             <button
               onClick={handlePrevWeek}
-              className="p-1.5 hover:bg-white rounded-md text-zinc-650 hover:text-zinc-900 transition-colors"
+              className="p-1.5 max-md:min-h-11 max-md:min-w-11 max-md:flex max-md:items-center max-md:justify-center hover:bg-white rounded-md text-zinc-650 hover:text-zinc-900 transition-colors"
               title="Semana Anterior"
             >
               <ChevronLeft size={16} />
             </button>
             <button
               onClick={handleToday}
-              className="px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:bg-white rounded-md transition-colors"
+              className="px-2.5 py-1 max-md:min-h-11 text-xs font-semibold text-zinc-700 hover:bg-white rounded-md transition-colors"
             >
               Semana Atual
             </button>
             <button
               onClick={handleNextWeek}
-              className="p-1.5 hover:bg-white rounded-md text-zinc-650 hover:text-zinc-900 transition-colors"
+              className="p-1.5 max-md:min-h-11 max-md:min-w-11 max-md:flex max-md:items-center max-md:justify-center hover:bg-white rounded-md text-zinc-650 hover:text-zinc-900 transition-colors"
               title="Próxima Semana"
             >
               <ChevronRight size={16} />
@@ -1933,7 +2191,7 @@ export function PlanejamentoSemanalTab({
 
           <button
             onClick={() => { fetchPlanejamento(); fetchFila(); }}
-            className="p-1.5 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors cursor-pointer"
+            className="p-1.5 max-md:min-h-11 max-md:min-w-11 max-md:flex max-md:items-center max-md:justify-center text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors cursor-pointer"
             title="Atualizar Planejamento"
           >
             <RefreshCw size={15} className={loadingPlan ? "animate-spin" : ""} />
@@ -1941,7 +2199,7 @@ export function PlanejamentoSemanalTab({
         </div>
 
         {/* Métricas Compactas da Semana (font-mono) */}
-        <div className="flex items-center gap-2 text-xs font-mono">
+        <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
           <div className="px-2.5 py-1 bg-zinc-50 border border-zinc-200 rounded-md flex items-center gap-1.5">
             <span className="text-zinc-500 font-sans">Ordens:</span>
             <strong className="text-zinc-900 font-bold">{weekStats.totalBatches}</strong>
@@ -1959,11 +2217,11 @@ export function PlanejamentoSemanalTab({
         {/* Hierarquia de Ações (HSL Zinc) */}
         <div className="flex flex-wrap items-center gap-1.5">
           {!podeEditar && (
-            <span className="px-2 py-1 rounded-md border border-zinc-200 bg-zinc-100 text-zinc-600 text-[10px] font-bold">Somente leitura</span>
+            <span className="px-2 py-1 rounded-md border border-zinc-200 bg-zinc-100 text-zinc-600 text-[11px] md:text-[10px] font-bold">Somente leitura</span>
           )}
           <button
             onClick={() => setDemandBankOpen(!demandBankOpen)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+            className={`max-md:min-h-11 max-md:min-w-11 max-md:justify-center px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
               demandBankOpen
                 ? 'bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-900 shadow-2xs'
                 : 'bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-300 shadow-2xs'
@@ -1971,7 +2229,7 @@ export function PlanejamentoSemanalTab({
           >
             <Package size={14} />
             <span>Banco de Demandas / Na Fila</span>
-            <span className={`font-mono px-1.5 py-0.2 rounded text-[10px] ${
+            <span className={`font-mono px-1.5 py-0.2 rounded text-[11px] md:text-[10px] ${
               demandBankOpen ? 'bg-white/15 text-white' : 'bg-zinc-100 text-zinc-800'
             }`}>
               {filaTodos.length}
@@ -1982,7 +2240,7 @@ export function PlanejamentoSemanalTab({
           <>
           <button
             onClick={() => handleOpenScheduleModal(null, weekDays[0]?.dateStr, reatores[0]?.id || 'R_500')}
-            className="bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-300 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+            className="max-md:min-h-11 max-md:min-w-11 max-md:justify-center bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-300 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
             title="Agendar nova batelada ou ordem conjunta"
           >
             <Plus size={14} className="text-zinc-600" />
@@ -1992,7 +2250,7 @@ export function PlanejamentoSemanalTab({
           <button
             onClick={handleRunHeuristic}
             disabled={sugerindo}
-            className="bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+            className="max-md:min-h-11 max-md:min-w-11 max-md:justify-center bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
             title="Sugerir a semana a partir da lista Tudo p/ Produzir Hoje do Gerenciamento, por urgência"
           >
             <Sparkles size={14} className="text-zinc-500" />
@@ -2004,7 +2262,7 @@ export function PlanejamentoSemanalTab({
 
                     <button
             onClick={() => setCoberturaAberta(true)}
-            className="bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+            className="max-md:min-h-11 max-md:min-w-11 max-md:justify-center bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
             title="Insumos da semana: o que falta, o que chega e o que precisa de decisão (reserva do ERP, pedidos, notas e ordens manuais)"
           >
             <ShieldCheck size={14} className="text-zinc-500" />
@@ -2013,7 +2271,7 @@ export function PlanejamentoSemanalTab({
 
           <button
             onClick={handlePrintWeeklyPlan}
-            className="p-1.5 bg-white hover:bg-zinc-50 text-zinc-600 hover:text-zinc-900 border border-zinc-200 rounded-lg transition-colors cursor-pointer"
+            className="max-md:min-h-11 max-md:min-w-11 max-md:justify-center max-md:flex max-md:items-center p-1.5 bg-white hover:bg-zinc-50 text-zinc-600 hover:text-zinc-900 border border-zinc-200 rounded-lg transition-colors cursor-pointer"
             title="Imprimir Programação Semanal de Produção em formato A4"
           >
             <Printer size={15} />
@@ -2023,7 +2281,7 @@ export function PlanejamentoSemanalTab({
           <>
           <button
             onClick={() => setReatoresModalOpen(true)}
-            className="p-1.5 bg-white hover:bg-zinc-50 text-zinc-600 hover:text-zinc-900 border border-zinc-200 rounded-lg transition-colors cursor-pointer"
+            className="max-md:min-h-11 max-md:min-w-11 max-md:justify-center max-md:flex max-md:items-center p-1.5 bg-white hover:bg-zinc-50 text-zinc-600 hover:text-zinc-900 border border-zinc-200 rounded-lg transition-colors cursor-pointer"
             title="Configurar Reatores e Capacidades"
           >
             <Settings size={15} />
@@ -2032,7 +2290,7 @@ export function PlanejamentoSemanalTab({
           <button
             onClick={handleClearWeek}
             disabled={plannedItems.length === 0}
-            className={`p-1.5 rounded-lg border transition-colors ${
+            className={`max-md:min-h-11 max-md:min-w-11 max-md:justify-center max-md:flex max-md:items-center p-1.5 rounded-lg border transition-colors ${
               plannedItems.length > 0 
                 ? 'bg-white border-zinc-200 text-zinc-400 hover:text-red-600 hover:bg-red-50 hover:border-red-200 cursor-pointer' 
                 : 'bg-zinc-50 text-zinc-300 border-zinc-200 cursor-not-allowed'
@@ -2047,9 +2305,62 @@ export function PlanejamentoSemanalTab({
       </div>
 
       {/* ÁREA PRINCIPAL: GRADE DE REATORES + GAVETA LATERAL DE DEMANDAS */}
-      <div className="flex gap-4 items-start w-full">
+      <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-start w-full">
+        {/* LISTA POR DIA (CELULAR): segunda a sexta, reatores com as mesmas ordens da grade */}
+        <div className={`md:hidden w-full flex flex-col gap-3 ${podeEditar ? '' : 'pointer-events-none'}`}>
+          {weekDays.map(day => {
+            const isToday = day.dateStr === formatDateStr(new Date());
+            return (
+              <section key={day.dateStr} className="bg-white rounded-xl border border-zinc-200 shadow-xs overflow-hidden">
+                <header className={`px-3 py-2.5 flex items-center justify-between gap-2 text-xs font-bold ${
+                  day.holiday ? 'bg-amber-50 text-amber-700 border-b border-amber-200' : isToday ? 'bg-zinc-100 text-zinc-900 border-b-2 border-zinc-900' : 'bg-zinc-50 text-zinc-900 border-b border-zinc-200'
+                }`}>
+                  <span>{day.label} ({day.dayNumber}){isToday ? ' · hoje' : ''}</span>
+                  {day.holiday && (
+                    <span className="text-[11px] font-normal truncate" title={day.holiday.name}>Feriado: {day.holiday.name}</span>
+                  )}
+                </header>
+                {!day.holiday && (
+                  <div className="divide-y divide-zinc-200">
+                    {reatores.filter(r => r.ativo).map(reator => {
+                      const cellItems = matrixItemsMap[`${reator.id}_${day.dateStr}`] || [];
+                      const info = infoDoReator(reator);
+                      const Icone = info.Icone;
+                      return (
+                        <div key={reator.id} className="p-3 flex flex-col gap-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0">
+                              <Icone size={16} className="text-zinc-500 shrink-0" />
+                              <span className="font-bold text-zinc-900 text-xs break-words min-w-0" title={reator.nome}>{reator.nome}</span>
+                              {info.tipo !== 'bombona' && (
+                                <span className="text-[11px] text-zinc-500 shrink-0">{reator.capacidade_kg} kg</span>
+                              )}
+                              <span className={`px-1.5 rounded font-semibold border text-[11px] shrink-0 ${info.badge}`}>{info.rotulo}</span>
+                            </div>
+                            {podeEditar && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenScheduleModal(null, day.dateStr, reator.id)}
+                                className="shrink-0 min-h-11 px-3 flex items-center gap-1 rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 text-xs font-medium cursor-pointer"
+                              >
+                                <Plus size={14} />
+                                Agendar
+                              </button>
+                            )}
+                          </div>
+                          {groupCellItems(cellItems).map(batch => renderCartaoOrdem(batch, cellItems))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
+
         {/* GRADE MATRIZ: REATORES (LINHAS) x SEGUNDA A SEXTA (COLUNAS) */}
-        <div className={`flex-1 bg-white rounded-xl border border-zinc-200 shadow-xs overflow-hidden ${podeEditar ? '' : 'pointer-events-none'}`}>
+        <div className={`hidden md:block flex-1 min-w-0 bg-white rounded-xl border border-zinc-200 shadow-xs overflow-hidden ${podeEditar ? '' : 'pointer-events-none'}`}>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left text-xs">
               <thead>
@@ -2242,7 +2553,7 @@ export function PlanejamentoSemanalTab({
                             isHoliday ? 'bg-amber-50/30' : ''
                           } ${
                             dragOverCell?.reatorId === reator.id && dragOverCell?.dateStr === day.dateStr
-                              ? 'bg-blue-100/70 ring-2 ring-blue-500 ring-inset rounded-sm shadow-inner'
+                              ? 'bg-zinc-100 ring-2 ring-zinc-400 ring-inset rounded-sm shadow-inner'
                               : ''
                           }`}
                         >
@@ -2254,256 +2565,7 @@ export function PlanejamentoSemanalTab({
                             </div>
                           ) : (
                             <div className="flex flex-col gap-2 min-h-[110px]">
-                              {groupCellItems(cellItems).map(batch => {
-                                return (
-                                  <div
-                                    key={batch.key}
-                                    draggable={true}
-                                    onDragStart={(e) => {
-                                      e.dataTransfer.setData('text/plain', batch.primaryItem.id);
-                                      e.dataTransfer.effectAllowed = 'move';
-                                      setDraggedBatch(batch.items);
-                                      setDraggedItem(batch.primaryItem);
-                                    }}
-                                    onDragEnd={() => {
-                                      setDraggedBatch(null);
-                                      setDraggedItem(null);
-                                      setDragOverCell(null);
-                                    }}
-                                    className={`p-2 rounded-lg border transition-all text-xs flex flex-col gap-1.5 shadow-xs cursor-grab active:cursor-grabbing select-none ${
-                                      (draggedBatch?.some(b => b.id === batch.primaryItem.id) || draggedItem?.id === batch.primaryItem.id) ? 'opacity-30 border-dashed border-zinc-400 scale-95' : ''
-                                    } ${
-                                      batch.isAprovado || batch.loteErp
-                                        ? 'bg-white border-zinc-200 border-l-4 border-l-emerald-500 hover:border-zinc-300'
-                                        : 'bg-white border-zinc-200 border-l-4 border-l-zinc-400 hover:border-zinc-300'
-                                    }`}
-                                    title="Arraste para mover para outro dia ou reator"
-                                  >
-                                    {/* 1. Header: Ícone Térmico Discreto, Nome do Produto / Badge Batelada, Botões de Parâmetros e Lixeira */}
-                                    <div className="flex items-start justify-between gap-1">
-                                      <div className="flex items-center gap-1.5 min-w-0">
-                                        {/* Ícone Minimalista de Quente ou Frio */}
-                                        {batch.isQuente ? (
-                                          <Flame size={12} className="text-orange-500 shrink-0"><title>Processo Quente</title></Flame>
-                                        ) : (
-                                          <Snowflake size={12} className="text-sky-400 shrink-0"><title>Processo Frio</title></Snowflake>
-                                        )}
-                                        {batch.isMulti ? (
-                                          <div 
-                                            onClick={() => handleOpenTechnicalModal(batch.primaryItem, batch.items)}
-                                            className="cursor-pointer flex items-center gap-1"
-                                            title="Batelada Conjunta - Clique para configurar parâmetros"
-                                          >
-                                            <span className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-800 text-[10px] font-bold uppercase tracking-wide border border-zinc-300 font-mono">
-                                              Batelada ({batch.items.length} itens)
-                                            </span>
-                                          </div>
-                                        ) : (
-                                          <span 
-                                            onClick={() => handleOpenTechnicalModal(batch.primaryItem)}
-                                            className="font-bold text-zinc-900 text-xs leading-tight line-clamp-2 cursor-pointer hover:text-blue-600 transition-colors" 
-                                            title="Clique para configurar parâmetros (Processo, Reator, Lote)"
-                                          >
-                                            {batch.primaryItem.descricao || batch.primaryItem.codigo_produto}
-                                          </span>
-                                        )}
-                                      </div>
-
-                                      <div className="flex items-center gap-0.5 shrink-0 ml-1">
-                                        {groupCellItems(cellItems).length > 1 && (
-                                          <>
-                                            <button
-                                              type="button"
-                                              onClick={() => handleMoveOrder(batch.primaryItem, 'up')}
-                                              className="p-1 hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 rounded cursor-pointer"
-                                              title="Subir na sequência do dia"
-                                            >
-                                              <ChevronUp size={12} />
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => handleMoveOrder(batch.primaryItem, 'down')}
-                                              className="p-1 hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 rounded cursor-pointer"
-                                              title="Descer na sequência do dia"
-                                            >
-                                              <ChevronDown size={12} />
-                                            </button>
-                                          </>
-                                        )}
-                                        <button
-                                          type="button"
-                                          onClick={() => handleOpenTechnicalModal(batch.primaryItem, batch.items)}
-                                          className="p-1 hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 rounded cursor-pointer transition-colors"
-                                          title="Configurar Parâmetros"
-                                        >
-                                          <Settings size={12} />
-                                        </button>
-                                        <button
-                                          onClick={() => handleDeleteBatch(batch.items)}
-                                          className="p-1 hover:bg-red-50 text-zinc-400 hover:text-red-500 rounded cursor-pointer ml-0.5"
-                                          title="Remover do Planejamento"
-                                        >
-                                          <Trash2 size={12} />
-                                        </button>
-                                      </div>
-                                    </div>
-
-                                    {/* 2. Se for multi-produto, lista os itens com código, descrição e kg individual */}
-                                    {batch.isMulti && (
-                                      <div className="space-y-1 pl-1.5 border-l-2 border-zinc-300 my-0.5">
-                                        {batch.items.map((it) => {
-                                          const estUn = unidadesDeKg(it.quantidade_planejada, it.descricao, ehBaseProduto({ codigo: it.codigo_produto, descricao: it.descricao }));
-                                          return (
-                                            <div key={it.id} className="text-[11px] leading-tight">
-                                              <div className="font-bold text-zinc-800 line-clamp-1" title={it.descricao}>
-                                                {it.descricao || it.codigo_produto}
-                                              </div>
-                                              <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
-                                                <span>{it.codigo_produto}</span>
-                                                <span><strong className="text-zinc-700">{it.quantidade_planejada} kg</strong> ({estUn == null ? "— un" : `~${estUn.toLocaleString("pt-BR")} un`})</span>
-                                              </div>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-
-                                    {/* Ordens antigas no reator BOMBONAS (histórico): o tamanho aparece como selo; os reatores de bombona de hoje já são o tamanho */}
-                                    {batch.primaryItem.reator_id === 'BOMBONAS' && batch.primaryItem.recipiente_detalhe && (
-                                      <span className="self-start px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 text-[10px] font-semibold border border-zinc-200">
-                                        {batch.primaryItem.recipiente_detalhe.replace(/(\d)kg/i, '$1 kg')}
-                                      </span>
-                                    )}
-
-                                    {/* Envase previsto (dias até o envase definidos no produto) */}
-                                    {(() => {
-                                      const comEnvase = batch.items
-                                        .map(it => ({ it, dias: diasAteEnvasePorCodigo.get(it.codigo_produto) }))
-                                        .filter((x): x is { it: PlanejamentoItem; dias: number } => x.dias !== undefined);
-                                      if (comEnvase.length === 0) return null;
-                                      return (
-                                        <div className="flex flex-col gap-0.5">
-                                          {comEnvase.map(({ it, dias }) => (
-                                            <span
-                                              key={it.id}
-                                              className="text-[10px] text-zinc-500"
-                                              title={`Previsão: data planejada + ${dias} dia(s) até o envase (definido no produto). A liberação real continua sendo o laudo físico-químico.`}
-                                            >
-                                              Envase ≥ {previsaoEnvase(it.data_planejada, dias)}{batch.isMulti ? ` · ${it.codigo_produto}` : ''}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      );
-                                    })()}
-
-                                    {/* 3. Métricas: Massa Total (kg) e Rendimento Previsto */}
-                                    {(() => {
-                                      const isBase = (batch.primaryItem.codigo_produto || '').includes('.36.') || 
-                                        (batch.primaryItem.descricao || '').toUpperCase().startsWith('BASE ') || 
-                                        (batch.primaryItem.descricao || '').toUpperCase().startsWith('PRE BASE ') ||
-                                        batch.primaryItem.codigo_produto === '8.11.002' ||
-                                        batch.primaryItem.codigo_produto === '8.12.002' ||
-                                        batch.primaryItem.codigo_produto === '8.13.001';
-
-                                      return (
-                                        <>
-                                          <div className="flex items-center justify-between text-[11px] bg-zinc-50 px-2 py-1 rounded border border-zinc-150">
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (batch.isMulti) {
-                                                  handleOpenBatchMassEditModal(batch.items);
-                                                } else {
-                                                  setEditQtyModalItem({ item: batch.primaryItem, newQty: batch.primaryItem.quantidade_planejada });
-                                                }
-                                              }}
-                                              className="flex items-center gap-1 font-bold text-zinc-800 hover:text-blue-700 hover:bg-blue-50 px-1 py-0.5 rounded cursor-pointer transition-colors"
-                                              title="Clique para editar a massa (kg)"
-                                            >
-                                              <span className="font-mono font-extrabold text-zinc-900">{batch.totalKg} kg</span>
-                                              <Edit3 size={10} className="text-zinc-400 hover:text-blue-600" />
-                                            </button>
-                                            <span className="text-zinc-500 font-medium text-[11px]">
-                                              {batch.isMulti 
-                                                ? `${batch.items.length} produtos` 
-                                                : (isBase 
-                                                    ? 'Base Granel' 
-                                                    : (() => {
-                                                        const yieldUnits = unidadesDeKg(batch.primaryItem.quantidade_planejada, batch.primaryItem.descricao, ehBaseProduto({ codigo: batch.primaryItem.codigo_produto, descricao: batch.primaryItem.descricao }));
-                                                        return yieldUnits == null ? '— un' : `~${yieldUnits.toLocaleString('pt-BR')} un`;
-                                                      })()
-                                                  )}
-                                            </span>
-                                          </div>
-
-                                          {/* 4. Rodapé: Lote ERP e Botão de Aprovação (Apenas Ícone) */}
-                                          <div className="flex items-center justify-between text-[10px] pt-0.5">
-                                            <div className="flex items-center gap-1.5 overflow-hidden">
-                                              {batch.loteErp ? (
-                                                <button
-                                                  type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleOpenLinkLoteModal(batch.primaryItem, batch.items);
-                                                  }}
-                                                  className="font-mono text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 font-bold text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-colors shrink-0"
-                                                  title="Lote ERP compartilhado vinculado. Clique para editar."
-                                                >
-                                                  <Tag size={9} className="text-emerald-600" />
-                                                  <span>#{batch.loteErp}</span>
-                                                </button>
-                                              ) : (
-                                                <button
-                                                  type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleOpenLinkLoteModal(batch.primaryItem, batch.items);
-                                                  }}
-                                                  className="bg-zinc-50 hover:bg-zinc-100 text-zinc-700 border border-dashed border-zinc-300 font-medium text-[10px] px-2 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-colors shrink-0"
-                                                  title="Vincular Lote ERP compartilhado"
-                                                >
-                                                  <Tag size={9} className="text-zinc-500" />
-                                                  <span>+ Vincular Lote</span>
-                                                </button>
-                                              )}
-                                              <SeloCobertura
-                                                resultado={piorResultado(batch.items.map(it => coberturaPorOrdem[it.id]))}
-                                                onClick={() => setCoberturaAberta(true)}
-                                                compacto
-                                              />
-                                            </div>
-
-                                            {/* Botão de Aprovação: APENAS O ÍCONE (Sem texto) */}
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (batch.isMulti) {
-                                                  handleToggleBatchAprovacao(batch.items);
-                                                } else {
-                                                  handleToggleAprovacao(batch.primaryItem);
-                                                }
-                                              }}
-                                              className={`p-1 rounded cursor-pointer transition-all shadow-xs ${
-                                                batch.isAprovado 
-                                                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white' 
-                                                  : 'bg-zinc-100 hover:bg-emerald-50 text-zinc-400 hover:text-emerald-600 border border-zinc-200'
-                                              }`}
-                                              title={batch.isAprovado 
-                                                ? "Batelada Aprovada (Clique para desaprovar)" 
-                                                : "Aprovar Batelada"
-                                              }
-                                            >
-                                              <CheckCircle2 size={13} className={batch.isAprovado ? "text-white" : "text-zinc-400 hover:text-emerald-600"} />
-                                            </button>
-                                          </div>
-                                        </>
-                                      );
-                                    })()}
-                                  </div>
-                                );
-                              })}
+                              {groupCellItems(cellItems).map(batch => renderCartaoOrdem(batch, cellItems))}
 
                               {/* Botão de Agendamento Rápido na Célula Vaga */}
                               {cellItems.length === 0 && podeEditar && (
@@ -2534,7 +2596,7 @@ export function PlanejamentoSemanalTab({
           <div
             ref={filaCardRef}
             style={filaAltura ? { height: filaAltura } : undefined}
-            className="w-[420px] bg-white rounded-xl border border-zinc-200 shadow-xs flex flex-col min-h-0 h-[750px] shrink-0 sticky top-3 self-start"
+            className="order-first lg:order-none w-full lg:w-[420px] bg-white rounded-xl border border-zinc-200 shadow-xs flex flex-col min-h-0 max-h-[85dvh] lg:max-h-none lg:h-[750px] shrink-0 lg:sticky top-3 lg:self-start"
           >
             {/* Cabeçalho da Gaveta */}
             <div className="p-3 border-b border-zinc-200 flex flex-col gap-2 bg-zinc-50/70 rounded-t-xl">
@@ -2543,16 +2605,16 @@ export function PlanejamentoSemanalTab({
                   <Package size={16} className="text-zinc-700" />
                   <h3 className="font-bold text-zinc-900 text-xs">Fila de Demandas</h3>
                 </div>
-                <span className="px-2 py-0.5 bg-zinc-900 text-white font-bold text-[10px] rounded-full">
+                <span className="px-2 py-0.5 bg-zinc-900 text-white font-bold text-[11px] md:text-[10px] rounded-full">
                   {demandCandidates.length} itens na fila
                 </span>
               </div>
 
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => setRegrasAberto(true)}
-                  className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                  className="flex items-center gap-1 px-2.5 py-1 max-md:min-h-11 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
                   title="Regras gerais do planejamento (também lidas pelo agente de IA)"
                 >
                   <BookOpen size={12} />
@@ -2563,7 +2625,7 @@ export function PlanejamentoSemanalTab({
                   <button
                     type="button"
                     onClick={() => setAdicionarFila({})}
-                    className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1 max-md:min-h-11 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
                   >
                     <Plus size={12} />
                     Adicionar item
@@ -2572,7 +2634,7 @@ export function PlanejamentoSemanalTab({
                     type="button"
                     disabled={filaDemandas.length === 0}
                     onClick={() => setLimparFilaAberto(true)}
-                    className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1 max-md:min-h-11 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                     title="Apaga todos os itens da fila (pede o motivo)"
                   >
                     <Trash2 size={12} />
@@ -2583,13 +2645,13 @@ export function PlanejamentoSemanalTab({
               </div>
 
               {/* Abas */}
-              <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1">
                 {([['disponiveis', 'Disponíveis', String(qtdDisponiveis)], ['falta', 'Aguardando insumos', String(qtdAguardandoInsumo)], ['bases', 'Bases', basesResumo.length > 0 ? String(basesResumo.length) : '']] as const).map(([id, rotulo, n]) => (
                   <button
                     key={id}
                     type="button"
                     onClick={() => setFilaAba(id)}
-                    className={`px-2.5 py-1 text-[11px] font-bold rounded-md cursor-pointer transition-colors ${filaAba === id ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100'}`}
+                    className={`px-2.5 py-1 max-md:min-h-11 text-[11px] font-bold rounded-md cursor-pointer transition-colors ${filaAba === id ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100'}`}
                   >
                     {rotulo}{n !== '' ? ` (${n})` : ''}
                   </button>
@@ -2598,13 +2660,13 @@ export function PlanejamentoSemanalTab({
 
               {/* Campo de Busca */}
               <div className="relative">
-                <Search size={13} className="absolute left-2.5 top-2.5 text-zinc-400" />
+                <Search size={13} className="absolute left-2.5 top-2.5 max-md:top-3.5 text-zinc-400" />
                 <input
                   type="text"
                   placeholder={filaAba === 'bases' ? 'Buscar base por REF ou descrição...' : 'Buscar REF, descrição ou lote na fila...'}
                   value={filaAba === 'bases' ? basesBusca : demandSearch}
                   onChange={(e) => (filaAba === 'bases' ? setBasesBusca(e.target.value) : setDemandSearch(e.target.value))}
-                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-zinc-200 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-zinc-400"
+                  className="w-full pl-8 pr-3 py-1.5 max-md:min-h-11 bg-white border border-zinc-200 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-zinc-400"
                 />
               </div>
             </div>
@@ -2628,23 +2690,23 @@ export function PlanejamentoSemanalTab({
                           >
                             {b.descricao}
                           </button>
-                          <span className="font-mono text-[10px] text-zinc-600 font-semibold bg-zinc-100 px-1 py-0.5 rounded shrink-0">{b.codigo}</span>
+                          <span className="font-mono text-[11px] md:text-[10px] text-zinc-600 font-semibold bg-zinc-100 px-1 py-0.5 rounded shrink-0">{b.codigo}</span>
                         </div>
-                        <div className="grid grid-cols-4 gap-1.5 text-[10px]">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[11px] md:text-[10px]">
                           <div className="flex flex-col">
-                            <span className="text-zinc-500 text-[9px]">Estoque</span>
+                            <span className="text-zinc-500 text-[11px] md:text-[9px]">Estoque</span>
                             <strong className="text-zinc-900">{Math.round(estoqueBase).toLocaleString('pt-BR')} kg</strong>
                           </div>
                           <div className="flex flex-col">
-                            <span className="text-zinc-500 text-[9px]">Na fila</span>
+                            <span className="text-zinc-500 text-[11px] md:text-[9px]">Na fila</span>
                             <strong className="text-zinc-900">{b.na_fila ? `${Number(b.fila_qtd_kg || 0).toLocaleString('pt-BR')} kg` : '—'}</strong>
                           </div>
                           <div className="flex flex-col">
-                            <span className="text-zinc-500 text-[9px]">Em ordens</span>
+                            <span className="text-zinc-500 text-[11px] md:text-[9px]">Em ordens</span>
                             <strong className="text-zinc-900">{b.planejado_semana ? `${Number(b.planejado_kg || 0).toLocaleString('pt-BR')} kg` : '—'}</strong>
                           </div>
                           <div className="flex flex-col">
-                            <span className="text-zinc-500 text-[9px]">Necessidade</span>
+                            <span className="text-zinc-500 text-[11px] md:text-[9px]">Necessidade</span>
                             <strong className={necessidade > 0 ? 'text-amber-800' : 'text-zinc-900'}>{necessidade > 0 ? `${Math.round(necessidade).toLocaleString('pt-BR')} kg` : '—'}</strong>
                           </div>
                         </div>
@@ -2656,7 +2718,7 @@ export function PlanejamentoSemanalTab({
                                 codigo: b.codigo,
                                 qtdKg: Number(b.sugestao_base_kg) > 0 ? Math.ceil(Number(b.sugestao_base_kg)) : (Number(b.lote_padrao_kg) || 200),
                               })}
-                              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                              className="flex items-center gap-1 px-2.5 py-1 max-md:min-h-11 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
                             >
                               <Plus size={12} />
                               {b.na_fila ? 'Ajustar na fila' : 'Enviar à fila'}
@@ -2724,7 +2786,7 @@ export function PlanejamentoSemanalTab({
                             e.stopPropagation();
                             handleShowProductDetails(prod.codigo);
                           }}
-                          className="font-mono text-[10px] text-zinc-600 font-semibold bg-zinc-100 hover:bg-zinc-200 hover:text-zinc-900 px-1 py-0.5 rounded shrink-0 cursor-pointer transition-colors"
+                          className="font-mono text-[11px] md:text-[10px] text-zinc-600 font-semibold bg-zinc-100 hover:bg-zinc-200 hover:text-zinc-900 px-1 py-0.5 rounded shrink-0 cursor-pointer transition-colors"
                           title={`Ver detalhes do produto ${prod.codigo}`}
                         >
                           {prod.codigo}
@@ -2733,27 +2795,27 @@ export function PlanejamentoSemanalTab({
 
                       {/* 2. Badges Relevantes (Batelada Conjunta, Base de Fabricação, Programada) */}
                       {((Array.isArray((prod as any)._batchSiblings) && (prod as any)._batchSiblings.length > 1) || isBase || isProgramada || prod.base) && (
-                        <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                        <div className="flex flex-wrap items-center gap-1 text-[11px] md:text-[10px]">
                           {Array.isArray((prod as any)._batchSiblings) && (prod as any)._batchSiblings.length > 1 && (
-                            <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-800 border border-zinc-300 font-mono text-[9px] font-bold rounded">
+                            <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-800 border border-zinc-300 font-mono text-[11px] md:text-[9px] font-bold rounded">
                               Batelada Conjunta Sugerida ({(prod as any)._batchSiblings.length} SKUs • {(prod as any)._totalBatchKg} kg)
                             </span>
                           )}
 
                           {isBase && (
-                            <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-800 border border-zinc-300 text-[9px] font-bold rounded">
+                            <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-800 border border-zinc-300 text-[11px] md:text-[9px] font-bold rounded">
                               Base de Fabricação
                             </span>
                           )}
 
                           {isProgramada && (
-                            <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-800 border border-zinc-200 text-[9px] font-bold rounded">
+                            <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-800 border border-zinc-200 text-[11px] md:text-[9px] font-bold rounded">
                               Programada
                             </span>
                           )}
 
                           {prod.base && (
-                            <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-700 border border-zinc-200 text-[9px] rounded truncate max-w-[140px]" title={`Base: ${prod.base}`}>
+                            <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-700 border border-zinc-200 text-[11px] md:text-[9px] rounded truncate max-w-[140px]" title={`Base: ${prod.base}`}>
                               Base: {prod.base}
                             </span>
                           )}
@@ -2761,28 +2823,28 @@ export function PlanejamentoSemanalTab({
                       )}
 
                       {/* 3. Painel de Métricas de Venda & Produção Solicitadas por Edson */}
-                      <div className="grid grid-cols-3 gap-1.5 bg-zinc-50/90 p-2 rounded-lg border border-zinc-200/70 text-[10px]">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 bg-zinc-50/90 p-2 rounded-lg border border-zinc-200/70 text-[11px] md:text-[10px]">
                         <div className="flex flex-col">
-                          <span className="text-zinc-500 text-[9px] block">Média Vendas:</span>
+                          <span className="text-zinc-500 text-[11px] md:text-[9px] block">Média Vendas:</span>
                           <span className="font-bold text-zinc-900 text-xs mt-0.5">
                             {isBase ? 'Semi-acabado' : `${Math.round(mediaVendas).toLocaleString('pt-BR')} un/mês`}
                           </span>
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-zinc-500 text-[9px] block">Qtd. Recom.:</span>
-                          <span className="font-bold text-blue-700 text-xs mt-0.5">
+                          <span className="text-zinc-500 text-[11px] md:text-[9px] block">Qtd. Recom.:</span>
+                          <span className="font-bold text-zinc-700 text-xs mt-0.5">
                             {isBase 
                               ? `${(qtdRecomendada || procInfo.reqQtyKg).toLocaleString('pt-BR')} kg`
                               : `${qtdRecomendada.toLocaleString('pt-BR')} un`}
                           </span>
                           {!isBase && (
-                            <span className="text-[9px] text-zinc-500 font-semibold" title={`Equivalente a ${procInfo.reqQtyKg} kg em massa a granel`}>
+                            <span className="text-[11px] md:text-[9px] text-zinc-500 font-semibold" title={`Equivalente a ${procInfo.reqQtyKg} kg em massa a granel`}>
                               (~{procInfo.reqQtyKg} kg)
                             </span>
                           )}
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-zinc-500 text-[9px] block">{isBase ? 'Estoque Atual:' : 'Estoque Futuro:'}</span>
+                          <span className="text-zinc-500 text-[11px] md:text-[9px] block">{isBase ? 'Estoque Atual:' : 'Estoque Futuro:'}</span>
                           <span className={`font-bold text-xs mt-0.5 ${isCritico && !isBase ? 'text-red-600' : 'text-emerald-700'}`}>
                             {isBase ? `${Math.round(estoqueFisico).toLocaleString('pt-BR')} kg` : `${efp.toLocaleString('pt-BR')} un`}
                           </span>
@@ -2790,8 +2852,8 @@ export function PlanejamentoSemanalTab({
                       </div>
 
                       {/* 4. Linha de Apoio: Estoque Físico, Pedidos em Aberto e Cobertura */}
-                      <div className="flex items-center justify-between text-[10px] text-zinc-500 px-0.5">
-                        <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] md:text-[10px] text-zinc-500 px-0.5">
+                        <div className="flex flex-wrap items-center gap-x-1.5">
                           <span>Estoque: <strong className="text-zinc-700">{estoqueFisico.toLocaleString('pt-BR')}</strong></span>
                           <span>•</span>
                           <span>Pedidos: <strong className={pedidosAberto > 0 ? "text-amber-800 font-bold" : "text-zinc-700"}>{pedidosAberto.toLocaleString('pt-BR')}</strong></span>
@@ -2799,7 +2861,7 @@ export function PlanejamentoSemanalTab({
                           <span>Cobertura: <strong className="text-zinc-700">{coberturaDias !== null ? `${coberturaDias}d` : '—'}</strong></span>
                         </div>
                         <span
-                          className={`shrink-0 px-1.5 py-0.5 text-[9px] font-bold rounded border ${prod._automatica ? 'bg-zinc-100 text-zinc-600 border-zinc-200' : 'bg-zinc-900 text-white border-zinc-900'}`}
+                          className={`shrink-0 px-1.5 py-0.5 text-[11px] md:text-[9px] font-bold rounded border ${prod._automatica ? 'bg-zinc-100 text-zinc-600 border-zinc-200' : 'bg-zinc-900 text-white border-zinc-900'}`}
                           title={prod._automatica ? 'Calculado pela Demanda de Produção (acaba antes, primeiro). Fixe para virar item manual.' : 'Item manual da fila'}
                         >
                           {prod._automatica ? 'Automático' : 'Manual'}
@@ -2809,7 +2871,7 @@ export function PlanejamentoSemanalTab({
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); setCoberturaAberta(true); }}
-                          className="text-left px-2 py-1 rounded-md border border-rose-200 bg-rose-50 text-rose-700 text-[10px] font-semibold cursor-pointer"
+                          className="text-left px-2 py-1 rounded-md border border-rose-200 bg-rose-50 text-rose-700 text-[11px] md:text-[10px] font-semibold cursor-pointer"
                           title="Ver cobertura de insumos da semana"
                         >
                           {prod._motivoSituacao
@@ -2819,25 +2881,25 @@ export function PlanejamentoSemanalTab({
                       )}
 
                       {/* 5. Ação de Agendamento e Ver Detalhes */}
-                      <div className="flex items-center justify-between pt-1 border-t border-zinc-100">
+                      <div className="flex flex-wrap items-center justify-between gap-1 pt-1 border-t border-zinc-100">
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleShowProductDetails(prod.codigo);
                           }}
-                          className="flex items-center gap-1 text-[11px] font-semibold text-zinc-600 hover:text-zinc-900 transition-colors cursor-pointer py-1 px-1.5 rounded hover:bg-zinc-100"
+                          className="flex items-center gap-1 text-[11px] font-semibold text-zinc-600 hover:text-zinc-900 transition-colors cursor-pointer py-1 px-1.5 max-md:min-h-11 rounded hover:bg-zinc-100"
                           title="Ver detalhes completos do produto"
                         >
                           <Info size={13} className="text-zinc-500" />
                           <span>Ver Detalhes</span>
                         </button>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
                         {podeEditar && (prod as any)._filaId && (
                           <button
                             type="button"
                             onClick={() => setRetirarFilaId(String((prod as any)._filaId))}
-                            className="px-2.5 py-1 text-xs font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                            className="px-2.5 py-1 max-md:min-h-11 text-xs font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
                             title="Tirar este item da fila"
                           >
                             Tirar
@@ -2847,7 +2909,7 @@ export function PlanejamentoSemanalTab({
                           <button
                             type="button"
                             onClick={() => handleFixarNaFila(prod)}
-                            className="px-2.5 py-1 text-xs font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                            className="px-2.5 py-1 max-md:min-h-11 text-xs font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
                             title="Fixar este item na fila (vira item manual)"
                           >
                             Fixar na fila
@@ -2856,7 +2918,7 @@ export function PlanejamentoSemanalTab({
                         {podeEditar && (
                         <button
                           onClick={() => handleOpenScheduleModal(prod)}
-                          className="flex items-center gap-1 px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer shadow-xs bg-zinc-900 hover:bg-zinc-800 text-white"
+                          className="flex items-center gap-1 px-3 py-1 max-md:min-h-11 text-xs font-bold rounded-lg transition-all cursor-pointer shadow-xs bg-zinc-900 hover:bg-zinc-800 text-white"
                         >
                           <Plus size={13} />
                           <span>Agendar</span>

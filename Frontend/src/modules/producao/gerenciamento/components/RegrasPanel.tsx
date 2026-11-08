@@ -114,12 +114,12 @@ export default function RegrasPanel({ produto, podeEditar }: Props) {
           {regras.map((r) => (
             <li key={r.id} className={`flex flex-col gap-1.5 px-2.5 py-2 ${r.ativo ? '' : 'bg-zinc-50 text-zinc-400'}`}>
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="px-1.5 py-0.5 rounded-md bg-zinc-900 text-white font-bold text-[10px]">
+                <span className="px-1.5 py-0.5 rounded-md bg-zinc-900 text-white font-bold text-[11px] md:text-[10px]">
                   {ESCOPO_ROTULO[r.escopo]}{r.alvo ? ` ${r.alvo}` : ''}
                 </span>
-                <span className="px-1.5 py-0.5 rounded-md border border-zinc-200 bg-white text-zinc-700 font-bold text-[10px]">{TIPO_ROTULO[r.tipo]}</span>
-                {!r.ativo && <span className="px-1.5 py-0.5 rounded-md border border-zinc-200 bg-white font-bold text-[10px]">Arquivada</span>}
-                <span className="ml-auto text-[10px] text-zinc-400">{r.atualizadoPor} • {r.atualizadoEm}</span>
+                <span className="px-1.5 py-0.5 rounded-md border border-zinc-200 bg-white text-zinc-700 font-bold text-[11px] md:text-[10px]">{TIPO_ROTULO[r.tipo]}</span>
+                {!r.ativo && <span className="px-1.5 py-0.5 rounded-md border border-zinc-200 bg-white font-bold text-[11px] md:text-[10px]">Arquivada</span>}
+                <span className="ml-auto text-[11px] md:text-[10px] text-zinc-400">{r.atualizadoPor} • {r.atualizadoEm}</span>
               </div>
 
               {editando?.id === r.id ? (
@@ -131,14 +131,14 @@ export default function RegrasPanel({ produto, podeEditar }: Props) {
                     className="px-2 py-1.5 border border-zinc-200 rounded-lg text-xs"
                   />
                   <div className="flex gap-1.5 justify-end">
-                    <button type="button" onClick={() => setEditando(null)} className="px-2.5 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 cursor-pointer">
+                    <button type="button" onClick={() => setEditando(null)} className="px-2.5 py-1 max-md:min-h-11 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 cursor-pointer">
                       Cancelar
                     </button>
                     <button
                       type="button"
                       disabled={!editando.texto.trim() || editando.texto.trim() === r.texto}
                       onClick={() => alterar(r, { texto: editando.texto.trim() }, 'Editar texto', 'OK, salvar')}
-                      className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-zinc-900 text-white disabled:opacity-50 cursor-pointer"
+                      className="px-2.5 py-1 max-md:min-h-11 text-[11px] font-bold rounded-lg bg-zinc-900 text-white disabled:opacity-50 cursor-pointer"
                     >
                       Salvar
                     </button>
@@ -151,14 +151,14 @@ export default function RegrasPanel({ produto, podeEditar }: Props) {
               {editavel(r) && editando?.id !== r.id && (
                 <div className="flex gap-1.5">
                   {r.ativo && (
-                    <button type="button" onClick={() => setEditando({ id: r.id, texto: r.texto })} className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-md border border-zinc-200 bg-white text-zinc-700 cursor-pointer">
+                    <button type="button" onClick={() => setEditando({ id: r.id, texto: r.texto })} className="flex items-center gap-1 px-2 py-0.5 max-md:min-h-11 text-[11px] md:text-[10px] font-bold rounded-md border border-zinc-200 bg-white text-zinc-700 cursor-pointer">
                       <Pencil size={10} /> Editar
                     </button>
                   )}
                   <button
                     type="button"
                     onClick={() => alterar(r, { ativo: !r.ativo }, r.ativo ? 'Arquivar' : 'Reativar', r.ativo ? 'OK, arquivar' : 'OK, reativar')}
-                    className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-md border border-zinc-200 bg-white text-zinc-700 cursor-pointer"
+                    className="flex items-center gap-1 px-2 py-0.5 max-md:min-h-11 text-[11px] md:text-[10px] font-bold rounded-md border border-zinc-200 bg-white text-zinc-700 cursor-pointer"
                   >
                     {r.ativo ? <Archive size={10} /> : <RotateCcw size={10} />} {r.ativo ? 'Arquivar' : 'Reativar'}
                   </button>
@@ -171,13 +171,13 @@ export default function RegrasPanel({ produto, podeEditar }: Props) {
 
       {podeEditar && (
         <div className="flex flex-col gap-1.5 border border-zinc-200 rounded-lg p-2.5">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2">
             <label className="font-bold text-zinc-700" htmlFor={`regra-tipo-${produto ?? 'geral'}`}>Novo</label>
             <select
               id={`regra-tipo-${produto ?? 'geral'}`}
               value={tipo}
               onChange={(e) => setTipo(e.target.value as Regra['tipo'])}
-              className="px-2 py-1 border border-zinc-200 rounded-lg bg-white"
+              className="w-full sm:w-auto px-2 py-1 max-md:min-h-11 border border-zinc-200 rounded-lg bg-white"
             >
               <option value="regra">Regra (o planejamento deve seguir)</option>
               <option value="anotacao">Anotação (contexto)</option>
@@ -195,7 +195,7 @@ export default function RegrasPanel({ produto, podeEditar }: Props) {
               type="button"
               disabled={!texto.trim()}
               onClick={adicionar}
-              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-zinc-900 text-white disabled:opacity-50 cursor-pointer"
+              className="px-3 py-1.5 max-md:min-h-11 text-xs font-bold rounded-lg bg-zinc-900 text-white disabled:opacity-50 cursor-pointer"
             >
               Adicionar
             </button>
