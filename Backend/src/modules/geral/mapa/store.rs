@@ -574,54 +574,6 @@ pub async fn update_layout(
     Ok(())
 }
 
-pub async fn update_module(
-    pool: &PgPool,
-    actor: Option<&str>,
-    key: &str,
-    u: ModuleUpdate,
-) -> Result<MapaModule, String> {
-    let cur = get_module(pool, key).await?;
-    let purpose = u.purpose.unwrap_or(cur.purpose);
-    let status = u.status.unwrap_or(cur.status);
-    let group_key = u.group_key.unwrap_or(cur.group_key);
-    let label = u.label.unwrap_or(cur.label);
-    let ai_hints = u.ai_hints.unwrap_or(cur.ai_hints);
-    let detail = u.detail.unwrap_or(cur.detail);
-    let frontend_path = u.frontend_path.or(cur.frontend_path);
-    let backend_path = u.backend_path.or(cur.backend_path);
-    let router_prefix = u.router_prefix.or(cur.router_prefix);
-    let sort_order = u.sort_order.unwrap_or(cur.sort_order);
-
-    sqlx::query(
-        "UPDATE mapa_modules SET group_key=$2, label=$3, purpose=$4, status=$5, sort_order=$6,
-         frontend_path=$7, backend_path=$8, router_prefix=$9, ai_hints=$10, detail=$11, updated_at=NOW()
-         WHERE module_key=$1",
-    )
-    .bind(key)
-    .bind(&group_key)
-    .bind(&label)
-    .bind(&purpose)
-    .bind(&status)
-    .bind(sort_order)
-    .bind(&frontend_path)
-    .bind(&backend_path)
-    .bind(&router_prefix)
-    .bind(&ai_hints)
-    .bind(&detail)
-    .execute(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    log_activity(
-        pool,
-        actor,
-        "module_updated",
-        json!({ "moduleKey": key }),
-    )
-    .await?;
-    get_module(pool, key).await
-}
-
 pub async fn get_module(pool: &PgPool, key: &str) -> Result<MapaModule, String> {
     let row = sqlx::query_as::<_, (String, String, String, String, String, i32, f64, f64, Option<String>, Option<String>, Option<String>, Value, Value)>(
         "SELECT module_key, group_key, label, purpose, status, sort_order, pos_x, pos_y,

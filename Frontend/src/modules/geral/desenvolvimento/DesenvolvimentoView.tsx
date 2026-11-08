@@ -9,7 +9,7 @@ import { api } from '../lib/api';
 import type { AuthUser } from '../lib/auth';
 import type {
   MapaSnapshot, MapaModule, Feedback, FeedbackDetail,
-  DesenvolvimentoTab, MapaDetail
+  DesenvolvimentoTab
 } from './types';
 import OrganogramaMapCanvas from './components/OrganogramaMapCanvas';
 import ModuleDetailDrawer from './components/ModuleDetailDrawer';
@@ -41,7 +41,6 @@ export default function DesenvolvimentoView({
 
   // Módulo selecionado no Mapa
   const [selectedModuleKey, setSelectedModuleKey] = useState<string | null>(null);
-  const [savingModuleNotes, setSavingModuleNotes] = useState(false);
 
   // Feedbacks / Demandas
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
@@ -158,35 +157,6 @@ export default function DesenvolvimentoView({
       });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Falha ao salvar a posição no organograma');
-    }
-  };
-
-  // Salvar Notas do Módulo
-  const handleSaveModuleNotes = async (newNotes: string) => {
-    if (!selectedModule) return;
-    setSavingModuleNotes(true);
-    try {
-      const detail: MapaDetail = {
-        ...((selectedModule.detail || {}) as MapaDetail),
-        notes: newNotes,
-      };
-      await apiJson(`/mapa/modules/${selectedModule.moduleKey}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          label: selectedModule.label,
-          groupKey: selectedModule.groupKey,
-          purpose: selectedModule.purpose,
-          status: selectedModule.status,
-          sortOrder: selectedModule.sortOrder,
-          frontendPath: selectedModule.frontendPath,
-          backendPath: selectedModule.backendPath,
-          routerPrefix: selectedModule.routerPrefix,
-          detail,
-        }),
-      });
-      await loadData();
-    } finally {
-      setSavingModuleNotes(false);
     }
   };
 
@@ -420,8 +390,6 @@ export default function DesenvolvimentoView({
             groupName={selectedModuleGroup}
             feedbacks={feedbacks}
             tasks={snap?.tasksOpen || []}
-            onSaveNotes={handleSaveModuleNotes}
-            savingNotes={savingModuleNotes}
             onOpenView={onNavigateToView}
             onSelectFeedback={(f) => {
               setSelectedFeedbackId(f.id);

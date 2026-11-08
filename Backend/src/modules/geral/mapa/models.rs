@@ -100,21 +100,6 @@ pub struct LayoutUpdate {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ModuleUpdate {
-    pub purpose: Option<String>,
-    pub status: Option<String>,
-    pub group_key: Option<String>,
-    pub label: Option<String>,
-    pub ai_hints: Option<Value>,
-    pub detail: Option<Value>,
-    pub frontend_path: Option<String>,
-    pub backend_path: Option<String>,
-    pub router_prefix: Option<String>,
-    pub sort_order: Option<i32>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ModuleCreate {
     pub module_key: String,
     pub group_key: String,

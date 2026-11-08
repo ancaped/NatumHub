@@ -18,7 +18,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/mapa/snapshot", get(handlers::get_snapshot))
         .route("/api/mapa/layout", put(handlers::put_layout))
         .route("/api/mapa/modules", post(handlers::post_module))
-        .route("/api/mapa/modules/:key", put(handlers::put_module))
         .route("/api/mapa/edges", post(handlers::post_edge))
         .route("/api/mapa/tasks", get(handlers::list_tasks).post(handlers::post_task))
         .route("/api/mapa/tasks/export.md", get(handlers::export_tasks_md))

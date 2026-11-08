@@ -43,18 +43,6 @@ pub async fn put_layout(
     }
 }
 
-pub async fn put_module(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<AuthContext>,
-    Path(key): Path<String>,
-    Json(body): Json<ModuleUpdate>,
-) -> impl IntoResponse {
-    match store::update_module(state.db.pool(), Some(actor(&ctx)), &key, body).await {
-        Ok(m) => (StatusCode::OK, Json(m)).into_response(),
-        Err(e) => err_resp(StatusCode::BAD_REQUEST, e),
-    }
-}
-
 pub async fn post_module(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,

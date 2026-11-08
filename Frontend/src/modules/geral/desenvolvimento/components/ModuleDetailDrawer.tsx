@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   X, ExternalLink, Route, Bug, ListTodo, FileText, CheckCircle2,
-  Clock, Shield, ArrowRight, Save, Loader2, Plus, Code, Network,
+  Clock, Shield, ArrowRight, Plus, Code, Network,
   Copy, Check
 } from 'lucide-react';
 import type { MapaModule, MapaEdge, Feedback, MapaTask, MapaDetail, CatalogoAcao } from '../types';
@@ -17,8 +17,6 @@ interface ModuleDetailDrawerProps {
   groupName?: string;
   feedbacks: Feedback[];
   tasks: MapaTask[];
-  onSaveNotes: (notes: string) => Promise<void>;
-  savingNotes: boolean;
   onOpenView?: (view: string) => void;
   onSelectFeedback?: (feedback: Feedback) => void;
   onCreateDemanda?: (moduleKey: string, description: string, feedbackType: string) => Promise<void>;
@@ -99,8 +97,6 @@ export default function ModuleDetailDrawer({
   groupName,
   feedbacks,
   tasks,
-  onSaveNotes,
-  savingNotes,
   onOpenView,
   onSelectFeedback,
   onCreateDemanda,
@@ -121,6 +117,14 @@ export default function ModuleDetailDrawer({
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 1500);
   };
+
+  /** A parte escrita da ficha muda só por migração SQL aditiva: a tela monta o texto, não grava. */
+  const migracaoNotas = (key: string, texto: string) => [
+    `-- Backend/supabase/NNN_ficha_${key}_notas.sql (número decidido ao juntar na main)`,
+    `UPDATE mapa_modules`,
+    `SET detail = detail || jsonb_build_object('notes', $nota$${texto.trim()}$nota$::text), updated_at = NOW()`,
+    `WHERE module_key = '${key}';`,
+  ].join('\n');
 
   useEffect(() => {
     if (module) {
@@ -194,12 +198,13 @@ export default function ModuleDetailDrawer({
           {activeTab === 'documentacao' ? (
             <button
               type="button"
-              onClick={() => void onSaveNotes(notes)}
-              disabled={savingNotes}
-              className="ml-auto flex items-center gap-1.5 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-xs disabled:opacity-50"
+              onClick={() => handleCopy(migracaoNotas(module.moduleKey, notes), 'migracao')}
+              disabled={notes.trim() === (((module.detail || {}) as MapaDetail).notes || '').trim()}
+              title="Copia a migração SQL que grava estas notas; cole na conversa do Desenvolvimento"
+              className="ml-auto min-h-[44px] sm:min-h-0 flex items-center gap-1.5 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {savingNotes ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-              <span>Salvar Notas</span>
+              {copiedKey === 'migracao' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              <span>{copiedKey === 'migracao' ? 'Migração copiada' : 'Copiar migração'}</span>
             </button>
           ) : (
             <button
@@ -645,8 +650,11 @@ export default function ModuleDetailDrawer({
 
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
-                Notas Técnicas & Arquiteturais (PostgreSQL)
+                Notas técnicas
               </label>
+              <p className="text-[11px] text-zinc-500 leading-relaxed">
+                Rascunho: a tela não grava. Edite e use Copiar migração; a nota entra no ar com o próximo deploy.
+              </p>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
