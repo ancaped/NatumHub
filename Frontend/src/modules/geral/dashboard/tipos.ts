@@ -12,6 +12,8 @@ export interface RespostaSaude {
 }
 
 export interface InsumoFalta {
+  codigo?: string;
+  descricao?: string;
   status: 'ok' | 'depende_atrasado' | 'chega_depois' | 'chega_sem_data' | 'falta';
 }
 

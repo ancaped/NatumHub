@@ -1,4 +1,5 @@
 import React from 'react';
+import { moduleLabelForNotification, type HubNotification } from '../lib/notifications';
 import { contarFaltas, type ChecagemSaude, type PedidoCompra, type RelatorioFaltas } from './tipos';
 
 /**
@@ -62,7 +63,7 @@ function Legenda({ itens }: { itens: { cor: string; texto: string }[] }) {
 
 function Cartao({ titulo, subtitulo, children }: { titulo: string; subtitulo?: string; children: React.ReactNode }) {
   return (
-    <section className="panel-card" style={{ padding: '0.9rem 1rem' }}>
+    <section className="panel-card break-inside-avoid 2xl:mb-4" style={{ padding: '0.9rem 1rem' }}>
       <h3 className="text-sm font-bold text-zinc-900">{titulo}</h3>
       {subtitulo && <p className="text-[11px] text-zinc-500 mt-0.5 mb-2">{subtitulo}</p>}
       {children}
@@ -83,6 +84,7 @@ interface GraficosProps {
   checagens: ChecagemSaude[];
   faltas: RelatorioFaltas | null;
   pedidos: PedidoCompra[];
+  avisos: HubNotification[];
 }
 
 function dadosFaltas(faltas: RelatorioFaltas | null) {
@@ -108,16 +110,71 @@ function dadosChecagens(checagens: ChecagemSaude[]) {
     .slice(0, 6);
 }
 
-/** Há algum gráfico para mostrar? (a tela usa isso para decidir se reserva a coluna da direita) */
-export function haGraficos({ checagens, faltas, pedidos }: GraficosProps): boolean {
-  return dadosFaltas(faltas).length > 0 || dadosPedidos(pedidos).length > 0 || dadosChecagens(checagens).length > 0;
+/** Insumos sem cobertura que mais produtos da semana travam (ajuda a Compras a priorizar). */
+function dadosInsumos(faltas: RelatorioFaltas | null) {
+  const por = new Map<string, { nome: string; produtos: number }>();
+  for (const l of faltas?.ordens ?? []) {
+    for (const p of l.produtos) {
+      const vistos = new Set<string>();
+      for (const i of [...p.embalagem, ...p.materiaPrima]) {
+        if (i.status !== 'falta' || !i.codigo || vistos.has(i.codigo)) continue;
+        vistos.add(i.codigo);
+        const atual = por.get(i.codigo) ?? { nome: `${i.codigo} · ${i.descricao?.trim() || 'Insumo'}`, produtos: 0 };
+        atual.produtos += 1;
+        por.set(i.codigo, atual);
+      }
+    }
+  }
+  return [...por.values()].sort((a, b) => b.produtos - a.produtos).slice(0, 6);
 }
 
-export default function Graficos({ checagens, faltas, pedidos }: GraficosProps) {
+/** Pedidos atrasados somados por fornecedor; sem informação quando cada fornecedor tem um só. */
+function dadosFornecedores(pedidos: PedidoCompra[]) {
+  const por = new Map<string, number>();
+  for (const p of pedidos) {
+    const nome = p.cNomeF?.trim() || 'Sem fornecedor';
+    por.set(nome, (por.get(nome) ?? 0) + 1);
+  }
+  const lista = [...por.entries()].map(([nome, qtd]) => ({ nome, qtd })).sort((a, b) => b.qtd - a.qtd).slice(0, 6);
+  return lista.length > 0 && lista[0].qtd > 1 ? lista : [];
+}
+
+/** Avisos não lidos por módulo. */
+function dadosAvisos(avisos: HubNotification[]) {
+  const por = new Map<string, number>();
+  for (const n of avisos) {
+    if (n.read) continue;
+    const m = moduleLabelForNotification(n.moduleKey);
+    por.set(m, (por.get(m) ?? 0) + 1);
+  }
+  const lista = [...por.entries()].map(([nome, qtd]) => ({ nome, qtd })).sort((a, b) => b.qtd - a.qtd).slice(0, 6);
+  return lista.reduce((s, x) => s + x.qtd, 0) >= 3 ? lista : [];
+}
+
+/** Há algum gráfico para mostrar? (a tela usa isso para decidir se reserva a coluna da direita) */
+export function haGraficos({ checagens, faltas, pedidos, avisos }: GraficosProps): boolean {
+  return (
+    dadosFaltas(faltas).length > 0 ||
+    dadosPedidos(pedidos).length > 0 ||
+    dadosChecagens(checagens).length > 0 ||
+    dadosInsumos(faltas).length > 0 ||
+    dadosFornecedores(pedidos).length > 0 ||
+    dadosAvisos(avisos).length > 0
+  );
+}
+
+export default function Graficos(props: GraficosProps) {
+  const { checagens, faltas, pedidos } = props;
+  if (!haGraficos(props)) return null;
   const f = dadosFaltas(faltas);
   const p = dadosPedidos(pedidos);
   const c = dadosChecagens(checagens);
-  if (f.length === 0 && p.length === 0 && c.length === 0) return null;
+  const ins = dadosInsumos(faltas);
+  const forn = dadosFornecedores(pedidos);
+  const av = dadosAvisos(props.avisos);
+  const maxIns = Math.max(1, ...ins.map((x) => x.produtos));
+  const maxForn = Math.max(1, ...forn.map((x) => x.qtd));
+  const maxAv = Math.max(1, ...av.map((x) => x.qtd));
 
   const maxF = Math.max(1, ...f.map((l) => l.semCobertura + l.outros));
   const maxP = Math.max(1, ...p.map((x) => x.dias));
@@ -125,7 +182,7 @@ export default function Graficos({ checagens, faltas, pedidos }: GraficosProps) 
   const semanaNum = faltas?.semana.split('-W')[1] ?? '';
 
   return (
-    <div className="space-y-4 min-w-0">
+    <div className="space-y-4 min-w-0 2xl:space-y-0 2xl:columns-2 2xl:gap-4">
       {f.length > 0 && (
         <Cartao titulo="Faltas de insumos por linha" subtitulo={`Ordens da semana ${semanaNum}, em insumos`}>
           <Legenda
@@ -186,6 +243,57 @@ export default function Graficos({ checagens, faltas, pedidos }: GraficosProps) 
                 segmentos={[{ valor: x.quantidade, cor: x.severidade === 'critico' ? COR_CRITICO : COR_AVISO }]}
                 valorTexto={`${x.quantidade}`}
                 titulo={`${x.titulo}: ${x.quantidade} (${x.severidade === 'critico' ? 'crítico' : 'aviso'})`}
+              />
+            ))}
+          </ul>
+        </Cartao>
+      )}
+
+      {ins.length > 0 && (
+        <Cartao titulo="Insumos que mais travam a produção" subtitulo="Produtos da semana afetados por cada insumo sem cobertura">
+          <ul>
+            {ins.map((x) => (
+              <LinhaBarra
+                key={x.nome}
+                rotulo={x.nome}
+                max={maxIns}
+                segmentos={[{ valor: x.produtos, cor: COR_CRITICO }]}
+                valorTexto={`${x.produtos} ${x.produtos === 1 ? 'produto' : 'produtos'}`}
+                titulo={`${x.nome}: sem cobertura em ${x.produtos} produtos`}
+              />
+            ))}
+          </ul>
+        </Cartao>
+      )}
+
+      {forn.length > 0 && (
+        <Cartao titulo="Atrasos por fornecedor" subtitulo="Quantidade de pedidos atrasados">
+          <ul>
+            {forn.map((x) => (
+              <LinhaBarra
+                key={x.nome}
+                rotulo={x.nome}
+                max={maxForn}
+                segmentos={[{ valor: x.qtd, cor: COR_NEUTRA }]}
+                valorTexto={`${x.qtd} ${x.qtd === 1 ? 'pedido' : 'pedidos'}`}
+                titulo={`${x.nome}: ${x.qtd} pedidos atrasados`}
+              />
+            ))}
+          </ul>
+        </Cartao>
+      )}
+
+      {av.length > 0 && (
+        <Cartao titulo="Avisos não lidos por módulo" subtitulo="De onde vêm os avisos pendentes">
+          <ul>
+            {av.map((x) => (
+              <LinhaBarra
+                key={x.nome}
+                rotulo={x.nome}
+                max={maxAv}
+                segmentos={[{ valor: x.qtd, cor: COR_NEUTRA }]}
+                valorTexto={`${x.qtd}`}
+                titulo={`${x.nome}: ${x.qtd} avisos não lidos`}
               />
             ))}
           </ul>
