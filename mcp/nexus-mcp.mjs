@@ -15,7 +15,7 @@ const TOKEN = process.env.NEXUS_TOKEN || '';
 const log = (msg) => process.stderr.write(`[nexus-mcp] ${msg}\n`);
 
 if (!URL_BASE || !TOKEN) {
-  log('configure NEXUS_URL (ex.: http://100.64.207.54:3001) e NEXUS_TOKEN (token de agente nxa_...); as chamadas vão falhar até lá.');
+  log('configure NEXUS_URL (ex.: http://100.99.190.11:3001) e NEXUS_TOKEN (token de agente nxa_...); as chamadas vão falhar até lá.');
 }
 
 let cache = { em: 0, acoes: [] };

@@ -13,7 +13,7 @@ No cliente MCP (Claude Code: `.mcp.json` ou `claude mcp add`):
       "command": "node",
       "args": ["<caminho>/mcp/nexus-mcp.mjs"],
       "env": {
-        "NEXUS_URL": "http://100.64.207.54:3001",
+        "NEXUS_URL": "http://100.99.190.11:3001",
         "NEXUS_TOKEN": "nxa_..."
       }
     }

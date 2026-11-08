@@ -3,19 +3,28 @@ rem ============================================================================
 rem  Nexus - prepara um PC Windows da fabrica para usar o Nexus no ZimaOS
 rem
 rem  Uso (duplo clique; ele pede permissao de administrador sozinho):
-rem    configurar_pc_nexus.bat          -> aponta nexus.local e compartilha as impressoras
-rem    configurar_pc_nexus.bat voltar   -> restaura o hosts e tira os compartilhamentos feitos por ele
+rem    configurar_pc_nexus.bat              -> aponta nexus.local e compartilha as impressoras
+rem    configurar_pc_nexus.bat 192.168.X.Y  -> igual, usando esse IP como endereco do servidor na rede da fabrica
+rem    configurar_pc_nexus.bat voltar       -> restaura o hosts e tira os compartilhamentos feitos por ele
 rem
 rem  O que faz:
-rem    1. aponta http://nexus.local:3001 para o ZimaOS (100.64.207.54, via Tailscale), com copia do hosts
+rem    1. aponta http://nexus.local:3001 para o servidor Nexus (ZimaOS), com copia do hosts. Testa primeiro o IP da
+rem       rede local da fabrica (IP_LOCAL, abaixo ou passado como argumento); se nao responder, usa o Tailscale
+rem       (IP_TAILSCALE). Assim o mesmo script serve dentro da fabrica e fora dela.
 rem    2. liga o recurso do Windows "Servico de Impressao LPD" (porta TCP 515) e libera a porta no firewall
 rem    3. compartilha todas as impressoras instaladas neste PC (etiquetas, A4...), menos as virtuais (PDF, XPS, OneNote...)
 rem    4. mostra o que cadastrar em Impressoras, no Nexus (PC e nome do compartilhamento de cada uma)
 rem  O servidor manda a etiqueta pronta (ZPL/EPL) para a impressora compartilhada; nao precisa de programa extra.
-rem  Precisa do Tailscale instalado e conectado na conta da Natum.
+rem  Fora da rede da fabrica precisa do Tailscale instalado e conectado na conta da Natum.
 rem ============================================================================
 setlocal
-set "IP_ZIMAOS=100.64.207.54"
+rem  IP_LOCAL: endereco do servidor Nexus na rede da fabrica (deixe vazio enquanto nao houver IP fixo; tambem
+rem  pode ser passado como argumento). IP_TAILSCALE: endereco dele no Tailscale (nexus-fabrica).
+set "IP_LOCAL="
+set "IP_TAILSCALE=100.99.190.11"
+if not "%~1"=="" if /i not "%~1"=="voltar" set "IP_LOCAL=%~1"
+set "IP_ZIMAOS="
+set "ORIGEM="
 set "HOSTS=%SystemRoot%\System32\drivers\etc\hosts"
 set "COPIA=%SystemRoot%\System32\drivers\etc\hosts.antes-nexus-zimaos"
 set "REGRA=Nexus LPD"
@@ -37,7 +46,7 @@ if errorlevel 1 (
 if /i "%~1"=="voltar" goto VOLTAR
 
 echo.
-echo === Nexus: preparando este PC (servidor no ZimaOS, %IP_ZIMAOS%) ===
+echo === Nexus: preparando este PC ===
 echo.
 
 rem ---------------------------------------------------------------- 1. nexus.local
@@ -47,6 +56,22 @@ if errorlevel 1 if not exist "%ProgramFiles%\Tailscale\tailscale.exe" (
     echo         Instale e entre na conta da Natum antes: https://tailscale.com/download
     echo.
 )
+
+rem --- escolhe o endereco: rede local primeiro, Tailscale depois ---
+if defined IP_LOCAL (
+    curl -s -m 3 http://%IP_LOCAL%:3001/api/health | findstr /c:"status" >nul
+    if not errorlevel 1 ( set "IP_ZIMAOS=%IP_LOCAL%" & set "ORIGEM=rede local" )
+)
+if not defined IP_ZIMAOS (
+    curl -s -m 6 http://%IP_TAILSCALE%:3001/api/health | findstr /c:"status" >nul
+    if not errorlevel 1 ( set "IP_ZIMAOS=%IP_TAILSCALE%" & set "ORIGEM=Tailscale" )
+)
+if not defined IP_ZIMAOS (
+    set "IP_ZIMAOS=%IP_TAILSCALE%"
+    set "ORIGEM=Tailscale sem resposta agora"
+    echo [AVISO] O servidor nao respondeu nem na rede local nem pelo Tailscale. Vou apontar para o Tailscale.
+)
+echo [ok] Servidor escolhido: %IP_ZIMAOS% ^(%ORIGEM%^)
 
 if not exist "%COPIA%" (
     copy /y "%HOSTS%" "%COPIA%" >nul
@@ -58,7 +83,7 @@ if not exist "%COPIA%" (
 
 powershell -NoProfile -Command ^
   "$h = $env:HOSTS; $linhas = Get-Content -LiteralPath $h | Where-Object { $_ -notmatch '(^|\s)nexus\.local(\s|$)' };" ^
-  "$linhas += '%IP_ZIMAOS%   nexus.local   # Nexus no ZimaOS (Tailscale)';" ^
+  "$linhas += '%IP_ZIMAOS%   nexus.local   # Nexus no ZimaOS - %ORIGEM%';" ^
   "Set-Content -LiteralPath $h -Value $linhas -Encoding ASCII"
 if errorlevel 1 ( echo [ERRO] Nao consegui gravar o hosts. & goto FIM )
 echo [ok] hosts atualizado: nexus.local -^> %IP_ZIMAOS%

@@ -14,8 +14,8 @@
 # rollback, pare o timer antes: ssh edson@<host> 'sudo systemctl stop nexus-autodeploy.timer'
 set -euo pipefail
 
-ZIMAOS_HOST="${ZIMAOS_HOST:-192.168.1.105}"
-ZIMAOS_USER="${ZIMAOS_USER:-edson}"
+ZIMAOS_HOST="${ZIMAOS_HOST:-100.99.190.11}"   # nexus-fabrica (Tailscale); na rede da fábrica use o IP local
+ZIMAOS_USER="${ZIMAOS_USER:-Edson}"
 IMAGE_REPO="${IMAGE_REPO:-ghcr.io/ancaped/nexus}"
 COMPOSE_FILE="${COMPOSE_FILE:-/var/lib/casaos/apps/custom__nexusprod/docker-compose.yml}"
 
