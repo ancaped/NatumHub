@@ -23,7 +23,7 @@ Decisão do Edson (2026-10-23). O Nexus faz três coisas: **importar corretament
 
 ```
 Feedbacks admin     → natumhub-feedbacks
-Fila de bugs        → GET /api/hub/feedbacks/fila + natumhub-resolve-bugs
+Fila de bugs        → GET /api/hub/feedbacks/triagem (agrupada por conversa) + natumhub-resolve-bugs
 Fila do mapa        → aposentada; tudo é feedback (natumhub-resolve-bugs)
 Módulo novo         → natumhub-modulos
 Sync ERP            → natumhub-erp-sql

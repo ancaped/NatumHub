@@ -13,7 +13,7 @@ use crate::modules::geral::auth::models::AuthContext;
 use crate::modules::geral::auth::modules_registry::MODULE_CONFIGURACOES;
 use crate::modules::hub_api::util::{ok_json, ok_status, with_pool};
 
-use super::acoes::{auditar, interpretar_status, listar_fila, transicionar, Transicao};
+use super::acoes::{auditar, interpretar_status, listar_fila, transicionar, triar, Transicao};
 use super::commands::{
     add_feedback_note_query, get_feedback_detail_query, get_feedbacks_admin_query,
     reorder_feedbacks_query, save_feedback_from_user_query, update_feedback_admin_query,
@@ -115,6 +115,29 @@ async fn fila_handler(
     };
     match listar_fila(state.db.pool(), &status, q.modulo.as_deref(), q.limite.unwrap_or(50)).await {
         Ok(v) => Json(json!({ "total": v.len(), "feedbacks": v })).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct TriagemQuery {
+    status: Option<String>,
+}
+
+async fn triagem_handler(
+    State(state): State<Arc<AppState>>,
+    ctx: Option<Extension<AuthContext>>,
+    Query(q): Query<TriagemQuery>,
+) -> impl IntoResponse {
+    if let Err(e) = exigir(&ctx, Nivel::Leitura) {
+        return e.into_response();
+    }
+    let status = match interpretar_status(Some(q.status.as_deref().unwrap_or("queued,in_progress"))) {
+        Ok(s) => s,
+        Err(e) => return e.into_response(),
+    };
+    match triar(state.db.pool(), &status).await {
+        Ok(g) => Json(json!({ "total": g.iter().map(|x| x.total).sum::<usize>(), "grupos": g })).into_response(),
         Err(e) => e.into_response(),
     }
 }
@@ -256,6 +279,7 @@ pub fn router() -> axum::Router<Arc<AppState>> {
         .route("/api/hub/feedbacks", get(list_feedbacks_handler).post(save_feedback_handler))
         .route("/api/hub/feedbacks/manage", get(list_feedbacks_handler))
         .route("/api/hub/feedbacks/fila", get(fila_handler))
+        .route("/api/hub/feedbacks/triagem", get(triagem_handler))
         .route("/api/hub/feedbacks/reorder", post(reorder_handler))
         .route("/api/hub/feedbacks/:id/notes", post(add_note_handler))
         .route("/api/hub/feedbacks/:id/resolver", post(resolver_handler))
