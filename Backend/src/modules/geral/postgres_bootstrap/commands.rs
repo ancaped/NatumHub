@@ -429,6 +429,10 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         "102_feedbacks_module_key.sql",
         include_str!("../../../../supabase/102_feedbacks_module_key.sql"),
     ),
+    (
+        "103_mapa_tasks_para_feedbacks.sql",
+        include_str!("../../../../supabase/103_mapa_tasks_para_feedbacks.sql"),
+    ),
 ];
 
 #[derive(Debug, Serialize)]
