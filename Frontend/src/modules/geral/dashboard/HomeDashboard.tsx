@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, LayoutGrid, Loader2, RefreshCw } from 'lucide-react';
 import type { AuthUser } from '../lib/auth';
 import { apiJson } from '../lib/http';
@@ -33,6 +33,21 @@ interface ChecagemSaude {
 
 interface RespostaSaude {
   ultima: { executadoEm: string; resultado?: { checagens?: ChecagemSaude[] } } | null;
+}
+
+interface InsumoFalta {
+  status: 'ok' | 'depende_atrasado' | 'chega_depois' | 'chega_sem_data' | 'falta';
+}
+
+interface ProdutoFalta {
+  semFormula: boolean;
+  embalagem: InsumoFalta[];
+  materiaPrima: InsumoFalta[];
+}
+
+interface RelatorioFaltas {
+  semana: string;
+  ordens: { linha: string; produtos: ProdutoFalta[] }[];
 }
 
 interface ItemAtencao {
@@ -77,19 +92,58 @@ function itemDeChecagem(c: ChecagemSaude): ItemAtencao {
   };
 }
 
+/** Uma linha por linha de produto com falta de insumo nas ordens da semana (a fila de demandas fica de fora). */
+function itensDeFaltas(rel: RelatorioFaltas): ItemAtencao[] {
+  const semanaNum = rel.semana.split('-W')[1] ?? rel.semana;
+  return rel.ordens
+    .map((l) => {
+      let semCobertura = 0;
+      let outros = 0;
+      for (const p of l.produtos) {
+        if (p.semFormula) semCobertura += 1;
+        for (const i of [...p.embalagem, ...p.materiaPrima]) {
+          if (i.status === 'falta') semCobertura += 1;
+          else outros += 1;
+        }
+      }
+      const critico = semCobertura > 0;
+      const partes = [
+        semCobertura > 0 ? `${semCobertura} sem cobertura` : null,
+        outros > 0 ? `${outros} chegam depois, sem previsão ou atrasados` : null,
+      ].filter(Boolean);
+      return {
+        id: `f-${l.linha}`,
+        origem: `Produção · semana ${semanaNum}`,
+        assunto: `${l.linha}: ${l.produtos.length} ${l.produtos.length === 1 ? 'produto' : 'produtos'} com falta de insumo`,
+        detalhe: partes.join(' · '),
+        variante: critico ? 'critico' : 'ordem',
+        rotulo: critico ? 'falta' : 'aviso',
+        peso: critico ? 0 : 1,
+        destino: 'admin_produtos_ativos_relatorios',
+      } as ItemAtencao;
+    })
+    .sort((a, b) => a.peso - b.peso || a.assunto.localeCompare(b.assunto, 'pt-BR'));
+}
+
 /** Tela inicial: o que pede atenção agora e atalhos para os módulos que a pessoa usa. */
 export default function HomeDashboard({ currentUser, usage, setView }: HomeDashboardProps) {
   const [aba, setAba] = useState<'atencao' | 'atalhos'>('atencao');
-  const [itens, setItens] = useState<ItemAtencao[]>([]);
+  const [avisosItens, setAvisosItens] = useState<ItemAtencao[]>([]);
+  const [faltasItens, setFaltasItens] = useState<ItemAtencao[]>([]);
+  const ultimaBuscaFaltas = useRef(0);
+  const podeVerFaltas = canAccessView(currentUser, 'admin_produtos_ativos_relatorios');
   const [ultimaChecagem, setUltimaChecagem] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [falhou, setFalhou] = useState(false);
 
-  const carregar = useCallback(async () => {
+  const carregar = useCallback(async (forcar = false) => {
     setCarregando(true);
-    const [avisos, saude] = await Promise.allSettled([
+    // A simulação das faltas pesa no servidor: só refaz a cada 5 min (ou ao clicar em Atualizar).
+    const buscarFaltas = podeVerFaltas && (forcar || Date.now() - ultimaBuscaFaltas.current > 5 * 60 * 1000);
+    const [avisos, saude, faltas] = await Promise.allSettled([
       fetchNotifications(),
       apiJson<RespostaSaude>('/import/saude'),
+      buscarFaltas ? apiJson<RelatorioFaltas>('/producao/cobertura/faltas-por-linha') : Promise.resolve(null),
     ]);
     const lista: ItemAtencao[] = [];
     if (avisos.status === 'fulfilled') {
@@ -100,18 +154,27 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
       lista.push(...checagens.filter((c) => c.severidade !== 'ok' && c.quantidade > 0).map(itemDeChecagem));
       setUltimaChecagem(saude.value.ultima?.executadoEm ?? null);
     }
+    if (faltas.status === 'fulfilled' && faltas.value) {
+      ultimaBuscaFaltas.current = Date.now();
+      setFaltasItens(itensDeFaltas(faltas.value));
+    }
     // Só considera falha quando nada respondeu (sem permissão na saúde do ERP é normal para operador comum).
-    setFalhou(avisos.status === 'rejected' && saude.status === 'rejected');
+    setFalhou(avisos.status === 'rejected' && saude.status === 'rejected' && faltas.status === 'rejected');
     lista.sort((a, b) => a.peso - b.peso);
-    setItens(lista);
+    setAvisosItens(lista);
     setCarregando(false);
-  }, []);
+  }, [podeVerFaltas]);
 
   useEffect(() => {
     carregar();
-    const id = setInterval(carregar, 60000);
+    const id = setInterval(() => carregar(), 60000);
     return () => clearInterval(id);
   }, [carregar]);
+
+  const itens = useMemo(
+    () => [...avisosItens, ...(podeVerFaltas ? faltasItens : [])].sort((a, b) => a.peso - b.peso),
+    [avisosItens, faltasItens, podeVerFaltas]
+  );
 
   const grupos = useMemo(() => {
     return getNavModuleGroups(currentUser).map((g) => ({
@@ -150,7 +213,7 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
           acoes={
             <button
               type="button"
-              onClick={carregar}
+              onClick={() => carregar(true)}
               disabled={carregando}
               className="tab-btn"
               style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', fontSize: '0.75rem', minHeight: 36 }}

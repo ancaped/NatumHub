@@ -222,7 +222,7 @@ export default function PrintModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl border border-zinc-200 w-full max-w-5xl overflow-hidden flex flex-col max-h-[92vh]">
+      <div className="bg-white rounded-2xl shadow-2xl border border-zinc-200 w-full max-w-5xl overflow-hidden flex flex-col max-h-[92dvh]">
         <div className="p-4 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/70 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="p-2 bg-zinc-900 text-white rounded-xl">
