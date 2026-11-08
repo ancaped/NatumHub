@@ -2312,7 +2312,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         {activeSubTab === 'composicao' && (
           <div className="space-y-4 animate-in fade-in duration-200 flex-1 flex flex-col overflow-hidden">
             {/* Toolbar com importação Excel e busca */}
-            <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 flex flex-col md:flex-row items-center justify-between gap-4 shrink-0">
+            <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-3 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4 shrink-0">
               <div className="flex items-center gap-3 min-w-0 flex-1">
                 <div className="relative w-full max-w-md">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
@@ -2330,17 +2330,17 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
               </div>
 
               {/* Excel import & Compor Novo Kit */}
-              <div className="shrink-0 flex items-center gap-2">
+              <div className="shrink-0 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setIsNewKitModalOpen(true)}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5 h-[36px]"
+                  className="bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center justify-center gap-1.5 min-h-11 md:min-h-9"
                 >
                   <Plus className="w-4 h-4" />
                   Compor Novo Kit
                 </button>
 
-                <label className="bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5 h-[36px]">
+                <label className="bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center justify-center gap-1.5 min-h-11 md:min-h-9">
                   <UploadCloud className="w-4 h-4 text-zinc-500" />
                   {uploadingKitsConfig ? 'Importando...' : 'Importar Excel (.xlsx)'}
                   <input
@@ -2356,7 +2356,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
             {/* Lista Mestre-Detalhe dos Kits Montáveis */}
             <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col flex-1">
-              <div className="px-6 py-3.5 bg-zinc-50 border-b border-zinc-200 flex items-center justify-between text-xs font-bold text-zinc-600">
+              <div className="px-4 md:px-6 py-3.5 bg-zinc-50 border-b border-zinc-200 flex flex-wrap items-center justify-between gap-1 text-xs font-bold text-zinc-600">
                 <span>Catálogo de Kits Montáveis ({masterKitsList.length})</span>
                 <span className="text-[11px] text-zinc-400 font-normal">Clique em um kit para gerenciar seus insumos/proporções</span>
               </div>
@@ -3686,21 +3686,12 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
       {/* MODAL: SELECIONAR NOVO KIT PARA COMPOSIÇÃO */}
       {isNewKitModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[85vh] overflow-hidden flex flex-col">
-            <div className="flex justify-between items-center border-b border-zinc-150 pb-3 shrink-0">
-              <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-2">
-                <PlusCircle className="h-5 w-5 text-emerald-600 animate-pulse" />
-                Definir Composição para Novo Kit
-              </h3>
-              <button 
-                onClick={() => { setIsNewKitModalOpen(false); setNewKitSearch(''); }}
-                className="p-1.5 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer transition-colors"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
+        <Drawer
+          onClose={() => { setIsNewKitModalOpen(false); setNewKitSearch(''); }}
+          title="Compor Novo Kit"
+          subtitle="Definir composição para um produto"
+          size="md"
+        >
             <div className="space-y-3 flex-1 flex flex-col overflow-hidden">
               <p className="text-xs text-zinc-500 font-medium">
                 Pesquise e selecione qualquer produto cadastrado no sistema para iniciar a definição da sua composição (estrutura de insumos).
@@ -3717,7 +3708,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 />
               </div>
 
-              <div className="flex-1 overflow-y-auto border border-zinc-200 rounded-xl divide-y divide-zinc-100">
+              <div className="border border-zinc-200 rounded-xl divide-y divide-zinc-100">
                 {products
                   .filter(p => {
                     if (!newKitSearch.trim()) return false;
@@ -3758,7 +3749,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                             Já possui composição
                           </span>
                         ) : (
-                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md shrink-0">
+                          <span className="text-[10px] font-bold text-zinc-700 bg-zinc-100 border border-zinc-200 px-2 py-0.5 rounded-md shrink-0">
                             Iniciar composição
                           </span>
                         )}
@@ -3784,18 +3775,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 )}
               </div>
             </div>
-
-            <div className="pt-3 border-t border-zinc-150 flex justify-end shrink-0">
-              <button
-                type="button"
-                onClick={() => { setIsNewKitModalOpen(false); setNewKitSearch(''); }}
-                className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl font-bold text-xs transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
+        </Drawer>
       )}
 
       <datalist id="produtos-list">
