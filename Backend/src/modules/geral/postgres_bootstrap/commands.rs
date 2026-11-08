@@ -433,6 +433,10 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         "103_mapa_tasks_para_feedbacks.sql",
         include_str!("../../../../supabase/103_mapa_tasks_para_feedbacks.sql"),
     ),
+    (
+        "104_vira_composicao_baixa_origem.sql",
+        include_str!("../../../../supabase/104_vira_composicao_baixa_origem.sql"),
+    ),
 ];
 
 #[derive(Debug, Serialize)]

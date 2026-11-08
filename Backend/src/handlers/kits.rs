@@ -789,7 +789,7 @@ pub async fn list_vira_composicao(State(state): State<Arc<AppState>>) -> impl In
     match sqlx::query(
         "SELECT vc.de_produto_codigo, pd.descricao as de_desc,
                 vc.para_produto_codigo, pp.descricao as para_desc,
-                vc.quantidade
+                vc.quantidade, vc.baixa_origem_na_venda
          FROM vira_composicao vc
          JOIN produtos pd ON TRIM(REPLACE(vc.de_produto_codigo, '\"', '')) = TRIM(REPLACE(pd.codigo, '\"', ''))
          JOIN produtos pp ON TRIM(REPLACE(vc.para_produto_codigo, '\"', '')) = TRIM(REPLACE(pp.codigo, '\"', ''))
@@ -807,6 +807,7 @@ pub async fn list_vira_composicao(State(state): State<Arc<AppState>>) -> impl In
                     para_produto_codigo: row.get(2),
                     para_produto_descricao: row.get(3),
                     quantidade: crate::core::pg_row::pg_f64(row, 4),
+                    baixa_origem_na_venda: row.try_get::<bool, _>(5).unwrap_or(false),
                 })
                 .collect();
             (StatusCode::OK, Json(list)).into_response()
@@ -836,13 +837,16 @@ pub async fn add_vira_composicao(
     let pool = state.db.pool();
     let antes = instantaneo_composicao(pool, "vira_composicao", "de_produto_codigo", "para_produto_codigo", &payload.de_produto_codigo, &payload.para_produto_codigo).await;
     match sqlx::query(
-        "INSERT INTO vira_composicao (de_produto_codigo, para_produto_codigo, quantidade)
-         VALUES ($1, $2, $3)
-         ON CONFLICT(de_produto_codigo, para_produto_codigo) DO UPDATE SET quantidade = EXCLUDED.quantidade",
+        "INSERT INTO vira_composicao (de_produto_codigo, para_produto_codigo, quantidade, baixa_origem_na_venda)
+         VALUES ($1, $2, $3, COALESCE($4, FALSE))
+         ON CONFLICT(de_produto_codigo, para_produto_codigo) DO UPDATE SET
+             quantidade = EXCLUDED.quantidade,
+             baixa_origem_na_venda = COALESCE($4, vira_composicao.baixa_origem_na_venda)",
     )
     .bind(&payload.de_produto_codigo)
     .bind(&payload.para_produto_codigo)
     .bind(payload.quantidade)
+    .bind(payload.baixa_origem_na_venda)
     .execute(pool)
     .await
     {
@@ -860,6 +864,7 @@ pub async fn add_vira_composicao(
                     "de_produto_codigo": payload.de_produto_codigo,
                     "para_produto_codigo": payload.para_produto_codigo,
                     "quantidade": payload.quantidade,
+                    "baixa_origem_na_venda": payload.baixa_origem_na_venda,
                 })),
             )
             .await;

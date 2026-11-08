@@ -66,6 +66,53 @@ pub fn acoes() -> Vec<Acao> {
     ]
 }
 
+/// A venda (pedido em aberto) do produto destino de uma troca fixa também sai do estoque da origem:
+/// `origem += pedidos(destino) / fator` (fator = quantas unidades do destino saem de 1 da origem).
+/// Usa os pedidos originais (sem encadear trocas). `canon` leva o código limpo ao código como está
+/// em `estoque_atual`.
+pub fn aplicar_vendas_do_destino(
+    pedidos: &mut HashMap<String, i64>,
+    pares: &[(String, String, f64)],
+    canon: &HashMap<String, String>,
+) {
+    let originais = pedidos.clone();
+    for (de, para, fator) in pares {
+        if !fator.is_finite() || *fator <= 0.0 {
+            continue;
+        }
+        let (de_c, para_c) = (clean_product_code(de), clean_product_code(para));
+        let (Some(de_k), Some(para_k)) = (canon.get(&de_c), canon.get(&para_c)) else { continue };
+        let vendido = originais.get(para_k).copied().unwrap_or(0);
+        if vendido <= 0 {
+            continue;
+        }
+        *pedidos.entry(de_k.clone()).or_insert(0) += (vendido as f64 / fator).round() as i64;
+    }
+}
+
+#[cfg(test)]
+mod testes_vendas_do_destino {
+    use super::*;
+
+    #[test]
+    fn venda_do_destino_baixa_a_origem_pelo_fator() {
+        let canon: HashMap<String, String> =
+            [("A", "A"), ("B", "B")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let mut p: HashMap<String, i64> = [("A".to_string(), 10), ("B".to_string(), 50)].into_iter().collect();
+        aplicar_vendas_do_destino(&mut p, &[("A".into(), "B".into(), 2.5)], &canon);
+        assert_eq!(p["A"], 30); // 10 + 50/2,5
+        assert_eq!(p["B"], 50); // o destino não muda
+    }
+
+    #[test]
+    fn par_desconhecido_ou_fator_invalido_nao_muda_nada() {
+        let canon: HashMap<String, String> = [("A".to_string(), "A".to_string())].into_iter().collect();
+        let mut p: HashMap<String, i64> = [("A".to_string(), 10)].into_iter().collect();
+        aplicar_vendas_do_destino(&mut p, &[("A".into(), "Z".into(), 1.0), ("A".into(), "A".into(), 0.0)], &canon);
+        assert_eq!(p["A"], 10);
+    }
+}
+
 // Helper to query all needed arrays for calculations
 pub async fn fetch_calculation_data(state: &Db) -> anyhow::Result<(
     Vec<Product>,
@@ -149,6 +196,31 @@ pub async fn fetch_calculation_data(state: &Db) -> anyhow::Result<(
     )
     .fetch_all(pool)
     .await?;
+
+    // Troca fixa (ex.: Natum 5 L vendido como Liss Shine 5 L): a venda do destino baixa a origem.
+    let mut sales_faltas_map = sales_faltas_map;
+    {
+        let pares: Vec<(String, String, f64)> = sqlx::query(
+            "SELECT de_produto_codigo, para_produto_codigo, quantidade
+             FROM vira_composicao WHERE baixa_origem_na_venda",
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| (r.get::<String, _>(0), r.get::<String, _>(1), crate::core::pg_row::pg_f64(&r, 2)))
+        .collect();
+        if !pares.is_empty() {
+            let canon: HashMap<String, String> = stock_rows
+                .iter()
+                .map(|r| {
+                    let c: String = r.get(0);
+                    (clean_product_code(&c), c)
+                })
+                .collect();
+            aplicar_vendas_do_destino(&mut sales_faltas_map, &pares, &canon);
+        }
+    }
 
     let mut stocks = Vec::new();
     for row in stock_rows {

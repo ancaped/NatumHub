@@ -28,7 +28,7 @@ import {
 } from '../lib/viraPackaging';
 
 export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
-  const { newViraFormula, products, viraComposicao, atualizarParConversao, parConversaoExistente, newViraDeCodigo, newViraParaCodigo, getViraDeNamePreview, getViraParaNamePreview, handleDeleteViraComposicao, handleCreateViraOrder, loadingViraPackaging, newViraFator, newViraMotivo, newViraOrderNotes, newViraOrderNumber, newViraPackagingLines, newViraQtyDe, newViraQtyPara, newViraQtyParaManual, refreshNewViraPackaging, selectedViraComp, setNewViraFator, setNewViraMotivo, setNewViraOrderNotes, setNewViraOrderNumber, setNewViraPackagingLines, setNewViraQtyDe, setNewViraQtyPara, setNewViraQtyParaManual, setShowNewViraOrderModal, submittingNewViraOrder } = ctx;
+  const { newViraBaixaOrigem, setNewViraBaixaOrigem, newViraFormula, products, viraComposicao, atualizarParConversao, parConversaoExistente, newViraDeCodigo, newViraParaCodigo, getViraDeNamePreview, getViraParaNamePreview, handleDeleteViraComposicao, handleCreateViraOrder, loadingViraPackaging, newViraFator, newViraMotivo, newViraOrderNotes, newViraOrderNumber, newViraPackagingLines, newViraQtyDe, newViraQtyPara, newViraQtyParaManual, refreshNewViraPackaging, selectedViraComp, setNewViraFator, setNewViraMotivo, setNewViraOrderNotes, setNewViraOrderNumber, setNewViraPackagingLines, setNewViraQtyDe, setNewViraQtyPara, setNewViraQtyParaManual, setShowNewViraOrderModal, submittingNewViraOrder } = ctx;
   const origemConhecida = !!newViraDeCodigo.trim() && (products || []).some((pr: any) => String(pr.codigo || '').trim() === newViraDeCodigo.trim());
   const destinosComReceita = viraComposicao.filter((vc: any) => vc.deProdutoCodigo === newViraDeCodigo.trim());
   return (
@@ -118,6 +118,7 @@ export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
                 const existente = parConversaoExistente(selectedViraComp.deProdutoCodigo, selectedViraComp.paraProdutoCodigo);
                 const fatorReceita = Number(newViraFator) || 0;
                 const mudou = existente && Math.abs((parseFloat(existente.quantidade) || 0) - fatorReceita) > 1e-9;
+                const marcaMudou = existente && !!existente.baixaOrigemNaVenda !== newViraBaixaOrigem;
                 return (
                   <div className="flex flex-wrap items-center gap-2 text-[11px] rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${existente ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
@@ -143,6 +144,18 @@ export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
                         Excluir receita deste par
                       </button>
                     )}
+                    <label className="basis-full flex items-start gap-2 cursor-pointer min-h-11 sm:min-h-0 pt-1 border-t border-zinc-200 mt-1">
+                      <input
+                        type="checkbox"
+                        checked={!!newViraBaixaOrigem}
+                        onChange={(e) => setNewViraBaixaOrigem(e.target.checked)}
+                        className="mt-0.5 shrink-0"
+                      />
+                      <span className="text-zinc-700">
+                        <b className="text-zinc-900">Vende como o destino:</b> a venda do destino baixa a origem no planejamento.
+                        <span className="block text-[10px] text-zinc-500">Use na troca fixa em que a origem sai de fato (ex.: Natum 5 L vendido como Liss Shine 5 L).{marcaMudou ? ' Será salvo ao criar a ordem.' : ''}</span>
+                      </span>
+                    </label>
                   </div>
                 );
               })()}

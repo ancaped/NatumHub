@@ -850,6 +850,9 @@ pub struct ViraComposicaoRow {
     pub para_produto_codigo: String,
     pub para_produto_descricao: String,
     pub quantidade: f64,
+    /// A venda do destino baixa a origem no planejamento (troca fixa, ex.: Natum 5 L vendido como Liss Shine 5 L).
+    #[serde(default)]
+    pub baixa_origem_na_venda: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -858,6 +861,9 @@ pub struct NewViraComposicao {
     pub de_produto_codigo: String,
     pub para_produto_codigo: String,
     pub quantidade: f64,
+    /// Ausente = mantém o valor já gravado do par.
+    #[serde(default)]
+    pub baixa_origem_na_venda: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

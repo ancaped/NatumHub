@@ -139,6 +139,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   const [newViraPackagingLines, setNewViraPackagingLines] = useState<ViraPackagingLine[]>([]);
   const [newViraMotivo, setNewViraMotivo] = useState('');
   const [newViraFormula, setNewViraFormula] = useState('');
+  const [newViraBaixaOrigem, setNewViraBaixaOrigem] = useState(false);
   const [loadingViraPackaging, setLoadingViraPackaging] = useState(false);
   const [newViraOrderNotes, setNewViraOrderNotes] = useState('');
   const [submittingNewViraOrder, setSubmittingNewViraOrder] = useState(false);
@@ -454,6 +455,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   const handleOpenNewViraOrderModal = async () => {
     setSelectedViraComp(null);
     setNewViraFormula('');
+    setNewViraBaixaOrigem(false);
     setNewViraDeCodigo('');
     setNewViraParaCodigo('');
     setNewViraQtyDe(10);
@@ -495,6 +497,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
       return;
     }
     const fator = parseFloat(found.quantidade) || 1;
+    setNewViraBaixaOrigem(!!found.baixaOrigemNaVenda);
     setNewViraFator(fator);
     setNewViraQtyParaManual(false);
     const qtyDe = newViraQtyDe || 1;
@@ -550,7 +553,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         avisar('Informe o fator da conversão (maior que zero).', 'erro');
         return;
       }
-      if (!jaExiste || Math.abs((parseFloat(jaExiste.quantidade) || 0) - fatorReceita) > 1e-9) {
+      if (!jaExiste || Math.abs((parseFloat(jaExiste.quantidade) || 0) - fatorReceita) > 1e-9 || !!jaExiste.baixaOrigemNaVenda !== newViraBaixaOrigem) {
         const rc = await apiFetch(`/turnovers/composicao`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -558,6 +561,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
             deProdutoCodigo: selectedViraComp.deProdutoCodigo,
             paraProdutoCodigo: selectedViraComp.paraProdutoCodigo,
             quantidade: fatorReceita,
+            baixaOrigemNaVenda: newViraBaixaOrigem,
           }),
         });
         if (!rc.ok) {
@@ -1194,6 +1198,8 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     allKitsDropdown,
     applyViraCompSelection,
     newViraFormula,
+    newViraBaixaOrigem,
+    setNewViraBaixaOrigem,
     atualizarParConversao,
     parConversaoExistente,
     buildViraPrintPayload,
