@@ -46,13 +46,13 @@ export function ReatoresDrawer({
   const { abrir: abrirPrevia, elemento: previaElemento } = usePreviaServidor(avisar);
   return (
     <>
-    <Drawer isOpen onClose={() => setReatoresModalOpen(false)} title="Configuração de Reatores & Regras de Produção" size="md"
+    <Drawer isOpen onClose={() => setReatoresModalOpen(false)} title={<span className="whitespace-normal break-words" title="Configuração de Reatores & Regras de Produção">Configuração de Reatores & Regras de Produção</span>} size="md"
       footer={
         <>
             <button
               type="button"
               onClick={() => setReatoresModalOpen(false)}
-              className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
+              className="px-3.5 py-1.5 max-md:min-h-11 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
             >
               Cancelar
             </button>
@@ -73,7 +73,7 @@ export function ReatoresDrawer({
                   avisar("Erro ao salvar configuração de reatores.", 'erro');
                 }
               }}
-              className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
+              className="px-4 py-1.5 max-md:min-h-11 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
             >
               Salvar Reatores
             </button>
@@ -85,11 +85,11 @@ export function ReatoresDrawer({
           Configure os reatores fabris, capacidades nominais em kg e as regras de processo (Shampoo exclusivo, Caldeira mista quente/frio, Resistência térmica ou Bombonas móveis).
         </p>
 
-        <div className="flex flex-col gap-2.5 overflow-y-auto pr-1 max-h-[55vh]">
+        <div className="flex flex-col gap-2.5 overflow-y-auto pr-1 max-h-[55dvh]">
           {reatores.map((r, idx) => (
             <div key={r.id || idx} className="flex flex-col gap-2 p-3 bg-zinc-50 rounded-lg border border-zinc-200 text-xs">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 flex-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+                <div className="flex items-center gap-2 flex-1 min-w-0 max-md:basis-full">
                   <span className="font-mono font-bold text-zinc-400 text-[11px]">{idx + 1}.</span>
                   <input
                     type="text"
@@ -98,12 +98,12 @@ export function ReatoresDrawer({
                       const val = e.target.value;
                       setReatores(reatores.map(item => item.id === r.id ? { ...item, nome: val } : item));
                     }}
-                    className="flex-1 font-bold text-zinc-900 bg-white border border-zinc-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-zinc-400"
+                    className="flex-1 font-bold text-zinc-900 bg-white border border-zinc-200 rounded px-2 py-1 max-md:min-h-11 min-w-0 text-xs focus:ring-1 focus:ring-zinc-400"
                     placeholder="Nome do Reator/Equipamento"
                   />
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  <label className="flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-zinc-700 select-none">
+                  <label className="flex items-center gap-1.5 max-md:min-h-11 cursor-pointer text-xs font-semibold text-zinc-700 select-none">
                     <input 
                       type="checkbox"
                       checked={r.ativo}
@@ -111,7 +111,7 @@ export function ReatoresDrawer({
                         const updated = reatores.map(item => item.id === r.id ? { ...item, ativo: e.target.checked } : item);
                         setReatores(updated);
                       }}
-                      className="rounded text-blue-600 border-zinc-300"
+                      className="rounded max-md:size-5 text-zinc-900 border-zinc-300"
                     />
                     <span>Ativo</span>
                   </label>
@@ -127,7 +127,7 @@ export function ReatoresDrawer({
                         },
                       });
                     }}
-                    className="text-zinc-400 hover:text-red-600 p-1 rounded transition-colors cursor-pointer"
+                    className="text-zinc-400 hover:text-red-600 p-1 max-md:min-h-11 max-md:min-w-11 max-md:flex max-md:items-center max-md:justify-center rounded transition-colors cursor-pointer"
                     title="Remover este equipamento"
                   >
                     <Trash2 size={13} />
@@ -135,7 +135,7 @@ export function ReatoresDrawer({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 text-[11px] pt-1 border-t border-zinc-150">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px] pt-1 border-t border-zinc-200">
                 <div>
                   <span className="text-zinc-500 font-medium block mb-1">Capacidade Nominal (kg):</span>
                   <input
@@ -146,7 +146,7 @@ export function ReatoresDrawer({
                       const val = Number(e.target.value) || 0;
                       setReatores(reatores.map(item => item.id === r.id ? { ...item, capacidade_kg: val } : item));
                     }}
-                    className="w-full px-2 py-1 bg-white border border-zinc-300 rounded text-xs font-mono font-bold text-zinc-800"
+                    className="w-full px-2 py-1 max-md:min-h-11 bg-white border border-zinc-300 rounded text-xs font-mono font-bold text-zinc-800"
                   />
                 </div>
                 <div>
@@ -157,7 +157,7 @@ export function ReatoresDrawer({
                       const val = e.target.value;
                       setReatores(reatores.map(item => item.id === r.id ? { ...item, tipo: val } : item));
                     }}
-                    className="w-full px-2 py-1 bg-white border border-zinc-300 rounded text-xs font-semibold text-zinc-800 cursor-pointer"
+                    className="w-full px-2 py-1 max-md:min-h-11 bg-white border border-zinc-300 rounded text-xs font-semibold text-zinc-800 cursor-pointer"
                   >
                     <option value="caldeira_shampoo">🧴 Reator Exclusivo Shampoo (A Frio / Agitação)</option>
                     <option value="caldeira">🔥 Caldeira (Produção Mista Quente/Frio)</option>
@@ -190,7 +190,7 @@ export function ReatoresDrawer({
                 }
               ]);
             }}
-            className="px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-dashed border-zinc-300 flex items-center gap-1.5 cursor-pointer transition-colors"
+            className="px-3 py-1.5 max-md:min-h-11 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-dashed border-zinc-300 flex items-center gap-1.5 cursor-pointer transition-colors"
           >
             <Plus size={14} />
             <span>Adicionar Reator / Equipamento</span>

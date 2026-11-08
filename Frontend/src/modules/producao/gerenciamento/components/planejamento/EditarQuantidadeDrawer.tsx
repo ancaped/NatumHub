@@ -25,14 +25,14 @@ export function EditarQuantidadeDrawer({
           <button
             type="button"
             onClick={() => setEditQtyModalItem(null)}
-            className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
+            className="px-3.5 py-1.5 max-md:min-h-11 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
           >
             Cancelar
           </button>
           <button
             type="button"
             onClick={handleConfirmEditQty}
-            className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
+            className="px-4 py-1.5 max-md:min-h-11 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
           >
             Salvar Quantidade
           </button>
@@ -79,7 +79,7 @@ export function EditarQuantidadeDrawer({
                             newQty: Number(nextTotal.toFixed(1))
                           });
                         }}
-                        className="w-24 p-1.5 text-xs font-bold border border-zinc-300 rounded bg-white text-zinc-900 focus:ring-2 focus:ring-blue-500"
+                        className="w-24 p-1.5 text-xs font-bold border border-zinc-300 rounded bg-white text-zinc-900 focus:ring-2 focus:ring-zinc-400"
                       />
                       <span className="text-zinc-500 font-mono text-[11px]">kg</span>
                       <span className="text-zinc-500 font-medium text-[11px] ml-auto">
@@ -113,7 +113,7 @@ export function EditarQuantidadeDrawer({
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleConfirmEditQty();
                 }}
-                className="w-full p-2.5 text-sm font-bold border border-zinc-300 rounded-lg bg-white text-zinc-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="w-full p-2.5 text-sm font-bold border border-zinc-300 rounded-lg bg-white text-zinc-900 focus:ring-2 focus:ring-zinc-400 focus:outline-none"
               />
               <div className="mt-1.5 flex items-center justify-between text-[11px] text-zinc-600">
                 <span>Rendimento Projetado:</span>

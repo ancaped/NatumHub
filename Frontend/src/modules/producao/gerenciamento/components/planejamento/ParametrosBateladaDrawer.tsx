@@ -28,14 +28,14 @@ export function ParametrosBateladaDrawer({
           <button
             type="button"
             onClick={() => setTechnicalModalItem(null)}
-            className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
+            className="px-3.5 py-1.5 max-md:min-h-11 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
           >
             Cancelar
           </button>
           <button
             type="button"
             onClick={handleSaveTechnicalModal}
-            className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
+            className="px-4 py-1.5 max-md:min-h-11 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
           >
             <Check size={14} />
             <span>Salvar Configurações</span>
@@ -68,11 +68,11 @@ export function ParametrosBateladaDrawer({
               })}
               className={`p-2.5 rounded-lg border text-left flex items-center gap-2 transition-all cursor-pointer ${
                 technicalModalItem.processoTermico === 'frio'
-                  ? 'bg-blue-50 border-blue-400 text-blue-900 ring-2 ring-blue-200 font-bold'
+                  ? 'bg-zinc-100 border-zinc-300 text-zinc-900 ring-2 ring-zinc-200 font-bold'
                   : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
               }`}
             >
-              <Snowflake size={16} className="text-blue-500 shrink-0" />
+              <Snowflake size={16} className="text-zinc-400 shrink-0" />
               <div>
                 <div className="font-bold">A Frio (Mistura)</div>
                 <div className="text-[10px] text-zinc-500 font-normal">Homogeneização direta</div>
@@ -91,11 +91,11 @@ export function ParametrosBateladaDrawer({
               }}
               className={`p-2.5 rounded-lg border text-left flex items-center gap-2 transition-all cursor-pointer ${
                 technicalModalItem.processoTermico !== 'frio'
-                  ? 'bg-orange-50 border-orange-400 text-orange-900 ring-2 ring-orange-200 font-bold'
+                  ? 'bg-amber-50 border-amber-400 text-amber-900 ring-2 ring-amber-200 font-bold'
                   : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
               }`}
             >
-              <Flame size={16} className="text-orange-500 shrink-0" />
+              <Flame size={16} className="text-amber-500 shrink-0" />
               <div>
                 <div className="font-bold">A Quente</div>
                 <div className="text-[10px] text-zinc-500 font-normal">Aquecimento / Emulsão</div>
@@ -105,9 +105,9 @@ export function ParametrosBateladaDrawer({
 
           {/* Sub-processos térmicos com parametrização automática de equipamento */}
           {technicalModalItem.processoTermico !== 'frio' && (
-            <div className="p-2.5 bg-orange-50/50 border border-orange-200 rounded-lg space-y-1.5 mt-2">
-              <span className="text-[11px] font-bold text-orange-950 block">Selecione o Tipo de Processo Quente:</span>
-              <div className="grid grid-cols-2 gap-1.5 text-xs">
+            <div className="p-2.5 bg-amber-50/50 border border-amber-200 rounded-lg space-y-1.5 mt-2">
+              <span className="text-[11px] font-bold text-amber-950 block">Selecione o Tipo de Processo Quente:</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs">
                 <button
                   type="button"
                   onClick={() => {
@@ -233,14 +233,14 @@ export function ParametrosBateladaDrawer({
                   baseCodigo: e.target.value,
                   baseNome: e.target.value 
                 })}
-                className="w-full p-2 bg-white border border-amber-300 rounded text-xs font-semibold text-zinc-900"
+                className="w-full p-2 max-md:min-h-11 bg-white border border-amber-300 rounded text-xs font-semibold text-zinc-900"
               />
             </div>
           )}
         </div>
 
         {/* 3. Equipamento & Recipiente */}
-        <div className="grid grid-cols-2 gap-3 pt-1 border-t border-zinc-150 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-zinc-150 text-xs">
           <div>
             <label className="font-bold text-zinc-800 block mb-1">Equipamento / Reator:</label>
             <select
@@ -254,7 +254,7 @@ export function ParametrosBateladaDrawer({
                   recipienteDetalhe: recip,
                 });
               }}
-              className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs font-medium"
+              className="w-full p-2 max-md:min-h-11 bg-white border border-zinc-300 rounded-lg text-xs font-medium"
             >
               {reatores.filter(r => r.ativo).map(r => (
                 <option key={r.id} value={r.id}>
@@ -276,13 +276,13 @@ export function ParametrosBateladaDrawer({
         </div>
 
         {/* 4. Planejamento: Dia, Massa (kg), Quantidade Esperada (~un) */}
-        <div className="grid grid-cols-3 gap-2 pt-1 border-t border-zinc-150 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 border-t border-zinc-150 text-xs">
           <div>
             <label className="font-bold text-zinc-800 block mb-1">Dia da Semana:</label>
             <select
               value={technicalModalItem.dataPlanejada}
               onChange={(e) => setTechnicalModalItem({ ...technicalModalItem, dataPlanejada: e.target.value })}
-              className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs font-medium"
+              className="w-full p-2 max-md:min-h-11 bg-white border border-zinc-300 rounded-lg text-xs font-medium"
             >
               {weekDays.map(d => (
                 <option key={d.dateStr} value={d.dateStr} disabled={!!d.holiday}>
@@ -299,7 +299,7 @@ export function ParametrosBateladaDrawer({
               min={1}
               value={technicalModalItem.quantidadeKg || ''}
               onChange={(e) => setTechnicalModalItem({ ...technicalModalItem, quantidadeKg: Number(e.target.value) })}
-              className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs font-bold text-zinc-900"
+              className="w-full p-2 max-md:min-h-11 bg-white border border-zinc-300 rounded-lg text-xs font-bold text-zinc-900"
             />
           </div>
 
@@ -309,7 +309,7 @@ export function ParametrosBateladaDrawer({
               const uW = parseProductUnitWeightKg(technicalModalItem.item.descricao, ehBaseProduto({ codigo: technicalModalItem.item.codigo_produto, descricao: technicalModalItem.item.descricao }));
               const expectedUnits = unidadesDeKg(technicalModalItem.quantidadeKg || 0, technicalModalItem.item.descricao, ehBaseProduto({ codigo: technicalModalItem.item.codigo_produto, descricao: technicalModalItem.item.descricao }));
               return (
-                <div className="p-2 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-bold text-blue-700 flex items-center justify-between">
+                <div className="p-2 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-bold text-zinc-700 flex items-center justify-between">
                   <span>{expectedUnits == null ? '— un (sem peso na descrição)' : `~${expectedUnits.toLocaleString('pt-BR')} un`}</span>
                   <span className="text-[10px] text-zinc-400 font-normal">
                     {uW != null && (`(${uW >= 1 ? `${uW} kg` : `${Math.round(uW * 1000)} g`})`)}
@@ -324,15 +324,15 @@ export function ParametrosBateladaDrawer({
         <div className="pt-1 border-t border-zinc-150 text-xs space-y-1.5">
           <label className="font-bold text-zinc-800 block">Lote ERP Oficial:</label>
           {technicalModalItem.loadingUltimoLote ? (
-            <div className="flex items-center gap-2 p-2 bg-blue-50/60 border border-blue-150 rounded-lg text-[11px] text-blue-700">
-              <RefreshCw size={12} className="animate-spin text-blue-600 shrink-0" />
+            <div className="flex items-center gap-2 p-2 bg-zinc-50 border border-zinc-200 rounded-lg text-[11px] text-zinc-700">
+              <RefreshCw size={12} className="animate-spin text-zinc-600 shrink-0" />
               <span>Consultando histórico de lotes no ERP...</span>
             </div>
           ) : technicalModalItem.ultimoLote ? (
-            <div className="p-2 bg-blue-50/80 border border-blue-200 rounded-lg text-[11px] space-y-1">
+            <div className="p-2 bg-zinc-50 border border-zinc-200 rounded-lg text-[11px] space-y-1">
               <div className="flex items-center justify-between">
                 <span className="text-zinc-600">
-                  Último Lote: <strong className="text-blue-900 font-mono font-bold">#{technicalModalItem.ultimoLote}</strong>
+                  Último Lote: <strong className="text-zinc-900 font-mono font-bold">#{technicalModalItem.ultimoLote}</strong>
                 </span>
                 <button
                   type="button"
@@ -346,7 +346,7 @@ export function ParametrosBateladaDrawer({
                       quantidadeKg: autoMassa,
                     });
                   }}
-                  className="px-2.5 py-0.5 bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 rounded text-[11px] font-semibold cursor-pointer shadow-2xs"
+                  className="px-2.5 py-0.5 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-300 rounded text-[11px] font-semibold cursor-pointer shadow-2xs"
                 >
                   Usar #{technicalModalItem.ultimoLote}
                 </button>
@@ -384,7 +384,7 @@ export function ParametrosBateladaDrawer({
             placeholder="Instruções manuais para pesagem ou produção (se houver)..."
             value={technicalModalItem.observacoes}
             onChange={(e) => setTechnicalModalItem({ ...technicalModalItem, observacoes: e.target.value })}
-            className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs resize-none"
+            className="w-full p-2 max-md:min-h-11 bg-white border border-zinc-300 rounded-lg text-xs resize-none"
           />
         </div>
     </Drawer>

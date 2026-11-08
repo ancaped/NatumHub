@@ -68,7 +68,7 @@ export function AgendarDrawer({
               setScheduleSelectedProducts([]);
               setScheduleSearch('');
             }}
-            className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
+            className="px-3.5 py-1.5 max-md:min-h-11 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
           >
             Cancelar
           </button>
@@ -76,7 +76,7 @@ export function AgendarDrawer({
             type="button"
             disabled={scheduleSelectedProducts.length === 0}
             onClick={handleConfirmSchedule}
-            className={`px-4 py-1.5 text-xs font-semibold rounded-lg shadow-xs cursor-pointer ${
+            className={`px-4 py-1.5 max-md:min-h-11 text-xs font-semibold rounded-lg shadow-xs cursor-pointer ${
               scheduleSelectedProducts.length === 0
                 ? 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
                 : 'bg-zinc-900 hover:bg-zinc-800 text-white'
@@ -96,7 +96,7 @@ export function AgendarDrawer({
               : 'Adicionar Produto na Mesma Ordem (Exata Mesma Formulação Química):'}
           </label>
           <div className="relative">
-            <div className="flex items-center gap-2 border border-zinc-300 rounded-lg px-2.5 py-1.5 bg-white focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
+            <div className="flex items-center gap-2 border border-zinc-300 rounded-lg px-2.5 py-1.5 bg-white focus-within:ring-2 focus-within:ring-zinc-400 focus-within:border-zinc-400">
               <Search size={14} className="text-zinc-400 shrink-0" />
               <input
                 type="text"
@@ -105,7 +105,7 @@ export function AgendarDrawer({
                   : "Buscar produto da mesma fórmula..."}
                 value={scheduleSearch}
                 onChange={(e) => setScheduleSearch(e.target.value)}
-                className="w-full text-xs bg-transparent focus:outline-none font-medium text-zinc-800"
+                className="w-full text-xs max-md:min-h-9 bg-transparent focus:outline-none font-medium text-zinc-800"
                 autoFocus={scheduleSelectedProducts.length === 0}
               />
               {scheduleSearch && (
@@ -204,9 +204,9 @@ export function AgendarDrawer({
           }
 
           return (
-            <div className="p-2.5 bg-blue-50/70 border border-blue-200/80 rounded-lg space-y-1.5 text-xs">
-              <div className="flex items-center gap-1.5 font-bold text-blue-900 text-[11px]">
-                <Sparkles size={13} className="text-blue-600" />
+            <div className="p-2.5 bg-zinc-50 border border-zinc-200 rounded-lg space-y-1.5 text-xs">
+              <div className="flex items-center gap-1.5 font-bold text-zinc-900 text-[11px]">
+                <Sparkles size={13} className="text-zinc-600" />
                 <span>Exata Mesma Formulação Química ({availableCandidates.length} disponíveis):</span>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -217,10 +217,10 @@ export function AgendarDrawer({
                       key={cand.codigo}
                       type="button"
                       onClick={() => handleAddProductToSchedule(fullProd)}
-                      className="text-[11px] px-2 py-1 bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 rounded-md font-semibold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                      className="text-[11px] px-2 py-1 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-300 rounded-md font-semibold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
                       title="Adicionar à batelada conjunta"
                     >
-                      <Plus size={12} className="text-blue-600" />
+                      <Plus size={12} className="text-zinc-600" />
                       <span className="truncate max-w-[200px]">{cand.descricao} ({cand.codigo})</span>
                     </button>
                   );
@@ -273,11 +273,11 @@ export function AgendarDrawer({
                             step={1}
                             value={currentItemKg}
                             onChange={(e) => handleChangeItemMass(p.codigo, Math.max(0, parseFloat(e.target.value) || 0))}
-                            className="w-20 px-2 py-1 text-right font-bold text-xs bg-white border border-zinc-300 rounded-md focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                            className="w-20 px-2 py-1 max-md:min-h-11 text-right font-bold text-xs bg-white border border-zinc-300 rounded-md focus:border-zinc-400 focus:outline-hidden focus:ring-1 focus:ring-zinc-400"
                           />
                           <span className="text-xs font-semibold text-zinc-700">kg</span>
                         </div>
-                        <span className="text-[10px] text-blue-700 font-bold mt-0.5">
+                        <span className="text-[10px] text-zinc-700 font-bold mt-0.5">
                           {itemYield == null ? '— un' : `~${itemYield.toLocaleString('pt-BR')} un`}
                         </span>
                       </div>
@@ -356,7 +356,7 @@ export function AgendarDrawer({
                   const m = scheduleItemMasses[p.codigo] ?? (scheduleQty / scheduleSelectedProducts.length);
                   return (
                     <span key={p.codigo} className="px-2 py-0.5 bg-zinc-100 rounded text-zinc-700 border border-zinc-200">
-                      {p.codigo}: <strong className="text-blue-700">{Number(m).toFixed(1)} kg</strong>
+                      {p.codigo}: <strong className="text-zinc-700">{Number(m).toFixed(1)} kg</strong>
                     </span>
                   );
                 })}
