@@ -151,7 +151,7 @@ export default function DesenvolvimentoView({
         posX: positions[d.key]?.x ?? 0,
         posY: positions[d.key]?.y ?? 0,
       }];
-      await apiJson('/mapa/layout', {
+      await apiJson('/mapa/layout?confirmar=true', {
         method: 'PUT',
         body: JSON.stringify({ items }),
       });
@@ -196,7 +196,7 @@ export default function DesenvolvimentoView({
   }) => {
     setSavingNewModule(true);
     try {
-      await apiJson('/mapa/modules', {
+      await apiJson('/mapa/modules?confirmar=true', {
         method: 'POST',
         body: JSON.stringify({
           ...data,

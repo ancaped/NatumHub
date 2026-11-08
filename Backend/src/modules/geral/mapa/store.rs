@@ -1,13 +1,13 @@
 use chrono::Utc;
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgExecutor, PgPool};
 use uuid::Uuid;
 
 use super::gerado;
 use super::models::*;
 
-pub async fn log_activity(
-    pool: &PgPool,
+pub async fn log_activity<'e>(
+    ex: impl PgExecutor<'e>,
     actor: Option<&str>,
     action: &str,
     meta: Value,
@@ -20,7 +20,7 @@ pub async fn log_activity(
     .bind(actor)
     .bind(action)
     .bind(meta)
-    .execute(pool)
+    .execute(ex)
     .await
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -394,8 +394,8 @@ pub async fn ensure_seeded(pool: &PgPool) -> Result<(), String> {
     Ok(())
 }
 
-async fn insert_module(
-    pool: &PgPool,
+async fn insert_module<'e>(
+    ex: impl PgExecutor<'e>,
     key: &str,
     group: &str,
     label: &str,
@@ -430,7 +430,7 @@ async fn insert_module(
     .bind(prefix)
     .bind(hints)
     .bind(detail)
-    .execute(pool)
+    .execute(ex)
     .await
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -547,7 +547,7 @@ pub async fn snapshot(pool: &PgPool) -> Result<MapaSnapshot, String> {
 }
 
 pub async fn update_layout(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     actor: Option<&str>,
     items: &[LayoutItem],
 ) -> Result<(), String> {
@@ -558,12 +558,12 @@ pub async fn update_layout(
         .bind(&it.module_key)
         .bind(it.pos_x)
         .bind(it.pos_y)
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
     }
     log_activity(
-        pool,
+        &mut *conn,
         actor,
         "module_moved",
         json!({ "count": items.len(), "keys": items.iter().map(|i| &i.module_key).collect::<Vec<_>>() }),
@@ -572,14 +572,14 @@ pub async fn update_layout(
     Ok(())
 }
 
-pub async fn get_module(pool: &PgPool, key: &str) -> Result<MapaModule, String> {
+pub async fn get_module<'e>(ex: impl PgExecutor<'e>, key: &str) -> Result<MapaModule, String> {
     let row = sqlx::query_as::<_, (String, String, String, String, String, i32, f64, f64, Option<String>, Option<String>, Option<String>, Value, Value)>(
         "SELECT module_key, group_key, label, purpose, status, sort_order, pos_x, pos_y,
                 frontend_path, backend_path, router_prefix, ai_hints, detail
          FROM mapa_modules WHERE module_key = $1",
     )
     .bind(key)
-    .fetch_optional(pool)
+    .fetch_optional(ex)
     .await
     .map_err(|e| e.to_string())?
     .ok_or_else(|| "Módulo não encontrado".to_string())?;
@@ -603,26 +603,43 @@ pub async fn get_module(pool: &PgPool, key: &str) -> Result<MapaModule, String> 
 }
 
 pub async fn create_module(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     actor: Option<&str>,
-    input: ModuleCreate,
+    input: &ModuleCreate,
 ) -> Result<MapaModule, String> {
     let key = input.module_key.trim().to_string();
     if key.is_empty() || !key.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
-        return Err("module_key inválido".into());
+        return Err("module_key inválido: use letras minúsculas, números e _".into());
     }
-    let x = input.pos_x.unwrap_or(80.0);
-    let y = input.pos_y.unwrap_or(200.0);
-    let purpose = input.purpose.unwrap_or_else(|| "Novo módulo (planned).".into());
+    if input.label.trim().is_empty() {
+        return Err("Informe o nome do módulo".into());
+    }
+    let existe: Option<(String,)> = sqlx::query_as("SELECT module_key FROM mapa_modules WHERE module_key = $1")
+        .bind(&key)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(|e| e.to_string())?;
+    if existe.is_some() {
+        return Err(format!("Já existe um módulo com a chave {key}"));
+    }
+    let grupo: Option<(String,)> = sqlx::query_as("SELECT key FROM mapa_groups WHERE key = $1")
+        .bind(input.group_key.trim())
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(|e| e.to_string())?;
+    if grupo.is_none() {
+        return Err(format!("Grupo {} não existe", input.group_key.trim()));
+    }
+    let purpose = input.purpose.clone().unwrap_or_else(|| "Novo módulo (planned).".into());
     insert_module(
-        pool,
+        &mut *conn,
         &key,
         input.group_key.trim(),
         input.label.trim(),
         &purpose,
         "planned",
-        x,
-        y,
+        input.pos_x.unwrap_or(80.0),
+        input.pos_y.unwrap_or(200.0),
         None,
         None,
         None,
@@ -631,39 +648,30 @@ pub async fn create_module(
         0,
     )
     .await?;
+    log_activity(&mut *conn, actor, "module_created", json!({ "moduleKey": key })).await?;
+    get_module(&mut *conn, &key).await
+}
 
-    // Fila única: o módulo novo vira um chamado na triagem do Desenvolvimento (tabela feedbacks).
+/// Chamado na triagem para implementar o módulo recém-criado (fila única = feedbacks).
+pub async fn abrir_chamado_modulo_novo(pool: &PgPool, actor: &str, m: &MapaModule) -> Result<String, String> {
     let chamado = crate::modules::geral::feedbacks::models::FeedbackSubmitInput {
         id: Uuid::new_v4().to_string(),
         feedback_type: "feedback".into(),
         description: format!(
-            "Implementar módulo {key} ({}): registrar no front e no back, tela e rotas. Finalidade: {purpose}",
-            input.label.trim()
+            "Implementar módulo {} ({}): registrar no front e no back, tela e rotas. Finalidade: {}",
+            m.module_key, m.label, m.purpose
         ),
         page: "Desenvolvimento".into(),
-        module_key: Some(key.clone()),
+        module_key: Some(m.module_key.clone()),
         logs: String::new(),
         screenshot: String::new(),
     };
-    crate::modules::geral::feedbacks::commands::save_feedback_from_user_query(
-        pool.clone(),
-        &chamado,
-        actor.unwrap_or("mapa"),
-    )
-    .await?;
-
-    log_activity(
-        pool,
-        actor,
-        "module_created",
-        json!({ "moduleKey": key, "feedbackId": chamado.id }),
-    )
-    .await?;
-    get_module(pool, &key).await
+    crate::modules::geral::feedbacks::commands::save_feedback_from_user_query(pool.clone(), &chamado, actor).await?;
+    Ok(chamado.id)
 }
 
 pub async fn create_edge(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     actor: Option<&str>,
     input: EdgeCreate,
 ) -> Result<MapaEdge, String> {
@@ -679,11 +687,11 @@ pub async fn create_edge(
     .bind(input.to_key.trim())
     .bind(&kind)
     .bind(&note)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
     log_activity(
-        pool,
+        &mut *conn,
         actor,
         "edge_created",
         json!({ "from": input.from_key, "to": input.to_key, "kind": kind }),

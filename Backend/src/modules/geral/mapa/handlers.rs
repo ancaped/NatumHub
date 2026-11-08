@@ -4,7 +4,6 @@ use axum::{
     response::{IntoResponse, Response},
     Extension, Json,
 };
-use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -12,6 +11,7 @@ use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 
 use super::models::*;
+use crate::core::acao::{corpo_acao, executar_em_2_passos, Confirmar, ErroApi, RespostaAcao};
 use super::store;
 
 fn actor(ctx: &AuthContext) -> &str {
@@ -32,37 +32,83 @@ pub async fn get_snapshot(
     }
 }
 
+fn resposta(r: Result<RespostaAcao<Value>, ErroApi>) -> Response {
+    match r {
+        Ok(r) => (StatusCode::OK, Json(corpo_acao(&r))).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// Posição dos módulos no organograma. Sem `confirmar=true` só a prévia.
 pub async fn put_layout(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
     Json(body): Json<LayoutUpdate>,
-) -> impl IntoResponse {
-    match store::update_layout(state.db.pool(), Some(actor(&ctx)), &body.items).await {
-        Ok(()) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
-        Err(e) => err_resp(StatusCode::BAD_REQUEST, e),
-    }
+) -> Response {
+    let quem = actor(&ctx).to_string();
+    resposta(
+        executar_em_2_passos(state.db.pool(), "mover_modulos_organograma", c.confirmar, move |tx| {
+            Box::pin(async move {
+                store::update_layout(&mut **tx, Some(&quem), &body.items).await.map_err(ErroApi::invalido)?;
+                Ok(json!({ "movidos": body.items.len() }))
+            })
+        })
+        .await,
+    )
 }
 
+/// Módulo novo no mapa. Sem `confirmar=true` só a prévia; ao confirmar também abre o chamado na triagem.
 pub async fn post_module(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
     Json(body): Json<ModuleCreate>,
-) -> impl IntoResponse {
-    match store::create_module(state.db.pool(), Some(actor(&ctx)), body).await {
-        Ok(m) => (StatusCode::CREATED, Json(m)).into_response(),
-        Err(e) => err_resp(StatusCode::BAD_REQUEST, e),
+) -> Response {
+    let quem = actor(&ctx).to_string();
+    let pool = state.db.pool();
+    let q = quem.clone();
+    let r = executar_em_2_passos(pool, "criar_modulo_mapa", c.confirmar, move |tx| {
+        Box::pin(async move {
+            let m = store::create_module(&mut **tx, Some(&q), &body).await.map_err(ErroApi::invalido)?;
+            Ok(json!({ "modulo": m }))
+        })
+    })
+    .await;
+    let mut r = match r {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
+    if c.confirmar {
+        let m: MapaModule = match serde_json::from_value(r.resultado["modulo"].clone()) {
+            Ok(m) => m,
+            Err(e) => return ErroApi::interno(e.to_string()).into_response(),
+        };
+        match store::abrir_chamado_modulo_novo(pool, &quem, &m).await {
+            Ok(id) => r.resultado["chamado"] = json!(id),
+            Err(e) => r.resultado["avisoChamado"] = json!(format!("Módulo criado, mas o chamado não foi aberto: {e}")),
+        }
     }
+    resposta(Ok(r))
 }
 
+/// Conexão escrita à mão entre dois módulos. Sem `confirmar=true` só a prévia.
 pub async fn post_edge(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
     Json(body): Json<EdgeCreate>,
-) -> impl IntoResponse {
-    match store::create_edge(state.db.pool(), Some(actor(&ctx)), body).await {
-        Ok(e) => (StatusCode::CREATED, Json(e)).into_response(),
-        Err(e) => err_resp(StatusCode::BAD_REQUEST, e),
-    }
+) -> Response {
+    let quem = actor(&ctx).to_string();
+    resposta(
+        executar_em_2_passos(state.db.pool(), "ligar_modulos", c.confirmar, move |tx| {
+            Box::pin(async move {
+                let e = store::create_edge(&mut **tx, Some(&quem), body).await.map_err(ErroApi::invalido)?;
+                Ok(json!({ "conexao": e }))
+            })
+        })
+        .await,
+    )
 }
 
 pub async fn list_activity(
@@ -73,35 +119,6 @@ pub async fn list_activity(
     let limit = q.limit.unwrap_or(100);
     match store::list_activity(state.db.pool(), limit).await {
         Ok(rows) => (StatusCode::OK, Json(rows)).into_response(),
-        Err(e) => err_resp(StatusCode::INTERNAL_SERVER_ERROR, e),
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ActivityCreate {
-    pub action: String,
-    pub meta: Option<Value>,
-}
-
-pub async fn post_activity(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<AuthContext>,
-    Json(body): Json<ActivityCreate>,
-) -> impl IntoResponse {
-    let action = body.action.trim();
-    if action.is_empty() {
-        return err_resp(StatusCode::BAD_REQUEST, "action obrigatório");
-    }
-    match store::log_activity(
-        state.db.pool(),
-        Some(actor(&ctx)),
-        action,
-        body.meta.unwrap_or_else(|| json!({})),
-    )
-    .await
-    {
-        Ok(()) => (StatusCode::CREATED, Json(json!({ "ok": true }))).into_response(),
         Err(e) => err_resp(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
 }
