@@ -1,5 +1,6 @@
 import { apiFetch } from '../../geral/lib/http';
 import { useAviso } from '../../geral/components/ui/Aviso';
+import Drawer from '../../geral/components/ui/Drawer';
 import { usePreviaServidor, mensagemErroServidor } from '../lib/usePreviaServidor';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
@@ -1178,6 +1179,67 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     return matchesSearch && matchesStatus;
   });
 
+  const viraOrdersFiltradas = viraOrders.filter(o => {
+    const q = viraSearch.toLowerCase();
+    const matchesSearch =
+      (o.orderNumber || '').toLowerCase().includes(q) ||
+      (o.deProdutoCodigo || '').toLowerCase().includes(q) ||
+      (o.deProdutoDescricao || '').toLowerCase().includes(q) ||
+      (o.paraProdutoCodigo || '').toLowerCase().includes(q) ||
+      (o.paraProdutoDescricao || '').toLowerCase().includes(q);
+    return matchesSearch && (filterViraStatus === 'ALL' || o.status === filterViraStatus);
+  });
+  const viraComposicaoFiltrada = viraComposicao.filter(row => {
+    const q = viraCompSearch.toLowerCase();
+    return (row.deProdutoCodigo || '').toLowerCase().includes(q) ||
+      (row.deProdutoDescricao || '').toLowerCase().includes(q) ||
+      (row.paraProdutoCodigo || '').toLowerCase().includes(q) ||
+      (row.paraProdutoDescricao || '').toLowerCase().includes(q);
+  });
+
+  const renderFormulaPreview = () => (
+    <>
+      {loadingFormulaPackaging ? (
+                                    <p className="text-[11px] text-zinc-500 font-medium">Carregando embalagens da formulação…</p>
+                                  ) : !formulaPackagingPreview ? (
+                                    <p className="text-[11px] text-zinc-500 font-medium">Sem dados de embalagem ou falha ao carregar.</p>
+                                  ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[11px]">
+                                      <div>
+                                        <p className="font-extrabold text-zinc-600 uppercase tracking-wide mb-1.5">Retorno (origem) / un</p>
+                                        {(formulaPackagingPreview.returns || []).length === 0 ? (
+                                          <p className="text-zinc-400">Nenhuma embalagem na formulação DE</p>
+                                        ) : (
+                                          <ul className="space-y-1">
+                                            {formulaPackagingPreview.returns.map((r) => (
+                                              <li key={`r-${r.code}`} className="flex justify-between gap-2 border-b border-zinc-100 py-0.5">
+                                                <span className="font-medium text-zinc-800 truncate">{r.code} · {r.description}</span>
+                                                <span className="font-bold text-zinc-600 shrink-0">{r.unitQty ?? r.qty}</span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        )}
+                                      </div>
+                                      <div>
+                                        <p className="font-extrabold text-zinc-600 uppercase tracking-wide mb-1.5">Saída (destino) / un destino</p>
+                                        {(formulaPackagingPreview.consumes || []).length === 0 ? (
+                                          <p className="text-zinc-400">Nenhuma embalagem na formulação PARA</p>
+                                        ) : (
+                                          <ul className="space-y-1">
+                                            {formulaPackagingPreview.consumes.map((c) => (
+                                              <li key={`c-${c.code}`} className="flex justify-between gap-2 border-b border-zinc-100 py-0.5">
+                                                <span className="font-medium text-zinc-800 truncate">{c.code} · {c.description}</span>
+                                                <span className="font-bold text-zinc-600 shrink-0">{c.unitQty ?? c.qty}</span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+    </>
+  );
+
   return (
     <div className="flex flex-1 w-full h-full overflow-hidden animate-in fade-in duration-200">
       {previaElemento}
@@ -1726,7 +1788,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         {/* Main Content Area */}
         <div className="print:hidden flex-1 flex flex-col overflow-hidden relative">
           <main className="flex-1 overflow-y-auto p-3 md:p-6 flex flex-col min-w-0">
-            <div className="md:hidden no-print mb-3 flex gap-1.5 overflow-x-auto pb-1" role="tablist">
+            <div className="md:hidden no-print mb-3 flex shrink-0 gap-1.5 overflow-x-auto pb-1" role="tablist">
               {([
                 ['ordens', 'Ordens de Montagem', orders.length],
                 ['componentes', 'Componentes e Alertas', null],
@@ -1850,7 +1912,56 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                   <p className="text-[10px] text-zinc-550">Gere uma nova ordem clicando no botão no topo.</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <>
+                <div className="md:hidden divide-y divide-zinc-100">
+                  {filteredOrders.map((o) => (
+                    <div key={o.id} className="p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <span className="font-extrabold text-zinc-950 text-sm">Lote {o.orderNumber}</span>
+                          <span className="block font-bold text-zinc-900 text-xs break-words">{o.kitProductDescription}</span>
+                          <span className="text-[10px] text-zinc-500">REF: {o.kitProductCode}</span>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="font-extrabold text-zinc-900 block">{o.quantity} un</span>
+                          {o.quantityAssembled !== null && o.quantityAssembled !== undefined && o.quantityAssembled !== o.quantity && (
+                            <span className="text-[10px] font-bold text-zinc-500 block">Real: {o.quantityAssembled} un</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className={`px-2 py-1 rounded-full text-[9px] font-extrabold tracking-wide uppercase ${
+                          o.status === 'COMPLETED'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}>
+                          {o.status === 'COMPLETED' ? 'Concluída' : 'Em Montagem'}
+                        </span>
+                        <SeloOrdemParada ordem={o} />
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
+                          o.erpLaunched === 1
+                            ? 'bg-zinc-900 text-white border border-zinc-900'
+                            : 'bg-zinc-100 text-zinc-500 border border-zinc-200'
+                        }`}>
+                          ERP: {o.erpLaunched === 1 ? 'Sim' : 'Não'}
+                        </span>
+                        <span className="text-[10px] text-zinc-500 ml-auto">{o.completedAt ? `Montado ${o.completedAt}${o.assembledBy ? ` por ${o.assembledBy}` : ''}` : `Emitida ${o.createdAt}`}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleOpenEditModal(o)} className="flex-1 min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl bg-zinc-900 text-white text-xs font-bold cursor-pointer">
+                          <Eye size={14} /> Abrir
+                        </button>
+                        <button onClick={() => handlePrintOrder(o)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 cursor-pointer" title="Imprimir" aria-label="Imprimir ordem">
+                          <Printer size={16} />
+                        </button>
+                        <button onClick={() => handleDeleteOrder(o.id)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-red-600 cursor-pointer" title="Excluir" aria-label="Excluir ordem">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-xs text-left border-collapse">
                     <thead>
                       <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-550 font-bold uppercase text-[9px]">
@@ -1938,6 +2049,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           </div>
@@ -1997,7 +2109,95 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                   <span className="text-xs font-bold text-zinc-700">Nenhum kit encontrado com os filtros selecionados</span>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <>
+                <div className="md:hidden divide-y divide-zinc-100">
+                  {kits.map((k) => {
+                    const isExpanded = expandedKits.includes(k.codigo);
+                    const currentQty = kitMontarQtys[k.codigo] !== undefined
+                      ? kitMontarQtys[k.codigo]
+                      : (k.producao_recomendada > 0 ? k.producao_recomendada : (k.max_montavel > 0 ? k.max_montavel : 10));
+                    const capClass = k.max_montavel === 0
+                      ? 'bg-red-50 text-red-700 border-red-200'
+                      : k.max_montavel < k.producao_recomendada
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                    return (
+                      <div key={k.codigo} className="p-3 space-y-2.5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <span className="font-extrabold text-zinc-950 text-sm">{k.codigo}</span>
+                            <span className="block font-bold text-zinc-900 text-xs break-words">{k.descricao}</span>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="font-extrabold text-zinc-900 block">{k.estoque} un</span>
+                            <span className="text-[10px] text-zinc-400">Ped: {k.pedidos_aberto} un</span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className={`px-2 py-1 rounded-full text-[9px] font-extrabold tracking-wide uppercase ${
+                            k.status === 'critico' ? 'bg-red-50 text-red-700 border border-red-200' :
+                            k.status === 'ordem' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                            k.status === 'montar' ? 'bg-orange-50 text-orange-700 border border-orange-200' :
+                            k.status === 'aguardando' ? 'bg-zinc-100 text-zinc-700 border border-zinc-200' :
+                            'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          }`}>{k.status_label}</span>
+                          <span className={`px-2 py-1 rounded border text-[9px] font-extrabold ${capClass}`}>Máx: {k.max_montavel} un</span>
+                          {k.producao_recomendada > 0 && (
+                            <span className="text-[10px] font-bold text-red-600 ml-auto">Produzir {k.producao_recomendada} un</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            inputMode="numeric"
+                            value={currentQty}
+                            onChange={(e) => { const val = e.target.value; setKitMontarQtys(prev => ({ ...prev, [k.codigo]: val })); }}
+                            className="w-20 min-h-11 text-right border border-zinc-300 rounded-xl px-2 text-sm font-bold text-zinc-900 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                            aria-label="Quantidade a montar"
+                          />
+                          <span className="text-[10px] text-zinc-400 font-semibold">un</span>
+                          <button onClick={() => handleOpenNewOrderModal(k.codigo)} className="flex-1 min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl bg-zinc-900 text-white text-xs font-bold cursor-pointer">
+                            <PlusCircle size={14} /> Ordem
+                          </button>
+                          <button onClick={() => handleQuickCreateAndPrintKit(k, currentQty)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 cursor-pointer" aria-label="Gerar e imprimir ordem" title="Gerar e imprimir">
+                            <Printer size={16} />
+                          </button>
+                          <button onClick={() => toggleKitExpanded(k.codigo)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 cursor-pointer" aria-label="Ver componentes" aria-expanded={isExpanded}>
+                            {isExpanded ? <X size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                        {isExpanded && (
+                          <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 divide-y divide-zinc-100">
+                            <div className="px-3 py-2 text-[10px] font-extrabold uppercase text-zinc-500">Componentes ({k.componentes?.length || 0})</div>
+                            {k.componentes?.map(comp => (
+                              <div key={comp.codigo} className="px-3 py-2 text-xs space-y-0.5">
+                                <div className="flex justify-between gap-2">
+                                  <span className="font-bold text-zinc-800">{comp.codigo}</span>
+                                  <span className="font-bold text-zinc-900">
+                                    {formatQtyPerKitLabel(Number(comp.quantidade) || 1, comp.fator_proporcao_qtd, comp.fator_proporcao_kits)}
+                                  </span>
+                                </div>
+                                <span className="block text-zinc-700 break-words">{comp.descricao}</span>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-zinc-500">
+                                  <span>Estoque <b className="text-zinc-900">{comp.estoque} un</b></span>
+                                  <span>Produção {comp.producao} un</span>
+                                  <span>Pedidos {comp.pedidos_aberto} un</span>
+                                  {comp.fonte === 'item' ? (
+                                    <span className="font-bold uppercase text-amber-700">embalagem/insumo</span>
+                                  ) : comp.necessita_producao ? (
+                                    <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-700 font-bold">Produzir</span>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-xs text-left border-collapse">
                     <thead>
                       <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-550 font-bold uppercase text-[9px]">
@@ -2163,6 +2363,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           </div>
@@ -2172,7 +2373,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         {activeSubTab === 'composicao' && (
           <div className="space-y-4 animate-in fade-in duration-200 flex-1 flex flex-col overflow-hidden">
             {/* Toolbar com importação Excel e busca */}
-            <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 flex flex-col md:flex-row items-center justify-between gap-4 shrink-0">
+            <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-3 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4 shrink-0">
               <div className="flex items-center gap-3 min-w-0 flex-1">
                 <div className="relative w-full max-w-md">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
@@ -2190,17 +2391,17 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
               </div>
 
               {/* Excel import & Compor Novo Kit */}
-              <div className="shrink-0 flex items-center gap-2">
+              <div className="shrink-0 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setIsNewKitModalOpen(true)}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5 h-[36px]"
+                  className="bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center justify-center gap-1.5 min-h-11 md:min-h-9"
                 >
                   <Plus className="w-4 h-4" />
                   Compor Novo Kit
                 </button>
 
-                <label className="bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5 h-[36px]">
+                <label className="bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center justify-center gap-1.5 min-h-11 md:min-h-9">
                   <UploadCloud className="w-4 h-4 text-zinc-500" />
                   {uploadingKitsConfig ? 'Importando...' : 'Importar Excel (.xlsx)'}
                   <input
@@ -2216,7 +2417,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
             {/* Lista Mestre-Detalhe dos Kits Montáveis */}
             <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col flex-1">
-              <div className="px-6 py-3.5 bg-zinc-50 border-b border-zinc-200 flex items-center justify-between text-xs font-bold text-zinc-600">
+              <div className="px-4 md:px-6 py-3.5 bg-zinc-50 border-b border-zinc-200 flex flex-wrap items-center justify-between gap-1 text-xs font-bold text-zinc-600">
                 <span>Catálogo de Kits Montáveis ({masterKitsList.length})</span>
                 <span className="text-[11px] text-zinc-400 font-normal">Clique em um kit para gerenciar seus insumos/proporções</span>
               </div>
@@ -2299,8 +2500,8 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
           <div className="space-y-4 animate-in fade-in duration-200 flex-1 flex flex-col overflow-hidden">
             {/* Search and filter toolbar */}
             <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
-              <div className="flex items-center gap-3 flex-1 min-w-[280px]">
-                <div className="relative flex-1 max-w-md">
+              <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0 sm:min-w-[280px]">
+                <div className="relative flex-1 min-w-[12rem] max-w-md">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                   <input
                     type="text"
@@ -2329,7 +2530,53 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                   Carregando ordens de vira...
                 </div>
               ) : (
-                <div className="overflow-y-auto flex-1">
+                <>
+                <div className="md:hidden divide-y divide-zinc-100">
+                  {viraOrdersFiltradas.length === 0 && (
+                    <p className="p-8 text-center text-zinc-500 font-bold text-xs">Nenhuma ordem de vira de produto encontrada.</p>
+                  )}
+                  {viraOrdersFiltradas.map(o => (
+                    <div key={o.id} className="p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="font-extrabold text-zinc-950 text-sm">{o.orderNumber}</span>
+                        <div className="text-right shrink-0">
+                          <span className="font-extrabold text-zinc-900 block">{o.status === 'COMPLETED' ? `${o.quantityAssembled !== null && o.quantityAssembled !== undefined ? o.quantityAssembled : o.quantity} un` : `${o.quantity} un`}</span>
+                          {o.status === 'COMPLETED' && o.quantityAssembled !== null && o.quantityAssembled !== undefined && o.quantityAssembled !== o.quantity && (
+                            <span className="text-[10px] font-bold text-zinc-500">Prog.: {o.quantity} un</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-xs space-y-0.5">
+                        <div className="text-zinc-800 font-bold break-words"><span className="text-[10px] text-zinc-400 font-mono">DE </span>{o.deProdutoDescricao} <span className="text-[10px] text-zinc-500">({o.deProdutoCodigo})</span></div>
+                        <div className="text-zinc-900 font-extrabold break-words"><span className="text-[10px] text-zinc-500 font-mono">PARA </span>{o.paraProdutoDescricao} <span className="text-[10px] text-zinc-500">({o.paraProdutoCodigo})</span></div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className={`px-2 py-1 rounded-full text-[9px] font-extrabold tracking-wide uppercase ${
+                          o.status === 'COMPLETED'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}>{o.status === 'COMPLETED' ? 'Concluída' : 'Em Montagem'}</span>
+                        <SeloOrdemParada ordem={o} />
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
+                          o.erpLaunched === 1 ? 'bg-zinc-900 text-white border border-zinc-900' : 'bg-zinc-100 text-zinc-500 border border-zinc-200'
+                        }`}>ERP: {o.erpLaunched === 1 ? 'Sim' : 'Não'}</span>
+                        <span className="text-[10px] text-zinc-500 ml-auto">{o.completedAt ? `Concluída ${o.completedAt}${o.assembledBy ? ` por ${o.assembledBy}` : ''}` : `Emitida ${o.createdAt}`}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleOpenEditViraOrderModal(o)} className="flex-1 min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl bg-zinc-900 text-white text-xs font-bold cursor-pointer">
+                          <Eye size={14} /> Abrir
+                        </button>
+                        <button onClick={() => { setPrintingOrder(buildViraPrintPayload(o)); setTimeout(() => window.print(), 100); }} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 cursor-pointer" aria-label="Imprimir folha">
+                          <Printer size={16} />
+                        </button>
+                        <button onClick={() => handleDeleteViraOrder(o.id)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-red-600 cursor-pointer" aria-label="Excluir ordem">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden md:block overflow-y-auto flex-1">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500 sticky top-0 z-10">
                       <tr>
@@ -2454,6 +2701,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           </div>
@@ -2510,7 +2758,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </div>
                 <button
                   type="submit"
-                  className="w-full bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-colors cursor-pointer h-[36px]"
+                  className="w-full bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-colors cursor-pointer min-h-11 md:min-h-9"
                 >
                   Vincular Conversão de Produto
                 </button>
@@ -2519,7 +2767,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
             <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col flex-1">
               <div className="p-4 border-b border-zinc-100 flex items-center shrink-0">
-                <div className="relative w-72">
+                <div className="relative w-full sm:w-72">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                   <input
                     type="text"
@@ -2531,7 +2779,34 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </div>
               </div>
 
-              <div className="overflow-y-auto flex-1">
+              <div className="md:hidden divide-y divide-zinc-100 overflow-y-auto">
+                {viraComposicaoFiltrada.length === 0 && (
+                  <p className="p-8 text-center text-zinc-500 font-bold text-xs">Nenhuma relação de vira cadastrada.</p>
+                )}
+                {viraComposicaoFiltrada.map(row => {
+                  const key = `${row.deProdutoCodigo}|${row.paraProdutoCodigo}`;
+                  const expanded = expandedViraFormulaKey === key;
+                  return (
+                    <div key={key} className="p-3 space-y-2">
+                      <div className="text-xs space-y-0.5">
+                        <div className="text-zinc-800 font-bold break-words"><span className="text-[10px] text-zinc-400 font-mono">DE </span>{row.deProdutoDescricao} <span className="font-mono text-[10px] text-zinc-500">({row.deProdutoCodigo})</span></div>
+                        <div className="text-zinc-900 font-extrabold break-words"><span className="text-[10px] text-zinc-500 font-mono">PARA </span>{row.paraProdutoDescricao} <span className="font-mono text-[10px] text-zinc-500">({row.paraProdutoCodigo})</span></div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-1 rounded-lg bg-zinc-100 text-zinc-900 text-xs font-extrabold">1 → {row.quantidade}</span>
+                        <button type="button" onClick={() => toggleFormulaPackagingPreview(row)} className="ml-auto min-h-11 px-3 inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 text-zinc-700 text-xs font-bold cursor-pointer" aria-expanded={expanded}>
+                          <Eye size={14} /> Embalagens
+                        </button>
+                        <button type="button" onClick={() => handleDeleteViraComposicao(row.deProdutoCodigo, row.paraProdutoCodigo)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-700 cursor-pointer" aria-label="Remover vínculo de vira">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                      {expanded && <div className="rounded-xl bg-zinc-50 border border-zinc-200 p-3">{renderFormulaPreview()}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="hidden md:block overflow-y-auto flex-1">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500 sticky top-0 z-10">
                     <tr>
@@ -2599,44 +2874,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                             {expanded && (
                               <tr className="bg-zinc-50/80">
                                 <td colSpan={6} className="px-6 py-3">
-                                  {loadingFormulaPackaging ? (
-                                    <p className="text-[11px] text-zinc-500 font-medium">Carregando embalagens da formulação…</p>
-                                  ) : !formulaPackagingPreview ? (
-                                    <p className="text-[11px] text-zinc-500 font-medium">Sem dados de embalagem ou falha ao carregar.</p>
-                                  ) : (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[11px]">
-                                      <div>
-                                        <p className="font-extrabold text-zinc-600 uppercase tracking-wide mb-1.5">Retorno (origem) / un</p>
-                                        {(formulaPackagingPreview.returns || []).length === 0 ? (
-                                          <p className="text-zinc-400">Nenhuma embalagem na formulação DE</p>
-                                        ) : (
-                                          <ul className="space-y-1">
-                                            {formulaPackagingPreview.returns.map((r) => (
-                                              <li key={`r-${r.code}`} className="flex justify-between gap-2 border-b border-zinc-100 py-0.5">
-                                                <span className="font-medium text-zinc-800 truncate">{r.code} · {r.description}</span>
-                                                <span className="font-bold text-zinc-600 shrink-0">{r.unitQty ?? r.qty}</span>
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        )}
-                                      </div>
-                                      <div>
-                                        <p className="font-extrabold text-zinc-600 uppercase tracking-wide mb-1.5">Saída (destino) / un destino</p>
-                                        {(formulaPackagingPreview.consumes || []).length === 0 ? (
-                                          <p className="text-zinc-400">Nenhuma embalagem na formulação PARA</p>
-                                        ) : (
-                                          <ul className="space-y-1">
-                                            {formulaPackagingPreview.consumes.map((c) => (
-                                              <li key={`c-${c.code}`} className="flex justify-between gap-2 border-b border-zinc-100 py-0.5">
-                                                <span className="font-medium text-zinc-800 truncate">{c.code} · {c.description}</span>
-                                                <span className="font-bold text-zinc-600 shrink-0">{c.unitQty ?? c.qty}</span>
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
+                                  {renderFormulaPreview()}
                                 </td>
                               </tr>
                             )}
@@ -2655,23 +2893,14 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
       {/* MODAL: NOVA ORDEM */}
       {showNewOrderModal && (
-        <div className="fixed inset-0 bg-black/55 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-1.5">
-                <Layers className="h-5 w-5 text-zinc-900" />
-                Criar Ordem de Montagem de Kit
-              </h3>
-              <button 
-                onClick={() => setShowNewOrderModal(false)}
-                className="p-1 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
+        <Drawer
+          onClose={() => setShowNewOrderModal(false)}
+          title="Nova Ordem de Montagem"
+          subtitle="Criar ordem de montagem de kit"
+          size="md"
+        >
             <form onSubmit={handleCreateOrder} className="space-y-4 text-xs font-medium text-zinc-700">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Lote da Ordem</label>
                   <input 
@@ -2801,20 +3030,17 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Drawer>
       )}
 
       {/* MODAL: EDITAR / VISUALIZAR ORDEM */}
       {showEditOrderModal && selectedOrder && (
-        <div className="fixed inset-0 bg-black/55 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-1.5">
-                <ClipboardList className="h-5 w-5 text-zinc-900" />
-                Retorno / Edição de Ordem: Lote {editOrderNumber || selectedOrder.orderNumber}
-              </h3>
-              <div className="flex items-center gap-2">
+        <Drawer
+          onClose={() => setShowEditOrderModal(false)}
+          title={`Lote ${editOrderNumber || selectedOrder.orderNumber}`}
+          subtitle="Retorno / edição da ordem de montagem"
+          size="lg"
+          headerActions={
                 <button
                   type="button"
                   onClick={() => {
@@ -2853,22 +3079,15 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                   <Printer size={13} />
                   <span>Imprimir Folha</span>
                 </button>
-                <button 
-                  onClick={() => setShowEditOrderModal(false)}
-                  className="p-1 hover:bg-zinc-100 rounded-full text-zinc-455 hover:text-zinc-900 cursor-pointer"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-
+          }
+        >
             <form onSubmit={handleUpdateOrder} className="space-y-4 text-xs font-medium text-zinc-700">
               <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3.5 space-y-3">
                 <div>
                   <span className="text-[10px] text-zinc-400 font-extrabold uppercase block">Produto Kit</span>
                   <span className="font-bold text-zinc-900">{selectedOrder.kitProductDescription} ({selectedOrder.kitProductCode})</span>
                 </div>
-                <div className="grid grid-cols-3 gap-3 pt-2 border-t border-zinc-200/60">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-zinc-200/60">
                   <div className="space-y-1">
                     <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Lote da Ordem</label>
                     <input 
@@ -2898,7 +3117,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1 col-span-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Status</label>
                   <select
@@ -2947,7 +3166,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
               </div>
 
               {/* Responsible Operator Fields */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block flex items-center gap-1">
                     <User size={10} />
@@ -3100,29 +3319,18 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Drawer>
       )}
       {/* MODAL: NOVA ORDEM DE CONVERSÃO */}
       {showNewViraOrderModal && (
-        <div className="fixed inset-0 bg-black/55 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-1.5">
-                <RefreshCw className="h-5 w-5 text-zinc-900" />
-                Criar Ordem de Conversão de Produto
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowNewViraOrderModal(false)}
-                className="p-1 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
+        <Drawer
+          onClose={() => setShowNewViraOrderModal(false)}
+          title="Nova Ordem de Conversão"
+          subtitle="Conversão de produto (reetiquetagem / reenvase)"
+          size="lg"
+        >
             <form onSubmit={handleCreateViraOrder} className="space-y-4 text-xs font-medium text-zinc-700">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Lote da Ordem</label>
                   <input
@@ -3165,7 +3373,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                   <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">
                     Quantidade estimada (DE × fator → PARA)
                   </h4>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="space-y-1">
                       <label className="text-[9px] text-zinc-400 font-bold uppercase block">Qtd origem (DE)</label>
                       <input
@@ -3352,35 +3560,19 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Drawer>
       )}
 
       {/* MODAL: RETORNO DE ORDEM DE TRANSFORMAÇÃO */}
       {showEditViraOrderModal && selectedViraOrder && (
-        <div className="fixed inset-0 bg-black/55 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b pb-3">
-              <div className="flex flex-col">
-                <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-1.5">
-                  <RefreshCw className="h-5 w-5 text-zinc-900" />
-                  Retorno de Lote / Ordem de Transformação
-                </h3>
-                <span className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                  Lote: {selectedViraOrder.orderNumber}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowEditViraOrderModal(false)}
-                className="p-1 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
+        <Drawer
+          onClose={() => setShowEditViraOrderModal(false)}
+          title={`Lote ${selectedViraOrder.orderNumber}`}
+          subtitle="Retorno de lote / ordem de conversão"
+          size="lg"
+        >
             <form onSubmit={handleUpdateViraOrder} className="space-y-4 text-xs font-medium text-zinc-700">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Status da Produção</label>
                   <select
@@ -3413,7 +3605,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Operador Montador</label>
                   <input
@@ -3440,7 +3632,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">
                   Ajuste de Quantidade Realizada (itens PARA)
                 </h4>
-                <div className="grid grid-cols-2 gap-4 items-end">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
                   <div className="space-y-0.5">
                     <span className="text-[9px] text-zinc-400 font-bold block">QTD. PROGRAMADA PARA:</span>
                     <span className="font-bold text-zinc-650 block">{selectedViraOrder.quantity} un</span>
@@ -3549,8 +3741,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </Drawer>
       )}
 
       <KitCompositionDrawer
@@ -3566,21 +3757,12 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
       {/* MODAL: SELECIONAR NOVO KIT PARA COMPOSIÇÃO */}
       {isNewKitModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[85vh] overflow-hidden flex flex-col">
-            <div className="flex justify-between items-center border-b border-zinc-150 pb-3 shrink-0">
-              <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-2">
-                <PlusCircle className="h-5 w-5 text-emerald-600 animate-pulse" />
-                Definir Composição para Novo Kit
-              </h3>
-              <button 
-                onClick={() => { setIsNewKitModalOpen(false); setNewKitSearch(''); }}
-                className="p-1.5 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer transition-colors"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
+        <Drawer
+          onClose={() => { setIsNewKitModalOpen(false); setNewKitSearch(''); }}
+          title="Compor Novo Kit"
+          subtitle="Definir composição para um produto"
+          size="md"
+        >
             <div className="space-y-3 flex-1 flex flex-col overflow-hidden">
               <p className="text-xs text-zinc-500 font-medium">
                 Pesquise e selecione qualquer produto cadastrado no sistema para iniciar a definição da sua composição (estrutura de insumos).
@@ -3597,7 +3779,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 />
               </div>
 
-              <div className="flex-1 overflow-y-auto border border-zinc-200 rounded-xl divide-y divide-zinc-100">
+              <div className="border border-zinc-200 rounded-xl divide-y divide-zinc-100">
                 {products
                   .filter(p => {
                     if (!newKitSearch.trim()) return false;
@@ -3638,7 +3820,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                             Já possui composição
                           </span>
                         ) : (
-                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md shrink-0">
+                          <span className="text-[10px] font-bold text-zinc-700 bg-zinc-100 border border-zinc-200 px-2 py-0.5 rounded-md shrink-0">
                             Iniciar composição
                           </span>
                         )}
@@ -3664,18 +3846,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 )}
               </div>
             </div>
-
-            <div className="pt-3 border-t border-zinc-150 flex justify-end shrink-0">
-              <button
-                type="button"
-                onClick={() => { setIsNewKitModalOpen(false); setNewKitSearch(''); }}
-                className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl font-bold text-xs transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
+        </Drawer>
       )}
 
       <datalist id="produtos-list">

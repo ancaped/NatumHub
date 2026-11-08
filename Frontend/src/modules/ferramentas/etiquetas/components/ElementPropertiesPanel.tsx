@@ -52,13 +52,13 @@ interface ElementPropertiesPanelProps {
 // ---------- Peças visuais compartilhadas ----------
 
 const inputCls =
-  'w-full h-8 rounded-lg border border-zinc-200 bg-white px-2.5 text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900';
+  'w-full h-11 lg:h-8 rounded-lg border border-zinc-200 bg-white px-2.5 text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900';
 const areaCls =
   'w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900';
 const chipCls =
-  'rounded-md border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-zinc-600 hover:border-zinc-900 hover:text-zinc-900 cursor-pointer transition-colors';
+  'rounded-md border border-zinc-200 bg-white px-2 py-3 lg:px-1.5 lg:py-0.5 font-mono text-[10px] text-zinc-600 hover:border-zinc-900 hover:text-zinc-900 cursor-pointer transition-colors';
 const iconBtnCls =
-  'p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 cursor-pointer transition-colors';
+  'p-3 lg:p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 cursor-pointer transition-colors';
 
 function Section({
   title,
@@ -75,7 +75,7 @@ function Section({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 cursor-pointer"
+        className="w-full min-h-11 flex items-center justify-between px-4 py-3 cursor-pointer"
       >
         <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{title}</span>
         <ChevronDown
@@ -127,7 +127,7 @@ function SegBtn({
       type="button"
       title={title}
       onClick={onClick}
-      className={`h-7 flex items-center justify-center rounded-md text-[11px] cursor-pointer transition-colors ${
+      className={`h-10 lg:h-7 flex items-center justify-center rounded-md text-[11px] cursor-pointer transition-colors ${
         active ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-white hover:text-zinc-900'
       }`}
     >
@@ -150,7 +150,7 @@ function ActionBtn({
       type="button"
       title={title}
       onClick={onClick}
-      className="w-full h-8 flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-white text-xs text-zinc-700 hover:border-zinc-900 hover:text-zinc-900 cursor-pointer transition-colors"
+      className="w-full h-11 lg:h-8 flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-white text-xs text-zinc-700 hover:border-zinc-900 hover:text-zinc-900 cursor-pointer transition-colors"
     >
       {children}
     </button>
@@ -190,7 +190,7 @@ function MmInput({
   );
 }
 
-const panelCls = 'w-72 border-l border-zinc-200 bg-white flex flex-col h-full overflow-y-auto select-none';
+const panelCls = 'w-full lg:w-72 lg:border-l border-zinc-200 bg-white flex flex-col h-full overflow-y-auto select-none';
 
 function Header({
   title,
@@ -241,7 +241,7 @@ export default function ElementPropertiesPanel({
             type="button"
             onClick={() => onDeleteMultipleElements(selectedIds)}
             title="Excluir todos os selecionados"
-            className="p-1.5 rounded-lg text-zinc-500 hover:text-red-600 hover:bg-zinc-100 cursor-pointer transition-colors"
+            className="p-3 lg:p-1.5 rounded-lg text-zinc-500 hover:text-red-600 hover:bg-zinc-100 cursor-pointer transition-colors"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -472,7 +472,7 @@ export default function ElementPropertiesPanel({
           type="button"
           onClick={() => onDeleteElement(element.id)}
           title="Excluir elemento (Delete)"
-          className="p-1.5 rounded-lg text-zinc-500 hover:text-red-600 hover:bg-zinc-100 cursor-pointer transition-colors"
+          className="p-3 lg:p-1.5 rounded-lg text-zinc-500 hover:text-red-600 hover:bg-zinc-100 cursor-pointer transition-colors"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>

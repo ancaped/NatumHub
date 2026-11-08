@@ -310,8 +310,8 @@ export default function KitCompositionDrawer({
       </div>
 
       {errorMsg && (
-        <div className="p-3.5 bg-rose-50 border border-rose-150 rounded-xl text-xs text-rose-700 font-bold flex items-center gap-2 animate-shake">
-          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+        <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-bold flex items-center gap-2 animate-shake">
+          <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
           <span>{errorMsg}</span>
         </div>
       )}
@@ -648,7 +648,7 @@ export default function KitCompositionDrawer({
                     ) : (
                       <button
                         onClick={() => handleDeleteItem(item.componente_codigo, item.origem)}
-                        className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg border border-rose-150 transition-colors opacity-70 group-hover:opacity-100 cursor-pointer shrink-0"
+                        className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg border border-red-200 transition-colors opacity-70 group-hover:opacity-100 cursor-pointer shrink-0"
                         title="Desvincular componente"
                       >
                         <Trash2 className="w-4 h-4" />
