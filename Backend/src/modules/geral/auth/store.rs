@@ -1342,7 +1342,6 @@ pub fn is_public_path(path: &str) -> bool {
     ) || path.starts_with("/api/hub/client-config")
         || path == "/api/hub/public-config"
         || path.starts_with("/api/hub/feedbacks")
-        || path.starts_with("/api/chat")
         || path == "/api/server-manager/status"
         || path == "/api/server-manager/links"
         || path.starts_with("/api/producao/ultimo-lote")

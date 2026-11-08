@@ -5,7 +5,6 @@ pub mod agentes;
 pub mod hub;
 pub mod auth;
 pub mod audit;
-pub mod chat;
 pub mod mapa;
 pub mod notifications;
 pub mod postgres_bootstrap;
@@ -38,7 +37,6 @@ pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
         .merge(auth::router())
         .merge(audit::router())
         .merge(agentes::router())
-        .merge(chat::router())
         .merge(mapa::router())
         .merge(notifications::router())
 }
