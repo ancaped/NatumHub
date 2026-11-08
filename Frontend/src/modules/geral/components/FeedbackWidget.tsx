@@ -1591,16 +1591,17 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
                           <div className="flex items-center gap-2 min-w-0">
                             <Clock className="w-4 h-4 text-amber-600 shrink-0" />
                             <div className="text-[11px] text-amber-900 truncate">
-                              <span className="font-bold block">Aguardando sua Aprovação</span>
-                              <span className="text-zinc-600 truncate block text-[10px]">Ajuste realizado. Aprove ou reabra para ajustes.</span>
+                              <span className="font-bold block">{isSupervisor ? 'Aguardando sua Aprovação' : 'Aguardando conferência'}</span>
+                              <span className="text-zinc-600 truncate block text-[10px]">{isSupervisor ? 'Ajuste realizado. Aprove ou reabra para ajustes.' : 'Ajuste realizado. O supervisor aprova ou reabre.'}</span>
                             </div>
                           </div>
+                          {isSupervisor && (
                           <div className="flex items-center gap-1.5 shrink-0">
                             <button
                               type="button"
                               disabled={updatingStatus}
                               onClick={() => handleUpdateStatus('resolved')}
-                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center gap-1"
+                              className="px-2.5 py-1 max-sm:py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center gap-1"
                             >
                               <Check className="w-3.5 h-3.5" />
                               <span>Aprovar</span>
@@ -1609,12 +1610,13 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
                               type="button"
                               disabled={updatingStatus}
                               onClick={() => handleUpdateStatus('in_progress')}
-                              className="px-2 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-medium text-xs transition-colors cursor-pointer flex items-center gap-1 border border-zinc-200"
+                              className="px-2 py-1 max-sm:py-2.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-medium text-xs transition-colors cursor-pointer flex items-center gap-1 border border-zinc-200"
                             >
                               <RotateCcw className="w-3 h-3 text-zinc-500" />
                               <span>Reabrir</span>
                             </button>
                           </div>
+                          )}
                         </div>
                       )}
                     </div>
