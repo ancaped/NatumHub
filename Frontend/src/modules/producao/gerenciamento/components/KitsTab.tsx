@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../../../geral/lib/http';
 import { useAviso } from '../../../geral/components/ui/Aviso';
+import Drawer from '../../../geral/components/ui/Drawer';
 import { usePreviaServidor, linhasAjusteFila, linhasExclusaoFila } from '../../lib/usePreviaServidor';
 import { kitComponentNeedQty } from '../../lib/kitComponentQty';
 import { formatUnitsToKg } from '../../lib/unitConversion';
@@ -21,7 +22,7 @@ const TD = 'px-4 py-2.5 border-b border-zinc-100 align-middle';
 
 const SITUACAO_INFO: Record<SituacaoKit, { rotulo: string; pill: string }> = {
   montar: { rotulo: 'Montar agora', pill: 'bg-zinc-900 text-white border-zinc-900' },
-  produzir: { rotulo: 'Produzir componente', pill: 'bg-rose-50 text-rose-700 border-rose-200' },
+  produzir: { rotulo: 'Produzir componente', pill: 'bg-red-50 text-red-700 border-red-200' },
   embalagem: { rotulo: 'Falta embalagem', pill: 'bg-amber-50 text-amber-700 border-amber-200' },
   ok: { rotulo: 'Kits OK', pill: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
 };
@@ -29,7 +30,7 @@ const SITUACAO_INFO: Record<SituacaoKit, { rotulo: string; pill: string }> = {
 const PILL_STATUS: Record<string, string> = {
   Cobre: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   Parcial: 'bg-amber-50 text-amber-700 border-amber-200',
-  Produzir: 'bg-rose-50 text-rose-700 border-rose-200',
+  Produzir: 'bg-red-50 text-red-700 border-red-200',
   Comprar: 'bg-amber-50 text-amber-700 border-amber-200',
 };
 
@@ -39,7 +40,7 @@ function Pill({ classe, children }: { classe: string; children: React.ReactNode 
 
 function corBarra(meses: number | null) {
   if (meses == null) return 'bg-zinc-300';
-  if (meses < 1) return 'bg-rose-500';
+  if (meses < 1) return 'bg-red-500';
   if (meses < 2) return 'bg-amber-500';
   return 'bg-emerald-500';
 }
@@ -236,7 +237,7 @@ export function KitsTab({
                   type="button"
                   disabled={savingQueue}
                   onClick={() => handleRemoveFromQueue(code)}
-                  className="px-2 py-1 rounded text-[10px] font-bold text-rose-600 hover:bg-rose-50 cursor-pointer"
+                  className="px-2 py-1 rounded text-[10px] font-bold text-red-600 hover:bg-red-50 cursor-pointer"
                 >
                   Remover
                 </button>
@@ -475,7 +476,7 @@ export function KitsTab({
               <span className="text-[10px] text-zinc-500 font-semibold bg-zinc-100 px-1.5 py-0.5 rounded">Linha: {k.nome_linha || 'Kits'}</span>
               <span className="text-[10px] text-zinc-600 bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded">{comps.length} componentes</span>
               {mostraTrava && lim && (
-                <span className={`px-1.5 py-0.5 text-[9px] font-bold uppercase border rounded ${ehEmbalagem(lim.codigo) ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>
+                <span className={`px-1.5 py-0.5 text-[9px] font-bold uppercase border rounded ${ehEmbalagem(lim.codigo) ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
                   Trava: {String(lim.descricao || '').slice(0, 34)}{Number(lim.estoque) < 0 ? ` (${lim.estoque})` : ''}
                 </span>
               )}
@@ -541,10 +542,10 @@ export function KitsTab({
                       const st = statusComponente(c, need);
                       const rec = Number(c.producao_recomendada) || 0;
                       return (
-                        <tr key={c.codigo} className={trava ? 'bg-orange-50' : ''}>
+                        <tr key={c.codigo} className={trava ? 'bg-amber-50' : ''}>
                           <td className="px-2.5 py-1.5 border-b border-zinc-100">
                             <div className="font-semibold text-zinc-900 text-[11px]">{c.descricao}</div>
-                            <div className="font-mono text-zinc-400 text-[10px]">{c.codigo}{trava && <> · <b className="text-orange-700">trava o kit</b></>}</div>
+                            <div className="font-mono text-zinc-400 text-[10px]">{c.codigo}{trava && <> · <b className="text-amber-700">trava o kit</b></>}</div>
                           </td>
                           <td className="px-2.5 py-1.5 border-b border-zinc-100">
                             {emb
@@ -552,7 +553,7 @@ export function KitsTab({
                               : seloVenda(c.codigo, c)}
                           </td>
                           <td className="px-2.5 py-1.5 border-b border-zinc-100 text-right font-mono">{porKitRotulo(c)}</td>
-                          <td className={`px-2.5 py-1.5 border-b border-zinc-100 text-right font-mono ${Number(c.estoque) < 0 ? 'text-rose-700 font-bold' : ''}`}>{fmt(c.estoque)}</td>
+                          <td className={`px-2.5 py-1.5 border-b border-zinc-100 text-right font-mono ${Number(c.estoque) < 0 ? 'text-red-700 font-bold' : ''}`}>{fmt(c.estoque)}</td>
                           <td className="px-2.5 py-1.5 border-b border-zinc-100 text-right font-mono text-zinc-500">{c.reservado_ordens ? fmt(c.reservado_ordens) : '—'}</td>
                           <td className="px-2.5 py-1.5 border-b border-zinc-100 text-right font-mono font-bold">{fmt(c.kits_cobertos)} kits</td>
                           <td className="px-2.5 py-1.5 border-b border-zinc-100"><Pill classe={PILL_STATUS[st]}>{st}</Pill></td>
@@ -601,7 +602,7 @@ export function KitsTab({
           <DuracaoCell meses={e.meses} dias={e.dias} rotuloVendas={`Avulso ${fmt(e.avulso)} + kits ${fmt(e.demandaKits)}`} vendasTexto={`${fmt(e.total)}/m`} />
         </td>
         <td className={TD}>
-          <Pill classe={produzir ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200'}>
+          <Pill classe={produzir ? 'bg-red-50 text-red-700 border-red-200' : 'bg-amber-50 text-amber-700 border-amber-200'}>
             {produzir ? 'Produzir' : 'Sem estoque p/ kit'}
           </Pill>
         </td>
@@ -613,6 +614,118 @@ export function KitsTab({
           </div>
         </td>
       </tr>
+    );
+  };
+
+  const cartaoKit = (k: KitResumo) => {
+    const s = situacao(k);
+    const need = necessidade(k);
+    const lim = limitante(k);
+    const aberto = abertos.has(k.codigo);
+    const montavel = Number(k.max_montavel_estoque) || 0;
+    const comps = k.componentes || [];
+    const mostraTrava = s !== 'ok' && s !== 'montar' && lim;
+    const kAny: any = k;
+    return (
+      <div key={k.codigo} className="p-3 space-y-2.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <button type="button" className="font-mono font-bold text-zinc-900 text-sm bg-transparent border-none p-0 cursor-pointer" onClick={() => onShowDetails?.(k.codigo)}>{k.codigo}</button>
+            <button type="button" className="block font-bold text-zinc-900 text-xs text-left bg-transparent border-none p-0 cursor-pointer break-words" onClick={() => onShowDetails?.(k.codigo)}>{k.descricao}</button>
+            <span className="text-[10px] text-zinc-500">Linha: {k.nome_linha || 'Kits'} · {comps.length} componentes</span>
+          </div>
+          <div className="text-right shrink-0">
+            <span className="font-bold font-mono text-zinc-900 block">{fmt(k.estoque_futuro_com_producao)}</span>
+            <span className="text-[10px] text-zinc-400">EFP</span>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Pill classe={SITUACAO_INFO[s].pill}>{SITUACAO_INFO[s].rotulo}</Pill>
+          {mostraTrava && lim && (
+            <span className={`px-1.5 py-0.5 text-[9px] font-bold uppercase border rounded ${ehEmbalagem(lim.codigo) ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+              Trava: {String(lim.descricao || '').slice(0, 30)}
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-[11px] text-zinc-600">
+          <span>Dá p/ montar hoje: <b className="font-mono text-zinc-900">{fmt(montavel)} kits</b></span>
+          <span>Sug. montar: <b className="font-mono text-zinc-900">{need > 0 ? `${fmt(need)} kits` : '—'}</b></span>
+          <span className="col-span-2 font-mono text-[10px] text-zinc-400">Est: {fmt(kAny.estoque)} | Prod: {fmt(kAny.producao)} | Ped: {fmt(kAny.pedidos_aberto)}</span>
+        </div>
+        <DuracaoCell meses={kAny.duracao_meses ?? null} dias={kAny.duracao_dias ?? null} rotuloVendas="Vendas kit" vendasTexto={k.media_vendas == null ? '—' : `${fmt(k.media_vendas)}/m`} />
+        <div className="flex flex-wrap items-center gap-2">
+          {renderQueueCell(k.codigo, k.descricao, need > 0 ? need : 50)}
+          <button type="button" onClick={() => setKitOrderModal({ kit: k, qty: montavel > 0 ? montavel : (need > 0 ? need : 20), obs: '' })} className="min-h-11 px-3 rounded-xl bg-zinc-900 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer">
+            <Boxes size={14} /> Montar kit
+          </button>
+          <button type="button" className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 cursor-pointer" aria-label="Composição" onClick={() => onOpenComposition?.(k.codigo, k.descricao)}><Layers size={16} /></button>
+          <button type="button" className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 cursor-pointer" aria-label="Ajustar regras" onClick={() => onEditOverrides?.(k)}><Edit3 size={16} /></button>
+          <button type="button" className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 cursor-pointer ml-auto" aria-label="Ver componentes" aria-expanded={aberto} onClick={() => alternarAberto(k.codigo)}>
+            <ChevronRightIcon size={16} style={{ transform: aberto ? 'rotate(90deg)' : undefined, transition: 'transform 0.15s' }} />
+          </button>
+        </div>
+        {aberto && (
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 divide-y divide-zinc-100">
+            {comps.length === 0 ? (
+              <p className="text-xs text-zinc-500 p-3">Este kit não tem componentes na composição.</p>
+            ) : comps.map((c) => {
+              const emb = ehEmbalagem(c.codigo);
+              const trava = !!lim && c.codigo === lim.codigo && s !== 'ok' && s !== 'montar';
+              const st = statusComponente(c, need);
+              const rec = Number(c.producao_recomendada) || 0;
+              return (
+                <div key={c.codigo} className={`p-3 space-y-1 ${trava ? 'bg-amber-50' : ''}`}>
+                  <div className="font-semibold text-zinc-900 text-xs break-words">{c.descricao}</div>
+                  <div className="font-mono text-zinc-400 text-[10px]">{c.codigo}{trava && <> · <b className="text-amber-700">trava o kit</b></>}</div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-600">
+                    <span>Por kit <b className="font-mono">{porKitRotulo(c)}</b></span>
+                    <span>Estoque <b className={`font-mono ${Number(c.estoque) < 0 ? 'text-red-700' : ''}`}>{fmt(c.estoque)}</b></span>
+                    <span>Cobre <b className="font-mono">{fmt(c.kits_cobertos)} kits</b></span>
+                    <Pill classe={PILL_STATUS[st]}>{st}</Pill>
+                    {!emb && rec > 0 && <span>Produzir <b className="font-mono">{fmt(rec)} un</b></span>}
+                  </div>
+                  {!emb && (
+                    <div className="flex items-center gap-2 pt-1">
+                      {renderQueueCell(c.codigo, c.descricao, rec > 0 ? rec : 50, produtoDe(c))}
+                      {botoesComponente(produtoDe(c))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const cartaoComponente = (e: ReturnType<typeof componentesAProduzir>[number]) => {
+    const p = prods.get(e.codigo) || {};
+    const produzir = e.recomendada > 0;
+    return (
+      <div key={e.codigo} className="p-3 space-y-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <button type="button" className="font-mono font-bold text-zinc-900 text-sm bg-transparent border-none p-0 cursor-pointer" onClick={() => onShowDetails?.(e.codigo)}>{e.codigo}</button>
+            <button type="button" className="block font-bold text-zinc-900 text-xs text-left bg-transparent border-none p-0 cursor-pointer break-words" onClick={() => onShowDetails?.(e.codigo)}>{e.descricao}</button>
+          </div>
+          <div className="text-right shrink-0">
+            <span className="font-bold font-mono text-zinc-900 block">{fmt(e.efp)}</span>
+            <span className="text-[10px] text-zinc-400">EFP</span>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Pill classe={produzir ? 'bg-red-50 text-red-700 border-red-200' : 'bg-amber-50 text-amber-700 border-amber-200'}>{produzir ? 'Produzir' : 'Sem estoque p/ kit'}</Pill>
+          {seloVenda(e.codigo, p)}
+          {produzir && <span className="text-[11px] font-bold font-mono text-zinc-900 ml-auto">{fmt(e.recomendada)} un</span>}
+        </div>
+        <span className="block text-[10px] text-zinc-600">{e.kits.length} kit(s): {e.kits.slice(0, 2).join(', ')}{e.kits.length > 2 ? '…' : ''}</span>
+        <DuracaoCell meses={e.meses} dias={e.dias} rotuloVendas={`Avulso ${fmt(e.avulso)} + kits ${fmt(e.demandaKits)}`} vendasTexto={`${fmt(e.total)}/m`} />
+        <div className="flex items-center gap-2">
+          {renderQueueCell(e.codigo, e.descricao, produzir ? e.recomendada : 50, prods.get(e.codigo))}
+          {botoesComponente(prods.get(e.codigo) ?? { codigo: e.codigo, descricao: e.descricao })}
+        </div>
+      </div>
     );
   };
 
@@ -699,7 +812,11 @@ export function KitsTab({
                 <span>{visao === 'kit' ? 'Nenhum kit nesta situação.' : 'Nada a produzir.'}</span>
               </div>
             ) : (
-              <div className="overflow-x-auto w-full">
+              <>
+              <div className="md:hidden divide-y divide-zinc-100">
+                {visao === 'kit' ? listaKits.map(cartaoKit) : listaComps.map(cartaoComponente)}
+              </div>
+              <div className="hidden md:block overflow-x-auto w-full">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead className="bg-zinc-50 sticky top-0 z-10">
                     {visao === 'kit' ? (
@@ -733,6 +850,7 @@ export function KitsTab({
                   </tbody>
                 </table>
               </div>
+              </>
             )}
             <div className="pagination-container">
               <span>
@@ -751,65 +869,17 @@ export function KitsTab({
         const lim = limitante(p);
         const gargaloComp = lim ? { codigo: lim.codigo, cobre: lim.kits_cobertos ?? 0 } : null;
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-            <div className="bg-white rounded-xl border border-zinc-200 shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-              <div className="px-5 py-4 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-lg bg-zinc-900 text-white">
-                    <Boxes size={16} />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-zinc-900">Criar Ordem de Montagem</h3>
-                    <p className="text-[11px] text-zinc-500 font-mono">{p?.codigo} — {p?.descricao}</p>
-                  </div>
-                </div>
+          <Drawer
+            onClose={() => setKitOrderModal(null)}
+            title="Criar Ordem de Montagem"
+            subtitle={`${p?.codigo} — ${p?.descricao}`}
+            size="sm"
+            footer={
+              <>
                 <button
                   type="button"
                   onClick={() => setKitOrderModal(null)}
-                  className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 cursor-pointer"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-              <div className="p-5 space-y-4 text-xs">
-                <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 flex items-center justify-between">
-                  <div>
-                    <div className="text-[10px] font-bold uppercase text-zinc-500">Potencial de Montagem Hoje</div>
-                    <div className="text-base font-bold font-mono text-zinc-900">{potencialHoje} kits disponíveis</div>
-                  </div>
-                  {gargaloComp && (
-                    <div className="text-right">
-                      <div className="text-[10px] font-bold uppercase text-zinc-500">Item Gargalo</div>
-                      <div className="text-xs font-mono font-bold text-amber-700">{gargaloComp.codigo} ({gargaloComp.cobre} kits)</div>
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-zinc-700 mb-1">Quantidade de Kits a Montar</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={kitOrderModal.qty}
-                    onChange={(e) => setKitOrderModal({ ...kitOrderModal, qty: Math.max(1, Number(e.target.value) || 0) })}
-                    className="w-full px-3 py-2 rounded-lg border border-zinc-300 font-mono text-sm font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-zinc-700 mb-1">Observações da Ordem (opcional)</label>
-                  <input
-                    type="text"
-                    value={kitOrderModal.obs}
-                    onChange={(e) => setKitOrderModal({ ...kitOrderModal, obs: e.target.value })}
-                    placeholder="Ex: Prioridade expedição..."
-                    className="w-full px-3 py-2 rounded-lg border border-zinc-300 text-xs text-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                  />
-                </div>
-              </div>
-              <div className="px-5 py-3.5 bg-zinc-50 border-t border-zinc-200 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setKitOrderModal(null)}
-                  className="px-3 py-1.5 rounded-lg border border-zinc-300 bg-white text-zinc-700 text-xs font-bold hover:bg-zinc-50 cursor-pointer"
+                  className="min-h-11 sm:min-h-9 px-4 rounded-xl border border-zinc-300 bg-white text-zinc-700 text-xs font-bold hover:bg-zinc-50 cursor-pointer"
                 >
                   Cancelar
                 </button>
@@ -817,13 +887,49 @@ export function KitsTab({
                   type="button"
                   disabled={creatingKitOrder || kitOrderModal.qty <= 0}
                   onClick={handleCreateKitOrder}
-                  className="px-4 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                  className="min-h-11 sm:min-h-9 px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
                 >
                   {creatingKitOrder ? 'Criando...' : 'Confirmar Ordem de Montagem'}
                 </button>
+              </>
+            }
+          >
+            <div className="space-y-4 text-xs">
+              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-[10px] font-bold uppercase text-zinc-500">Potencial de Montagem Hoje</div>
+                  <div className="text-base font-bold font-mono text-zinc-900">{potencialHoje} kits disponíveis</div>
+                </div>
+                {gargaloComp && (
+                  <div className="text-right">
+                    <div className="text-[10px] font-bold uppercase text-zinc-500">Item Gargalo</div>
+                    <div className="text-xs font-mono font-bold text-amber-700">{gargaloComp.codigo} ({gargaloComp.cobre} kits)</div>
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-700 mb-1">Quantidade de Kits a Montar</label>
+                <input
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  value={kitOrderModal.qty}
+                  onChange={(e) => setKitOrderModal({ ...kitOrderModal, qty: Math.max(1, Number(e.target.value) || 0) })}
+                  className="w-full px-3 py-2.5 rounded-xl border border-zinc-300 font-mono text-sm font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-700 mb-1">Observações da Ordem (opcional)</label>
+                <input
+                  type="text"
+                  value={kitOrderModal.obs}
+                  onChange={(e) => setKitOrderModal({ ...kitOrderModal, obs: e.target.value })}
+                  placeholder="Ex: Prioridade expedição..."
+                  className="w-full px-3 py-2.5 rounded-xl border border-zinc-300 text-xs text-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                />
               </div>
             </div>
-          </div>
+          </Drawer>
         );
       })()}
 
