@@ -125,7 +125,7 @@ export default function PrintWithSystemDataModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl border border-zinc-200 w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-2xl shadow-2xl border border-zinc-200 w-full max-w-4xl overflow-hidden flex flex-col max-h-[90dvh]">
         {/* Top Header */}
         <div className="p-5 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/70 shrink-0">
           <div className="flex items-center gap-3">
