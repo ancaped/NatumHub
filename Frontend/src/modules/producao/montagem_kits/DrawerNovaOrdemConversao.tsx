@@ -28,7 +28,9 @@ import {
 } from '../lib/viraPackaging';
 
 export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
-  const { atualizarParConversao, parConversaoExistente, newViraDeCodigo, newViraParaCodigo, getViraDeNamePreview, getViraParaNamePreview, handleDeleteViraComposicao, handleCreateViraOrder, loadingViraPackaging, newViraFator, newViraMotivo, newViraOrderNotes, newViraOrderNumber, newViraPackagingLines, newViraQtyDe, newViraQtyPara, newViraQtyParaManual, refreshNewViraPackaging, selectedViraComp, setNewViraFator, setNewViraMotivo, setNewViraOrderNotes, setNewViraOrderNumber, setNewViraPackagingLines, setNewViraQtyDe, setNewViraQtyPara, setNewViraQtyParaManual, setShowNewViraOrderModal, submittingNewViraOrder } = ctx;
+  const { products, viraComposicao, atualizarParConversao, parConversaoExistente, newViraDeCodigo, newViraParaCodigo, getViraDeNamePreview, getViraParaNamePreview, handleDeleteViraComposicao, handleCreateViraOrder, loadingViraPackaging, newViraFator, newViraMotivo, newViraOrderNotes, newViraOrderNumber, newViraPackagingLines, newViraQtyDe, newViraQtyPara, newViraQtyParaManual, refreshNewViraPackaging, selectedViraComp, setNewViraFator, setNewViraMotivo, setNewViraOrderNotes, setNewViraOrderNumber, setNewViraPackagingLines, setNewViraQtyDe, setNewViraQtyPara, setNewViraQtyParaManual, setShowNewViraOrderModal, submittingNewViraOrder } = ctx;
+  const origemConhecida = !!newViraDeCodigo.trim() && (products || []).some((pr: any) => String(pr.codigo || '').trim() === newViraDeCodigo.trim());
+  const destinosComReceita = viraComposicao.filter((vc: any) => vc.deProdutoCodigo === newViraDeCodigo.trim());
   return (
     <>
         <Drawer
@@ -59,7 +61,17 @@ export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
                     type="text"
                     list="produtos-list"
                     value={newViraDeCodigo}
-                    onChange={(e) => void atualizarParConversao(e.target.value, newViraParaCodigo)}
+                    onChange={(e) => {
+                      const de = e.target.value;
+                      const opts = viraComposicao.filter((vc: any) => vc.deProdutoCodigo === de.trim());
+                      let para = newViraParaCodigo;
+                      if (opts.length > 0 && !opts.some((vc: any) => vc.paraProdutoCodigo === para)) {
+                        para = opts.length === 1 ? opts[0].paraProdutoCodigo : '';
+                      } else if (opts.length === 0 && destinosComReceita.some((vc: any) => vc.paraProdutoCodigo === para)) {
+                        para = ''; // destino veio da receita da origem anterior
+                      }
+                      void atualizarParConversao(de, para);
+                    }}
                     placeholder="Código do produto de origem"
                     className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 font-semibold text-zinc-900 bg-white"
                     required
@@ -68,15 +80,36 @@ export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Produto de destino (PARA)</label>
-                  <input
-                    type="text"
-                    list="produtos-list"
-                    value={newViraParaCodigo}
-                    onChange={(e) => void atualizarParConversao(newViraDeCodigo, e.target.value)}
-                    placeholder="Código do produto de destino"
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 font-semibold text-zinc-900 bg-white"
-                    required
-                  />
+                  {destinosComReceita.length > 0 ? (
+                    <select
+                      value={newViraParaCodigo}
+                      onChange={(e) => void atualizarParConversao(newViraDeCodigo, e.target.value)}
+                      className="w-full border border-zinc-300 rounded-xl px-3 py-2 min-h-11 sm:min-h-0 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 font-semibold text-zinc-900 bg-white"
+                      required
+                    >
+                      <option value="">Selecione o destino…</option>
+                      {destinosComReceita.map((vc: any) => (
+                        <option key={vc.paraProdutoCodigo} value={vc.paraProdutoCodigo}>
+                          {vc.paraProdutoDescricao} ({vc.paraProdutoCodigo}) — 1 → {vc.quantidade}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        list="produtos-list"
+                        value={newViraParaCodigo}
+                        onChange={(e) => void atualizarParConversao(newViraDeCodigo, e.target.value)}
+                        placeholder="Código do produto de destino"
+                        className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 font-semibold text-zinc-900 bg-white"
+                        required
+                      />
+                      {origemConhecida && (
+                        <p className="text-[10px] font-bold text-amber-700">Sem receita para esta origem: informe as embalagens.</p>
+                      )}
+                    </>
+                  )}
                   {getViraParaNamePreview() && <p className="text-[10px] text-zinc-500 font-bold break-words">{getViraParaNamePreview()}</p>}
                 </div>
               </div>
