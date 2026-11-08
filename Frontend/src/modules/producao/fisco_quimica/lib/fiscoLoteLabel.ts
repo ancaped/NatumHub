@@ -1,4 +1,5 @@
-import type { LabelElement, LabelTemplate } from '../../../ferramentas/etiquetas/lib/types';
+import type { LabelTemplate } from '../../../ferramentas/etiquetas/lib/types';
+import { preencherModelo } from '../../../ferramentas/etiquetas/lib/modelos';
 import type { FiscoQuimicaAnalysis, FiscoQuimicaPattern, ProcItem } from '../../../geral/lib/types';
 import { calculateFillingTargets, parsePackageFromProductName, isAnalysisInCorrection } from './fiscoUtils';
 
@@ -8,39 +9,6 @@ export interface FiscoLoteBulk {
   /** Unidades por caixa no cadastro do produto (ERP nQtdeCx). */
   qtdeCx?: number;
   date?: string;
-}
-
-function textEl(
-  id: string,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  text: string,
-  fontSize: number,
-  align: 'left' | 'center' | 'right',
-  weight: '500' | '600' | 'bold' | '800' = 'bold',
-  uppercase = false,
-): LabelElement {
-  return {
-    id,
-    type: 'text',
-    x_mm: x,
-    y_mm: y,
-    width_mm: w,
-    height_mm: h,
-    zIndex: 2,
-    props: {
-      text,
-      fontSize,
-      fontWeight: weight,
-      fontFamily: 'Inter',
-      textAlign: align,
-      color: '#000000',
-      uppercase,
-      multiline: true,
-    },
-  };
 }
 
 function formatDateBr(raw?: string | null): string {
@@ -117,38 +85,6 @@ export function buildFiscoVolumeLine(
   return approx;
 }
 
-const MM_PER_PT = 0.3528;
-
-function estimateLines(text: string, fontPt: number, widthMm: number): number {
-  const charMm = fontPt * MM_PER_PT * 0.66;
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return 1;
-  let lines = 1;
-  let used = 0;
-  for (const word of words) {
-    const wordMm = Math.max(charMm, word.length * charMm);
-    const gap = used > 0 ? charMm * 0.34 : 0;
-    if (used > 0 && used + gap + wordMm > widthMm) {
-      lines += 1;
-      used = wordMm;
-    } else {
-      used += gap + wordMm;
-    }
-  }
-  return lines;
-}
-
-function fitName(text: string, widthMm: number, maxHeightMm: number): { font: number; height: number } {
-  let font = 12;
-  while (font >= 7.5) {
-    const lines = estimateLines(text, font, widthMm);
-    const height = lines * font * 1.2 * MM_PER_PT + 0.5;
-    if (height <= maxHeightMm) return { font, height: Math.max(5, height) };
-    font -= 0.5;
-  }
-  return { font: 7.5, height: maxHeightMm };
-}
-
 function envaseLine(analysis: FiscoQuimicaAnalysis, pattern: FiscoQuimicaPattern | null): string {
   if (analysis.envaseTargetWeight > 0) {
     return `Envase: ${formatQty(analysis.envaseTargetWeight)} ${analysis.envaseTargetUnit || 'g'}`;
@@ -200,101 +136,35 @@ export function describeFiscoLoteLabel(input: {
   };
 }
 
-export function buildFiscoLoteLabel(input: {
-  analysis: FiscoQuimicaAnalysis;
-  pattern: FiscoQuimicaPattern | null;
-  procItem: ProcItem | null;
-  approved: boolean;
-  bulk?: FiscoLoteBulk | null;
-}): LabelTemplate {
-  const fields = describeFiscoLoteLabel(input);
-  const { name, code, batch, volume, envase, proc, status, date, approved } = fields;
-  const side = 3.4;
-  const inner = 100 - side * 2;
-  const nameY = 1.2;
-  const volumeFont = 8;
-  const volumeH = volume
-    ? Math.max(4.2, estimateLines(volume, volumeFont, inner) * volumeFont * 1.15 * MM_PER_PT + 0.5)
-    : 0;
-  const fitted = fitName(name || '—', inner, volume ? 13.6 : 18);
-  const volumeY = nameY + fitted.height + 0.2;
-  const bodyY = volume ? volumeY + volumeH + 0.4 : nameY + fitted.height + 0.6;
-  const loteY = 42.4;
-  const bodyH = Math.max(14, Math.min(18.2, loteY - 0.6 - bodyY));
-
-  const elements: LabelElement[] = [
-    textEl('name', side, nameY, inner, fitted.height, name || '—', fitted.font, 'center', '800', true),
-  ];
-
-  if (volume) {
-    elements.push(textEl('volume', side, volumeY, inner, volumeH, volume, volumeFont, 'center', 'bold'));
-  }
-
-  const boxX = side + 31;
-  const boxW = inner - 31;
-  const colW = 29;
-  const colStack = 15.2;
-  const colY = bodyY + Math.max(0, (bodyH - colStack) / 2);
-  elements.push(
-    textEl('date_lbl', side, colY, colW, 3.2, 'DATA LOTE', 8, 'center', '800'),
-    textEl('date', side, colY + 3, colW, 4.2, date || '—', 11, 'center', '800'),
-    textEl('code_lbl', side, colY + 7.4, colW, 3.2, 'CÓD.PROD.', 8, 'center', '800'),
-    textEl('code', side, colY + 10.4, colW, 4.8, code || '—', 12, 'center', '800'),
-    {
-      id: 'cq_box',
-      type: 'box',
-      x_mm: boxX,
-      y_mm: bodyY,
-      width_mm: boxW,
-      height_mm: bodyH,
-      zIndex: 2,
-      props: { borderWidth: 0.45, borderColor: '#000000', backgroundColor: 'transparent', borderRadius: 0.6 },
-    },
-  );
-
-  const badgeH = 5.4;
-  const procH = proc ? 3.8 : 0;
-  const envaseH = envase ? 4.2 : 0;
-  const stackH = badgeH + procH + envaseH;
-  const badgeW = Math.min(boxW - 4, status.length > 10 ? 40 : 34);
-  let cursor = bodyY + Math.max(0.6, (bodyH - stackH) / 2);
-  elements.push({
-    id: 'status',
-    type: 'badge',
-    x_mm: boxX + (boxW - badgeW) / 2,
-    y_mm: cursor,
-    width_mm: badgeW,
-    height_mm: 5.4,
-    zIndex: 3,
-    props: {
-      text: status,
-      variant: approved ? 'black' : 'outline',
-      fontSize: 10,
-      fontWeight: '800',
-      uppercase: true,
-      borderRadius: 0.6,
-    },
+/** Etiqueta de lote: o modelo registrado `fisco_lote` (Etiquetas) preenchido com os dados do laudo. */
+export function preencherEtiquetaFisco(
+  modelo: LabelTemplate,
+  input: {
+    analysis: FiscoQuimicaAnalysis;
+    pattern: FiscoQuimicaPattern | null;
+    procItem: ProcItem | null;
+    approved: boolean;
+    bulk?: FiscoLoteBulk | null;
+  },
+): LabelTemplate {
+  const f = describeFiscoLoteLabel(input);
+  const preenchido = preencherModelo(modelo, {
+    product_name: f.name,
+    volume_line: f.volume,
+    date: f.date,
+    product_code: f.code,
+    status: f.status,
+    proc: f.proc,
+    envase: f.envase,
+    lot: f.batch,
   });
-  cursor += 5.8;
-  if (proc) {
-    elements.push(textEl('proc', boxX + 1.2, cursor, boxW - 2.4, 3.6, proc, 8, 'center', '800'));
-    cursor += 3.6;
-  }
-  if (envase && cursor + 4.2 <= bodyY + bodyH - 0.3) {
-    elements.push(textEl('envase', boxX + 1.2, cursor, boxW - 2.4, 4.2, envase, 10.5, 'center', '800'));
-  }
-
-  elements.push(
-    textEl('lote', side, loteY, inner, 6.6, `Nº Lote: ${batch || '—'}`, 15, 'center', '800'),
-  );
-
+  // aprovado = selo preto; fora do padrão / em correção = selo vazado
   return {
-    id: `fisco_lote_${input.analysis.id || batch}`,
-    name: `Lote ${batch}`,
-    category: 'custom',
-    width_mm: 100,
-    height_mm: 50,
-    orientation: 'landscape',
-    elements_json: elements,
+    ...preenchido,
+    id: `fisco_lote_${input.analysis.id || f.batch}`,
+    name: modelo.name,
+    elements_json: preenchido.elements_json.map((el) =>
+      el.type === 'badge' && el.id === 'status' ? { ...el, props: { ...el.props, variant: f.approved ? 'black' : 'outline' } } : el,
+    ),
   };
 }

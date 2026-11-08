@@ -216,8 +216,8 @@ async fn carregar_metricas_produtos(db: &crate::core::db::Db) -> std::collection
 /// Não duplica: só insere se não existir linha com o mesmo `lote_erp` (e o lote não casa por produto + data).
 /// Devolve quantos lotes foram gravados.
 pub async fn gravar_snapshots_lotes_novos(pool: &PgPool) -> Result<u64, sqlx::Error> {
-    // Lotes de entrada de produto agrupados como na lista: produto e data do primeiro movimento (mais recente),
-    // quantidade somada entre produtos distintos do mesmo lote.
+    // Ordens de entrada de produto: uma linha por item (produto) de cada ordem, na ordem da lista (mais recente primeiro).
+    // Ordem com 2+ produtos gera 2+ linhas; movimento repetido do mesmo produto na ordem não soma de novo.
     let rows = sqlx::query(
         "SELECT m.document_number, m.item_code, m.quantity, m.date
          FROM stock_movements m
@@ -227,36 +227,36 @@ pub async fn gravar_snapshots_lotes_novos(pool: &PgPool) -> Result<u64, sqlx::Er
     .fetch_all(pool)
     .await?;
     let mut ordem: Vec<String> = Vec::new();
-    let mut lotes: std::collections::HashMap<String, (String, f64, String)> = std::collections::HashMap::new();
+    let mut lotes: std::collections::HashMap<String, Vec<(String, f64, String)>> = std::collections::HashMap::new();
     for row in rows {
         let numero = row.get::<Option<String>, _>(0).unwrap_or_default();
         let codigo: String = row.get(1);
         let qtd: f64 = row.get(2);
         let data: String = row.get(3);
         match lotes.get_mut(&numero) {
-            Some(l) => {
-                if !l.0.contains(&codigo) {
-                    l.0 = format!("{} / {}", l.0, codigo);
-                    l.1 += qtd;
+            Some(itens) => {
+                if !itens.iter().any(|i| i.0 == codigo) {
+                    itens.push((codigo, qtd, data));
                 }
             }
             None => {
                 ordem.push(numero.clone());
-                lotes.insert(numero, (codigo, qtd, data));
+                lotes.insert(numero, vec![(codigo, qtd, data)]);
             }
         }
     }
 
-    let mut por_lote: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Já gravados: por (lote, produto) e por (produto, data) — lançamento manual do mesmo produto no mesmo dia vale.
+    let mut por_lote_item: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut por_produto_data: std::collections::HashSet<String> = std::collections::HashSet::new();
     for r in sqlx::query("SELECT lote_erp, codigo, data_producao FROM historico_producao").fetch_all(pool).await? {
+        let codigo: String = r.get(1);
         if let Some(le) = r.get::<Option<String>, _>(0) {
             let le = le.trim();
             if !le.is_empty() {
-                por_lote.insert(le.to_string());
+                por_lote_item.insert(format!("{le}_{}", clean_product_code(codigo.trim())));
             }
         }
-        let codigo: String = r.get(1);
         let data: String = r.get(2);
         let d = data.split('T').next().unwrap_or(&data).split(' ').next().unwrap_or(&data);
         por_produto_data.insert(format!("{}_{}", codigo.trim(), d));
@@ -266,47 +266,51 @@ pub async fn gravar_snapshots_lotes_novos(pool: &PgPool) -> Result<u64, sqlx::Er
     let mut gravados = 0u64;
     for numero in ordem {
         let l_num = numero.trim();
-        if l_num.is_empty() || por_lote.contains(l_num) {
+        if l_num.is_empty() {
             continue;
         }
-        let (codigos, qtd, data) = &lotes[&numero];
-        let raw_p_code = codigos.split(" / ").next().unwrap_or(codigos).trim();
-        let p_code = clean_product_code(raw_p_code);
-        let d = data.split('T').next().unwrap_or(data).split(' ').next().unwrap_or(data);
-        if por_produto_data.contains(&format!("{raw_p_code}_{d}")) || por_produto_data.contains(&format!("{p_code}_{d}")) {
-            continue;
-        }
-        let Some(m) = metricas.get(raw_p_code).or_else(|| metricas.get(&p_code)) else { continue };
-        let r = sqlx::query(
-            "INSERT INTO historico_producao (
-                data_producao, codigo, quantidade, observacoes,
-                snap_estoque, snap_producao, snap_pedidos, snap_efp,
-                snap_media_vendas, snap_duracao_meses, snap_status, snap_status_label,
-                snap_producao_recomendada, lote_erp
-             )
-             SELECT $1::text, $2::text, $3::int, $4::text, $5::int, $6::int, $7::int, $8::int,
-                    $9::float8, $10::float8, $11::text, $12::text, $13::int, $14::text
-             WHERE NOT EXISTS (SELECT 1 FROM historico_producao WHERE lote_erp = $14::text)",
-        )
-        .bind(data)
-        .bind(raw_p_code)
-        .bind(qtd.round() as i32)
-        .bind("Sincronizado automaticamente via ERP")
-        .bind(m.0 as i32)
-        .bind(m.1 as i32)
-        .bind(m.2 as i32)
-        .bind(m.4 as i32)
-        .bind(m.3)
-        .bind(m.8)
-        .bind(&m.5)
-        .bind(&m.6)
-        .bind(m.7 as i32)
-        .bind(l_num)
-        .execute(pool)
-        .await;
-        match r {
-            Ok(r) => gravados += r.rows_affected(),
-            Err(e) => eprintln!("[lotes] snapshot do lote {l_num} não gravou: {e}"),
+        for (raw_p_code, qtd, data) in &lotes[&numero] {
+            let raw_p_code = raw_p_code.trim();
+            let p_code = clean_product_code(raw_p_code);
+            let d = data.split('T').next().unwrap_or(data).split(' ').next().unwrap_or(data);
+            if por_lote_item.contains(&format!("{l_num}_{p_code}"))
+                || por_produto_data.contains(&format!("{raw_p_code}_{d}"))
+                || por_produto_data.contains(&format!("{p_code}_{d}"))
+            {
+                continue;
+            }
+            let Some(m) = metricas.get(raw_p_code).or_else(|| metricas.get(&p_code)) else { continue };
+            let r = sqlx::query(
+                "INSERT INTO historico_producao (
+                    data_producao, codigo, quantidade, observacoes,
+                    snap_estoque, snap_producao, snap_pedidos, snap_efp,
+                    snap_media_vendas, snap_duracao_meses, snap_status, snap_status_label,
+                    snap_producao_recomendada, lote_erp
+                 )
+                 SELECT $1::text, $2::text, $3::int, $4::text, $5::int, $6::int, $7::int, $8::int,
+                        $9::float8, $10::float8, $11::text, $12::text, $13::int, $14::text
+                 WHERE NOT EXISTS (SELECT 1 FROM historico_producao WHERE lote_erp = $14::text AND codigo = $2::text)",
+            )
+            .bind(data)
+            .bind(raw_p_code)
+            .bind(qtd.round() as i32)
+            .bind("Sincronizado automaticamente via ERP")
+            .bind(m.0 as i32)
+            .bind(m.1 as i32)
+            .bind(m.2 as i32)
+            .bind(m.4 as i32)
+            .bind(m.3)
+            .bind(m.8)
+            .bind(&m.5)
+            .bind(&m.6)
+            .bind(m.7 as i32)
+            .bind(l_num)
+            .execute(pool)
+            .await;
+            match r {
+                Ok(r) => gravados += r.rows_affected(),
+                Err(e) => eprintln!("[lotes] snapshot do lote {l_num} ({raw_p_code}) não gravou: {e}"),
+            }
         }
     }
     Ok(gravados)
@@ -712,6 +716,7 @@ pub async fn listar_lotes(db: &crate::core::db::Db, params: &QueryParams) -> Res
         Option<i64>, Option<f64>, Option<f64>, Option<String>,
     );
     let mut history_by_lote: StdHashMap<String, SnapTuple> = StdHashMap::new();
+    let mut history_by_lote_cod: StdHashMap<String, SnapTuple> = StdHashMap::new();
     let mut history_by_prod_date: StdHashMap<String, SnapTuple> = StdHashMap::new();
 
     if let Ok(rows) = sqlx::query(
@@ -744,6 +749,7 @@ pub async fn listar_lotes(db: &crate::core::db::Db, params: &QueryParams) -> Res
             if let Some(ref le) = lote_erp {
                 let le_clean = le.trim();
                 if !le_clean.is_empty() {
+                    history_by_lote_cod.insert(format!("{le_clean}_{}", codigo.trim()), snap.clone());
                     history_by_lote.insert(le_clean.to_string(), snap.clone());
                 }
             }
@@ -765,8 +771,9 @@ pub async fn listar_lotes(db: &crate::core::db::Db, params: &QueryParams) -> Res
         let prod_date_key = format!("{}_{}", raw_p_code, d_clean);
         let clean_prod_date_key = format!("{}_{}", p_code, d_clean);
 
-        if let Some(snap) = history_by_lote
-            .get(l_num)
+        if let Some(snap) = history_by_lote_cod
+            .get(&format!("{l_num}_{raw_p_code}"))
+            .or_else(|| history_by_lote.get(l_num))
             .or_else(|| history_by_prod_date.get(&prod_date_key))
             .or_else(|| history_by_prod_date.get(&clean_prod_date_key))
         {
@@ -2665,22 +2672,28 @@ mod tests {
         let pool = PgPool::connect(&url).await.unwrap();
         let lote = format!("TESTE-{}", uuid::Uuid::new_v4());
         let codigo = "TESTE.LOTE.001";
+        let codigo2 = "TESTE.LOTE.002";
         sqlx::query("INSERT INTO config_linhas (linha_prefix, nome_linha) VALUES ('ZZHIST', 'teste') ON CONFLICT DO NOTHING").execute(&pool).await.unwrap();
-        sqlx::query("INSERT INTO produtos (codigo, descricao, linha_prefix) VALUES ($1, 'TESTE LOTE 500ML', 'ZZHIST') ON CONFLICT (codigo) DO NOTHING")
-            .bind(codigo)
+        for c in [codigo, codigo2] {
+            sqlx::query("INSERT INTO produtos (codigo, descricao, linha_prefix) VALUES ($1, 'TESTE LOTE 500ML', 'ZZHIST') ON CONFLICT (codigo) DO NOTHING")
+                .bind(c)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        // ordem com 2 produtos: cada um ganha a sua linha
+        for (i, c) in [codigo, codigo2].into_iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO stock_movements (id, item_code, item_type, movement_type, quantity, date, document_number) \
+                 VALUES ($1, $2, 'produto', 'entrada', 100, '2026-10-01', $3)",
+            )
+            .bind(format!("mov-{lote}-{i}"))
+            .bind(c)
+            .bind(&lote)
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query(
-            "INSERT INTO stock_movements (id, item_code, item_type, movement_type, quantity, date, document_number) \
-             VALUES ($1, $2, 'produto', 'entrada', 100, '2026-10-01', $3)",
-        )
-        .bind(format!("mov-{lote}"))
-        .bind(codigo)
-        .bind(&lote)
-        .execute(&pool)
-        .await
-        .unwrap();
+        }
 
         gravar_snapshots_lotes_novos(&pool).await.unwrap();
         let segunda = gravar_snapshots_lotes_novos(&pool).await.unwrap();
@@ -2690,11 +2703,11 @@ mod tests {
             .await
             .unwrap();
 
-        sqlx::query("DELETE FROM historico_producao WHERE codigo = $1").bind(codigo).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM historico_producao WHERE codigo IN ($1, $2)").bind(codigo).bind(codigo2).execute(&pool).await.unwrap();
         sqlx::query("DELETE FROM stock_movements WHERE document_number = $1").bind(&lote).execute(&pool).await.unwrap();
-        sqlx::query("DELETE FROM produtos WHERE codigo = $1").bind(codigo).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM produtos WHERE codigo IN ($1, $2)").bind(codigo).bind(codigo2).execute(&pool).await.unwrap();
         sqlx::query("DELETE FROM config_linhas WHERE linha_prefix = 'ZZHIST'").execute(&pool).await.ok();
-        assert_eq!(n, 1, "o lote ganha uma foto, e só uma");
+        assert_eq!(n, 2, "cada produto da ordem ganha uma foto, e só uma");
         assert_eq!(segunda, 0, "a segunda rodada não grava de novo");
     }
 
