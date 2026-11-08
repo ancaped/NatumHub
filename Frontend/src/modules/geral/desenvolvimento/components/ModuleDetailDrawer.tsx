@@ -8,6 +8,8 @@ import type { MapaModule, MapaEdge, Feedback, MapaDetail, CatalogoAcao } from '.
 import { chamadoAberto, chamadoDoModulo } from '../vinculo';
 import { cn } from '../../lib/utils';
 import Drawer from '../../components/ui/Drawer';
+import { StatusBadge } from '../../components/ui/ReportKit';
+import { statusChamado, statusModulo, tipoChamado } from '../rotulos';
 
 interface ModuleDetailDrawerProps {
   module: MapaModule | null;
@@ -20,15 +22,10 @@ interface ModuleDetailDrawerProps {
   onSelectFeedback?: (feedback: Feedback) => void;
   onCreateDemanda?: (moduleKey: string, description: string, feedbackType: string) => Promise<void>;
   onSelectModule?: (moduleKey: string) => void;
+  nomeModulo: (key?: string | null) => string;
 }
 
 type DrawerTab = 'tecnica' | 'demandas' | 'documentacao';
-
-const STATUS_STYLE: Record<string, string> = {
-  live: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-  stub: 'bg-zinc-100 text-zinc-700 border-zinc-200',
-  planned: 'bg-amber-50 text-amber-800 border-amber-200',
-};
 
 const METHOD_COLORS: Record<string, string> = {
   GET: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -73,15 +70,16 @@ function ListaTabelas({ rotulo, classe, itens }: { rotulo: string; classe: strin
   );
 }
 
-function LinhaModulo({ modulo, itens, onSelect }: { modulo: string; itens: string[]; onSelect?: (key: string) => void }) {
+function LinhaModulo({ modulo, nome, itens, onSelect }: { modulo: string; nome: string; itens: string[]; onSelect?: (key: string) => void }) {
   return (
     <div className="py-1.5 border-t border-zinc-100 first:border-t-0 text-xs space-y-0.5">
       <button
         type="button"
         onClick={() => onSelect?.(modulo)}
-        className="font-mono text-[11px] font-semibold text-zinc-800 bg-white border border-zinc-200 hover:border-zinc-400 px-2 py-0.5 rounded-md cursor-pointer"
+        title={modulo}
+        className="text-xs font-semibold text-zinc-800 bg-white border border-zinc-200 hover:border-zinc-400 px-2 py-0.5 rounded-md cursor-pointer"
       >
-        {modulo}
+        {nome}
       </button>
       <p className="font-mono text-[10px] text-zinc-500 break-all">{itens.join(' · ')}</p>
     </div>
@@ -99,6 +97,7 @@ export default function ModuleDetailDrawer({
   onSelectFeedback,
   onCreateDemanda,
   onSelectModule,
+  nomeModulo,
 }: ModuleDetailDrawerProps) {
   const [activeTab, setActiveTab] = useState<DrawerTab>('tecnica');
   const [notes, setNotes] = useState('');
@@ -152,15 +151,13 @@ export default function ModuleDetailDrawer({
       onClose={onClose}
       size="2xl"
       title={module.label}
-      subtitle={module.purpose || undefined}
+      subtitle={module.purpose ? <span className="font-sans whitespace-normal">{module.purpose}</span> : undefined}
       badge={
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider bg-white border border-zinc-200 px-2 py-0.5 rounded-md">
             {groupName || 'Módulo'}
           </span>
-          <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-md border uppercase tracking-wider', STATUS_STYLE[module.status] || STATUS_STYLE.stub)}>
-            {module.status}
-          </span>
+          <StatusBadge variante={statusModulo(module.status).variante}>{statusModulo(module.status).rotulo}</StatusBadge>
           <code className="text-[11px] font-mono text-zinc-600 bg-zinc-100 px-1.5 py-0.5 rounded">
             {module.moduleKey}
           </code>
@@ -231,7 +228,7 @@ export default function ModuleDetailDrawer({
                       'Rotas:',
                       ...geradoRotas.map((r) => `- ${(r.metodos || ['GET']).join(',')} ${r.caminho}`),
                       'Chamados abertos:',
-                      ...abertos.map((f) => `- [${f.status}] ${f.description}`),
+                      ...abertos.map((f) => `- [${statusChamado(f.status)}] ${f.description}`),
                     ].filter(Boolean).join('\n');
                     handleCopy(texto, 'contexto');
                   }}
@@ -411,13 +408,13 @@ export default function ModuleDetailDrawer({
 
             <SecaoGerada titulo="Usa (rotas de outros módulos)" total={usaOutros.length} vazio="As telas deste módulo só chamam rotas dele mesmo.">
               {usaOutros.map((g) => (
-                <LinhaModulo key={g.modulo} modulo={g.modulo} itens={g.itens} onSelect={onSelectModule} />
+                <LinhaModulo key={g.modulo} modulo={g.modulo} nome={nomeModulo(g.modulo)} itens={g.itens} onSelect={onSelectModule} />
               ))}
             </SecaoGerada>
 
             <SecaoGerada titulo="É usado por" total={usadoPorOutros.length} vazio="Nenhuma tela de outro módulo chama as rotas deste.">
               {usadoPorOutros.map((g) => (
-                <LinhaModulo key={g.modulo} modulo={g.modulo} itens={g.itens} onSelect={onSelectModule} />
+                <LinhaModulo key={g.modulo} modulo={g.modulo} nome={nomeModulo(g.modulo)} itens={g.itens} onSelect={onSelectModule} />
               ))}
             </SecaoGerada>
 
@@ -440,10 +437,10 @@ export default function ModuleDetailDrawer({
                           key={e.id}
                           type="button"
                           onClick={() => onSelectModule?.(e.fromKey)}
-                          className={cn('font-mono text-[11px] text-zinc-800 bg-white border hover:border-zinc-400 px-2 py-0.5 rounded-md transition-colors cursor-pointer font-semibold shadow-2xs', e.auto ? 'border-dashed border-zinc-300' : 'border-zinc-200')}
-                          title={e.auto ? `Gerado do código: ${e.note}` : `Ver módulo ${e.fromKey}`}
+                          className={cn('text-xs text-zinc-800 bg-white border hover:border-zinc-400 px-2 py-0.5 rounded-md transition-colors cursor-pointer font-semibold shadow-2xs', e.auto ? 'border-dashed border-zinc-300' : 'border-zinc-200')}
+                          title={e.auto ? `Gerado do código: ${e.note}` : `Ver ${nomeModulo(e.fromKey)}`}
                         >
-                          {e.fromKey}
+                          {nomeModulo(e.fromKey)}
                         </button>
                       ))}
                     </div>
@@ -464,10 +461,10 @@ export default function ModuleDetailDrawer({
                           key={e.id}
                           type="button"
                           onClick={() => onSelectModule?.(e.toKey)}
-                          className={cn('font-mono text-[11px] text-zinc-800 bg-white border hover:border-zinc-400 px-2 py-0.5 rounded-md transition-colors cursor-pointer font-semibold shadow-2xs', e.auto ? 'border-dashed border-zinc-300' : 'border-zinc-200')}
-                          title={e.auto ? `Gerado do código: ${e.note}` : `Ver módulo ${e.toKey}`}
+                          className={cn('text-xs text-zinc-800 bg-white border hover:border-zinc-400 px-2 py-0.5 rounded-md transition-colors cursor-pointer font-semibold shadow-2xs', e.auto ? 'border-dashed border-zinc-300' : 'border-zinc-200')}
+                          title={e.auto ? `Gerado do código: ${e.note}` : `Ver ${nomeModulo(e.toKey)}`}
                         >
-                          {e.toKey}
+                          {nomeModulo(e.toKey)}
                         </button>
                       ))}
                     </div>
@@ -551,28 +548,9 @@ export default function ModuleDetailDrawer({
                   >
                     <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-[10px] font-bold text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded">
-                          {f.id.slice(0, 8)}
-                        </span>
-                        <span className={cn(
-                          'text-[10px] font-bold uppercase px-1.5 py-0.2 rounded border',
-                          f.feedbackType === 'bug' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-sky-50 text-sky-700 border-sky-200'
-                        )}>
-                          {f.feedbackType}
-                        </span>
-                        <span className="text-[10px] font-mono text-zinc-400">
-                          P{f.priority || 100}
-                        </span>
+                        <StatusBadge variante={tipoChamado(f.feedbackType).variante}>{tipoChamado(f.feedbackType).rotulo}</StatusBadge>
                       </div>
-                      <span className={cn(
-                        'text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border',
-                        f.status === 'resolved' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
-                        f.status === 'awaiting_review' ? 'bg-amber-50 text-amber-800 border-amber-200' :
-                        f.status === 'in_progress' ? 'bg-blue-50 text-blue-800 border-blue-200' :
-                        'bg-zinc-100 text-zinc-700 border-zinc-200'
-                      )}>
-                        {f.status}
-                      </span>
+                      <span className="text-xs text-zinc-500">{statusChamado(f.status)}</span>
                     </div>
                     <p className="text-xs font-semibold text-zinc-900 line-clamp-2">
                       {f.description}
@@ -599,15 +577,6 @@ export default function ModuleDetailDrawer({
         {/* ABA: Documentação & Notas */}
         {activeTab === 'documentacao' && (
           <div className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
-                Propósito Funcional
-              </label>
-              <p className="text-xs text-zinc-700 bg-zinc-50 p-3 rounded-xl border border-zinc-200 leading-relaxed">
-                {module.purpose || 'Sem descrição funcional cadastrada.'}
-              </p>
-            </div>
-
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
                 Notas técnicas

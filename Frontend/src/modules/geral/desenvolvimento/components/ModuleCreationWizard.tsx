@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import {
   Plus, Check, AlertCircle, Loader2, Sparkles, FolderTree, Code2,
-  FileCheck, Shield, BookOpen, Layers
+  Layers
 } from 'lucide-react';
 import type { MapaGroup } from '../types';
 import { cn } from '../../lib/utils';
+import { StatusBadge } from '../../components/ui/ReportKit';
 
 interface ModuleCreationWizardProps {
   groups: MapaGroup[];
@@ -85,15 +86,13 @@ export default function ModuleCreationWizard({
             <div>
               <h2 className="text-base font-black tracking-tight text-zinc-900 flex items-center gap-2">
                 <Layers className="h-4 w-4 text-zinc-700" />
-                Assistente de Criação de Novo Módulo
+                Novo módulo
               </h2>
               <p className="text-xs text-zinc-500 mt-0.5">
-                Alinhado à skill canônica <code className="font-mono bg-zinc-100 text-zinc-800 px-1 py-0.5 rounded">natumhub-modulos</code>
+                O módulo entra no mapa como planejado e abre um chamado na Triagem para ser implementado.
               </p>
             </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
-              Status: Planned
-            </span>
+            <StatusBadge variante="ordem">Planejado</StatusBadge>
           </div>
 
           <div className="space-y-4">
@@ -211,7 +210,7 @@ export default function ModuleCreationWizard({
 
           <div className="pt-2 border-t border-zinc-100 flex items-center justify-between">
             <span className="text-[11px] text-zinc-400">
-              * Ao salvar, a tarefa correspondente é inserida na fila do PostgreSQL automaticamente.
+              Ao cadastrar, o chamado &quot;Implementar módulo&quot; vai para a Triagem.
             </span>
 
             <button
@@ -220,23 +219,11 @@ export default function ModuleCreationWizard({
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition-all disabled:opacity-40 cursor-pointer shadow-xs active:scale-98"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              <span>Cadastrar Módulo e Gerar Task</span>
+              <span>Cadastrar módulo</span>
             </button>
           </div>
         </form>
 
-        {/* Guia Rápido com as Etapas de Implementação */}
-        <div className="p-5 rounded-3xl border border-zinc-200 bg-white shadow-2xs space-y-3">
-          <div className="flex items-center gap-2 text-xs font-bold text-zinc-800">
-            <BookOpen className="h-4 w-4 text-zinc-500" />
-            <span>Checklist Automático de Implementação</span>
-          </div>
-          <ol className="text-xs text-zinc-600 space-y-2 list-decimal list-inside leading-relaxed">
-            <li>O módulo é inserido na tabela <code className="font-mono bg-zinc-100 text-zinc-800 px-1 py-0.5 rounded">mapa_modules</code> com status <strong>planned</strong>.</li>
-            <li>Um nó é posicionado no organograma visual próximo ao setor selecionado.</li>
-            <li>Uma tarefa do tipo <code className="font-mono bg-zinc-100 text-zinc-800 px-1 py-0.5 rounded">module_spec</code> é gerada na fila com status <strong>open</strong> para o agente de IA codificar a view e as rotas.</li>
-          </ol>
-        </div>
       </div>
     </div>
   );

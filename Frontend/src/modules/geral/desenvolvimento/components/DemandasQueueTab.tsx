@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { Image as ImageIcon, Terminal } from 'lucide-react';
 import type { Feedback, FilaSubTab } from '../types';
-import { BotaoAcao, FilterBar, FiltroSelect, ReportTabs, StatusBadge, TabelaPainel, type VarianteBadge } from '../../components/ui/ReportKit';
+import { BotaoAcao, FilterBar, FiltroSelect, ReportTabs, StatusBadge, TabelaPainel } from '../../components/ui/ReportKit';
+import { statusChamado, tipoChamado } from '../rotulos';
 
 interface DemandasQueueTabProps {
   feedbacks: Feedback[];
@@ -10,6 +11,7 @@ interface DemandasQueueTabProps {
   onSelectFeedback: (f: Feedback) => void;
   onRefresh: () => void;
   onBatchStatus?: (ids: string[], status: string) => Promise<void>;
+  nomeModulo: (key?: string | null) => string;
 }
 
 const SUB_TAB_CONFIG: { id: FilaSubTab; label: string }[] = [
@@ -18,16 +20,6 @@ const SUB_TAB_CONFIG: { id: FilaSubTab; label: string }[] = [
   { id: 'homologacao', label: 'Homologação' },
   { id: 'finalizados', label: 'Finalizados' },
 ];
-
-const STATUS_LABEL: Record<string, string> = {
-  pending: 'Triagem',
-  queued: 'Fila',
-  in_progress: 'Em andamento',
-  planned: 'Planejado',
-  awaiting_review: 'Homologação',
-  resolved: 'Finalizado',
-  wont_fix: 'Recusado',
-};
 
 function idade(raw?: string): string {
   if (!raw) return '';
@@ -46,6 +38,7 @@ export default function DemandasQueueTab({
   selectedId,
   onSelectFeedback,
   onBatchStatus,
+  nomeModulo,
 }: DemandasQueueTabProps) {
   const [subTab, setSubTab] = useState<FilaSubTab>('homologacao');
   const [search, setSearch] = useState('');
@@ -84,7 +77,6 @@ export default function DemandasQueueTab({
     });
   }, [feedbacks, subTab, typeFilter, search]);
 
-  const varianteTipo = (tipo: string): VarianteBadge => (tipo === 'bug' ? 'critico' : 'aguardando');
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -169,15 +161,15 @@ export default function DemandasQueueTab({
                     className="flex-1 min-w-0 min-h-[44px] text-left px-3 py-2.5 flex flex-col gap-1"
                   >
                     <span className="flex items-center gap-2 text-xs text-zinc-500">
-                      <StatusBadge variante={varianteTipo(f.feedbackType)}>
+                      <StatusBadge variante={tipoChamado(f.feedbackType).variante}>
                         {f.feedbackType === 'bug' ? 'Bug' : 'Sugestão'}
                       </StatusBadge>
-                      <span className="truncate">{f.moduleKey || f.page || '—'}</span>
+                      <span className="truncate">{f.moduleKey ? nomeModulo(f.moduleKey) : f.page || '—'}</span>
                       <span className="ml-auto shrink-0">{idade(f.createdAt) || '—'}</span>
                     </span>
                     <span className="text-sm text-zinc-900 line-clamp-2">{frase}</span>
                     <span className="flex items-center gap-2 text-xs text-zinc-500">
-                      {STATUS_LABEL[f.status] || f.status}
+                      {statusChamado(f.status)}
                       {hasShot && <ImageIcon className="h-3.5 w-3.5 text-zinc-400 shrink-0" />}
                       {hasLogs && <Terminal className="h-3.5 w-3.5 text-zinc-400 shrink-0" />}
                     </span>
@@ -225,11 +217,11 @@ export default function DemandasQueueTab({
                       </td>
                     )}
                     <td>
-                      <StatusBadge variante={varianteTipo(f.feedbackType)}>
+                      <StatusBadge variante={tipoChamado(f.feedbackType).variante}>
                         {f.feedbackType === 'bug' ? 'Bug' : 'Sugestão'}
                       </StatusBadge>
                     </td>
-                    <td>{f.moduleKey || f.page || '—'}</td>
+                    <td>{f.moduleKey ? nomeModulo(f.moduleKey) : f.page || '—'}</td>
                     <td>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                         {frase}
@@ -238,7 +230,7 @@ export default function DemandasQueueTab({
                       </span>
                     </td>
                     <td>{idade(f.createdAt) || '—'}</td>
-                    <td>{STATUS_LABEL[f.status] || f.status}</td>
+                    <td>{statusChamado(f.status)}</td>
                   </tr>
                 );
               })}
