@@ -29,6 +29,8 @@ export interface PackagingPreviewResponse {
   qtyPara: number;
   returns: ViraPackagingLine[];
   consumes: ViraPackagingLine[];
+  /** Fórmula de matéria-prima do par: igual (só muda embalagem/tamanho), diferente (troca fixa) ou indisponivel. */
+  formula?: 'igual' | 'diferente' | 'indisponivel';
 }
 
 export function parsePackagingDeductions(raw: string | null | undefined): ViraPackagingDeductions | null {

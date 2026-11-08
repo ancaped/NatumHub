@@ -138,6 +138,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   const [newViraQtyParaManual, setNewViraQtyParaManual] = useState(false);
   const [newViraPackagingLines, setNewViraPackagingLines] = useState<ViraPackagingLine[]>([]);
   const [newViraMotivo, setNewViraMotivo] = useState('');
+  const [newViraFormula, setNewViraFormula] = useState('');
   const [loadingViraPackaging, setLoadingViraPackaging] = useState(false);
   const [newViraOrderNotes, setNewViraOrderNotes] = useState('');
   const [submittingNewViraOrder, setSubmittingNewViraOrder] = useState(false);
@@ -452,6 +453,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
   const handleOpenNewViraOrderModal = async () => {
     setSelectedViraComp(null);
+    setNewViraFormula('');
     setNewViraDeCodigo('');
     setNewViraParaCodigo('');
     setNewViraQtyDe(10);
@@ -478,6 +480,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     if (!d || !pa || d === pa || !conhece(d) || !conhece(pa)) {
       setSelectedViraComp(null);
       setNewViraPackagingLines([]);
+      setNewViraFormula('');
       return;
     }
     const existente = parConversaoExistente(d, pa);
@@ -507,6 +510,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
       );
       setNewViraFator(preview.fator || fator);
       setNewViraPackagingLines(linesFromPreview(preview));
+      setNewViraFormula(preview.formula || '');
     } catch (err) {
       console.error(err);
       setNewViraPackagingLines([]);
@@ -526,6 +530,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         qtyPara,
       );
       setNewViraPackagingLines(linesFromPreview(preview));
+      setNewViraFormula(preview.formula || '');
     } catch (err) {
       console.error(err);
     } finally {
@@ -1188,6 +1193,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   const ctx: any = {
     allKitsDropdown,
     applyViraCompSelection,
+    newViraFormula,
     atualizarParConversao,
     parConversaoExistente,
     buildViraPrintPayload,

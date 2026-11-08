@@ -28,7 +28,7 @@ import {
 } from '../lib/viraPackaging';
 
 export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
-  const { products, viraComposicao, atualizarParConversao, parConversaoExistente, newViraDeCodigo, newViraParaCodigo, getViraDeNamePreview, getViraParaNamePreview, handleDeleteViraComposicao, handleCreateViraOrder, loadingViraPackaging, newViraFator, newViraMotivo, newViraOrderNotes, newViraOrderNumber, newViraPackagingLines, newViraQtyDe, newViraQtyPara, newViraQtyParaManual, refreshNewViraPackaging, selectedViraComp, setNewViraFator, setNewViraMotivo, setNewViraOrderNotes, setNewViraOrderNumber, setNewViraPackagingLines, setNewViraQtyDe, setNewViraQtyPara, setNewViraQtyParaManual, setShowNewViraOrderModal, submittingNewViraOrder } = ctx;
+  const { newViraFormula, products, viraComposicao, atualizarParConversao, parConversaoExistente, newViraDeCodigo, newViraParaCodigo, getViraDeNamePreview, getViraParaNamePreview, handleDeleteViraComposicao, handleCreateViraOrder, loadingViraPackaging, newViraFator, newViraMotivo, newViraOrderNotes, newViraOrderNumber, newViraPackagingLines, newViraQtyDe, newViraQtyPara, newViraQtyParaManual, refreshNewViraPackaging, selectedViraComp, setNewViraFator, setNewViraMotivo, setNewViraOrderNotes, setNewViraOrderNumber, setNewViraPackagingLines, setNewViraQtyDe, setNewViraQtyPara, setNewViraQtyParaManual, setShowNewViraOrderModal, submittingNewViraOrder } = ctx;
   const origemConhecida = !!newViraDeCodigo.trim() && (products || []).some((pr: any) => String(pr.codigo || '').trim() === newViraDeCodigo.trim());
   const destinosComReceita = viraComposicao.filter((vc: any) => vc.deProdutoCodigo === newViraDeCodigo.trim());
   return (
@@ -128,6 +128,12 @@ export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
                         ? (mudou ? `Receita atual 1 → ${existente.quantidade}; será atualizada para 1 → ${fatorReceita} ao criar a ordem.` : `Receita: 1 → ${existente.quantidade}. Ajuste o fator abaixo para alterá-la.`)
                         : `A receita 1 → ${fatorReceita || '?'} será criada ao criar a ordem. Preencha o fator e as embalagens abaixo.`}
                     </span>
+                    {newViraFormula === 'igual' && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-zinc-100 text-zinc-700 border-zinc-200" title="Mesma fórmula de matéria-prima: muda só a embalagem ou o tamanho">Mesma fórmula</span>
+                    )}
+                    {newViraFormula === 'diferente' && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-amber-50 text-amber-700 border-amber-200" title="As fórmulas de matéria-prima são diferentes: é uma troca fixa entre produtos">Fórmula diferente · troca fixa</span>
+                    )}
                     {existente && (
                       <button
                         type="button"

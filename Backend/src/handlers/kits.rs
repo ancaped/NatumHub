@@ -1311,6 +1311,83 @@ async fn fetch_product_packaging(
         .collect())
 }
 
+/// Fórmula de matéria-prima do produto (ingredientes que não são embalagem), em proporção do total.
+async fn fetch_product_mp_formula(pool: &PgPool, product_code: &str) -> Result<Vec<(String, f64)>, String> {
+    let rows = sqlx::query(
+        "SELECT ingredient_code, quantity
+         FROM formulations
+         WHERE TRIM(REPLACE(product_code, '\"', '')) = TRIM(REPLACE($1, '\"', ''))",
+    )
+    .bind(product_code)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            let code: String = row.get(0);
+            if is_packaging_ingredient(&code) {
+                return None;
+            }
+            let qty: f64 = crate::core::pg_row::pg_f64(&row, 1);
+            if qty > 0.0 { Some((code.trim().to_string(), qty)) } else { None }
+        })
+        .collect())
+}
+
+/// Compara duas fórmulas de matéria-prima pela proporção de cada ingrediente (250 g e 100 g da mesma
+/// fórmula dão "igual"). `indisponivel` quando um dos produtos não tem fórmula de matéria-prima.
+pub fn comparar_formulas_mp(a: &[(String, f64)], b: &[(String, f64)]) -> &'static str {
+    let soma = |f: &[(String, f64)]| f.iter().map(|(_, q)| *q).sum::<f64>();
+    let (ta, tb) = (soma(a), soma(b));
+    if a.is_empty() || b.is_empty() || ta <= 0.0 || tb <= 0.0 {
+        return "indisponivel";
+    }
+    let prop = |f: &[(String, f64)], t: f64| {
+        let mut m = std::collections::BTreeMap::<String, f64>::new();
+        for (c, q) in f {
+            *m.entry(c.clone()).or_insert(0.0) += q / t;
+        }
+        m
+    };
+    let (pa, pb) = (prop(a, ta), prop(b, tb));
+    if pa.len() != pb.len() {
+        return "diferente";
+    }
+    for (c, va) in &pa {
+        match pb.get(c) {
+            Some(vb) if (va - vb).abs() <= 0.005 => {}
+            _ => return "diferente",
+        }
+    }
+    "igual"
+}
+
+#[cfg(test)]
+mod testes_formula_mp {
+    use super::comparar_formulas_mp;
+
+    fn f(v: &[(&str, f64)]) -> Vec<(String, f64)> {
+        v.iter().map(|(c, q)| (c.to_string(), *q)).collect()
+    }
+
+    #[test]
+    fn mesma_formula_em_tamanhos_diferentes_e_igual() {
+        assert_eq!(comparar_formulas_mp(&f(&[("A", 250.0), ("B", 50.0)]), &f(&[("A", 100.0), ("B", 20.0)])), "igual");
+    }
+
+    #[test]
+    fn ingrediente_diferente_ou_proporcao_diferente_e_diferente() {
+        assert_eq!(comparar_formulas_mp(&f(&[("A", 100.0), ("B", 20.0)]), &f(&[("A", 100.0), ("C", 20.0)])), "diferente");
+        assert_eq!(comparar_formulas_mp(&f(&[("A", 100.0), ("B", 20.0)]), &f(&[("A", 100.0), ("B", 40.0)])), "diferente");
+    }
+
+    #[test]
+    fn sem_formula_e_indisponivel() {
+        assert_eq!(comparar_formulas_mp(&[], &f(&[("A", 1.0)])), "indisponivel");
+    }
+}
+
 /// Normaliza `packaging_deductions` para JSON tipado `{ meta?, items }`.
 /// Aceita legado: array puro de linhas.
 pub fn normalize_packaging_deductions_json(raw: &str) -> Result<String, String> {
@@ -1425,12 +1502,21 @@ pub async fn preview_vira_packaging(
         })
         .collect();
 
+    let formula = match (
+        fetch_product_mp_formula(pool, &de).await,
+        fetch_product_mp_formula(pool, &para).await,
+    ) {
+        (Ok(a), Ok(b)) => comparar_formulas_mp(&a, &b),
+        _ => "indisponivel",
+    };
+
     Json(json!({
         "fator": fator,
         "qtyDe": qty_de,
         "qtyPara": qty_para,
         "returns": returns,
         "consumes": consumes,
+        "formula": formula,
     }))
     .into_response()
 }
