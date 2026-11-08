@@ -129,7 +129,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   const [newViraParaCodigo, setNewViraParaCodigo] = useState('');
   const [newViraQuantidade, setNewViraQuantidade] = useState<number | string>(1);
 
-  // Nova Ordem de Vira Modal & Form
+  // Nova Ordem de Conversão Modal & Form
   const [showNewViraOrderModal, setShowNewViraOrderModal] = useState(false);
   const [nextViraOrderNumber, setNextViraOrderNumber] = useState('');
   const [selectedViraComp, setSelectedViraComp] = useState(null); // {de, para, etc}
@@ -425,7 +425,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         await fetchViraComposicao();
       } else {
         const err = await res.json();
-        avisar(err.error || 'Erro ao adicionar vira.', 'erro');
+        avisar(err.error || 'Erro ao adicionar a fórmula de conversão.', 'erro');
       }
     } catch (e) {
       console.error(e);
@@ -435,8 +435,8 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
   const handleDeleteViraComposicao = (de, para) => {
     abrirPrevia({
-      titulo: 'Remover relação de vira',
-      linhas: [{ titulo: `Produto ${de}`, detalhe: `vira ${para}` }],
+      titulo: 'Remover fórmula de conversão',
+      linhas: [{ titulo: `Produto ${de}`, detalhe: `converte em ${para}` }],
       confirmarRotulo: 'OK, remover',
       pedirMotivo: true,
       executar: async (motivo) => {
@@ -577,7 +577,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         await fetchViraOrders();
       } else {
         const err = await res.json();
-        avisar(err.error || 'Erro ao criar ordem de vira.', 'erro');
+        avisar(err.error || 'Erro ao criar ordem de conversão.', 'erro');
       }
     } catch (err) {
       console.error(err);
@@ -639,7 +639,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         }
       } else {
         const err = await res.json();
-        avisar(err.error || 'Erro ao atualizar ordem de vira.', 'erro');
+        avisar(err.error || 'Erro ao atualizar ordem de conversão.', 'erro');
       }
     } catch (err) {
       console.error(err);
@@ -712,7 +712,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     await pedirPrevia({
       url: `/turnovers/orders/${id}`,
       init: { method: 'DELETE' },
-      titulo: 'Excluir ordem de vira',
+      titulo: 'Excluir ordem de conversão',
       confirmarRotulo: 'OK, excluir',
       pedirMotivo: true,
       linhas: (d) => [{
@@ -1472,7 +1472,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                     className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm cursor-pointer transition-all active:scale-98"
                   >
                     <PlusCircle size={14} />
-                    Nova Ordem de Vira
+                    Nova Ordem de Conversão
                   </button>
                 )}
                 <button 

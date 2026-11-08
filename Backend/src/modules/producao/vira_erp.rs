@@ -36,7 +36,7 @@ pub fn acoes() -> Vec<Acao> {
         Acao::leitura(
             "previa_lancamento_conversao_erp",
             "montagem_kits",
-            "Prévia do lançamento no ERP de uma ordem de conversão (vira): saída do produto de origem, entrada do de destino e as embalagens (ENTDEV/ENTDEVINS), com a observação padrão e o número da ordem. Não grava nada no ERP.",
+            "Prévia do lançamento no ERP de uma ordem de conversão: saída do produto de origem, entrada do de destino e as embalagens (ENTDEV/ENTDEVINS), com a observação padrão e o número da ordem. Não grava nada no ERP.",
             "/api/turnovers/orders/:id/lancamento-erp",
             vec![
                 param("id", "caminho", "inteiro", true, "Id da ordem de conversão."),
@@ -46,7 +46,7 @@ pub fn acoes() -> Vec<Acao> {
         Acao::gravacao(
             "lancar_conversao_no_erp",
             "montagem_kits",
-            "Grava no ERP a conversão (ou a reversão) de uma ordem de vira. Sem confirmar=true devolve só a prévia; com confirmar=true grava uma vez por ordem e tipo, guarda o backup do saldo dos itens e marca a ordem como lançada no ERP.",
+            "Grava no ERP a conversão (ou a reversão) de uma ordem de conversão. Sem confirmar=true devolve só a prévia; com confirmar=true grava uma vez por ordem e tipo, guarda o backup do saldo dos itens e marca a ordem como lançada no ERP.",
             "POST",
             "/api/turnovers/orders/:id/lancamento-erp",
             true,

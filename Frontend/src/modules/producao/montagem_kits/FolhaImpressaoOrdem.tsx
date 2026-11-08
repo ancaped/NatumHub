@@ -108,7 +108,7 @@ export default function FolhaImpressaoOrdem({ ctx }: { ctx: any }) {
             <div className="grid grid-cols-2 gap-2 mb-2">
               <div className="border border-zinc-400 rounded px-2 py-1.5 flex items-center gap-2">
                 <div className="min-w-0 flex-1">
-                  <span className="text-[6.5px] font-black uppercase text-zinc-500 block">Lote produto origem (virado)</span>
+                  <span className="text-[6.5px] font-black uppercase text-zinc-500 block">Lote do produto de origem</span>
                   <span className="font-mono text-[8px] text-zinc-600">{printingOrder.deCodigo}</span>
                 </div>
                 <div className="border border-zinc-400 rounded h-6 w-28 bg-white shrink-0" title="Preencher à mão" />

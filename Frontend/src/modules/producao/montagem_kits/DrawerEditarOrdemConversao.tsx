@@ -104,7 +104,7 @@ export default function DrawerEditarOrdemConversao({ ctx }: { ctx: any }) {
                     <span className="font-bold text-zinc-650 block">{selectedViraOrder.quantity} un</span>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Qtd. Real Virada</label>
+                    <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Qtd. real convertida</label>
                     <input
                       type="number"
                       value={editViraQuantityAssembled}
@@ -184,7 +184,7 @@ export default function DrawerEditarOrdemConversao({ ctx }: { ctx: any }) {
                 <textarea
                   value={editViraNotes}
                   onChange={(e) => setEditViraNotes(e.target.value)}
-                  placeholder="Ex: Transformação concluída..."
+                  placeholder="Ex: Conversão concluída..."
                   rows={3}
                   className="w-full border border-zinc-300 rounded-xl p-3 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900"
                 />

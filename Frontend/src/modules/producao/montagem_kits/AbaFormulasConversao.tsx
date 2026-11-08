@@ -103,7 +103,7 @@ export default function AbaFormulasConversao({ ctx }: { ctx: any }) {
 
               <div className="md:hidden divide-y divide-zinc-100 overflow-y-auto">
                 {viraComposicaoFiltrada.length === 0 && (
-                  <p className="p-8 text-center text-zinc-500 font-bold text-xs">Nenhuma relação de vira cadastrada.</p>
+                  <p className="p-8 text-center text-zinc-500 font-bold text-xs">Nenhuma fórmula de conversão cadastrada.</p>
                 )}
                 {viraComposicaoFiltrada.map(row => {
                   const key = `${row.deProdutoCodigo}|${row.paraProdutoCodigo}`;
@@ -119,7 +119,7 @@ export default function AbaFormulasConversao({ ctx }: { ctx: any }) {
                         <button type="button" onClick={() => toggleFormulaPackagingPreview(row)} className="ml-auto min-h-11 px-3 inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 text-zinc-700 text-xs font-bold cursor-pointer" aria-expanded={expanded}>
                           <Eye size={14} /> Embalagens
                         </button>
-                        <button type="button" onClick={() => handleDeleteViraComposicao(row.deProdutoCodigo, row.paraProdutoCodigo)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-700 cursor-pointer" aria-label="Remover vínculo de vira">
+                        <button type="button" onClick={() => handleDeleteViraComposicao(row.deProdutoCodigo, row.paraProdutoCodigo)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-700 cursor-pointer" aria-label="Remover fórmula de conversão">
                           <Trash2 size={16} />
                         </button>
                       </div>
@@ -153,7 +153,7 @@ export default function AbaFormulasConversao({ ctx }: { ctx: any }) {
                         return (
                           <tr>
                             <td colSpan={6} className="p-8 text-center text-zinc-450 font-bold">
-                              Nenhuma relação de vira cadastrada.
+                              Nenhuma fórmula de conversão cadastrada.
                             </td>
                           </tr>
                         );
@@ -186,7 +186,7 @@ export default function AbaFormulasConversao({ ctx }: { ctx: any }) {
                                     type="button"
                                     onClick={() => handleDeleteViraComposicao(row.deProdutoCodigo, row.paraProdutoCodigo)}
                                     className="p-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg border border-red-200 transition-colors cursor-pointer"
-                                    title="Remover vínculo de vira"
+                                    title="Remover fórmula de conversão"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>

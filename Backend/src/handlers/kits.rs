@@ -30,14 +30,14 @@ pub fn acoes_kits_composicao() -> Vec<Acao> {
         Acao::leitura(
             "listar_ordens_reembalagem",
             M,
-            "Lista as ordens de reembalagem (vira: um produto vira outro), com status, quantidades e embalagens.",
+            "Lista as ordens de conversão (um produto é convertido em outro), com status, quantidades e embalagens.",
             "/api/turnovers/orders",
             vec![],
         ),
         Acao::leitura(
             "listar_composicao_reembalagem",
             M,
-            "Lista as relações de reembalagem (produto de origem -> produto de destino e fator de conversão).",
+            "Lista as fórmulas de conversão (produto de origem -> produto de destino e fator de conversão).",
             "/api/turnovers/composicao",
             vec![],
         ),
@@ -854,7 +854,7 @@ pub async fn add_vira_composicao(
                 "salvar_composicao_vira",
                 "vira_composicao",
                 &format!("{}/{}", payload.de_produto_codigo, payload.para_produto_codigo),
-                &format!("Composição de vira {} -> {}", payload.de_produto_codigo, payload.para_produto_codigo),
+                &format!("Fórmula de conversão {} -> {}", payload.de_produto_codigo, payload.para_produto_codigo),
                 antes,
                 Some(json!({
                     "de_produto_codigo": payload.de_produto_codigo,
@@ -865,7 +865,7 @@ pub async fn add_vira_composicao(
             .await;
             (
                 StatusCode::CREATED,
-                Json(json!({ "message": "Composição de vira adicionada" })),
+                Json(json!({ "message": "Fórmula de conversão adicionada" })),
             )
                 .into_response()
         }
@@ -887,7 +887,7 @@ pub async fn delete_vira_composicao(
         return r;
     }
     // Exclusão direta (sem prévia): o motivo é sempre obrigatório.
-    let motivo = match exigir_motivo(true, m.motivo.as_deref(), "a composição de vira") {
+    let motivo = match exigir_motivo(true, m.motivo.as_deref(), "a fórmula de conversão") {
         Ok(m) => m,
         Err(e) => return e.into_response(),
     };
@@ -909,14 +909,14 @@ pub async fn delete_vira_composicao(
                 "excluir_composicao_vira",
                 "vira_composicao",
                 &format!("{de}/{para}"),
-                &format!("Composição de vira {de} -> {para} excluída"),
+                &format!("Fórmula de conversão {de} -> {para} excluída"),
                 Some(json!({ "motivo": motivo, "copia": antes })),
                 None,
             )
             .await;
             (
                 StatusCode::OK,
-                Json(json!({ "message": "Composição de vira excluída" })),
+                Json(json!({ "message": "Fórmula de conversão excluída" })),
             )
                 .into_response()
         }
@@ -1057,7 +1057,7 @@ pub async fn create_vira_order(
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "error": format!("Erro ao criar ordem de reembalagem: {}", e) })),
+                Json(json!({ "error": format!("Erro ao criar ordem de conversão: {}", e) })),
             )
                 .into_response();
         }
@@ -1085,7 +1085,7 @@ pub async fn create_vira_order(
         "vira_ordens",
         &last_id.to_string(),
         &format!(
-            "Ordem de reembalagem {} criada: {} x {} -> {}",
+            "Ordem de conversão {} criada: {} x {} -> {}",
             numero, payload.quantity, payload.de_produto_codigo, payload.para_produto_codigo
         ),
         None,
@@ -1095,7 +1095,7 @@ pub async fn create_vira_order(
 
     (
         StatusCode::CREATED,
-        Json(json!({ "id": last_id, "orderNumber": numero, "message": "Ordem de vira criada" })),
+        Json(json!({ "id": last_id, "orderNumber": numero, "message": "Ordem de conversão criada" })),
     )
         .into_response()
 }
@@ -1196,14 +1196,14 @@ pub async fn update_vira_order(
                 "atualizar_ordem_vira",
                 "vira_ordens",
                 &id.to_string(),
-                &format!("Ordem de reembalagem {id} atualizada"),
+                &format!("Ordem de conversão {id} atualizada"),
                 antes,
                 instantaneo_ordem(pool, "vira_ordens", id).await,
             )
             .await;
             (
                 StatusCode::OK,
-                Json(json!({ "message": "Ordem de reembalagem atualizada" })),
+                Json(json!({ "message": "Ordem de conversão atualizada" })),
             )
                 .into_response()
         }
@@ -1222,7 +1222,7 @@ pub async fn delete_vira_order(
     Query(q): Query<Confirmar>,
     Query(m): Query<Motivo>,
 ) -> impl IntoResponse {
-    excluir_ordem(state, ctx, id, q.confirmar, m.motivo, "vira_ordens", "excluir_ordem_vira", "Ordem de reembalagem", "Ordem de vira excluída").await
+    excluir_ordem(state, ctx, id, q.confirmar, m.motivo, "vira_ordens", "excluir_ordem_vira", "Ordem de conversão", "Ordem de conversão excluída").await
 }
 
 pub async fn get_next_vira_order_number(State(state): State<Arc<AppState>>) -> impl IntoResponse {

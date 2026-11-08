@@ -61,13 +61,13 @@ export default function AbaOrdensConversao({ ctx }: { ctx: any }) {
             <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col flex-1">
               {loadingVira ? (
                 <div className="flex-1 flex items-center justify-center p-12 text-zinc-400 font-semibold text-xs">
-                  Carregando ordens de vira...
+                  Carregando ordens de conversão...
                 </div>
               ) : (
                 <>
                 <div className="md:hidden divide-y divide-zinc-100">
                   {viraOrdersFiltradas.length === 0 && (
-                    <p className="p-8 text-center text-zinc-500 font-bold text-xs">Nenhuma ordem de vira de produto encontrada.</p>
+                    <p className="p-8 text-center text-zinc-500 font-bold text-xs">Nenhuma conversão encontrada.</p>
                   )}
                   {viraOrdersFiltradas.map(o => (
                     <div key={o.id} className="p-3 space-y-2">
@@ -115,7 +115,7 @@ export default function AbaOrdensConversao({ ctx }: { ctx: any }) {
                     <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500 sticky top-0 z-10">
                       <tr>
                         <th className="p-4">Nº Ordem / Lote</th>
-                        <th className="p-4">Transformação (De ➔ Para)</th>
+                        <th className="p-4">Conversão (De ➔ Para)</th>
                         <th className="p-4 text-right">Qtd. Programada</th>
                         <th className="p-4 text-right">Qtd. Real</th>
                         <th className="p-4">Data Emissão</th>
@@ -146,7 +146,7 @@ export default function AbaOrdensConversao({ ctx }: { ctx: any }) {
                           return (
                             <tr>
                               <td colSpan={9} className="p-8 text-center text-zinc-450 font-bold">
-                                Nenhuma ordem de vira de produto encontrada.
+                                Nenhuma conversão encontrada.
                               </td>
                             </tr>
                           );
@@ -209,7 +209,7 @@ export default function AbaOrdensConversao({ ctx }: { ctx: any }) {
                                     setTimeout(() => window.print(), 100);
                                   }}
                                   className="p-1.5 hover:bg-zinc-100 text-zinc-650 hover:text-zinc-900 rounded-lg cursor-pointer"
-                                  title="Imprimir Folha de Vira"
+                                  title="Imprimir Folha de Conversão"
                                 >
                                   <Printer size={14} />
                                 </button>

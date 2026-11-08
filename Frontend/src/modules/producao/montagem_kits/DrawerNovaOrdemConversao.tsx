@@ -34,7 +34,7 @@ export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
         <Drawer
           onClose={() => setShowNewViraOrderModal(false)}
           title="Nova Ordem de Conversão"
-          subtitle="Conversão de produto (reetiquetagem / reenvase)"
+          subtitle="Troca de um produto por outro (origem → destino)"
           size="lg"
         >
             <form onSubmit={handleCreateViraOrder} className="space-y-4 text-xs font-medium text-zinc-700">
