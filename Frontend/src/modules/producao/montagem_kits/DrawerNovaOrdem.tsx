@@ -27,6 +27,8 @@ import {
   type ViraPackagingLine,
 } from '../lib/viraPackaging';
 
+import SeletorKit from './SeletorKit';
+
 export default function DrawerNovaOrdem({ ctx }: { ctx: any }) {
   const { allKitsDropdown, handleCreateOrder, handleKitChange, newComponentLotes, newKitNotes, newKitQty, newOrderNumber, selectedKitCode, selectedKitObj, setNewComponentLotes, setNewKitNotes, setNewKitQty, setNewOrderNumber, setShowNewOrderModal, submittingNewOrder } = ctx;
   return (
@@ -66,19 +68,7 @@ export default function DrawerNovaOrdem({ ctx }: { ctx: any }) {
 
               <div className="space-y-1">
                 <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Selecionar Kit</label>
-                <select
-                  value={selectedKitCode}
-                  onChange={(e) => handleKitChange(e.target.value)}
-                  className="w-full border border-zinc-300 rounded-xl p-2.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white font-bold text-zinc-900"
-                  required
-                >
-                  <option value="">-- Selecione o Produto Kit --</option>
-                  {allKitsDropdown.map(k => (
-                    <option key={k.codigo} value={k.codigo}>
-                      {k.descricao} ({k.codigo}) - Estoque: {k.estoque} un
-                    </option>
-                  ))}
-                </select>
+                <SeletorKit kits={allKitsDropdown} valor={selectedKitCode} onChange={(c: string) => handleKitChange(c)} />
               </div>
 
               {/* Components individual lotes form section */}

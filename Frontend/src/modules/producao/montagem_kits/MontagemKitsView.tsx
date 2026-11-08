@@ -1,6 +1,7 @@
 import { apiFetch } from '../../geral/lib/http';
 import { useAviso } from '../../geral/components/ui/Aviso';
 import Drawer from '../../geral/components/ui/Drawer';
+import AppLayout from '../../geral/components/layout/AppLayout';
 import { usePreviaServidor, mensagemErroServidor } from '../lib/usePreviaServidor';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
@@ -1329,7 +1330,18 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   };
 
   return (
-    <div className="flex flex-1 w-full h-full overflow-hidden animate-in fade-in duration-200">
+    <AppLayout
+      moduleTitle="Kits"
+      onBackToHub={onBackToHub}
+      sidebarItems={[
+        { id: 'ordens', label: 'Ordens de Montagem', icon: ClipboardList, badge: orders.length || undefined, grupo: 'Montagem' },
+        { id: 'componentes', label: 'Componentes e Alertas', icon: Layers, grupo: 'Montagem' },
+        { id: 'composicao', label: 'Composição de Kits', icon: Settings, grupo: 'Montagem' },
+        { id: 'vira_ordens', label: 'Ordens de Conversão', icon: RefreshCw, badge: viraOrders.length || undefined, grupo: 'Conversão de produto' },
+      ]}
+      activeTab={activeSubTab}
+      onTabChange={setActiveSubTab}
+    >
       <div className="relative z-[60]">{previaElemento}</div>
       {lancarErpViraId !== null && (
         <div className="relative z-[60]">
@@ -1356,30 +1368,12 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         <FolhaImpressaoOrdem ctx={ctx} />
       )}
 
-        {/* Main Content Area */}
-        <div className="print:hidden flex-1 flex flex-col overflow-hidden relative">
-          <main className="flex-1 overflow-y-auto p-3 md:p-6 flex flex-col min-w-0">
-            <div className="no-print mb-3 md:mb-5 flex flex-col md:flex-row md:items-start md:justify-between gap-2 md:gap-4 shrink-0">
-            <div className="flex gap-1.5 overflow-x-auto md:flex-wrap pb-1 md:pb-0" role="tablist">
-              {([
-                ['ordens', 'Ordens de Montagem', orders.length],
-                ['componentes', 'Componentes e Alertas', null],
-                ['composicao', 'Composição de Kits', null],
-                ['vira_ordens', 'Ordens de Conversão', viraOrders.length],
-              ] as [string, string, number | null][]).map(([k, label, n]) => (
-                <button
-                  key={k}
-                  role="tab"
-                  aria-selected={activeSubTab === k}
-                  onClick={() => setActiveSubTab(k)}
-                  className={`shrink-0 min-h-11 md:min-h-9 px-3.5 rounded-xl text-xs font-bold border whitespace-nowrap cursor-pointer transition-colors ${
-                    activeSubTab === k ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
-                  }`}
-                >
-                  {label}{n !== null ? ` (${n})` : ''}
-                </button>
-              ))}
-            </div>
+        <div className="print:hidden flex flex-col min-w-0">
+          <div className="min-w-0 flex flex-col">
+            <div className="no-print mb-3 md:mb-5 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <h2 className="text-sm font-extrabold text-zinc-900">
+                {activeSubTab === 'ordens' ? 'Ordens de Montagem' : activeSubTab === 'componentes' ? 'Componentes e Alertas' : activeSubTab === 'composicao' ? 'Composição de Kits' : 'Ordens de Conversão'}
+              </h2>
             <div className="flex flex-wrap items-center md:justify-end gap-2 no-print">
               <div className="flex flex-wrap items-center gap-2 md:gap-3">
                 {activeSubTab === 'ordens' && (
@@ -1454,7 +1448,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
         )}
 
         {/* TAB 5: COMPOSIÇÃO DE CONVERSÕES */}
-          </main>
+          </div>
         </div>
 
       {/* MODAL: NOVA ORDEM */}
@@ -1499,6 +1493,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
           </option>
         ))}
       </datalist>
-    </div>
+    </AppLayout>
   );
 }
