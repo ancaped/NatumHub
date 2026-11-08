@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  Bug, MessageSquare, X, Upload, Camera, Lock,
-  Send, Sparkles, Check, Mic, Square, Trash2,
-  ArrowLeft, Search, Users, Hash, MessageCircle, ListFilter, Plus,
-  User, ShieldCheck, UserCheck, Layers, Crosshair, Target, ChevronDown, Clock, RotateCcw
+  Bug, MessageSquare, X, Upload, Camera,
+  Send, Sparkles, Check,
+  ArrowLeft, Search, MessageCircle, ListFilter,
+  Crosshair, Target, ChevronDown, Clock, RotateCcw
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import { api } from '../lib/api';
 import { apiJson } from '../lib/http';
 import { getLogs } from '../lib/logInterceptor';
-import { randomId, cn } from '../lib/utils';
+import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { buildFeedbackPagePath, splitFeedbackPagePath } from '../lib/viewLabels';
 import { MODULE_CATALOG, resolveCatalogItem, type ModuleCatalogItem } from '../lib/moduloCatalog';
@@ -20,33 +20,6 @@ interface FeedbackWidgetProps {
   visible?: boolean;
   currentUser?: AuthUser | null;
   setView?: (view: string) => void;
-}
-
-type WidgetTab = 'feedback' | 'chat' | 'ia';
-type ChatFilter = 'all' | 'channels' | 'operators';
-
-interface ConversationItem {
-  id: string;
-  name: string;
-  is_group: boolean;
-  is_protected?: boolean;
-  role?: string;
-  description?: string;
-  last_message?: string;
-  last_message_time?: string;
-}
-
-interface ChatMessageItem {
-  id: string;
-  channel: string;
-  sender_name: string;
-  sender_role?: string;
-  content: string;
-  is_encrypted: boolean;
-  message_type?: 'text' | 'image' | 'audio' | 'file';
-  attachment_data?: string;
-  attachment_name?: string;
-  created_at?: string;
 }
 
 interface FeedbackItem {
@@ -77,38 +50,6 @@ interface FeedbackDetailData extends FeedbackItem {
   logs?: string;
   screenshot?: string;
   notes: FeedbackNote[];
-}
-
-interface AiMessage {
-  id: string;
-  sender: 'user' | 'ia';
-  text: string;
-  timestamp: string;
-  suggested_actions?: string[];
-}
-
-// Cifra simétrica simples
-function encryptContent(text: string, secretKey = 'NatumHubSecureKey2026'): string {
-  try {
-    const chars = text.split('').map((c, i) =>
-      String.fromCharCode(c.charCodeAt(0) ^ secretKey.charCodeAt(i % secretKey.length))
-    );
-    return btoa(unescape(encodeURIComponent(chars.join(''))));
-  } catch {
-    return text;
-  }
-}
-
-function decryptContent(encryptedText: string, secretKey = 'NatumHubSecureKey2026'): string {
-  try {
-    const decoded = decodeURIComponent(escape(atob(encryptedText)));
-    return decoded
-      .split('')
-      .map((c, i) => String.fromCharCode(c.charCodeAt(0) ^ secretKey.charCodeAt(i % secretKey.length)))
-      .join('');
-  } catch {
-    return encryptedText;
-  }
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -172,7 +113,6 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
 
   const [isOpen, setIsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
-  const [activeTab, setActiveTab] = useState<WidgetTab>('feedback');
 
   // Auto-ocultação do botão flutuante para a borda após inatividade (apenas quando fechado)
   useEffect(() => {
@@ -346,51 +286,7 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
   const [savingNote, setSavingNote] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
-  // Estado Chat (WhatsApp Style)
-  const [chatFilter, setChatFilter] = useState<ChatFilter>('all');
-  const [conversations, setConversations] = useState<ConversationItem[]>([]);
-  const [activeConversation, setActiveConversation] = useState<ConversationItem | null>(null);
-  const [searchContact, setSearchContact] = useState('');
-  const [chatMessages, setChatMessages] = useState<ChatMessageItem[]>([]);
-  const [chatInput, setChatInput] = useState('');
-  const [chatLoading, setChatLoading] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingTime, setRecordingTime] = useState(0);
-  const [chatAttachment, setChatAttachment] = useState<{ type: 'image' | 'audio' | 'file'; data: string; name: string } | null>(null);
-
-  // Modal Novo Grupo / Senha
-  const [showNewGroupModal, setShowNewGroupModal] = useState(false);
-  const [newGroupName, setNewGroupName] = useState('');
-  const [newGroupDesc, setNewGroupDesc] = useState('');
-  const [newGroupPassword, setNewGroupPassword] = useState('');
-  const [creatingGroup, setCreatingGroup] = useState(false);
-
-  // Modal Senha do Canal
-  const [unlockModalOpen, setUnlockModalOpen] = useState(false);
-  const [targetProtectedConv, setTargetProtectedConv] = useState<ConversationItem | null>(null);
-  const [unlockPassword, setUnlockPassword] = useState('');
-  const [unlockError, setUnlockError] = useState('');
-  const [unlockedChannels, setUnlockedChannels] = useState<Set<string>>(new Set());
-
-  // Gravador de Áudio
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<any>(null);
-  const chatBottomRef = useRef<HTMLDivElement>(null);
   const notesBottomRef = useRef<HTMLDivElement>(null);
-
-  // Estado Assistente IA
-  const [aiMessages, setAiMessages] = useState<AiMessage[]>([
-    {
-      id: 'welcome',
-      sender: 'ia',
-      text: 'Olá! Sou o Assistente NatumHub. Como posso te orientar sobre processos, estoque, compras ou regras do sistema?',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      suggested_actions: ['Como consultar a Saúde de Estoque?', 'Como criar grupos no Chat?', 'Como reportar um bug?'],
-    },
-  ]);
-  const [aiInput, setAiInput] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
 
   // Sincronizar contexto da página atual com módulo e submódulo canônicos
   useEffect(() => {
@@ -413,37 +309,6 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
       }
     }
   }, [currentView]);
-
-  // Carregar conversas e contatos
-  const loadConversations = useCallback(async () => {
-    try {
-      const res = await apiJson<{ conversations: ConversationItem[] }>('/api/chat/conversations');
-      if (res && Array.isArray(res.conversations) && res.conversations.length > 0) {
-        setConversations(res.conversations);
-      } else {
-        // Fallback: carregar operadores de /api/auth/operators
-        const ops = await apiJson<Array<{ displayName: string; role: string }>>('/api/auth/operators');
-        if (Array.isArray(ops)) {
-          const defaults: ConversationItem[] = [
-            { id: 'geral', name: 'Canal Geral', is_group: true, description: 'Comunicação geral de toda a fábrica' },
-            { id: 'producao', name: 'Produção & Fábrica', is_group: true, description: 'Ordens, bases, envase e lotes' },
-            { id: 'compras', name: 'Compras & Almoxarifado', is_group: true, description: 'Faltas, cotações e recebimento de insumos' },
-            { id: 'qualidade', name: 'Qualidade & Laboratório', is_group: true, description: 'Laudos, POPs, microbiologia e CQ' },
-          ];
-          const opItems: ConversationItem[] = ops.map((op) => ({
-            id: `user_${op.displayName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
-            name: op.displayName,
-            is_group: false,
-            role: op.role,
-            description: `Função: ${op.role}`,
-          }));
-          setConversations([...defaults, ...opItems]);
-        }
-      }
-    } catch (e) {
-      console.error('Erro ao carregar conversas:', e);
-    }
-  }, []);
 
   // Carregar lista de feedbacks
   const loadFeedbacksList = useCallback(async () => {
@@ -472,217 +337,9 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
 
   useEffect(() => {
     if (isOpen) {
-      loadConversations();
       loadFeedbacksList();
     }
-  }, [isOpen, loadConversations, loadFeedbacksList]);
-
-  // Determinar o ID do canal (especialmente para conversas 1-para-1 diretas)
-  const resolveChannelId = (conv: ConversationItem): string => {
-    if (conv.is_group) return conv.id;
-    // Conversa direta entre 2 operadores
-    const myId = currentUser?.displayName || 'operador';
-    const otherId = conv.name;
-    const pair = [myId.toLowerCase(), otherId.toLowerCase()].sort().join('_');
-    return `dm_${pair}`;
-  };
-
-  // Carregar mensagens do chat
-  const loadMessages = useCallback(async (channelId: string) => {
-    setChatLoading(true);
-    try {
-      const res = await apiJson<{ messages: ChatMessageItem[] }>(`/api/chat/messages?channel=${encodeURIComponent(channelId)}&limit=100`);
-      if (res && res.messages) {
-        const decrypted = res.messages.map((m) => ({
-          ...m,
-          content: m.is_encrypted ? decryptContent(m.content) : m.content,
-        }));
-        setChatMessages(decrypted);
-        setTimeout(() => chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-      }
-    } catch (e) {
-      console.error('Erro ao carregar mensagens:', e);
-    } finally {
-      setChatLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activeConversation) {
-      const channelId = resolveChannelId(activeConversation);
-      loadMessages(channelId);
-      const interval = setInterval(() => loadMessages(channelId), 3000);
-      return () => clearInterval(interval);
-    }
-  }, [activeConversation, loadMessages]);
-
-  const handleSelectConversation = (conv: ConversationItem) => {
-    if (conv.is_protected && !unlockedChannels.has(conv.id)) {
-      setTargetProtectedConv(conv);
-      setUnlockPassword('');
-      setUnlockError('');
-      setUnlockModalOpen(true);
-    } else {
-      setActiveConversation(conv);
-    }
-  };
-
-  const handleVerifyPassword = async () => {
-    if (!targetProtectedConv) return;
-    try {
-      const res = await apiJson<{ valid: boolean }>('/api/chat/verify-password', {
-        method: 'POST',
-        body: JSON.stringify({
-          group_id: targetProtectedConv.id,
-          password: unlockPassword,
-        }),
-      });
-
-      if (res && res.valid) {
-        setUnlockedChannels((prev) => new Set(prev).add(targetProtectedConv.id));
-        setActiveConversation(targetProtectedConv);
-        setUnlockModalOpen(false);
-      } else {
-        setUnlockError('Senha incorreta.');
-      }
-    } catch (e) {
-      setUnlockError('Erro ao verificar senha.');
-    }
-  };
-
-  const handleCreateGroup = async () => {
-    if (!newGroupName.trim()) return;
-    setCreatingGroup(true);
-    try {
-      const res = await apiJson<{ group: ConversationItem }>('/api/chat/groups', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: newGroupName.trim(),
-          description: newGroupDesc.trim() || undefined,
-          password: newGroupPassword.trim() || undefined,
-          created_by: currentUser?.displayName || 'Operador',
-        }),
-      });
-
-      if (res && res.group) {
-        setConversations((prev) => [res.group, ...prev]);
-        setShowNewGroupModal(false);
-        setNewGroupName('');
-        setNewGroupDesc('');
-        setNewGroupPassword('');
-        if (res.group.is_protected) {
-          setUnlockedChannels((prev) => new Set(prev).add(res.group.id));
-        }
-        setActiveConversation(res.group);
-      }
-    } catch (err) {
-      alert('Erro ao criar grupo.');
-    } finally {
-      setCreatingGroup(false);
-    }
-  };
-
-  // Envio de mensagem no chat
-  const handleSendMessage = async () => {
-    if (!activeConversation) return;
-    const text = chatInput.trim();
-    if (!text && !chatAttachment) return;
-
-    const channelId = resolveChannelId(activeConversation);
-    const encrypted = encryptContent(text);
-    const senderName = currentUser?.displayName || 'Operador';
-    const senderRole = currentUser?.role || 'operador';
-
-    try {
-      const res = await apiJson<{ message: any }>('/api/chat/messages', {
-        method: 'POST',
-        body: JSON.stringify({
-          channel: channelId,
-          sender_name: senderName,
-          sender_role: senderRole,
-          content_encrypted: encrypted,
-          is_encrypted: true,
-          message_type: chatAttachment ? chatAttachment.type : 'text',
-          attachment_data: chatAttachment?.data,
-          attachment_name: chatAttachment?.name,
-        }),
-      });
-
-      if (res.message) {
-        const newMsg: ChatMessageItem = {
-          id: res.message.id,
-          channel: res.message.channel,
-          sender_name: res.message.sender_name,
-          sender_role: res.message.sender_role,
-          content: text,
-          is_encrypted: true,
-          message_type: chatAttachment ? chatAttachment.type : 'text',
-          attachment_data: chatAttachment?.data,
-          attachment_name: chatAttachment?.name,
-          created_at: res.message.created_at || new Date().toISOString(),
-        };
-        setChatMessages((prev) => [...prev, newMsg]);
-        setChatInput('');
-        setChatAttachment(null);
-        setTimeout(() => chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
-      }
-    } catch (e) {
-      console.error('Erro ao enviar mensagem:', e);
-    }
-  };
-
-  // Gravação de áudio nativa
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setChatAttachment({
-            type: 'audio',
-            data: reader.result as string,
-            name: `audio_${Date.now()}.webm`,
-          });
-        };
-        reader.readAsDataURL(audioBlob);
-        stream.getTracks().forEach((track) => track.stop());
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-      setRecordingTime(0);
-      timerRef.current = setInterval(() => setRecordingTime((t) => t + 1), 1000);
-    } catch (err) {
-      alert('Permissão de microfone não concedida.');
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      clearInterval(timerRef.current);
-    }
-  };
-
-  const cancelRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.onstop = null;
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      clearInterval(timerRef.current);
-      audioChunksRef.current = [];
-    }
-  };
+  }, [isOpen, loadFeedbacksList]);
 
   // Captura de tela para formulário de Bug
   const captureScreen = async () => {
@@ -836,56 +493,6 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
     }
   };
 
-  // Assistente de IA
-  const handleSendAi = async (customPrompt?: string) => {
-    const text = customPrompt || aiInput.trim();
-    if (!text) return;
-
-    const userMsg: AiMessage = {
-      id: randomId(),
-      sender: 'user',
-      text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
-
-    setAiMessages((prev) => [...prev, userMsg]);
-    if (!customPrompt) setAiInput('');
-    setAiLoading(true);
-
-    try {
-      const res = await apiJson<{ response: string; suggested_actions?: string[] }>('/api/chat/ai', {
-        method: 'POST',
-        body: JSON.stringify({
-          prompt: text,
-          module_context: module,
-          user_name: currentUser?.displayName || 'Operador',
-        }),
-      });
-
-      const iaMsg: AiMessage = {
-        id: randomId(),
-        sender: 'ia',
-        text: res.response,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        suggested_actions: res.suggested_actions,
-      };
-
-      setAiMessages((prev) => [...prev, iaMsg]);
-    } catch {
-      setAiMessages((prev) => [
-        ...prev,
-        {
-          id: randomId(),
-          sender: 'ia',
-          text: 'Desculpe, tive um problema ao consultar as informações. Tente novamente em instantes.',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        },
-      ]);
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
   // Filtros de feedbacks
   const openCount = useMemo(
     () => feedbacksList.filter((f) => ['pending', 'queued', 'in_progress'].includes(f.status)).length,
@@ -914,22 +521,6 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
     return fb.status === feedbackFilterStatus;
   });
 
-  // Filtros de conversas no Chat
-  const filteredConversations = conversations.filter((c) => {
-    const matchesSearch =
-      c.name.toLowerCase().includes(searchContact.toLowerCase()) ||
-      (c.role && c.role.toLowerCase().includes(searchContact.toLowerCase())) ||
-      (c.description && c.description.toLowerCase().includes(searchContact.toLowerCase()));
-
-    if (!matchesSearch) return false;
-    if (chatFilter === 'channels') return c.is_group;
-    if (chatFilter === 'operators') return !c.is_group;
-    return true;
-  });
-
-  const channelsCount = conversations.filter((c) => c.is_group).length;
-  const operatorsCount = conversations.filter((c) => !c.is_group).length;
-
   return (
     <>
       {/* Botão Flutuante Minimalista Monocromático: SEMPRE 1 ÚNICO ÍCONE */}
@@ -945,7 +536,7 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
           type="button"
           onClick={() => setIsOpen(!isOpen)}
           className="p-3 max-sm:h-12 max-sm:w-12 bg-zinc-900 text-zinc-100 rounded-full shadow-xl border border-zinc-700 hover:bg-zinc-800 active:scale-95 transition-transform cursor-pointer flex items-center justify-center"
-          title="Bugs, Feedbacks & Chat"
+          title="Bugs e ideias"
         >
           <Bug className="h-4 w-4 text-zinc-300" />
         </button>
@@ -1025,45 +616,9 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
           >
             {/* Header com Navegação de Abas Monocromático */}
             <div className="bg-white border-b border-zinc-200 p-3 flex items-center justify-between shrink-0 shadow-2xs">
-              <div className="flex items-center gap-1 bg-zinc-100 p-1 rounded-xl border border-zinc-200">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('feedback')}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 max-sm:py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap',
-                    activeTab === 'feedback' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-500 hover:text-zinc-900'
-                  )}
-                >
-                  <Bug className="w-3.5 h-3.5 text-zinc-700" />
-                  <span>Relatos</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('chat');
-                    loadConversations();
-                  }}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 max-sm:py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap',
-                    activeTab === 'chat' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-500 hover:text-zinc-900'
-                  )}
-                >
-                  <MessageSquare className="w-3.5 h-3.5 text-zinc-700" />
-                  <span>Chat</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('ia')}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 max-sm:py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap',
-                    activeTab === 'ia' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-500 hover:text-zinc-900'
-                  )}
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-zinc-700" />
-                  <span>IA</span>
-                </button>
+              <div className="flex items-center gap-2 px-1 text-sm font-bold text-zinc-900">
+                <Bug className="w-4 h-4 text-zinc-700" />
+                <span>Bugs e ideias</span>
               </div>
 
               <button
@@ -1077,8 +632,7 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
             </div>
 
             {/* ABA: BUGS & IDEIAS */}
-            {activeTab === 'feedback' && (
-              <div className="flex-1 flex flex-col min-h-0 bg-white">
+            <div className="flex-1 flex flex-col min-h-0 bg-white">
                 {/* Sub-header de navegação entre Formulário e Lista */}
                 <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-100 bg-zinc-50 text-xs shrink-0">
                   {feedbackMode === 'detail' ? (
@@ -1681,417 +1235,6 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
                   </div>
                 )}
               </div>
-            )}
-
-            {/* ABA: CHAT (WHATSAPP STYLE COM CANAIS E OPERADORES) */}
-            {activeTab === 'chat' && (
-              <div className="flex-1 flex flex-col min-h-0 bg-white">
-                {!activeConversation ? (
-                  // LISTAGEM UNIFICADA ESTILO WHATSAPP
-                  <div className="flex-1 flex flex-col min-h-0">
-                    <div className="p-3 border-b border-zinc-200 bg-zinc-50 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        {/* Pílulas de Filtro Rápido */}
-                        <div className="flex items-center gap-1 bg-zinc-200/70 p-1 rounded-xl text-xs font-bold">
-                          <button
-                            type="button"
-                            onClick={() => setChatFilter('all')}
-                            className={cn(
-                              'px-2.5 py-1 rounded-lg transition-all cursor-pointer',
-                              chatFilter === 'all' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-600 hover:text-zinc-900'
-                            )}
-                          >
-                            Todos ({conversations.length})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setChatFilter('channels')}
-                            className={cn(
-                              'px-2.5 py-1 rounded-lg transition-all cursor-pointer',
-                              chatFilter === 'channels' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-600 hover:text-zinc-900'
-                            )}
-                          >
-                            Canais ({channelsCount})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setChatFilter('operators')}
-                            className={cn(
-                              'px-2.5 py-1 rounded-lg transition-all cursor-pointer',
-                              chatFilter === 'operators' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-600 hover:text-zinc-900'
-                            )}
-                          >
-                            Operadores ({operatorsCount})
-                          </button>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => setShowNewGroupModal(true)}
-                          className="p-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl shadow-xs transition-all flex items-center gap-1 cursor-pointer shrink-0"
-                          title="Criar novo grupo ou canal"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
-                      </div>
-
-                      {/* Busca */}
-                      <div className="relative">
-                        <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-2.5" />
-                        <input
-                          type="text"
-                          value={searchContact}
-                          onChange={(e) => setSearchContact(e.target.value)}
-                          placeholder="Buscar canal, operador ou grupo..."
-                          className="w-full bg-white border border-zinc-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-zinc-800 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto divide-y divide-zinc-100">
-                      {filteredConversations.length === 0 ? (
-                        <div className="text-center py-12 text-zinc-400 text-xs">
-                          Nenhum canal ou operador encontrado.
-                        </div>
-                      ) : (
-                        filteredConversations.map((conv) => (
-                          <div
-                            key={conv.id}
-                            onClick={() => handleSelectConversation(conv)}
-                            className="p-3 hover:bg-zinc-50 transition-colors cursor-pointer flex items-center justify-between gap-3 group"
-                          >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div
-                                className={cn(
-                                  'w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0',
-                                  conv.is_group
-                                    ? 'bg-zinc-100 text-zinc-700 border border-zinc-200'
-                                    : 'bg-zinc-900 text-white'
-                                )}
-                              >
-                                {conv.is_protected ? (
-                                  <Lock className="w-4 h-4 text-zinc-600" />
-                                ) : conv.is_group ? (
-                                  <Hash className="w-4 h-4 text-zinc-600" />
-                                ) : (
-                                  conv.name.charAt(0).toUpperCase()
-                                )}
-                              </div>
-
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <h4 className="text-xs font-bold text-zinc-900 truncate">
-                                    {conv.name}
-                                  </h4>
-                                  {conv.is_protected && (
-                                    <span className="text-[9px] bg-zinc-100 text-zinc-700 px-1 rounded-sm border border-zinc-200 font-bold">
-                                      🔒 Senha
-                                    </span>
-                                  )}
-                                  {conv.role === 'supervisor' && (
-                                    <span className="text-[9px] bg-zinc-100 text-zinc-800 px-1 rounded-sm border border-zinc-200 font-bold">
-                                      Supervisor
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-[11px] text-zinc-400 truncate mt-0.5">
-                                  {conv.description || (conv.is_group ? 'Canal Geral' : `Função: ${conv.role || 'Operador'}`)}
-                                </p>
-                              </div>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSelectConversation(conv);
-                              }}
-                              className="px-2.5 py-1 bg-zinc-100 hover:bg-zinc-900 hover:text-white text-zinc-700 text-[11px] font-bold rounded-lg transition-all border border-zinc-200 shrink-0 cursor-pointer"
-                            >
-                              {conv.is_group ? 'Entrar' : 'Conversar'}
-                            </button>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  // CONVERSA ATIVA
-                  <div className="flex-1 flex flex-col min-h-0">
-                    <div className="p-3 bg-zinc-50 border-b border-zinc-200 flex items-center justify-between shrink-0">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setActiveConversation(null)}
-                          className="p-1 text-zinc-500 hover:text-zinc-900 rounded-lg hover:bg-zinc-200 cursor-pointer"
-                        >
-                          <ArrowLeft className="w-4 h-4" />
-                        </button>
-                        <div>
-                          <h4 className="text-xs font-bold text-zinc-900 flex items-center gap-1.5">
-                            {activeConversation.name}
-                            {activeConversation.is_protected && <Lock className="w-3 h-3 text-zinc-600" />}
-                          </h4>
-                          <p className="text-[10px] text-zinc-400">{activeConversation.description || 'Canal Criptografado'}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-zinc-50/40">
-                      {chatMessages.length === 0 ? (
-                        <div className="text-center py-12 text-zinc-400 text-xs">
-                          Nenhuma mensagem nesta conversa ainda. Envie a primeira mensagem abaixo!
-                        </div>
-                      ) : (
-                        chatMessages.map((msg) => {
-                          const isMe = msg.sender_name === (currentUser?.displayName);
-                          return (
-                            <div key={msg.id} className={cn('flex flex-col', isMe ? 'items-end' : 'items-start')}>
-                              <span className="text-[10px] text-zinc-400 px-1 mb-0.5 font-bold">
-                                {msg.sender_name}
-                              </span>
-                              <div
-                                className={cn(
-                                  'p-2.5 rounded-2xl text-xs max-w-[85%] leading-relaxed shadow-2xs',
-                                  isMe
-                                    ? 'bg-zinc-900 text-white rounded-br-xs'
-                                    : 'bg-white text-zinc-800 rounded-bl-xs border border-zinc-200'
-                                )}
-                              >
-                                {msg.message_type === 'image' && msg.attachment_data && (
-                                  <img src={msg.attachment_data} alt="Anexo" className="rounded-lg max-h-48 mb-1.5" />
-                                )}
-                                {msg.message_type === 'audio' && msg.attachment_data && (
-                                  <audio controls src={msg.attachment_data} className="h-8 w-48 mb-1" />
-                                )}
-                                {msg.content && <p>{msg.content}</p>}
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                      <div ref={chatBottomRef} />
-                    </div>
-
-                    {/* Input do Chat */}
-                    <div className="p-2.5 bg-white border-t border-zinc-200 flex items-center gap-2 shrink-0">
-                      {isRecording ? (
-                        <div className="flex-1 flex items-center justify-between bg-zinc-100 px-3 py-1.5 rounded-xl border border-zinc-300 text-xs text-zinc-800">
-                          <div className="flex items-center gap-2 animate-pulse font-bold">
-                            <Mic className="w-4 h-4" />
-                            <span>Gravando áudio ({recordingTime}s)...</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button type="button" onClick={cancelRecording} className="text-zinc-400 hover:text-zinc-700">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                            <button type="button" onClick={stopRecording} className="p-1 bg-zinc-900 text-white rounded-lg">
-                              <Square className="w-3 h-3 fill-current" />
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <input
-                            type="text"
-                            value={chatInput}
-                            onChange={(e) => setChatInput(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                            placeholder="Digite sua mensagem..."
-                            className="flex-1 bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-800 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                          />
-                          <button
-                            type="button"
-                            onClick={startRecording}
-                            className="p-2 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-xl transition-colors cursor-pointer"
-                            title="Gravar áudio"
-                          >
-                            <Mic className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleSendMessage}
-                            disabled={!chatInput.trim() && !chatAttachment}
-                            className="p-2 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white rounded-xl transition-all cursor-pointer"
-                          >
-                            <Send className="w-4 h-4" />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ABA: ASSISTENTE IA */}
-            {activeTab === 'ia' && (
-              <div className="flex-1 flex flex-col min-h-0 bg-white">
-                <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-zinc-50/40">
-                  {aiMessages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={cn('flex flex-col', msg.sender === 'user' ? 'items-end' : 'items-start')}
-                    >
-                      <div
-                        className={cn(
-                          'p-3 rounded-2xl text-xs max-w-[90%] leading-relaxed shadow-2xs',
-                          msg.sender === 'user'
-                            ? 'bg-zinc-900 text-white font-medium rounded-br-xs'
-                            : 'bg-white text-zinc-800 border border-zinc-200 rounded-bl-xs'
-                        )}
-                      >
-                        {msg.text}
-                      </div>
-
-                      {msg.suggested_actions && (
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {msg.suggested_actions.map((act, i) => (
-                            <button
-                              key={i}
-                              type="button"
-                              onClick={() => handleSendAi(act)}
-                              className="text-[10px] font-bold bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer shadow-2xs"
-                            >
-                              ⚡ {act}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {aiLoading && (
-                    <div className="p-3 bg-white rounded-2xl border border-zinc-200 text-xs text-zinc-500 flex items-center gap-2 shadow-2xs">
-                      <Sparkles className="w-3.5 h-3.5 text-zinc-600 animate-spin" />
-                      <span>Consultando informações...</span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="p-2.5 bg-white border-t border-zinc-200 flex items-center gap-2 shrink-0">
-                  <input
-                    type="text"
-                    value={aiInput}
-                    onChange={(e) => setAiInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSendAi()}
-                    placeholder="Pergunte sobre estoque, lotes, compras..."
-                    className="flex-1 bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-800 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleSendAi()}
-                    disabled={aiLoading || !aiInput.trim()}
-                    className="p-2 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white font-bold rounded-xl transition-all cursor-pointer"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* MODAL: NOVO GRUPO COM SENHA */}
-            {showNewGroupModal && (
-              <div className="absolute inset-0 bg-black/50 backdrop-blur-2xs flex items-center justify-center p-4 z-50">
-                <div className="bg-white border border-zinc-200 rounded-2xl p-4 w-full max-w-sm space-y-3 shadow-2xl">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold text-zinc-900 flex items-center gap-1.5">
-                      <Users className="w-4 h-4 text-zinc-700" />
-                      <span>Criar Novo Grupo de Chat</span>
-                    </h4>
-                    <button type="button" onClick={() => setShowNewGroupModal(false)} className="text-zinc-400 hover:text-zinc-700 cursor-pointer">
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-zinc-500 block mb-1">Nome do Grupo *</label>
-                    <input
-                      type="text"
-                      value={newGroupName}
-                      onChange={(e) => setNewGroupName(e.target.value)}
-                      placeholder="Ex: Turno Noturno, Envase..."
-                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-800 focus:outline-none focus:ring-1 focus:ring-zinc-900 font-medium"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-zinc-500 block mb-1">Descrição (opcional)</label>
-                    <input
-                      type="text"
-                      value={newGroupDesc}
-                      onChange={(e) => setNewGroupDesc(e.target.value)}
-                      placeholder="Objetivo do canal..."
-                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-800 focus:outline-none focus:ring-1 focus:ring-zinc-900 font-medium"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-zinc-500 flex items-center gap-1 mb-1">
-                      <Lock className="w-3 h-3 text-zinc-600" />
-                      <span>Proteger com Senha (opcional)</span>
-                    </label>
-                    <input
-                      type="password"
-                      value={newGroupPassword}
-                      onChange={(e) => setNewGroupPassword(e.target.value)}
-                      placeholder="Deixe em branco para canal público"
-                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-800 focus:outline-none focus:ring-1 focus:ring-zinc-900 font-medium"
-                    />
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleCreateGroup}
-                    disabled={creatingGroup || !newGroupName.trim()}
-                    className="w-full py-2 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer"
-                  >
-                    {creatingGroup ? 'Criando...' : 'Criar Grupo'}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* MODAL: SENHA DO CANAL */}
-            {unlockModalOpen && targetProtectedConv && (
-              <div className="absolute inset-0 bg-black/50 backdrop-blur-2xs flex items-center justify-center p-4 z-50">
-                <div className="bg-white border border-zinc-200 rounded-2xl p-4 w-full max-w-sm space-y-3 shadow-2xl">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold text-zinc-900 flex items-center gap-1.5">
-                      <Lock className="w-4 h-4 text-zinc-700" />
-                      <span>Canal Protegido</span>
-                    </h4>
-                    <button type="button" onClick={() => setUnlockModalOpen(false)} className="text-zinc-400 hover:text-zinc-700 cursor-pointer">
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <p className="text-xs text-zinc-600">
-                    O canal <strong className="text-zinc-900">{targetProtectedConv.name}</strong> requer senha de acesso:
-                  </p>
-
-                  <input
-                    type="password"
-                    value={unlockPassword}
-                    onChange={(e) => setUnlockPassword(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleVerifyPassword()}
-                    placeholder="Digite a senha..."
-                    autoFocus
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-800 focus:outline-none focus:ring-1 focus:ring-zinc-900 font-medium"
-                  />
-
-                  {unlockError && <p className="text-xs text-zinc-900 font-bold">{unlockError}</p>}
-
-                  <button
-                    type="button"
-                    onClick={handleVerifyPassword}
-                    disabled={!unlockPassword}
-                    className="w-full py-2 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer"
-                  >
-                    Entrar no Canal
-                  </button>
-                </div>
-              </div>
-            )}
           </motion.div>
         )}
       </AnimatePresence>
