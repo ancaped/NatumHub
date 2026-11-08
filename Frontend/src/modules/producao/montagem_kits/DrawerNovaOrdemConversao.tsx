@@ -1,3 +1,5 @@
+import SeletorKit from './SeletorKit';
+import { rotuloConteudo } from '../lib/viraPackaging';
 import Drawer from '../../geral/components/ui/Drawer';
 import { usePreviaServidor, mensagemErroServidor } from '../lib/usePreviaServidor';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -21,9 +23,7 @@ import {
 } from '../lib/viraPackaging';
 
 export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
-  const { newViraBaixaOrigem, setNewViraBaixaOrigem, newViraFormula, products, viraComposicao, atualizarParConversao, parConversaoExistente, newViraDeCodigo, newViraParaCodigo, getViraDeNamePreview, getViraParaNamePreview, handleDeleteViraComposicao, handleCreateViraOrder, loadingViraPackaging, newViraFator, newViraMotivo, newViraOrderNotes, newViraOrderNumber, newViraPackagingLines, newViraQtyDe, newViraQtyPara, newViraQtyParaManual, refreshNewViraPackaging, selectedViraComp, setNewViraFator, setNewViraMotivo, setNewViraOrderNotes, setNewViraOrderNumber, setNewViraPackagingLines, setNewViraQtyDe, setNewViraQtyPara, setNewViraQtyParaManual, setShowNewViraOrderModal, submittingNewViraOrder } = ctx;
-  const origemConhecida = !!newViraDeCodigo.trim() && (products || []).some((pr: any) => String(pr.codigo || '').trim() === newViraDeCodigo.trim());
-  const destinosComReceita = viraComposicao.filter((vc: any) => vc.deProdutoCodigo === newViraDeCodigo.trim());
+  const { escolherOrigemConversao, escolherDestinoConversao, viraVariacoes, viraConteudoOrigem, loadingVariacoes, viraEmbalagensFonte, newViraBaixaOrigem, setNewViraBaixaOrigem, newViraFormula, products, viraComposicao, parConversaoExistente, newViraDeCodigo, newViraParaCodigo, handleDeleteViraComposicao, handleCreateViraOrder, loadingViraPackaging, newViraFator, newViraMotivo, newViraOrderNotes, newViraOrderNumber, newViraPackagingLines, newViraQtyDe, newViraQtyPara, newViraQtyParaManual, refreshNewViraPackaging, selectedViraComp, setNewViraFator, setNewViraMotivo, setNewViraOrderNotes, setNewViraOrderNumber, setNewViraPackagingLines, setNewViraQtyDe, setNewViraQtyPara, setNewViraQtyParaManual, setShowNewViraOrderModal, submittingNewViraOrder } = ctx;
   return (
     <>
         <Drawer
@@ -47,94 +47,99 @@ export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Produto de origem (DE)</label>
-                  <input
-                    type="text"
-                    list="produtos-list"
-                    value={newViraDeCodigo}
-                    onChange={(e) => {
-                      const de = e.target.value;
-                      const opts = viraComposicao.filter((vc: any) => vc.deProdutoCodigo === de.trim());
-                      let para = newViraParaCodigo;
-                      if (opts.length > 0 && !opts.some((vc: any) => vc.paraProdutoCodigo === para)) {
-                        para = opts.length === 1 ? opts[0].paraProdutoCodigo : '';
-                      } else if (opts.length === 0 && destinosComReceita.some((vc: any) => vc.paraProdutoCodigo === para)) {
-                        para = ''; // destino veio da receita da origem anterior
-                      }
-                      void atualizarParConversao(de, para);
-                    }}
-                    placeholder="Código do produto de origem"
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 font-semibold text-zinc-900 bg-white"
-                    required
-                  />
-                  {getViraDeNamePreview() && <p className="text-[10px] text-zinc-500 font-bold break-words">{getViraDeNamePreview()}</p>}
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Produto de destino (PARA)</label>
-                  {destinosComReceita.length > 0 ? (
-                    <select
-                      value={newViraParaCodigo}
-                      onChange={(e) => void atualizarParConversao(newViraDeCodigo, e.target.value)}
-                      className="w-full border border-zinc-300 rounded-xl px-3 py-2 min-h-11 sm:min-h-0 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 font-semibold text-zinc-900 bg-white"
-                      required
-                    >
-                      <option value="">Selecione o destino…</option>
-                      {destinosComReceita.map((vc: any) => (
-                        <option key={vc.paraProdutoCodigo} value={vc.paraProdutoCodigo}>
-                          {vc.paraProdutoDescricao} ({vc.paraProdutoCodigo}) — 1 → {vc.quantidade}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <>
-                      <input
-                        type="text"
-                        list="produtos-list"
-                        value={newViraParaCodigo}
-                        onChange={(e) => void atualizarParConversao(newViraDeCodigo, e.target.value)}
-                        placeholder="Código do produto de destino"
-                        className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 font-semibold text-zinc-900 bg-white"
-                        required
-                      />
-                      {origemConhecida && (
-                        <p className="text-[10px] font-bold text-amber-700">Sem receita para esta origem: informe as embalagens.</p>
-                      )}
-                    </>
-                  )}
-                  {getViraParaNamePreview() && <p className="text-[10px] text-zinc-500 font-bold break-words">{getViraParaNamePreview()}</p>}
-                </div>
+              <div className="space-y-1">
+                <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Produto de origem (o que será convertido)</label>
+                <SeletorKit
+                  kits={(products || []).map((pr: any) => ({ codigo: pr.codigo, descricao: pr.descricao, estoque: pr.estoque }))}
+                  valor={newViraDeCodigo}
+                  onChange={(c: string) => void escolherOrigemConversao(c)}
+                  placeholder="Digite o código ou o nome do produto de origem…"
+                />
+                {viraConteudoOrigem != null && (
+                  <p className="text-[10px] text-zinc-500">Conteúdo por unidade (pela formulação): <b className="text-zinc-800">{rotuloConteudo(viraConteudoOrigem)}</b></p>
+                )}
               </div>
+
+              {newViraDeCodigo && (() => {
+                const trocasFixas = (viraComposicao || [])
+                  .filter((vc: any) => vc.deProdutoCodigo === newViraDeCodigo && !(viraVariacoes || []).some((v: any) => String(v.codigo).trim() === vc.paraProdutoCodigo))
+                  .map((vc: any) => ({ codigo: vc.paraProdutoCodigo, descricao: vc.paraProdutoDescricao, conteudoKg: null, fator: parseFloat(vc.quantidade) || 1, fixa: true }));
+                const opcoes = [...(viraVariacoes || []).map((v: any) => ({ ...v, fixa: false })), ...trocasFixas];
+                return (
+                  <div className="space-y-2">
+                    <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Produto de destino (em quê será convertido)</label>
+                    {loadingVariacoes ? (
+                      <p className="text-[11px] text-zinc-500">Buscando itens com a mesma formulação…</p>
+                    ) : opcoes.length > 0 ? (
+                      <div className="border border-zinc-200 rounded-xl divide-y divide-zinc-100 bg-white">
+                        {opcoes.map((o: any) => {
+                          const marcado = String(o.codigo).trim() === String(newViraParaCodigo).trim();
+                          return (
+                            <button
+                              key={o.codigo}
+                              type="button"
+                              onClick={() => void escolherDestinoConversao(o.codigo)}
+                              className={`w-full text-left px-3 py-2.5 min-h-11 flex items-center justify-between gap-3 cursor-pointer ${marcado ? 'bg-zinc-900 text-white' : 'hover:bg-zinc-50'}`}
+                            >
+                              <span className="min-w-0">
+                                <span className="block text-xs font-bold break-words">{o.descricao}</span>
+                                <span className={`font-mono text-[10px] ${marcado ? 'text-zinc-300' : 'text-zinc-500'}`}>{o.codigo}</span>
+                              </span>
+                              <span className="shrink-0 text-right text-[11px]">
+                                <b className="block">{o.fixa ? 'Troca fixa' : rotuloConteudo(o.conteudoKg)}</b>
+                                <span className={marcado ? 'text-zinc-300' : 'text-zinc-500'}>fator 1 → {String(Math.round(o.fator * 1000) / 1000).replace('.', ',')}</span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-zinc-500">Nenhum item com a mesma formulação encontrado para esta origem.</p>
+                    )}
+                    <details className="text-[11px]" open={opcoes.length === 0 && !loadingVariacoes}>
+                      <summary className="cursor-pointer min-h-11 sm:min-h-0 flex items-center font-bold text-zinc-600">Escolher outro produto (troca fixa)</summary>
+                      <div className="pt-2">
+                        <SeletorKit
+                          kits={(products || []).map((pr: any) => ({ codigo: pr.codigo, descricao: pr.descricao, estoque: pr.estoque }))}
+                          valor={opcoes.some((o: any) => String(o.codigo).trim() === String(newViraParaCodigo).trim()) ? '' : newViraParaCodigo}
+                          onChange={(c: string) => void escolherDestinoConversao(c)}
+                          placeholder="Digite o código ou o nome do destino…"
+                        />
+                      </div>
+                    </details>
+                  </div>
+                );
+              })()}
 
               {selectedViraComp && (() => {
                 const existente = parConversaoExistente(selectedViraComp.deProdutoCodigo, selectedViraComp.paraProdutoCodigo);
-                const fatorReceita = Number(newViraFator) || 0;
-                const mudou = existente && Math.abs((parseFloat(existente.quantidade) || 0) - fatorReceita) > 1e-9;
+                const fatorNovo = Number(newViraFator) || 0;
+                const mudou = existente && Math.abs((parseFloat(existente.quantidade) || 0) - fatorNovo) > 1e-9;
                 const marcaMudou = existente && !!existente.baixaOrigemNaVenda !== newViraBaixaOrigem;
+                const destinoVar = (viraVariacoes || []).find((v: any) => String(v.codigo).trim() === String(selectedViraComp.paraProdutoCodigo).trim());
                 return (
                   <div className="flex flex-wrap items-center gap-2 text-[11px] rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${existente ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                      {existente ? 'Receita encontrada' : 'Par novo'}
-                    </span>
-                    <span className="text-zinc-600 basis-full sm:basis-0 sm:flex-1 min-w-0">
-                      {existente
-                        ? (mudou ? `Receita atual 1 → ${existente.quantidade}; será atualizada para 1 → ${fatorReceita} ao criar a ordem.` : `Receita: 1 → ${existente.quantidade}. Ajuste o fator abaixo para alterá-la.`)
-                        : `A receita 1 → ${fatorReceita || '?'} será criada ao criar a ordem. Preencha o fator e as embalagens abaixo.`}
-                    </span>
                     {newViraFormula === 'igual' && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-zinc-100 text-zinc-700 border-zinc-200" title="Mesma fórmula de matéria-prima: muda só a embalagem ou o tamanho">Mesma fórmula</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-zinc-100 text-zinc-700 border-zinc-200" title="Mesma formulação de matéria-prima: muda só a embalagem ou o tamanho">Mesma formulação</span>
                     )}
                     {newViraFormula === 'diferente' && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-amber-50 text-amber-700 border-amber-200" title="As fórmulas de matéria-prima são diferentes: é uma troca fixa entre produtos">Fórmula diferente · troca fixa</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border bg-amber-50 text-amber-700 border-amber-200" title="As formulações de matéria-prima são diferentes: é uma troca fixa entre produtos">Formulação diferente · troca fixa</span>
                     )}
+                    <span className="text-zinc-600 basis-full sm:basis-0 sm:flex-1 min-w-0">
+                      {destinoVar && viraConteudoOrigem
+                        ? `Conteúdo ${rotuloConteudo(viraConteudoOrigem)} → ${rotuloConteudo(destinoVar.conteudoKg)}: fator 1 → ${String(Math.round(fatorNovo * 1000) / 1000).replace('.', ',')}.`
+                        : existente
+                          ? (mudou ? `Fator salvo 1 → ${existente.quantidade}; será atualizado para 1 → ${fatorNovo} ao criar a ordem.` : `Fator salvo deste par: 1 → ${existente.quantidade}.`)
+                          : `Par novo: o fator 1 → ${fatorNovo || '?'} será salvo ao criar a ordem.`}
+                      {destinoVar && existente && mudou ? ` (Salvo antes: 1 → ${existente.quantidade}; será atualizado.)` : ''}
+                    </span>
                     {existente && (
                       <button
                         type="button"
                         onClick={() => handleDeleteViraComposicao(selectedViraComp.deProdutoCodigo, selectedViraComp.paraProdutoCodigo)}
                         className="text-[10px] font-bold text-zinc-400 hover:text-red-600 underline cursor-pointer min-h-11 sm:min-h-0"
                       >
-                        Excluir receita deste par
+                        Excluir este par
                       </button>
                     )}
                     <label className="basis-full flex items-start gap-2 cursor-pointer min-h-11 sm:min-h-0 pt-1 border-t border-zinc-200 mt-1">
@@ -156,7 +161,7 @@ export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
               {selectedViraComp && (
                 <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-3">
                   <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">
-                    Receita do par e quantidade (DE × fator → PARA)
+                    Quantidade (origem × fator de conversão → destino)
                   </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="space-y-1">
@@ -183,7 +188,7 @@ export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[9px] text-zinc-400 font-bold uppercase block">Fator da receita (1→N)</label>
+                      <label className="text-[9px] text-zinc-400 font-bold uppercase block">Fator de conversão (1→N)</label>
                       <input
                         type="number"
                         min="0"
@@ -229,8 +234,11 @@ export default function DrawerNovaOrdemConversao({ ctx }: { ctx: any }) {
               {selectedViraComp && (
                 <div className="space-y-3 border border-zinc-200 rounded-xl p-4">
                   <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">
-                    Embalagens (registro — não movimenta estoque no Hub)
+                    Embalagens da conversão (registro — não movimenta estoque no Hub)
                   </h4>
+                  {viraEmbalagensFonte && (
+                    <p className="text-[10px] text-zinc-500">Sugeridas a partir da {viraEmbalagensFonte}. Confira e ajuste se preciso.</p>
+                  )}
                   <div className="space-y-2">
                     <p className="text-[9px] font-bold text-emerald-700 uppercase">Retorno ao estoque (origem)</p>
                     {newViraPackagingLines.filter((l) => l.role === 'return').length === 0 ? (

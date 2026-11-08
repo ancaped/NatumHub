@@ -7,6 +7,8 @@ import { chamarLinhasKits, KitComLinha, LinhaKit, useLinhasKits } from './linhas
 interface Props {
   pedirPrevia: (previa: PreviaAcao) => void;
   avisar: (mensagem: string, tipo?: 'sucesso' | 'erro' | 'info') => void;
+  /** Abre Produção > Kits, onde a composição é cadastrada; ausente se o operador não tem acesso. */
+  onAbrirKits?: () => void;
 }
 
 const NOVA = '__nova__';
@@ -19,7 +21,7 @@ const prefixosDe = (texto: string) =>
     .filter(Boolean);
 
 /** Aba Linhas de Kits: mesmo desenho das linhas de produto (tabela e painel). Cada linha lista os prefixos que a sugerem. */
-export default function LinhasKitsTab({ pedirPrevia, avisar }: Props) {
+export default function LinhasKitsTab({ pedirPrevia, avisar, onAbrirKits }: Props) {
   const { linhas, kits, recarregar } = useLinhasKits(true);
   const [busca, setBusca] = useState('');
   const [aberta, setAberta] = useState<string | null>(null);
@@ -283,6 +285,15 @@ export default function LinhasKitsTab({ pedirPrevia, avisar }: Props) {
                   />
                 </div>
                 <span className="text-xs text-zinc-500">{kitsDaLinha.length} kits</span>
+                {onAbrirKits && (
+                  <button
+                    type="button"
+                    onClick={() => onAbrirKits()}
+                    className="min-h-[44px] px-3 rounded-xl border border-zinc-200 bg-white text-xs font-bold text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                  >
+                    Composição: Produção &gt; Kits
+                  </button>
+                )}
               </div>
 
               {marcados.size > 0 && (

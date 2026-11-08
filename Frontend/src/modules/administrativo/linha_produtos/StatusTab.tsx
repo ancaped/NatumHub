@@ -21,7 +21,8 @@ interface Props {
   /** Recarrega os dados da tela depois de gravar. */
   onReload: () => Promise<void> | void;
   /** Abre o painel de composição do kit (mora no arquivo principal). */
-  onAbrirComposicao: (codigo: string, descricao: string) => void;
+  /** Abre Produção > Kits (a composição não se edita aqui); ausente se o operador não tem acesso. */
+  onAbrirKits?: () => void;
   /** Códigos dos produtos que têm ajuste manual (visão "Ajuste manual"). */
   codigosComAjuste: Set<string>;
 }
@@ -39,7 +40,7 @@ const VISTAS: { id: Vista; label: string }[] = [
 ];
 
 /** Aba Produtos da Linha de Produtos: tabela com filtros, paginação, ações em lote e painel de edição do produto. */
-export default function StatusTab({ products, categories, configs, kitComposicao, graduationCandidates, loading, pedirBulk, avisar, onReload, onAbrirComposicao, codigosComAjuste }: Props) {
+export default function StatusTab({ products, categories, configs, kitComposicao, graduationCandidates, loading, pedirBulk, avisar, onReload, onAbrirKits, codigosComAjuste }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [lineFilter, setLineFilter] = useState('ALL');
@@ -50,6 +51,7 @@ export default function StatusTab({ products, categories, configs, kitComposicao
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
   // Editing Drawer
   const [selectedProduct, setSelectedProduct] = useState<ProductResult | null>(null);
+  const [abaProduto, setAbaProduto] = useState<'geral' | 'ajustes'>('geral');
   const [drawerLoading, setDrawerLoading] = useState(false);
   
   // Form overrides state
@@ -193,6 +195,7 @@ export default function StatusTab({ products, categories, configs, kitComposicao
   // Open Edit Drawer
   const handleOpenEdit = (p: ProductResult) => {
     setSelectedProduct(p);
+    setAbaProduto('geral');
     
     // Populate form states
     setStatusForm(p.status_produto || 'ativo');
@@ -596,13 +599,11 @@ export default function StatusTab({ products, categories, configs, kitComposicao
                                 >
                                   <Edit className="w-4 h-4" />
                                 </button>
-                                {isKit && (
+                                {isKit && onAbrirKits && (
                                   <button
-                                    onClick={() => {
-                                      onAbrirComposicao(p.codigo, p.descricao);
-                                    }}
+                                    onClick={() => onAbrirKits()}
                                     className="p-1.5 hover:bg-zinc-100 text-zinc-600 rounded-lg transition-colors cursor-pointer"
-                                    title="Gerenciar Composição do Kit"
+                                    title="Composição do kit: abrir Produção > Kits"
                                   >
                                     <Layers className="w-4 h-4" />
                                   </button>
@@ -702,8 +703,14 @@ export default function StatusTab({ products, categories, configs, kitComposicao
         <Drawer
           onClose={() => setSelectedProduct(null)}
           size="sm"
-          title="Configurar Produto"
+          title={selectedProduct.descricao}
           subtitle={`Código: ${selectedProduct.codigo}`}
+          tabs={[
+            { id: 'geral', label: 'Geral' },
+            { id: 'ajustes', label: 'Ajustes', badge: codigosComAjuste.has(selectedProduct.codigo) ? '•' : undefined },
+          ]}
+          activeTab={abaProduto}
+          onTabChange={(id) => setAbaProduto(id as 'geral' | 'ajustes')}
           loading={drawerLoading}
           loadingText="Carregando overrides do produto..."
           footer={
@@ -729,11 +736,20 @@ export default function StatusTab({ products, categories, configs, kitComposicao
         >
           <form id="form-override-produto" onSubmit={handleSaveIndividualOverride} className="space-y-5 text-left">
             {/* Product Info Display */}
-            <div className="space-y-1">
-              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block">Descrição</span>
-              <p className="font-bold text-zinc-800 text-sm">{selectedProduct?.descricao}</p>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                ['Linha', selectedProduct.nome_linha || selectedProduct.linha_prefix || '—'],
+                ['Média/mês', (selectedProduct.media_vendas ?? 0).toFixed(1)],
+                ['Ideal', String(Math.round(selectedProduct.estoque_ideal_qtd || 0))],
+              ].map(([rot, val]) => (
+                <div key={rot} className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 min-w-0">
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">{rot}</span>
+                  <span className="text-sm font-extrabold text-zinc-900 block truncate">{val}</span>
+                </div>
+              ))}
             </div>
 
+            <div className={abaProduto === 'geral' ? 'space-y-5' : 'hidden'}>
             {/* Kit Fast Action Banner if it's a Kit */}
             {(selectedProduct?.is_kit || selectedProduct?.categoria_produto === 'kit' || kitComposicao.some(kc => kc.kit_codigo === selectedProduct?.codigo)) && (
               <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-xl space-y-2">
@@ -746,18 +762,16 @@ export default function StatusTab({ products, categories, configs, kitComposicao
                 <p className="text-[11px] text-zinc-600 leading-snug">
                   Este item é montado a partir de componentes/insumos.
                 </p>
+                {onAbrirKits && (
                 <button
                   type="button"
-                  onClick={() => {
-                    if (selectedProduct) {
-                      onAbrirComposicao(selectedProduct.codigo, selectedProduct.descricao);
-                    }
-                  }}
+                  onClick={() => onAbrirKits()}
                   className="w-full py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-xs cursor-pointer"
                 >
                   <Layers className="w-4 h-4" />
-                  Ver / Editar Composição deste Kit
+                  Abrir Produção &gt; Kits
                 </button>
+                )}
               </div>
             )}
 
@@ -897,6 +911,19 @@ export default function StatusTab({ products, categories, configs, kitComposicao
               </select>
             </div>
 
+            {/* Custom Observations Area */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700 block">Observações do Produto</label>
+              <textarea
+                placeholder="Ex: Produzir apenas sob demanda firme de pedido..."
+                value={obsForm}
+                onChange={(e) => setObsForm(e.target.value)}
+                rows={3}
+                className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
+              />
+            </div>
+            </div>
+            <div className={abaProduto === 'ajustes' ? 'space-y-5' : 'hidden'}>
             {/* Toggle Launch Override */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-zinc-700 block">Marcar como Lançamento</label>
@@ -964,7 +991,7 @@ export default function StatusTab({ products, categories, configs, kitComposicao
               )}
             </div>
 
-            <div className="border-t border-zinc-150 my-2 pt-3">
+            <div>
               <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-3">Overrides de Vendas & Carteira</span>
               
               <div className="grid grid-cols-2 gap-3">
@@ -1007,16 +1034,6 @@ export default function StatusTab({ products, categories, configs, kitComposicao
               </div>
             </div>
 
-            {/* Custom Observations Area */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-zinc-700 block">Observações do Produto</label>
-              <textarea
-                placeholder="Ex: Produzir apenas sob demanda firme de pedido..."
-                value={obsForm}
-                onChange={(e) => setObsForm(e.target.value)}
-                rows={3}
-                className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
-              />
             </div>
           </form>
         </Drawer>

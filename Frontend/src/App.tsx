@@ -817,7 +817,7 @@ export default function App() {
     if (view === 'admin_linha_produtos' || view === 'estoque_ativos') {
       return (
         <ErrorBoundary onReset={() => setView('administrativo')} fallbackTitle="Erro no módulo de Linha de Produtos">
-          <ActiveProductsView onBackToHub={() => setView('administrativo')} standalone={true} />
+          <ActiveProductsView onBackToHub={() => setView('administrativo')} standalone={true} onAbrirKits={() => setView('montagem_kits')} />
         </ErrorBoundary>
       );
     }
@@ -1170,7 +1170,7 @@ export default function App() {
     if (view === 'linha_produtos') {
       return (
         <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo de Linha de Produtos">
-          <ActiveProductsView onBackToHub={() => setView('administrativo')} standalone={true} />
+          <ActiveProductsView onBackToHub={() => setView('administrativo')} standalone={true} onAbrirKits={() => setView('montagem_kits')} />
         </ErrorBoundary>
       );
     }

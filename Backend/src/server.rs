@@ -160,6 +160,10 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             get(handlers::get_next_vira_order_number),
         )
         .route(
+            "/api/turnovers/variacoes",
+            get(handlers::listar_variacoes_conversao),
+        )
+        .route(
             "/api/turnovers/packaging-preview",
             get(handlers::preview_vira_packaging),
         )
