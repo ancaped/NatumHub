@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     Extension, Json,
@@ -62,56 +62,6 @@ pub async fn post_edge(
     match store::create_edge(state.db.pool(), Some(actor(&ctx)), body).await {
         Ok(e) => (StatusCode::CREATED, Json(e)).into_response(),
         Err(e) => err_resp(StatusCode::BAD_REQUEST, e),
-    }
-}
-
-pub async fn list_tasks(
-    State(state): State<Arc<AppState>>,
-    Extension(_ctx): Extension<AuthContext>,
-    Query(q): Query<TasksQuery>,
-) -> impl IntoResponse {
-    let limit = q.limit.unwrap_or(100);
-    match store::list_tasks(state.db.pool(), q.status.as_deref(), limit).await {
-        Ok(rows) => (StatusCode::OK, Json(rows)).into_response(),
-        Err(e) => err_resp(StatusCode::INTERNAL_SERVER_ERROR, e),
-    }
-}
-
-pub async fn post_task(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<AuthContext>,
-    Json(body): Json<TaskCreate>,
-) -> impl IntoResponse {
-    match store::create_task(state.db.pool(), Some(actor(&ctx)), body).await {
-        Ok(t) => (StatusCode::CREATED, Json(t)).into_response(),
-        Err(e) => err_resp(StatusCode::BAD_REQUEST, e),
-    }
-}
-
-pub async fn patch_task(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<AuthContext>,
-    Path(id): Path<String>,
-    Json(body): Json<TaskPatch>,
-) -> impl IntoResponse {
-    match store::patch_task(state.db.pool(), Some(actor(&ctx)), &id, body).await {
-        Ok(t) => (StatusCode::OK, Json(t)).into_response(),
-        Err(e) => err_resp(StatusCode::BAD_REQUEST, e),
-    }
-}
-
-pub async fn export_tasks_md(
-    State(state): State<Arc<AppState>>,
-    Extension(_ctx): Extension<AuthContext>,
-) -> impl IntoResponse {
-    match store::export_task_md(state.db.pool()).await {
-        Ok(md) => (
-            StatusCode::OK,
-            [(axum::http::header::CONTENT_TYPE, "text/markdown; charset=utf-8")],
-            md,
-        )
-            .into_response(),
-        Err(e) => err_resp(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
 }
 

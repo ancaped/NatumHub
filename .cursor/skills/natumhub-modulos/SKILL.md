@@ -6,7 +6,7 @@ description: >-
   Use quando o usuário pedir novo módulo, submódulo, tela no hub, module_key,
   permissão de operador, registrar view, adicionar área ao Nexus,
   colar um SPEC JSON do mapa (kind: natumhub-module-spec),
-  ou uma task module_spec em task.md.
+  ou um chamado "Implementar módulo" aberto pelo assistente Novo módulo.
 ---
 
 # Nexus — Skill: Criação de Módulos

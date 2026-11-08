@@ -17,14 +17,14 @@ Decisão do Edson (2026-10-23). O Nexus faz três coisas: **importar corretament
 | `natumhub-feedbacks` | Triagem / widget / API feedbacks |
 | `natumhub-resolve-bugs` | Corrigir fila Postgres → `awaiting_review` |
 | `natumhub-modulos` | Novo módulo / `module_key` / view |
-| `natumhub-tasks` | Fila mapa (`/api/mapa/tasks` ou `task.md`) |
+| `natumhub-tasks` | Fila do mapa aposentada: redireciona à fila de feedbacks |
 | `natumhub-erp-sql` | Sync ERP / `erp-import` / `legacy_db` |
 | `natumhub-api` | Rota REST / `apiJson` / auth |
 
 ```
 Feedbacks admin     → natumhub-feedbacks
 Fila de bugs        → GET /api/hub/feedbacks/triagem (agrupada por conversa) + natumhub-resolve-bugs
-Fila do mapa        → /api/mapa/tasks (+ task.md) + natumhub-tasks
+Fila do mapa        → aposentada; tudo é feedback (natumhub-resolve-bugs)
 Módulo novo         → natumhub-modulos
 Sync ERP            → natumhub-erp-sql
 Rota HTTP           → natumhub-api

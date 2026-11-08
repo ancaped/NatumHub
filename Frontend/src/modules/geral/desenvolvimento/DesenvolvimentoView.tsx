@@ -389,7 +389,6 @@ export default function DesenvolvimentoView({
             edges={snap?.edges || []}
             groupName={selectedModuleGroup}
             feedbacks={feedbacks}
-            tasks={snap?.tasksOpen || []}
             onOpenView={onNavigateToView}
             onSelectFeedback={(f) => {
               setSelectedFeedbackId(f.id);

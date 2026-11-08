@@ -1,52 +1,26 @@
 ---
 name: natumhub-tasks
 description: >-
-  Executa a fila canônica do Nexus: preferir GET /api/mapa/tasks?status=open
-  (Postgres); senão task.md. Aplica mudanças nos targets (version_bump,
-  module_curated, module_spec, generic), marca done via PATCH + activity e
-  exporta task.md se pedido. Use quando o usuário mencionar task.md, @task.md,
-  "executa as tasks", "fila do mapa" ou colar conteúdo da task queue.
+  A antiga fila do mapa (mapa_tasks, /api/mapa/tasks, task.md) não existe mais:
+  desde 2026-11-08 a fila do Nexus é uma só, a de feedbacks (central
+  Desenvolvimento → Fila de Demandas). Use quando o usuário mencionar task.md,
+  "fila do mapa", "executa as tasks" ou colar um bloco "# Nexus — Task queue",
+  para redirecionar à fila de feedbacks e à skill natumhub-resolve-bugs.
 ---
 
-# Nexus — Skill: Task queue (API + `task.md`)
+# Nexus — Skill: fila do mapa (aposentada)
 
-## Quando usar
+## O que mudou
 
-- Usuário menciona `task.md`, `@task.md`, “faz a fila”, “executa Open”
-- Conteúdo colado com heading `# Nexus — Task queue`
-- Tasks criadas no Hub **Mapa operacional** / `POST /api/mapa/modules`
+- Decisão do Edson (2026-11-08): **uma fila só**. As tarefas abertas de `mapa_tasks` viraram feedbacks na
+  triagem (`id` = `mapa_<id antigo>`, página `Desenvolvimento`) pela migração `103_mapa_tasks_para_feedbacks.sql`.
+- As rotas `/api/mapa/tasks*` e o `task.md` saíram. O assistente "Novo módulo" abre um chamado na triagem com o
+  `module_key` do módulo novo.
 
-## Fonte da verdade
+## O que fazer
 
-1. **API / Banco de Dados (Master `:3001` ou `:3002`):**
-   - `GET /api/mapa/tasks?status=open`
-   - Ao concluir: `PATCH /api/mapa/tasks/:id` com `{ "status": "done", "notes": "…" }` (grava activity `ai_implemented`)
-2. **Conceito no ai-memory:** `concepts/fila-tarefas-mapa.md`
-
-UI: Hub view `mapa_arquitetura`.
-
-## Protocolo
-
-1. Listar Open (API ou `## Open` no md).
-2. Executar **na ordem**.
-3. Respeitar **Type**, **Payload**, **Targets**, **Acceptance** — sem inventar escopo.
-4. Ao concluir:
-   - API: `PATCH` done (+ nota curta)
-   - md: `Status: done`, Done at, mover bloco para **Done**
-5. O gerador `npm run map:arch` foi removido (2026-10-24): fatos do módulo ficam na Ficha Técnica da central Desenvolvimento.
-6. Resumir em pt-BR.
-
-## Types
-
-| Type | Ação |
-|------|------|
-| `version_bump` | Alinhar versão `payload.to` nos `Targets` |
-| `module_curated` | Atualizar a Ficha Técnica do módulo por migração aditiva em `mapa_modules` (ver AGENTS.md) |
-| `module_spec` | Checklist `natumhub-modulos` (SPEC no payload) |
-| `generic` | Title + Notes + Targets |
-
-## Regras
-
-- Nunca apagar histórico Done (md)
-- Não criar commits a menos que o usuário peça
-- Idioma pt-BR; escopo mínimo
+1. Trabalho a executar está na fila de feedbacks: siga a skill `natumhub-resolve-bugs`
+   (status `queued`/`in_progress` → resolver → `awaiting_review`).
+2. Chamado de módulo novo: siga a skill `natumhub-modulos`.
+3. Conteúdo colado de um `task.md` antigo: trate como pedido do usuário; se ainda valer, ele pode virar um
+   feedback pela tela (Reportar na ficha do módulo).
