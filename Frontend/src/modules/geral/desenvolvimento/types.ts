@@ -112,6 +112,6 @@ export interface CatalogoAcao {
   parametros: CatalogoParam[];
 }
 
-export type DesenvolvimentoTab = 'mapa' | 'fila' | 'timeline' | 'novo_modulo';
+export type DesenvolvimentoTab = 'mapa' | 'fila' | 'timeline';
 
 export type FilaSubTab = 'triagem' | 'execucao' | 'homologacao' | 'finalizados';

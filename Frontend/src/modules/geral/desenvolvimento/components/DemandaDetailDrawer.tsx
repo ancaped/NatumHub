@@ -1,12 +1,9 @@
 import React, { useState } from 'react';
-import {
-  Bug, MessageSquare, Terminal, Image as ImageIcon, CheckCircle2,
-  AlertTriangle, RotateCcw, Send, Copy, Check, ChevronUp, ChevronDown,
-  Maximize2, Sparkles, UserRound, ArrowLeft, Loader2, Compass
-} from 'lucide-react';
+import { Terminal, Image as ImageIcon, Send, Copy, Check, ChevronUp, ChevronDown, Maximize2, Loader2 } from 'lucide-react';
 import type { Feedback, FeedbackDetail, FeedbackNote } from '../types';
-import { cn } from '../../lib/utils';
 import Drawer from '../../components/ui/Drawer';
+import { StatusBadge } from '../../components/ui/ReportKit';
+import { statusChamado, tipoChamado } from '../rotulos';
 import Modal from '../../components/ui/Modal';
 
 interface DemandaDetailDrawerProps {
@@ -51,7 +48,6 @@ export default function DemandaDetailDrawer({
   const [copiedLogs, setCopiedLogs] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
   const [newNote, setNewNote] = useState('');
-  const [noteAuthor, setNoteAuthor] = useState(() => currentUser?.displayName || 'Supervisor');
   const [sendingNote, setSendingNote] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [showFullImage, setShowFullImage] = useState(false);
@@ -86,12 +82,21 @@ export default function DemandaDetailDrawer({
     if (!body) return;
     setSendingNote(true);
     try {
-      await onAddNote(feedback.id, body, noteAuthor.trim() || 'Supervisor');
+      await onAddNote(feedback.id, body, currentUser?.displayName || '');
       setNewNote('');
     } finally {
       setSendingNote(false);
     }
   };
+
+  const decisoes: { status: string; rotulo: string; primaria?: boolean }[] =
+    feedback.status === 'awaiting_review'
+      ? [{ status: 'queued', rotulo: 'Devolver para a fila' }, { status: 'resolved', rotulo: 'Aprovar', primaria: true }]
+      : feedback.status === 'pending'
+        ? [{ status: 'wont_fix', rotulo: 'Recusar' }, { status: 'queued', rotulo: 'Mandar para a fila', primaria: true }]
+        : feedback.status === 'queued' || feedback.status === 'in_progress'
+          ? [{ status: 'awaiting_review', rotulo: 'Marcar como entregue', primaria: true }]
+          : [];
 
   const handleStatusChange = async (status: string) => {
     setActionLoading(true);
@@ -110,7 +115,7 @@ export default function DemandaDetailDrawer({
         size="2xl"
         title={feedback.description}
         subtitle={
-          <div className="flex items-center gap-3 text-xs text-zinc-500 pt-0.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-sans text-xs text-zinc-500 pt-0.5">
             <span>Por <strong>{feedback.requestedBy || 'Operador'}</strong></span>
             <span>·</span>
             <span>{formatDateTime(feedback.createdAt)}</span>
@@ -124,15 +129,7 @@ export default function DemandaDetailDrawer({
         }
         badge={
           <div className="flex items-center gap-2 flex-wrap">
-            {feedback.feedbackType === 'bug' ? (
-              <span className="flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
-                <Bug className="h-3 w-3" /> Bug
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-md">
-                <MessageSquare className="h-3 w-3" /> Sugestão
-              </span>
-            )}
+            <StatusBadge variante={tipoChamado(feedback.feedbackType).variante}>{tipoChamado(feedback.feedbackType).rotulo}</StatusBadge>
 
             <button
               type="button"
@@ -144,41 +141,41 @@ export default function DemandaDetailDrawer({
               {copiedId ? <Check className="h-2.5 w-2.5 text-emerald-600" /> : <Copy className="h-2.5 w-2.5 text-zinc-400" />}
             </button>
 
-            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-800 border border-zinc-200">
-              {feedback.status}
-            </span>
+            <StatusBadge variante="descontinuado">{statusChamado(feedback.status)}</StatusBadge>
           </div>
         }
         footer={
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer transition-all ml-auto"
-          >
-            Fechar Painel
-          </button>
+          decisoes.length > 0 ? (
+            <div className="w-full flex flex-wrap items-center justify-end gap-2">
+              {decisoes.map((d) => (
+                <button
+                  key={d.status}
+                  type="button"
+                  onClick={() => void handleStatusChange(d.status)}
+                  disabled={actionLoading}
+                  className={d.primaria ? 'min-h-[44px] sm:min-h-0 flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 flex-1 sm:flex-none bg-zinc-900 hover:bg-zinc-800 text-white' : 'min-h-[44px] sm:min-h-0 flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 border border-zinc-200 bg-white hover:bg-zinc-100 text-zinc-800'}
+                >
+                  {d.rotulo}
+                </button>
+              ))}
+            </div>
+          ) : undefined
         }
       >
         <div className="space-y-5">
           {/* Alerta de Homologação se awaiting_review */}
           {feedback.status === 'awaiting_review' && (
-            <div className="p-4 rounded-xl border border-violet-200 bg-violet-50/70 text-violet-950 space-y-2">
-              <div className="flex items-center gap-2 font-bold text-xs">
-                <Sparkles className="h-4 w-4 text-violet-600" />
-                <span>Pronto para Homologação do Supervisor</span>
-              </div>
-              <p className="text-[11px] text-violet-800 leading-relaxed">
-                A IA concluiu a implementação deste chamado. Confira a nota técnica abaixo, o print original e valide na tela antes de aprovar.
-              </p>
-            </div>
+            <p className="p-3 rounded-xl border border-zinc-200 bg-zinc-50 text-xs text-zinc-700">
+              Entregue. Confira a nota, a captura e a tela antes de aprovar.
+            </p>
           )}
 
           {/* Screenshot do Operador */}
           {hasShot && (
             <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
-                  <ImageIcon className="h-3.5 w-3.5" /> Evidência Visual (Chão de Fábrica)
+                <span className="text-xs font-semibold text-zinc-600 flex items-center gap-1.5">
+                  <ImageIcon className="h-3.5 w-3.5" /> Captura de tela
                 </span>
                 <button
                   type="button"
@@ -186,7 +183,7 @@ export default function DemandaDetailDrawer({
                   className="text-xs font-bold text-zinc-700 hover:text-zinc-900 flex items-center gap-1 cursor-pointer"
                 >
                   <Maximize2 className="h-3.5 w-3.5" />
-                  <span>Ver em Tela Cheia</span>
+                  <span>Ampliar</span>
                 </button>
               </div>
 
@@ -210,10 +207,10 @@ export default function DemandaDetailDrawer({
                 <button
                   type="button"
                   onClick={() => setLogsExpanded(!logsExpanded)}
-                  className="text-[10px] font-bold uppercase tracking-wider text-zinc-700 hover:text-zinc-900 flex items-center gap-1.5 cursor-pointer"
+                  className="text-xs font-semibold text-zinc-600 hover:text-zinc-900 flex items-center gap-1.5 cursor-pointer"
                 >
                   <Terminal className="h-3.5 w-3.5 text-zinc-500" />
-                  <span>Logs de Erro do Navegador</span>
+                  <span>Erros do navegador</span>
                   {logsExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                 </button>
 
@@ -222,7 +219,7 @@ export default function DemandaDetailDrawer({
                   onClick={handleCopyLogs}
                   className="text-xs font-bold text-zinc-600 hover:text-zinc-900 flex items-center gap-1 cursor-pointer"
                 >
-                  {copiedLogs ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copiedLogs ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                   <span>{copiedLogs ? 'Copiado!' : 'Copiar'}</span>
                 </button>
               </div>
@@ -237,34 +234,24 @@ export default function DemandaDetailDrawer({
 
           {/* Thread de Notas (Supervisor vs IA) */}
           <div className="space-y-3">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
-              Histórico Técnico & Resoluções ({feedback.notes?.length || 0})
+            <span className="text-xs font-semibold text-zinc-600 block">
+              Notas ({feedback.notes?.length || 0})
             </span>
 
             <div className="space-y-3">
               {(feedback.notes || []).map((n) => {
                 const isAi = isAiAuthor(n.author || '');
                 return (
-                  <div
-                    key={n.id}
-                    className={cn(
-                      'p-4 rounded-xl border text-xs space-y-1.5 shadow-2xs',
-                      isAi
-                        ? 'bg-zinc-900 text-zinc-100 border-zinc-800'
-                        : 'bg-zinc-50 text-zinc-800 border-zinc-200'
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2 border-b pb-2 border-current/15">
-                      <div className="flex items-center gap-1.5 font-bold">
-                        {isAi ? <Sparkles className="h-3.5 w-3.5 text-amber-400" /> : <UserRound className="h-3.5 w-3.5 text-zinc-500" />}
-                        <span>{n.author}</span>
-                      </div>
-                      <span className="text-[10px] opacity-60 font-mono">
-                        {formatDateTime(n.createdAt)}
+                  <div key={n.id} className="p-3 rounded-xl border border-zinc-200 bg-white text-xs space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5 font-semibold text-zinc-900">
+                        {n.author}
+                        {isAi && <StatusBadge variante="apoio">IA</StatusBadge>}
                       </span>
+                      <span className="text-[11px] text-zinc-400">{formatDateTime(n.createdAt)}</span>
                     </div>
 
-                    <p className="whitespace-pre-wrap leading-relaxed font-sans pt-1">
+                    <p className="whitespace-pre-wrap leading-relaxed text-zinc-800">
                       {n.body}
                     </p>
                   </div>
@@ -272,39 +259,28 @@ export default function DemandaDetailDrawer({
               })}
 
               {!feedback.notes?.length && (
-                <p className="text-xs text-zinc-400 italic py-2">Nenhuma nota técnica registrada.</p>
+                <p className="text-xs text-zinc-400 py-1">Nenhuma nota.</p>
               )}
             </div>
 
             {/* Inserir Nova Nota */}
             <form onSubmit={handleSendNote} className="space-y-2 pt-2 border-t border-zinc-100">
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                  Adicionar Nota
-                </label>
-                <div className="flex items-center gap-1 text-[11px]">
-                  <span className="text-zinc-400">Como:</span>
-                  <input
-                    type="text"
-                    value={noteAuthor}
-                    onChange={(e) => setNoteAuthor(e.target.value)}
-                    className="border border-zinc-200 rounded-md px-1.5 py-0.5 text-xs font-semibold w-28 bg-white"
-                  />
-                </div>
-              </div>
+              <label className="text-xs font-semibold text-zinc-600 block">
+                Nova nota{currentUser?.displayName ? ` (como ${currentUser.displayName})` : ''}
+              </label>
 
               <div className="flex gap-2">
                 <textarea
                   value={newNote}
                   onChange={(e) => setNewNote(e.target.value)}
-                  placeholder="Escreva uma observação ou instrução para os agentes de IA..."
+                  placeholder="Observação ou instrução para quem for resolver"
                   rows={2}
                   className="flex-1 border border-zinc-200 rounded-xl p-2.5 text-xs bg-white text-zinc-800 focus:outline-none focus:ring-1 focus:ring-zinc-900"
                 />
                 <button
                   type="submit"
                   disabled={sendingNote || !newNote.trim()}
-                  className="px-3.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold flex items-center justify-center cursor-pointer transition-colors disabled:opacity-40"
+                  className="min-w-[44px] px-3.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold flex items-center justify-center cursor-pointer transition-colors disabled:opacity-40"
                 >
                   {sendingNote ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 </button>
@@ -313,72 +289,6 @@ export default function DemandaDetailDrawer({
           </div>
         </div>
 
-        {/* Footer com Ações de Transição de Estado */}
-        <div className="p-4 border-t border-zinc-200 bg-zinc-50/80 flex items-center justify-between gap-2 shrink-0 flex-wrap">
-          {/* Se estiver aguardando revisão da IA */}
-          {feedback.status === 'awaiting_review' && (
-            <div className="w-full flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => handleStatusChange('queued')}
-                disabled={actionLoading}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold transition-colors cursor-pointer"
-              >
-                <RotateCcw className="h-3.5 w-3.5 text-amber-700" />
-                <span>Devolver para a Fila</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleStatusChange('resolved')}
-                disabled={actionLoading}
-                className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition-all cursor-pointer shadow-xs"
-              >
-                <CheckCircle2 className="h-4 w-4" />
-                <span>Aprovar & Finalizar</span>
-              </button>
-            </div>
-          )}
-
-          {/* Se estiver na triagem */}
-          {feedback.status === 'pending' && (
-            <div className="w-full flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => handleStatusChange('wont_fix')}
-                disabled={actionLoading}
-                className="px-3 py-2 rounded-xl border border-zinc-200 text-zinc-600 hover:bg-zinc-100 text-xs font-bold transition-colors cursor-pointer"
-              >
-                Reprovar
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleStatusChange('queued')}
-                disabled={actionLoading}
-                className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-xs"
-              >
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                <span>Aprovar para Fila de Desenvolvimento</span>
-              </button>
-            </div>
-          )}
-
-          {/* Se estiver na fila de execução */}
-          {(feedback.status === 'queued' || feedback.status === 'in_progress') && (
-            <div className="w-full flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => handleStatusChange('awaiting_review')}
-                disabled={actionLoading}
-                className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition-all cursor-pointer shadow-xs"
-              >
-                <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-                <span>Marcar como Entregue (Enviar para Homologação)</span>
-              </button>
-            </div>
-          )}
-        </div>
       </Drawer>
 
       {/* Modal de Zoom do Screenshot em Tela Cheia */}

@@ -25,17 +25,19 @@ export function BotaoAcao({
   primario,
   disabled,
   title,
+  className,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   primario?: boolean;
   disabled?: boolean;
   title?: string;
+  className?: string;
 }) {
   return (
     <button
       type="button"
-      className="tab-btn"
+      className={`tab-btn ${className ?? ''}`}
       title={title}
       disabled={disabled}
       onClick={onClick}
@@ -136,7 +138,7 @@ export function FiltroSelect({
   );
 }
 
-export type VarianteBadge = 'critico' | 'ordem' | 'saudavel' | 'abundante' | 'aguardando' | 'descontinuado' | 'apoio';
+export type VarianteBadge = 'critico' | 'ordem' | 'montar' | 'saudavel' | 'abundante' | 'aguardando' | 'descontinuado' | 'apoio';
 
 export function StatusBadge({ variante, children, title }: { variante: VarianteBadge; children: React.ReactNode; title?: string }) {
   return (

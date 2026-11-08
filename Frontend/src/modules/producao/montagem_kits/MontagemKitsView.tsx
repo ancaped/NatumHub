@@ -1,6 +1,7 @@
 import { apiFetch } from '../../geral/lib/http';
 import { useAviso } from '../../geral/components/ui/Aviso';
 import Drawer from '../../geral/components/ui/Drawer';
+import { ReportHeader, BotaoAcao } from '../../geral/components/ui/ReportKit';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { usePreviaServidor, mensagemErroServidor } from '../lib/usePreviaServidor';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -37,6 +38,7 @@ import DrawerEditarOrdem from './DrawerEditarOrdem';
 import DrawerNovaOrdemConversao from './DrawerNovaOrdemConversao';
 import DrawerEditarOrdemConversao from './DrawerEditarOrdemConversao';
 import DrawerNovoKit from './DrawerNovoKit';
+import DrawerKitComponentes from './DrawerKitComponentes';
 
 export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBackToHub: () => void; buscaInicial?: string }) {
   const { avisar, aviso } = useAviso();
@@ -71,7 +73,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   const [kitsPage, setKitsPage] = useState(1);
   const [kitsTotalPages, setKitsTotalPages] = useState(1);
   const [kitsTotalItems, setKitsTotalItems] = useState(0);
-  const [expandedKits, setExpandedKits] = useState([]);
+  const [kitDetalheCodigo, setKitDetalheCodigo] = useState('');
   const [kitSortField, setKitSortField] = useState('codigo');
   const [kitSortDir, setKitSortDir] = useState('asc');
 
@@ -812,12 +814,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   }, [categories, products, kits, kitComposicao, kitCompSearch]);
 
 
-  const toggleKitExpanded = (code) => {
-    setExpandedKits(prev => 
-      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
-    );
-  };
-
   const handleOpenNewOrderModal = async (preselectedKitCode = '') => {
     await fetchAllKitsDropdown();
     await fetchNextOrderNumber();
@@ -1196,6 +1192,8 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
   const ctx: any = {
     allKitsDropdown,
+    abrirPrevia,
+    avisar,
     applyViraCompSelection,
     newViraFormula,
     newViraBaixaOrigem,
@@ -1220,7 +1218,8 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     editViraPackagingLines,
     editViraQuantityAssembled,
     editViraStatus,
-    expandedKits,
+    kitDetalheCodigo,
+    setKitDetalheCodigo,
     fetchKits,
     fetchOrders,
     filterStatus,
@@ -1332,7 +1331,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     submittingEditViraOrder,
     submittingNewOrder,
     submittingNewViraOrder,
-    toggleKitExpanded,
     truncPrint,
     uploadingKitsConfig,
     viraComposicao,
@@ -1382,39 +1380,33 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
 
         <div className="print:hidden flex flex-col min-w-0">
           <div className="min-w-0 flex flex-col">
-            <div className="no-print mb-3 md:mb-5 flex flex-wrap items-center justify-between gap-2 shrink-0">
-              <h2 className="text-sm font-extrabold text-zinc-900">
-                {activeSubTab === 'ordens' ? 'Ordens de Montagem' : activeSubTab === 'componentes' ? 'Componentes e Alertas' : activeSubTab === 'composicao' ? 'Composição de Kits' : 'Ordens de Conversão'}
-              </h2>
-            <div className="flex flex-wrap items-center md:justify-end gap-2 no-print">
-              <div className="flex flex-wrap items-center gap-2 md:gap-3">
-                {activeSubTab === 'ordens' && (
-                  <button 
-                    onClick={() => handleOpenNewOrderModal()}
-                    className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm cursor-pointer transition-all active:scale-98"
-                  >
-                    <PlusCircle size={14} />
-                    Nova Ordem de Montagem
-                  </button>
-                )}
-                {activeSubTab === 'vira_ordens' && (
-                  <button 
-                    onClick={() => handleOpenNewViraOrderModal()}
-                    className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm cursor-pointer transition-all active:scale-98"
-                  >
-                    <PlusCircle size={14} />
-                    Nova Ordem de Conversão
-                  </button>
-                )}
-                <button 
-                  onClick={activeSubTab === 'ordens' ? fetchOrders : activeSubTab === 'composicao' ? fetchKitComposicao : fetchKits}
-                  className="p-2 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-xl text-zinc-650 transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-sm cursor-pointer active:scale-98"
-                >
-                  <RefreshCw className={`h-4 w-4 ${(loading || loadingOrders) ? 'animate-spin' : ''}`} />
-                  Recarregar
-                </button>
-              </div>
-            </div>
+            <div className="no-print">
+              <ReportHeader
+                titulo={activeSubTab === 'ordens' ? 'Ordens de Montagem' : activeSubTab === 'componentes' ? 'Componentes e Alertas' : activeSubTab === 'composicao' ? 'Composição de Kits' : 'Ordens de Conversão'}
+                subtitulo={
+                  activeSubTab === 'ordens' ? 'Montagem de kits: do pedido da ordem ao retorno e ao lançamento no ERP.'
+                  : activeSubTab === 'componentes' ? 'Estoque dos componentes de cada kit e o que precisa ser produzido.'
+                  : activeSubTab === 'composicao' ? 'Do que cada kit é montado (ERP e linhas manuais).'
+                  : 'Troca de um produto por outro, com a receita do par e as embalagens.'
+                }
+                acoes={
+                  <>
+                    {activeSubTab === 'ordens' && (
+                      <BotaoAcao primario className="min-h-11 md:min-h-0" onClick={() => handleOpenNewOrderModal()}>
+                        <PlusCircle size={14} /> Nova ordem de montagem
+                      </BotaoAcao>
+                    )}
+                    {activeSubTab === 'vira_ordens' && (
+                      <BotaoAcao primario className="min-h-11 md:min-h-0" onClick={() => handleOpenNewViraOrderModal()}>
+                        <PlusCircle size={14} /> Nova ordem de conversão
+                      </BotaoAcao>
+                    )}
+                    <BotaoAcao className="min-h-11 md:min-h-0" onClick={activeSubTab === 'ordens' ? fetchOrders : activeSubTab === 'composicao' ? fetchKitComposicao : activeSubTab === 'vira_ordens' ? fetchViraOrders : fetchKits}>
+                      <RefreshCw size={14} className={(loading || loadingOrders || loadingVira) ? 'animate-spin' : ''} /> Recarregar
+                    </BotaoAcao>
+                  </>
+                }
+              />
             </div>
             <style>{`
               @media print {
@@ -1492,6 +1484,8 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
           fetchKits();
         }}
       />
+
+      {kitDetalheCodigo && activeSubTab === 'componentes' && <DrawerKitComponentes ctx={ctx} />}
 
       {/* MODAL: SELECIONAR NOVO KIT PARA COMPOSIÇÃO */}
       {isNewKitModalOpen && (

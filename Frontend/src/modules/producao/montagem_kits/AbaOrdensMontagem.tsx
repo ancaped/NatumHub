@@ -27,47 +27,27 @@ import {
   type ViraPackagingLine,
 } from '../lib/viraPackaging';
 
+import { ReportHeader, BotaoAcao, FilterBar, FiltroSelect, StatusBadge } from '../../geral/components/ui/ReportKit';
+
 export default function AbaOrdensMontagem({ ctx }: { ctx: any }) {
   const { fetchOrders, filterStatus, filteredOrders, handleDeleteOrder, handleOpenEditModal, handlePrintOrder, loadingOrders, searchOrder, setFilterStatus, setSearchOrder } = ctx;
   return (
     <>
           <div className="space-y-4 animate-in fade-in duration-200">
-            {/* Toolbar */}
-            <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-zinc-50 p-3 rounded-xl border border-zinc-200">
-              <div className="relative w-full sm:w-80">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
-                <input 
-                  type="text" 
-                  placeholder="Buscar ordem por lote ou kit..."
-                  className="w-full text-xs border border-zinc-300 rounded-xl pl-9 pr-3 py-2.5 focus:outline-none focus:ring-1 focus:ring-zinc-950 bg-white"
-                  value={searchOrder}
-                  onChange={(e) => setSearchOrder(e.target.value)}
-                />
-              </div>
-
-              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                <select 
-                  className="text-xs border border-zinc-300 rounded-xl px-3 py-2 bg-white focus:outline-none"
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                >
-                  <option value="ALL">Todos os Status</option>
-                  <option value="PENDING">Pendentes (Expedição)</option>
-                  <option value="COMPLETED">Concluídas</option>
-                </select>
-
-                <button 
-                  onClick={fetchOrders}
-                  className="p-2.5 bg-white border border-zinc-300 rounded-xl text-zinc-550 hover:text-zinc-900 cursor-pointer"
-                  title="Atualizar"
-                >
-                  {loadingOrders ? <RefreshCw className="animate-spin h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
+            <FilterBar busca={searchOrder} onBusca={setSearchOrder} placeholder="Buscar ordem por lote ou kit...">
+              <FiltroSelect
+                value={filterStatus}
+                onChange={setFilterStatus}
+                opcoes={[
+                  { valor: 'ALL', rotulo: 'Todos os status' },
+                  { valor: 'PENDING', rotulo: 'Em montagem' },
+                  { valor: 'COMPLETED', rotulo: 'Concluídas' },
+                ]}
+              />
+            </FilterBar>
 
             {/* List */}
-            <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
+            <div className="panel-card" style={{ padding: 0, overflow: 'hidden' }}>
               {loadingOrders ? (
                 <div className="py-16 text-center text-zinc-400 flex flex-col items-center gap-2">
                   <RefreshCw className="animate-spin h-8 w-8 text-zinc-300" />
@@ -83,7 +63,7 @@ export default function AbaOrdensMontagem({ ctx }: { ctx: any }) {
                 <>
                 <div className="md:hidden divide-y divide-zinc-100">
                   {filteredOrders.map((o) => (
-                    <div key={o.id} className="p-3 space-y-2">
+                    <div key={o.id} role="button" tabIndex={0} onClick={() => handleOpenEditModal(o)} onKeyDown={(e) => { if (e.key === 'Enter') handleOpenEditModal(o); }} className="p-3 space-y-2 cursor-pointer active:bg-zinc-50">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <span className="font-extrabold text-zinc-950 text-sm">Lote {o.orderNumber}</span>
@@ -98,27 +78,12 @@ export default function AbaOrdensMontagem({ ctx }: { ctx: any }) {
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className={`px-2 py-1 rounded-full text-[9px] font-extrabold tracking-wide uppercase ${
-                          o.status === 'COMPLETED'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-amber-50 text-amber-700 border border-amber-200'
-                        }`}>
-                          {o.status === 'COMPLETED' ? 'Concluída' : 'Em Montagem'}
-                        </span>
+                        <StatusBadge variante={o.status === 'COMPLETED' ? 'saudavel' : 'ordem'}>{o.status === 'COMPLETED' ? 'Concluída' : 'Em montagem'}</StatusBadge>
                         <SeloOrdemParada ordem={o} />
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
-                          o.erpLaunched === 1
-                            ? 'bg-zinc-900 text-white border border-zinc-900'
-                            : 'bg-zinc-100 text-zinc-500 border border-zinc-200'
-                        }`}>
-                          ERP: {o.erpLaunched === 1 ? 'Sim' : 'Não'}
-                        </span>
+                        <StatusBadge variante={o.erpLaunched === 1 ? 'saudavel' : 'descontinuado'} title="Lançado no ERP">ERP: {o.erpLaunched === 1 ? 'Sim' : 'Não'}</StatusBadge>
                         <span className="text-[10px] text-zinc-500 ml-auto">{o.completedAt ? `Montado ${o.completedAt}${o.assembledBy ? ` por ${o.assembledBy}` : ''}` : `Emitida ${o.createdAt}`}</span>
                       </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => handleOpenEditModal(o)} className="flex-1 min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl bg-zinc-900 text-white text-xs font-bold cursor-pointer">
-                          <Eye size={14} /> Abrir
-                        </button>
+                      <div className="flex gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
                         <button onClick={() => handlePrintOrder(o)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 cursor-pointer" title="Imprimir" aria-label="Imprimir ordem">
                           <Printer size={16} />
                         </button>
@@ -132,33 +97,33 @@ export default function AbaOrdensMontagem({ ctx }: { ctx: any }) {
                 <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-xs text-left border-collapse">
                     <thead>
-                      <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-550 font-bold uppercase text-[9px]">
-                        <th className="p-3">Lote Ordem</th>
-                        <th className="p-3">Kit</th>
-                        <th className="p-3 text-right">Qtd a Montar</th>
-                        <th className="p-3">Emissão</th>
-                        <th className="p-3">Montado Em</th>
-                        <th className="p-3">Status</th>
-                        <th className="p-3">ERP</th>
-                        <th className="p-3 text-center">Ações</th>
+                      <tr>
+                        <th>Lote Ordem</th>
+                        <th>Kit</th>
+                        <th className="text-right">Qtd a Montar</th>
+                        <th>Emissão</th>
+                        <th>Montado Em</th>
+                        <th>Status</th>
+                        <th>ERP</th>
+                        <th className="text-center">Ações</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredOrders.map((o) => (
-                        <tr key={o.id} className="border-b border-zinc-150 hover:bg-zinc-50/50">
-                          <td className="p-3 font-extrabold text-zinc-950">{o.orderNumber}</td>
-                          <td className="p-3">
+                        <tr key={o.id} onClick={() => handleOpenEditModal(o)} className="border-b border-zinc-150 hover:bg-zinc-50 cursor-pointer">
+                          <td className="font-extrabold text-zinc-950">{o.orderNumber}</td>
+                          <td>
                             <span className="font-bold text-zinc-900 block">{o.kitProductDescription}</span>
                             <span className="text-[10px] text-zinc-500">REF: {o.kitProductCode}</span>
                           </td>
-                          <td className="p-3 text-right">
+                          <td className="text-right">
                             <span className="font-extrabold text-zinc-900 block">{o.quantity} un</span>
                             {o.quantityAssembled !== null && o.quantityAssembled !== undefined && o.quantityAssembled !== o.quantity && (
                               <span className="text-[9px] font-bold text-zinc-500 block">Real: {o.quantityAssembled} un</span>
                             )}
                           </td>
-                          <td className="p-3 text-zinc-500 font-medium">{o.createdAt}</td>
-                          <td className="p-3 text-zinc-550 font-medium">
+                          <td className="text-zinc-500 font-medium">{o.createdAt}</td>
+                          <td className="text-zinc-550 font-medium">
                             {o.completedAt ? (
                               <div>
                                 <span className="block font-bold text-zinc-700">{o.completedAt}</span>
@@ -168,40 +133,21 @@ export default function AbaOrdensMontagem({ ctx }: { ctx: any }) {
                               <span className="text-[10px] italic text-zinc-400">Pendente na Produção</span>
                             )}
                           </td>
-                          <td className="p-3">
-                            <span className={`px-2 py-1 rounded-full text-[9px] font-extrabold tracking-wide uppercase ${
-                              o.status === 'COMPLETED' 
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
-                                : 'bg-amber-50 text-amber-700 border border-amber-200'
-                            }`}>
-                              {o.status === 'COMPLETED' ? 'Concluída' : 'Em Montagem'}
-                            </span>
+                          <td>
+                            <StatusBadge variante={o.status === 'COMPLETED' ? 'saudavel' : 'ordem'}>{o.status === 'COMPLETED' ? 'Concluída' : 'Em montagem'}</StatusBadge>
                             <SeloOrdemParada ordem={o} />
                           </td>
-                          <td className="p-3">
-                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase ${
-                              o.erpLaunched === 1
-                                ? 'bg-zinc-900 text-white border border-zinc-900'
-                                : 'bg-zinc-100 text-zinc-450 border border-zinc-200'
-                            }`}>
-                              {o.erpLaunched === 1 ? 'Sim' : 'Não'}
-                            </span>
+                          <td>
+                            <StatusBadge variante={o.erpLaunched === 1 ? 'saudavel' : 'descontinuado'} title="Lançado no ERP">{o.erpLaunched === 1 ? 'Sim' : 'Não'}</StatusBadge>
                           </td>
-                          <td className="p-3">
-                            <div className="flex gap-2 justify-center items-center">
+                          <td>
+                            <div className="flex gap-2 justify-center items-center" onClick={(e) => e.stopPropagation()}>
                               <button 
                                 onClick={() => handlePrintOrder(o)}
                                 className="p-1.5 hover:bg-zinc-100 text-zinc-650 hover:text-zinc-900 rounded-lg cursor-pointer"
                                 title="Imprimir Ordem para preenchimento manual"
                               >
                                 <Printer size={14} />
-                              </button>
-                              <button 
-                                onClick={() => handleOpenEditModal(o)}
-                                className="p-1.5 hover:bg-zinc-100 text-zinc-650 hover:text-zinc-900 rounded-lg cursor-pointer"
-                                title="Preencher Retorno / Editar"
-                              >
-                                <Eye size={14} />
                               </button>
                               <button 
                                 onClick={() => handleDeleteOrder(o.id)}

@@ -89,6 +89,13 @@ pub struct ModuleCreate {
     pub purpose: Option<String>,
     pub pos_x: Option<f64>,
     pub pos_y: Option<f64>,
+    /// Caminhos que ligam o código ao módulo (a ficha se gera deles). Vazio = sem caminho.
+    #[serde(default)]
+    pub frontend_path: Option<String>,
+    #[serde(default)]
+    pub backend_path: Option<String>,
+    #[serde(default)]
+    pub router_prefix: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -134,6 +134,12 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             get(handlers::get_next_kit_order_number),
         )
         .route(
+            "/api/kits/pessoas",
+            get(handlers::list_pessoas_kits)
+                .post(handlers::add_pessoa_kits)
+                .delete(handlers::remove_pessoa_kits),
+        )
+        .route(
             "/api/turnovers/composicao",
             get(handlers::list_vira_composicao).post(handlers::add_vira_composicao),
         )

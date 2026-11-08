@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  ListTodo, RefreshCw, Loader2, X, LayoutList
+  ListTodo, RefreshCw, Loader2, X, LayoutList, History
 } from 'lucide-react';
 import AppLayout from '../components/layout/AppLayout';
 import { cn } from '../lib/utils';
@@ -16,10 +16,11 @@ import ModuleDetailDrawer from './components/ModuleDetailDrawer';
 import DemandasQueueTab from './components/DemandasQueueTab';
 import DemandaDetailDrawer from './components/DemandaDetailDrawer';
 import TimelineAuditTab from './components/TimelineAuditTab';
-import ModuleCreationWizard from './components/ModuleCreationWizard';
+import ModuleCreationWizard, { type NovoModuloDados } from './components/ModuleCreationWizard';
 import ModulosLista from './components/ModulosLista';
 import { contarAbertosPorModulo } from './vinculo';
 import { layoutOrganograma } from './layoutOrganograma';
+import { criarNomeModulo } from './rotulos';
 import { BotaoAcao, ReportTabs } from '../components/ui/ReportKit';
 
 interface DesenvolvimentoViewProps {
@@ -105,6 +106,8 @@ export default function DesenvolvimentoView({
     void loadFeedbackDetail(f.id);
   };
 
+  const nomeModulo = useMemo(() => criarNomeModulo(snap?.modules || []), [snap?.modules]);
+
   // Módulo ativo
   const selectedModule = useMemo(() => {
     if (!selectedModuleKey || !snap) return null;
@@ -186,29 +189,24 @@ export default function DesenvolvimentoView({
 
   // Criar Novo Módulo via Wizard
   const [savingNewModule, setSavingNewModule] = useState(false);
-  const handleCreateModule = async (data: {
-    moduleKey: string;
-    label: string;
-    groupKey: string;
-    purpose: string;
-    routerPrefix: string;
-    frontendPath: string;
-  }) => {
+  const [novoModuloAberto, setNovoModuloAberto] = useState(false);
+  const handleCreateModule = async (data: NovoModuloDados): Promise<boolean> => {
     setSavingNewModule(true);
     try {
       await apiJson('/mapa/modules?confirmar=true', {
         method: 'POST',
         body: JSON.stringify({
           ...data,
-          status: 'planned',
-          sortOrder: 100,
         }),
       });
       await loadData();
+      setNovoModuloAberto(false);
       setActiveTab('mapa');
       setSelectedModuleKey(data.moduleKey);
+      return true;
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Falha ao criar módulo');
+      return false;
     } finally {
       setSavingNewModule(false);
     }
@@ -230,6 +228,7 @@ export default function DesenvolvimentoView({
       badge: homologacaoCount > 0 ? homologacaoCount : undefined,
       badgeTone: 'amber' as const,
     },
+    { id: 'timeline', label: 'Atividades', icon: History },
   ];
 
   return (
@@ -289,8 +288,7 @@ export default function DesenvolvimentoView({
                     />
                   </div>
                   <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                    <BotaoAcao onClick={() => setActiveTab('timeline')}>Atividades</BotaoAcao>
-                    <BotaoAcao onClick={() => setActiveTab('novo_modulo')}>Novo módulo</BotaoAcao>
+                    <BotaoAcao primario onClick={() => setNovoModuloAberto(true)}>Novo módulo</BotaoAcao>
                   </div>
                 </div>
                 <div className={cn('flex-1 min-h-0 flex-col', vistaMapa === 'lista' ? 'flex' : 'flex md:hidden')}>
@@ -325,6 +323,7 @@ export default function DesenvolvimentoView({
 
             {activeTab === 'fila' && (
               <DemandasQueueTab
+                nomeModulo={nomeModulo}
                 feedbacks={feedbacks}
                 loading={loading}
                 selectedId={selectedFeedbackId}
@@ -345,44 +344,23 @@ export default function DesenvolvimentoView({
             )}
 
             {activeTab === 'timeline' && (
-              <div className="flex flex-col gap-3 min-h-0">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('mapa')}
-                  className="self-start min-h-[44px] sm:min-h-0 px-3 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-bold text-zinc-700 hover:bg-zinc-50 cursor-pointer"
-                >
-                  Voltar aos módulos
-                </button>
-                <TimelineAuditTab
-                  activities={snap?.activity || []}
-                  loading={loading}
-                  onRefresh={loadData}
-                />
-              </div>
-            )}
-
-            {activeTab === 'novo_modulo' && (
-              <div className="flex flex-col gap-3 min-h-0">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('mapa')}
-                  className="self-start min-h-[44px] sm:min-h-0 px-3 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-bold text-zinc-700 hover:bg-zinc-50 cursor-pointer"
-                >
-                  Voltar aos módulos
-                </button>
-                <ModuleCreationWizard
-                  groups={snap?.groups || []}
-                  onCreateModule={handleCreateModule}
-                  saving={savingNewModule}
-                />
-              </div>
+              <TimelineAuditTab activities={snap?.activity || []} nomeModulo={nomeModulo} />
             )}
           </>
         )}
 
+        <ModuleCreationWizard
+          isOpen={novoModuloAberto}
+          onClose={() => setNovoModuloAberto(false)}
+          groups={snap?.groups || []}
+          onCreateModule={handleCreateModule}
+          saving={savingNewModule}
+        />
+
         {/* Drawer do Módulo Técnico (aberto ao clicar no Mapa) */}
         {selectedModule && (
           <ModuleDetailDrawer
+            nomeModulo={nomeModulo}
             module={selectedModule}
             onClose={() => setSelectedModuleKey(null)}
             acoes={snap?.acoes || []}
