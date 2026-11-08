@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Plus, Trash2, Check, X } from 'lucide-react';
 import { apiFetch } from '../../geral/lib/http';
 

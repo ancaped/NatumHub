@@ -1,19 +1,9 @@
 import { apiFetch } from '../../geral/lib/http';
-import { useAviso } from '../../geral/components/ui/Aviso';
 import SeletorPessoa, { usePessoasKits } from './SeletorPessoa';
 import Drawer from '../../geral/components/ui/Drawer';
 import { usePreviaServidor, mensagemErroServidor } from '../lib/usePreviaServidor';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-  ArrowLeft, Search, RefreshCw, Layers, ClipboardList, PlusCircle, Trash2, 
-  CheckCircle2, Printer, X, Eye, CheckCircle, ExternalLink, Calendar, User, FileText, Settings, AlertTriangle,
-  UploadCloud, Plus
-} from 'lucide-react';
-import KitCompositionDrawer from '../components/KitCompositionDrawer';
-import LancarKitErpDrawer from './LancarKitErpDrawer';
-import { api } from '../../geral/lib/api';
-import { Category } from '../../geral/lib/types';
-import { SeloOrdemParada } from '../lib/ordemParada';
+import { useState } from 'react';
+import { FileText } from 'lucide-react';
 import {
   formatQtyPerKitLabel,
   kitComponentNeedQty,
@@ -29,8 +19,42 @@ import {
 } from '../lib/viraPackaging';
 
 export default function DrawerEditarOrdemConversao({ ctx }: { ctx: any }) {
-  const { avisar, abrirPrevia, editViraAssembledBy, editViraCheckedBy, editViraMotivo, editViraNotes, editViraPackagingLines, editViraQuantityAssembled, editViraStatus, handleUpdateViraOrder, selectedViraOrder, setEditViraAssembledBy, setEditViraCheckedBy, setEditViraMotivo, setEditViraNotes, setEditViraPackagingLines, setEditViraQuantityAssembled, setEditViraStatus, setLancarErpViraId, setShowEditViraOrderModal, submittingEditViraOrder } = ctx;
+  const { viraComposicao, fetchViraComposicao, avisar, abrirPrevia, editViraAssembledBy, editViraCheckedBy, editViraMotivo, editViraNotes, editViraPackagingLines, editViraQuantityAssembled, editViraStatus, handleUpdateViraOrder, selectedViraOrder, setEditViraAssembledBy, setEditViraCheckedBy, setEditViraMotivo, setEditViraNotes, setEditViraPackagingLines, setEditViraQuantityAssembled, setEditViraStatus, setLancarErpViraId, setShowEditViraOrderModal, submittingEditViraOrder } = ctx;
   const pessoas = usePessoasKits(avisar, abrirPrevia);
+  const de = selectedViraOrder.deProdutoCodigo;
+  const para = selectedViraOrder.paraProdutoCodigo;
+  const receita = (viraComposicao || []).find((vc: any) => vc.deProdutoCodigo === de && vc.paraProdutoCodigo === para) || null;
+  const [receitaFator, setReceitaFator] = useState<string>(receita ? String(receita.quantidade) : '');
+  const [receitaBaixa, setReceitaBaixa] = useState<boolean>(!!receita?.baixaOrigemNaVenda);
+  const [salvandoReceita, setSalvandoReceita] = useState(false);
+  const fatorNovo = parseFloat(String(receitaFator).replace(',', '.')) || 0;
+  const receitaMudou = !receita || Math.abs((parseFloat(receita.quantidade) || 0) - fatorNovo) > 1e-9 || !!receita.baixaOrigemNaVenda !== receitaBaixa;
+  const salvarReceita = async () => {
+    if (fatorNovo <= 0) {
+      avisar('Informe o fator da receita (maior que zero).', 'erro');
+      return;
+    }
+    setSalvandoReceita(true);
+    try {
+      const res = await apiFetch('/turnovers/composicao', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deProdutoCodigo: de, paraProdutoCodigo: para, quantidade: fatorNovo, baixaOrigemNaVenda: receitaBaixa }),
+      });
+      if (res.ok) {
+        await fetchViraComposicao();
+        avisar('Receita do par salva. Vale para as próximas ordens.', 'sucesso');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        avisar(err.error || 'Erro ao salvar a receita.', 'erro');
+      }
+    } catch (e) {
+      console.error(e);
+      avisar('Erro de conexão.', 'erro');
+    } finally {
+      setSalvandoReceita(false);
+    }
+  };
   return (
     <>
         <Drawer
@@ -197,6 +221,44 @@ export default function DrawerEditarOrdemConversao({ ctx }: { ctx: any }) {
                 </button>
               </div>
             </form>
+
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 space-y-3 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">Ajustar receita deste par</h4>
+                <span className="font-mono text-[10px] text-zinc-500">{de} → {para}</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Fator da receita (1→N)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    inputMode="decimal"
+                    value={receitaFator}
+                    onChange={(e) => setReceitaFator(e.target.value)}
+                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 min-h-11 sm:min-h-0 text-xs font-bold text-zinc-900 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  />
+                </div>
+                <button
+                  type="button"
+                  disabled={salvandoReceita || !receitaMudou}
+                  onClick={() => void salvarReceita()}
+                  className="min-h-11 sm:min-h-9 px-4 rounded-xl border border-zinc-300 bg-white text-xs font-bold text-zinc-800 hover:bg-zinc-100 disabled:opacity-50 cursor-pointer"
+                >
+                  {salvandoReceita ? 'Salvando...' : receita ? 'Salvar receita' : 'Criar receita'}
+                </button>
+              </div>
+              <label className="flex items-start gap-2 cursor-pointer min-h-11 sm:min-h-0">
+                <input type="checkbox" checked={receitaBaixa} onChange={(e) => setReceitaBaixa(e.target.checked)} className="mt-0.5 shrink-0" />
+                <span className="text-zinc-700">
+                  <b className="text-zinc-900">Vende como o destino:</b> a venda do destino baixa a origem no planejamento.
+                </span>
+              </label>
+              <p className="text-[10px] text-zinc-500">
+                A mudança vale para as próximas ordens. Não altera esta ordem nem lançamentos já feitos no ERP.
+              </p>
+            </div>
         </Drawer>
     </>
   );

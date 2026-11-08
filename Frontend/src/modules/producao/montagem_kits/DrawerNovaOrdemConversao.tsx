@@ -1,5 +1,3 @@
-import { apiFetch } from '../../geral/lib/http';
-import { useAviso } from '../../geral/components/ui/Aviso';
 import Drawer from '../../geral/components/ui/Drawer';
 import { usePreviaServidor, mensagemErroServidor } from '../lib/usePreviaServidor';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -8,11 +6,6 @@ import {
   CheckCircle2, Printer, X, Eye, CheckCircle, ExternalLink, Calendar, User, FileText, Settings, AlertTriangle,
   UploadCloud, Plus
 } from 'lucide-react';
-import KitCompositionDrawer from '../components/KitCompositionDrawer';
-import LancarKitErpDrawer from './LancarKitErpDrawer';
-import { api } from '../../geral/lib/api';
-import { Category } from '../../geral/lib/types';
-import { SeloOrdemParada } from '../lib/ordemParada';
 import {
   formatQtyPerKitLabel,
   kitComponentNeedQty,

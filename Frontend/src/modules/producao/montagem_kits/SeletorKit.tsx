@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Search, X, Check } from 'lucide-react';
 
 type ItemKit = { codigo: string; descricao: string; estoque?: number | string };

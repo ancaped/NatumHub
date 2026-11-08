@@ -1,4 +1,3 @@
-import React from 'react';
 import Drawer from '../../geral/components/ui/Drawer';
 import { Boxes, Printer } from 'lucide-react';
 import { formatQtyPerKitLabel } from '../lib/kitComponentQty';

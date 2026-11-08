@@ -1,22 +1,15 @@
 import { apiFetch } from '../../geral/lib/http';
 import { useAviso } from '../../geral/components/ui/Aviso';
-import Drawer from '../../geral/components/ui/Drawer';
 import { ReportHeader, BotaoAcao } from '../../geral/components/ui/ReportKit';
 import AppLayout from '../../geral/components/layout/AppLayout';
-import { usePreviaServidor, mensagemErroServidor } from '../lib/usePreviaServidor';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-  ArrowLeft, Search, RefreshCw, Layers, ClipboardList, PlusCircle, Trash2, 
-  CheckCircle2, Printer, X, Eye, CheckCircle, ExternalLink, Calendar, User, FileText, Settings, AlertTriangle,
-  UploadCloud, Plus
-} from 'lucide-react';
+import { usePreviaServidor } from '../lib/usePreviaServidor';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { RefreshCw, Layers, ClipboardList, PlusCircle, Settings } from 'lucide-react';
 import KitCompositionDrawer from '../components/KitCompositionDrawer';
 import LancarKitErpDrawer from './LancarKitErpDrawer';
 import { api } from '../../geral/lib/api';
 import { Category } from '../../geral/lib/types';
-import { SeloOrdemParada } from '../lib/ordemParada';
 import {
-  formatQtyPerKitLabel,
   kitComponentNeedQty,
   kitOrderComponentNeed,
 } from '../lib/kitComponentQty';
@@ -54,9 +47,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   // States: Composição de Kits Comerciais
   const [kitComposicao, setKitComposicao] = useState([]);
   const [kitCompSearch, setKitCompSearch] = useState('');
-  const [kitCompNewKit, setKitCompNewKit] = useState('');
-  const [kitCompNewComp, setKitCompNewComp] = useState('');
-  const [kitCompNewQty, setKitCompNewQty] = useState(1);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [uploadingKitsConfig, setUploadingKitsConfig] = useState(false);
@@ -156,20 +146,12 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   const [editViraCheckedBy, setEditViraCheckedBy] = useState('');
   const [editViraNotes, setEditViraNotes] = useState('');
   const [editViraQuantityAssembled, setEditViraQuantityAssembled] = useState(0);
-  const [editViraErpLaunched, setEditViraErpLaunched] = useState(false);
   const [editViraPackagingLines, setEditViraPackagingLines] = useState<ViraPackagingLine[]>([]);
   const [editViraMotivo, setEditViraMotivo] = useState('');
   const [submittingEditViraOrder, setSubmittingEditViraOrder] = useState(false);
 
   // State: Impressão
   const [printingOrder, setPrintingOrder] = useState(null);
-
-  // Fetch configs/tabs
-  const tabOptions = [
-    { id: 'ALL', name: 'Todos os Kits' },
-    { id: '1', name: 'Kits Tradicionais' },
-    { id: '2', name: 'Kits Especiais' }
-  ];
 
   // Fetch Kits list
   const fetchKits = useCallback(async () => {
@@ -265,20 +247,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     }
   }, []);
 
-  const getKitNamePreview = () => {
-    if (!kitCompNewKit.trim()) return '';
-    const cleaned = kitCompNewKit.trim().replace(/['"]/g, '').toLowerCase();
-    const found = products.find(p => (p.codigo || '').replace(/['"]/g, '').trim().toLowerCase() === cleaned);
-    return found ? found.descricao : 'Produto não encontrado no estoque';
-  };
-
-  const getCompNamePreview = () => {
-    if (!kitCompNewComp.trim()) return '';
-    const cleaned = kitCompNewComp.trim().replace(/['"]/g, '').toLowerCase();
-    const found = products.find(p => (p.codigo || '').replace(/['"]/g, '').trim().toLowerCase() === cleaned);
-    return found ? found.descricao : 'Produto não encontrado no estoque';
-  };
-
   const fetchKitComposicao = useCallback(async () => {
     try {
       const res = await apiFetch(`/kits/composicao`);
@@ -287,50 +255,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
       console.error("Error fetching kit composition:", e);
     }
   }, []);
-
-  const handleAddKitComposicao = async (e) => {
-    if (e) e.preventDefault();
-    if (!kitCompNewKit.trim() || !kitCompNewComp.trim()) return;
-    try {
-      const res = await apiFetch(`/kits/composicao`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          kit_codigo: kitCompNewKit.trim(), 
-          componente_codigo: kitCompNewComp.trim(),
-          quantidade: kitCompNewQty
-        })
-      });
-      if (res.ok) {
-        setKitCompNewKit('');
-        setKitCompNewComp('');
-        setKitCompNewQty(1);
-        await fetchKitComposicao();
-        await fetchKits(); // Atualiza os alertas
-      } else {
-        const err = await res.json();
-        avisar(err.error || 'Erro ao adicionar kit.', 'erro');
-      }
-    } catch (e) {
-      console.error(e);
-      avisar('Erro de conexão.', 'erro');
-    }
-  };
-
-  const handleDeleteKitComposicao = (kit, comp) => {
-    abrirPrevia({
-      titulo: 'Remover componente do kit',
-      linhas: [{ titulo: `Componente ${comp}`, detalhe: `Kit ${kit}` }],
-      confirmarRotulo: 'OK, remover',
-      pedirMotivo: true,
-      executar: async (motivo) => {
-        const res = await apiFetch(`/kits/composicao/${encodeURIComponent(kit)}/${encodeURIComponent(comp)}?motivo=${encodeURIComponent(motivo ?? '')}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error(await mensagemErroServidor(res, 'Erro ao excluir relação.'));
-        await fetchKitComposicao();
-        await fetchKits(); // Atualiza os alertas
-      },
-    });
-  };
 
   const handleUploadKitsConfig = async (e) => {
     const file = e.target.files?.[0];
@@ -617,7 +541,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     setEditViraCheckedBy(o.checkedBy || '');
     setEditViraNotes(o.observations || '');
     setEditViraQuantityAssembled(o.quantityAssembled !== null && o.quantityAssembled !== undefined ? o.quantityAssembled : o.quantity);
-    setEditViraErpLaunched(o.erpLaunched === 1);
     setEditViraMotivo(o.motivo || '');
     const parsed = parsePackagingDeductions(o.packagingDeductions);
     setEditViraPackagingLines(parsed?.items ? [...parsed.items] : []);
@@ -1334,6 +1257,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     truncPrint,
     uploadingKitsConfig,
     viraComposicao,
+    fetchViraComposicao,
     viraOrders,
     viraOrdersFiltradas,
     viraSearch,
