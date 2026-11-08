@@ -1610,7 +1610,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                         });
                       }
                     } catch (e) {
-                      return <tr><td colSpan={6} className="p-4 text-center text-rose-500 font-bold">Erro ao processar componentes</td></tr>;
+                      return <tr><td colSpan={6} className="p-4 text-center text-red-500 font-bold">Erro ao processar componentes</td></tr>;
                     }
                   })()}
                 </tbody>
@@ -2013,7 +2013,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                           <td className="p-3">
                             <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase ${
                               o.erpLaunched === 1
-                                ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                ? 'bg-zinc-900 text-white border border-zinc-900'
                                 : 'bg-zinc-100 text-zinc-450 border border-zinc-200'
                             }`}>
                               {o.erpLaunched === 1 ? 'Sim' : 'Não'}
@@ -2037,7 +2037,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                               </button>
                               <button 
                                 onClick={() => handleDeleteOrder(o.id)}
-                                className="p-1.5 hover:bg-zinc-100 text-rose-600 hover:text-rose-700 rounded-lg cursor-pointer"
+                                className="p-1.5 hover:bg-zinc-100 text-red-600 hover:text-red-700 rounded-lg cursor-pointer"
                                 title="Excluir"
                               >
                                 <Trash2 size={14} />
@@ -2137,7 +2137,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                           <span className={`px-2 py-1 rounded-full text-[9px] font-extrabold tracking-wide uppercase ${
                             k.status === 'critico' ? 'bg-red-50 text-red-700 border border-red-200' :
                             k.status === 'ordem' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                            k.status === 'montar' ? 'bg-orange-50 text-orange-700 border border-orange-200' :
+                            k.status === 'montar' ? 'bg-amber-100 text-amber-800 border border-amber-300' :
                             k.status === 'aguardando' ? 'bg-zinc-100 text-zinc-700 border border-zinc-200' :
                             'bg-emerald-50 text-emerald-700 border border-emerald-200'
                           }`}>{k.status_label}</span>
@@ -2217,7 +2217,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                         const isExpanded = expandedKits.includes(k.codigo);
                         let capacityClass = "bg-emerald-50 text-emerald-700 border-emerald-200";
                         if (k.max_montavel === 0) {
-                          capacityClass = "bg-rose-50 text-rose-700 border-rose-255";
+                          capacityClass = "bg-red-50 text-red-700 border-red-200";
                         } else if (k.max_montavel < k.producao_recomendada) {
                           capacityClass = "bg-amber-50 text-amber-700 border-amber-255";
                         }
@@ -2245,10 +2245,10 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                               </td>
                               <td className="p-3">
                                 <span className={`px-2 py-1 rounded-full text-[9px] font-extrabold tracking-wide uppercase ${
-                                  k.status === 'critico' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
+                                  k.status === 'critico' ? 'bg-red-50 text-red-700 border border-red-200' :
                                   k.status === 'ordem' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                                  k.status === 'montar' ? 'bg-orange-50 text-orange-700 border border-orange-200' :
-                                  k.status === 'aguardando' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                                  k.status === 'montar' ? 'bg-amber-100 text-amber-800 border border-amber-300' :
+                                  k.status === 'aguardando' ? 'bg-zinc-900 text-white border border-zinc-900' :
                                   'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                 }`}>
                                   {k.status_label}
@@ -2256,7 +2256,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                               </td>
                               <td className="p-3 text-right font-extrabold text-zinc-900">
                                 {k.producao_recomendada > 0 ? (
-                                  <span className="text-rose-600">{k.producao_recomendada} un</span>
+                                  <span className="text-red-600">{k.producao_recomendada} un</span>
                                 ) : (
                                   <span className="text-zinc-450">-</span>
                                 )}
@@ -2343,7 +2343,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                                             <td className="py-2.5 text-center">
                                               <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
                                                 comp.necessita_producao 
-                                                  ? 'bg-rose-50 text-rose-700' 
+                                                  ? 'bg-red-50 text-red-700' 
                                                   : 'bg-zinc-100 text-zinc-450'
                                               }`}>
                                                 {comp.fonte === 'item' ? '—' : (comp.necessita_producao ? 'Sim' : 'Não')}
@@ -2661,7 +2661,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                             <td className="p-4 text-center">
                               <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase ${
                                 o.erpLaunched === 1
-                                  ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                  ? 'bg-zinc-900 text-white border border-zinc-900'
                                   : 'bg-zinc-100 text-zinc-450 border border-zinc-200'
                               }`}>
                                 {o.erpLaunched === 1 ? 'Sim' : 'Não'}
@@ -2688,7 +2688,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                                 </button>
                                 <button 
                                   onClick={() => handleDeleteViraOrder(o.id)}
-                                  className="p-1.5 hover:bg-zinc-100 text-rose-600 hover:text-rose-700 rounded-lg cursor-pointer"
+                                  className="p-1.5 hover:bg-zinc-100 text-red-600 hover:text-red-700 rounded-lg cursor-pointer"
                                   title="Excluir Ordem"
                                 >
                                   <Trash2 size={14} />
@@ -2863,7 +2863,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                                   <button
                                     type="button"
                                     onClick={() => handleDeleteViraComposicao(row.deProdutoCodigo, row.paraProdutoCodigo)}
-                                    className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-150 transition-colors cursor-pointer"
+                                    className="p-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg border border-red-200 transition-colors cursor-pointer"
                                     title="Remover vínculo de vira"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
@@ -3274,7 +3274,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                     );
                   }
                 } catch (err) {
-                  return <div className="text-rose-500 font-bold">Erro ao exibir componentes</div>;
+                  return <div className="text-red-500 font-bold">Erro ao exibir componentes</div>;
                 }
               })()}
 
@@ -3586,7 +3586,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Lançado no ERP?</label>
-                  <div className="flex items-center min-h-11 sm:min-h-[36px]">
+                  <div className="flex items-center min-h-11 sm:min-h-9">
                     {selectedViraOrder.erpLaunched === 1 ? (
                       <span className="px-3 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-bold text-emerald-800">
                         Lançado no ERP
