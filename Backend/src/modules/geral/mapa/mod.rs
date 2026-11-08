@@ -15,7 +15,6 @@ use crate::handlers::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/mapa", get(handlers::serve_mapa_html))
         .route("/api/mapa/snapshot", get(handlers::get_snapshot))
         .route("/api/mapa/layout", put(handlers::put_layout))
         .route("/api/mapa/modules", post(handlers::post_module))

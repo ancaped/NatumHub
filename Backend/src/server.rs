@@ -362,7 +362,6 @@ where
     }
     let _ = modules::geral::auth::store::init_auth_tables(&pool).await;
     let _ = modules::geral::audit::store::ensure_tables(&pool).await;
-    let _ = modules::geral::mapa::store::ensure_schema(&pool).await;
     let _ = modules::administrativo::funcionarios::store::ensure_schema(&pool).await;
     let _ = modules::producao::fila::ensure_fila_demandas_table(&pool).await;
 

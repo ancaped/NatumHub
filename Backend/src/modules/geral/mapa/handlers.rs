@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Response},
+    response::{IntoResponse, Response},
     Extension, Json,
 };
 use serde::Deserialize;
@@ -20,20 +20,6 @@ fn actor(ctx: &AuthContext) -> &str {
 
 fn err_resp(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(json!({ "error": msg.into() }))).into_response()
-}
-
-/// UI do mapa (HTML) — pública; mutações da API continuam exigindo supervisor.
-pub async fn serve_mapa_html() -> impl IntoResponse {
-    let path = crate::core::app_config::resolve_repo_root()
-        .map(|r| r.join("ContextoIA/arquitetura/mapa-app.html"));
-    match path.and_then(|p| std::fs::read_to_string(p).ok()) {
-        Some(html) => Html(html).into_response(),
-        None => (
-            StatusCode::NOT_FOUND,
-            "mapa-app.html não encontrado. Rode npm run map:arch no Frontend.",
-        )
-            .into_response(),
-    }
 }
 
 pub async fn get_snapshot(

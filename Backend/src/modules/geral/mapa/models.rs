@@ -47,18 +47,6 @@ pub struct MapaEdge {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MapaRoute {
-    pub id: String,
-    pub module_key: Option<String>,
-    pub methods: Vec<String>,
-    pub path: String,
-    pub summary: String,
-    pub auth: String,
-    pub source: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct MapaTask {
     pub id: String,
     #[serde(rename = "type")]
@@ -90,7 +78,6 @@ pub struct MapaSnapshot {
     pub groups: Vec<MapaGroup>,
     pub modules: Vec<MapaModule>,
     pub edges: Vec<MapaEdge>,
-    pub routes: Vec<MapaRoute>,
     pub tasks_open: Vec<MapaTask>,
     pub activity: Vec<MapaActivity>,
     /// Ações geradas do código (catálogo `core::catalogo`), só leitura.

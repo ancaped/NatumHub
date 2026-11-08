@@ -7,9 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test:unit": "node --import ./tests/resolver-ts.mjs --test \"tests/unit/*.test.ts\"",
-    "map:arch": "node ../scripts/generate-architecture-map.mjs",
-    "map:arch:check": "node ../scripts/generate-architecture-map.mjs --check"
+    "test:unit": "node --import ./tests/resolver-ts.mjs --test \"tests/unit/*.test.ts\""
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",

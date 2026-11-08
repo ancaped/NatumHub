@@ -76,16 +76,6 @@ export interface MapaEdge {
   auto?: boolean;
 }
 
-export interface MapaRoute {
-  id: string;
-  moduleKey?: string | null;
-  methods: string[];
-  path: string;
-  summary: string;
-  auth: string;
-  source?: string | null;
-}
-
 export interface MapaTask {
   id: string;
   type: string;
@@ -112,7 +102,6 @@ export interface MapaSnapshot {
   groups: MapaGroup[];
   modules: MapaModule[];
   edges: MapaEdge[];
-  routes: MapaRoute[];
   tasksOpen: MapaTask[];
   activity: MapaActivity[];
   acoes?: CatalogoAcao[];
