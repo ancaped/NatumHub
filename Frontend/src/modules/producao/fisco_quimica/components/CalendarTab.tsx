@@ -33,10 +33,11 @@ import {
 } from '../../../geral/lib/brazilHolidays';
 import { cn } from '../../../geral/lib/utils';
 import { checkAnalysisCompliance, printFiscoReports } from '../lib/fiscoUtils';
-import { buildFiscoLoteLabel, describeFiscoLoteLabel, type FiscoLoteBulk } from '../lib/fiscoLoteLabel';
+import { preencherEtiquetaFisco, describeFiscoLoteLabel, type FiscoLoteBulk } from '../lib/fiscoLoteLabel';
 import { isProcForaDoRotulo } from '../../proc/ProcView';
 import PrintModal from '../../../ferramentas/etiquetas/components/PrintModal';
 import type { LabelTemplate } from '../../../ferramentas/etiquetas/lib/types';
+import { obterModeloPorChave } from '../../../ferramentas/etiquetas/lib/modelos';
 
 interface CalendarTabProps {
   analyses: FiscoQuimicaAnalysis[];
@@ -418,10 +419,14 @@ export function CalendarTab({
     if (list.length === 0 || labelBusy) return;
     setLabelBusy(true);
     try {
-      const bulks = await Promise.all(list.map((item) => loadLoteBulk(item)));
+      const [bulks, modelo] = await Promise.all([
+        Promise.all(list.map((item) => loadLoteBulk(item))),
+        obterModeloPorChave('fisco_lote'),
+      ]);
+      if (!modelo) throw new Error('Modelo fisco_lote não encontrado em Etiquetas');
       const templates = list.map((item, index) => {
         const pat = patternMap.get(normalizeCode(item.productCode)) || null;
-        return buildFiscoLoteLabel({
+        return preencherEtiquetaFisco(modelo, {
           analysis: item,
           pattern: pat,
           procItem: getProcForAnalysis(item),
