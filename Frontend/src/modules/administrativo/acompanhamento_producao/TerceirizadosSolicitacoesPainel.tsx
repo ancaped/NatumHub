@@ -478,6 +478,56 @@ export default function TerceirizadosSolicitacoesPainel({
       <ReportTabs abas={abas} ativa={aba} onChange={setAba} />
       <FilterBar busca={busca} onBusca={setBusca} placeholder="Buscar por código, produto, fornecedor ou lote..." />
 
+      {/* Celular: cartões clicáveis (abrem o mesmo Drawer de detalhe) */}
+      <div className="md:hidden bg-white border border-zinc-200 rounded-lg divide-y divide-zinc-100 overflow-hidden">
+        {loading ? (
+          <div className="py-10 text-center text-zinc-400 text-xs">Carregando solicitações...</div>
+        ) : visiveis.length === 0 ? (
+          <div className="py-10 text-center text-zinc-400 text-xs">Nenhuma solicitação nesta aba.</div>
+        ) : visiveis.map(s => {
+          const prev = getPrevisaoBadge(s.previsaoEntrega);
+          const st = STATUS_SOLICITACAO[s.status] ?? { rotulo: s.status, variante: 'apoio' as VarianteBadge };
+          return (
+            <div
+              key={s.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => setAbertaId(s.id)}
+              onKeyDown={e => { if (e.key === 'Enter') setAbertaId(s.id); }}
+              className="min-h-11 p-3 space-y-1.5 cursor-pointer active:bg-zinc-100"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-mono font-bold text-xs text-zinc-900">{s.productCode}</div>
+                  <div className="font-medium text-sm text-zinc-900 leading-snug">{s.productDescription}</div>
+                </div>
+                <StatusBadge variante={st.variante}>{st.rotulo}</StatusBadge>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-600">
+                <span className="font-mono font-bold text-zinc-900">{s.quantity.toLocaleString('pt-BR')} <span className="text-[11px] font-normal text-zinc-500">{s.unit}</span></span>
+                <span className="font-mono">{formatDateOnly(s.createdAt)}</span>
+                {s.fornecedor && <span>{s.fornecedor}</span>}
+                {prev && <span className={cn('inline-flex items-center text-[11px] px-2 py-0.5 rounded-full border', prev.colorClass)}>{prev.label}</span>}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <StatusBadge variante={s.aprovacaoEmbalagem ? 'saudavel' : 'aguardando'}>Emb.</StatusBadge>
+                <StatusBadge variante={s.aprovacaoMateriaPrima ? 'saudavel' : 'aguardando'}>MP</StatusBadge>
+                {s.loteNumber && (
+                  <button
+                    type="button"
+                    onClick={e => { e.stopPropagation(); irParaLote(s.loteNumber as string); }}
+                    className="min-h-11 px-2 font-mono font-bold text-xs text-zinc-900 underline cursor-pointer"
+                  >
+                    #{s.loteNumber}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="hidden md:block">
       <TabelaPainel>
         <thead>
           <tr>
@@ -547,6 +597,7 @@ export default function TerceirizadosSolicitacoesPainel({
           })}
         </tbody>
       </TabelaPainel>
+      </div>
 
       {/* Drawer de detalhe */}
       {aberta && (

@@ -62,7 +62,7 @@ export default function Modal({
         )}
       >
         {/* Header */}
-        <div className="px-4 sm:px-6 py-4.5 border-b border-zinc-250 bg-zinc-50 flex justify-between items-center shrink-0">
+        <div className="px-4 sm:px-6 py-4.5 border-b border-zinc-200 bg-zinc-50 flex justify-between items-center shrink-0">
           <div className="truncate pr-4">
             <h3 className="font-extrabold text-zinc-900 text-base tracking-tight truncate">
               {title}

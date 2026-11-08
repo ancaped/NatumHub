@@ -895,7 +895,7 @@ export function getPrevisaoBadge(dateIso?: string | null) {
   } else {
     return {
       label: `${dateFormatted} (${diffDays}d)`,
-      colorClass: 'bg-blue-50 text-blue-700 border-blue-200 font-medium',
+      colorClass: 'bg-zinc-50 text-zinc-600 border-zinc-200 font-medium',
       isFuture: true,
       diffDays,
       formatted: dateFormatted

@@ -179,14 +179,14 @@ export function ColumnFilterHeader({
             className={cn(
               "p-1 rounded-md transition-all cursor-pointer flex items-center gap-1 shrink-0 ml-auto",
               isFiltered
-                ? "bg-indigo-600 text-white shadow-xs hover:bg-indigo-700"
+                ? "bg-zinc-900 text-white shadow-xs hover:bg-zinc-800"
                 : "text-zinc-400 hover:text-zinc-800 bg-zinc-100/90 hover:bg-zinc-200 border border-zinc-200/80"
             )}
             title={`Filtrar coluna: ${displayTitle}`}
           >
             <Filter className={cn("h-3 w-3", isFiltered ? "text-white" : "text-zinc-500")} />
             {isFiltered && (
-              <span className="text-[9px] font-mono font-bold leading-none bg-indigo-800 px-1 py-0.5 rounded">
+              <span className="text-[9px] font-mono font-bold leading-none bg-zinc-700 px-1 py-0.5 rounded">
                 {selectedValues!.size}
               </span>
             )}
@@ -231,7 +231,7 @@ export function ColumnFilterHeader({
             <button
               type="button"
               onClick={handleSelectAll}
-              className="text-indigo-600 hover:text-indigo-800 font-bold cursor-pointer"
+              className="text-zinc-600 hover:text-zinc-800 font-bold cursor-pointer"
             >
               Selecionar Todos
             </button>
@@ -261,7 +261,7 @@ export function ColumnFilterHeader({
                           type="checkbox"
                           checked={checked}
                           onChange={() => toggleValue(opt.value)}
-                          className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                          className="rounded border-zinc-300 text-zinc-600 focus:ring-zinc-400 h-3.5 w-3.5 cursor-pointer"
                         />
                         <span className="truncate" title={opt.label}>{opt.label}</span>
                       </label>
@@ -273,7 +273,7 @@ export function ColumnFilterHeader({
                             e.stopPropagation();
                             handleSelectOnly(opt.value);
                           }}
-                          className="opacity-0 group-hover/opt:opacity-100 text-[10px] text-indigo-600 hover:text-indigo-800 hover:underline px-1 py-0.5 rounded transition-opacity cursor-pointer font-semibold"
+                          className="opacity-0 group-hover/opt:opacity-100 text-[10px] text-zinc-600 hover:text-zinc-800 hover:underline px-1 py-0.5 rounded transition-opacity cursor-pointer font-semibold"
                           title={`Filtrar somente por "${opt.label}"`}
                         >
                           Somente

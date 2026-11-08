@@ -87,6 +87,8 @@ import TerceirizadosSolicitacoesPainel from './TerceirizadosSolicitacoesPainel';
 import { useEstadoServidor, paraSet, deSet } from './lib/estadoQuadros';
 import { ehBaseProduto } from '../../producao/lib/unitConversion';
 import AvisoProdutosSemPeso from '../../producao/components/AvisoProdutosSemPeso';
+import Modal from '../../geral/components/ui/Modal';
+import Drawer from '../../geral/components/ui/Drawer';
 
 // Reexports: outros módulos importam estes nomes daqui.
 export * from './lib/tipos';
@@ -2599,7 +2601,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       envase: 'Envase'
     };
     return (
-      <div className="flex items-center gap-1.5 flex-wrap pt-1.5 border-t border-zinc-100 text-[10px]">
+      <div className="flex items-center gap-1.5 flex-wrap pt-1.5 border-t border-zinc-100 text-[11px] md:text-[10px]">
         <span className="text-zinc-500 font-semibold flex items-center gap-1">
           <EyeOff className="h-3 w-3 text-rose-500 shrink-0" />
           <span>Fora de:</span>
@@ -2621,7 +2623,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           <button
             type="button"
             onClick={() => handleRestaurarLoteNoQuadro(lote.loteNumber, 'todos')}
-            className="text-indigo-600 hover:text-indigo-800 underline font-semibold ml-0.5 cursor-pointer text-[10px]"
+            className="text-zinc-600 hover:text-zinc-800 underline font-semibold ml-0.5 cursor-pointer text-[11px] md:text-[10px]"
             title="Restaurar visualização em todos os quadros operacionais"
           >
             Restaurar todos
@@ -2656,7 +2658,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     if (!loteNum) return null;
     if (ehLotePlanejado(loteNum)) {
       return (
-        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 font-sans flex items-center gap-1 shadow-2xs" title="Ordem do Planejamento Semanal ainda sem lote do ERP">
+        <span className="px-1.5 py-0.5 rounded text-[11px] md:text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 font-sans flex items-center gap-1 shadow-2xs" title="Ordem do Planejamento Semanal ainda sem lote do ERP">
           <span>Planejado</span>
         </span>
       );
@@ -2687,7 +2689,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-zinc-900 flex-wrap">
             {renderLoteNumberBadge(lote.loteNumber)}
             {reatorVal && (
-              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono">
+              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono">
                 {reatorVal}
               </span>
             )}
@@ -2706,11 +2708,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-zinc-900 flex-wrap">
           {renderLoteNumberBadge(lote.loteNumber)}
           {reatorVal && (
-            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono">
+            <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono">
               {reatorVal}
             </span>
           )}
-          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono">
+          <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono">
             {prods.length} Produtos
           </span>
         </div>
@@ -2718,7 +2720,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           {prods.map((p, pIdx) => (
             <div key={`${p.productCode || pIdx}_${pIdx}`} className="text-[11px] leading-tight">
               <span className="font-bold text-zinc-800 line-clamp-1">{p.productDescription}</span>
-              <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
+              <div className="flex items-center justify-between text-[11px] md:text-[10px] text-zinc-500 font-mono">
                 <span>{p.productCode}</span>
                 <span><strong className="text-zinc-700">{Number(p.quantityKg || 0).toLocaleString('pt-BR')} kg</strong> (~{Number(p.quantity || 0).toLocaleString('pt-BR')} un)</span>
               </div>
@@ -2872,24 +2874,24 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               ⏸️ Em Espera: <span className="font-extrabold underline decoration-current">{espera.etapaLabel}</span>
             </span>
           </div>
-          <span className="text-[10px] opacity-75 underline font-normal shrink-0 hover:opacity-100">
+          <span className="text-[11px] md:text-[10px] opacity-75 underline font-normal shrink-0 hover:opacity-100">
             Editar
           </span>
         </div>
 
         {espera.insumoCodigo ? (
-          <div className="text-[10px] font-mono bg-rose-100/70 border border-rose-200 px-2 py-0.5 rounded text-rose-900 font-semibold truncate">
+          <div className="text-[11px] md:text-[10px] font-mono bg-rose-100/70 border border-rose-200 px-2 py-0.5 rounded text-rose-900 font-semibold truncate">
             🚨 Faltante: [{espera.insumoCodigo}] {espera.insumoDescricao || ''}
           </div>
         ) : null}
 
         {espera.motivo && espera.motivo !== 'Falta de Insumo / Matéria-Prima' && (
-          <div className="text-[10px] italic truncate pl-5">
+          <div className="text-[11px] md:text-[10px] italic truncate pl-5">
             Motivo: {espera.motivo}
           </div>
         )}
 
-        <div className="pt-1 border-t border-current/15 flex items-center justify-between text-[10px]">
+        <div className="pt-1 border-t border-current/15 flex items-center justify-between text-[11px] md:text-[10px]">
           <span className="opacity-75 font-normal">Fluxo pausado ({espera.etapaLabel})</span>
           <button
             type="button"
@@ -2956,25 +2958,25 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               {cod ? 'Falta de Insumo / Material' : (motivo || 'Lote em Espera')}
             </span>
           </div>
-          <span className="text-[10px] text-zinc-500 underline font-normal shrink-0 hover:text-zinc-800">
+          <span className="text-[11px] md:text-[10px] text-zinc-500 underline font-normal shrink-0 hover:text-zinc-800">
             Editar
           </span>
         </div>
 
         {cod && (
-          <div className="text-[10px] font-mono bg-rose-100/70 border border-rose-200 px-2 py-0.5 rounded text-rose-900 font-semibold truncate">
+          <div className="text-[11px] md:text-[10px] font-mono bg-rose-100/70 border border-rose-200 px-2 py-0.5 rounded text-rose-900 font-semibold truncate">
             🚨 Faltante: [{cod}] {desc || ''}
           </div>
         )}
 
         {motivo && motivo !== 'Falta de Insumo / Matéria-Prima' && (
-          <div className="text-[10px] text-amber-900/90 italic truncate">
+          <div className="text-[11px] md:text-[10px] text-amber-900/90 italic truncate">
             Motivo: {motivo}
           </div>
         )}
 
         {isEspera && (
-          <div className="pt-1 border-t border-zinc-200/50 flex items-center justify-between text-[10px]">
+          <div className="pt-1 border-t border-zinc-200/50 flex items-center justify-between text-[11px] md:text-[10px]">
             <span className="text-zinc-500 font-normal">Fluxo pausado</span>
             <button
               type="button"
@@ -3666,6 +3668,15 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       },
     ];
   }, [mode, filterCounts.aberto, totalPesagemAberto, totalProducaoAberto, totalRotulagemDisponivel, totalEnvaseDisponivel, totalOrdensFinalizadasNaoLancadas, totalTerceirizadosAberto, totalKitsAberto]);
+
+  // Celular: mantém a aba ativa visível na tira horizontal de abas do AppLayout
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      const ativa = document.querySelector('div.md\\:hidden.touch-pan-x > button.bg-zinc-900');
+      ativa?.scrollIntoView({ inline: 'center', block: 'nearest' });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [currentTab]);
 
   // Lista base de lotes para a aba ativa (Internos vs Terceirizados estritos)
   const baseTabLotes = useMemo(() => {
@@ -6026,7 +6037,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       return 'bg-zinc-100 text-zinc-700 border-zinc-300';
     }
     const found = CORES_PREDEFINIDAS.find(c => c.id === corName);
-    return found ? found.badgeClass : 'bg-pink-50 text-pink-700 border-pink-200';
+    return found ? found.badgeClass : 'bg-zinc-50 text-zinc-700 border-zinc-200';
   };
 
   const getCorDotClass = (corName?: string | null, isColorido?: boolean) => {
@@ -6034,7 +6045,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       return 'bg-zinc-200 border border-zinc-400';
     }
     const found = CORES_PREDEFINIDAS.find(c => c.id === corName);
-    return found ? found.dotClass : 'bg-pink-500';
+    return found ? found.dotClass : 'bg-zinc-700';
   };
 
   return (
@@ -6227,7 +6238,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           {selectedLotes.size > 0 && (
             <div className="bg-zinc-900 text-white px-4 py-2.5 rounded-lg shadow-xl border border-zinc-800 flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2">
               <div className="flex items-center gap-3">
-                <span className="flex items-center justify-center w-6 h-6 bg-blue-500 text-white rounded-full text-xs font-bold">
+                <span className="flex items-center justify-center w-6 h-6 bg-zinc-700 text-white rounded-full text-xs font-bold">
                   {selectedLotes.size}
                 </span>
                 <span className="text-xs font-semibold text-zinc-200">
@@ -6248,7 +6259,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     type="button"
                     onClick={handleBatchMoveToTerceirizados}
                     disabled={isBatchUpdating}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs disabled:opacity-50 mr-1"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs disabled:opacity-50 mr-1"
                     title="Mover todos os lotes selecionados para Terceirizados"
                   >
                     <Building2 className="h-3.5 w-3.5" />
@@ -6265,7 +6276,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     if (val) handleApplyBatchStatus(val);
                   }}
                   disabled={isBatchUpdating}
-                  className="bg-zinc-800 text-white border border-zinc-700 rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                  className="bg-zinc-800 text-white border border-zinc-700 rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-zinc-400 cursor-pointer"
                 >
                   <option value="">Selecione o status...</option>
                   <optgroup label="Pesagem e Produção">
@@ -6286,7 +6297,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   </optgroup>
                 </select>
                 {isBatchUpdating && (
-                  <RefreshCw className="h-4 w-4 animate-spin text-blue-400" />
+                  <RefreshCw className="h-4 w-4 animate-spin text-zinc-400" />
                 )}
               </div>
             </div>
@@ -6309,7 +6320,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           }
                         }}
                         onChange={toggleSelectAll}
-                        className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500 cursor-pointer h-4 w-4"
+                        className="rounded border-zinc-300 text-zinc-600 focus:ring-zinc-400 cursor-pointer h-4 w-4"
                         title="Selecionar todos os lotes visíveis"
                       />
                     </th>
@@ -6452,7 +6463,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           key={loteRowKey(lote)}
                           className={cn(
                             "hover:bg-zinc-50/80 transition-colors",
-                            selectedLotes.has(lote.loteNumber) ? "bg-blue-50/40" : isConcluido ? "bg-zinc-50/40" : isEspera ? "bg-orange-50/20" : "bg-white"
+                            selectedLotes.has(lote.loteNumber) ? "bg-zinc-50/40" : isConcluido ? "bg-zinc-50/40" : isEspera ? "bg-amber-50/20" : "bg-white"
                           )}
                         >
                           {/* Checkbox de Seleção */}
@@ -6461,7 +6472,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               type="checkbox"
                               checked={selectedLotes.has(lote.loteNumber)}
                               onChange={() => toggleSelectLote(lote.loteNumber)}
-                              className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500 cursor-pointer h-4 w-4"
+                              className="rounded border-zinc-300 text-zinc-600 focus:ring-zinc-400 cursor-pointer h-4 w-4"
                             />
                           </td>
 
@@ -6471,7 +6482,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               {renderLoteNumberBadge(lote.loteNumber)}
                               {multiProductLoteNumbers.has(lote.loteNumber) && (
                                 <span
-                                  className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200"
+                                  className="px-1.5 py-0.5 rounded text-[11px] md:text-[9px] font-bold bg-zinc-50 text-zinc-700 border border-zinc-200"
                                   title="OP Conjunta com múltiplos produtos"
                                 >
                                   MULTI
@@ -6503,10 +6514,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           {/* Quantidade (Unidades E Kg do lote completo) */}
                           <td className="py-2.5 px-4 text-right whitespace-nowrap">
                             <div className="font-mono font-bold text-xs text-zinc-900">
-                              {formatarUnidadesLote(lote, "text-[10px] text-zinc-500")}
+                              {formatarUnidadesLote(lote, "text-[11px] md:text-[10px] text-zinc-500")}
                             </div>
                             <div className="text-[11px] font-mono text-zinc-500 font-semibold">
-                              {Number(lote.quantityKg || 0).toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-400">kg total</span>
+                              {Number(lote.quantityKg || 0).toLocaleString('pt-BR')} <span className="text-[11px] md:text-[10px] text-zinc-400">kg total</span>
                             </div>
                           </td>
 
@@ -6536,13 +6547,13 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                     const isEspera = !isOrdensFin && !!lote.motivoEspera;
 
                                     const badges = [];
-                                    if (isPesando) badges.push(<span key="pes" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 shadow-2xs">⚖️ Pesagem</span>);
-                                    if (isProducao) badges.push(<span key="prod" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-zinc-100 text-zinc-900 border border-zinc-200 shadow-2xs">🧪 Produção</span>);
-                                    if (isCaldeira) badges.push(<span key="cald" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 shadow-2xs">🔥 Caldeira</span>);
-                                    if (isEnvase) badges.push(<span key="env" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-zinc-100 text-zinc-800 border border-zinc-200 shadow-2xs">📦 Envase</span>);
-                                    if (isRotulagem) badges.push(<span key="rot" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">🏷️ Rotulagem</span>);
-                                    if (isOrdensFin) badges.push(<span key="ord" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-zinc-200 text-zinc-900 border border-zinc-300 shadow-2xs">🏁 Concluído</span>);
-                                    if (isEspera) badges.push(<span key="esp" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-900 border border-rose-200 truncate max-w-[140px] shadow-2xs" title={lote.motivoEspera || ''}>⏸️ {lote.motivoEspera}</span>);
+                                    if (isPesando) badges.push(<span key="pes" className="px-2 py-0.5 rounded-md text-[11px] md:text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 shadow-2xs">⚖️ Pesagem</span>);
+                                    if (isProducao) badges.push(<span key="prod" className="px-2 py-0.5 rounded-md text-[11px] md:text-[10px] font-bold bg-zinc-100 text-zinc-900 border border-zinc-200 shadow-2xs">🧪 Produção</span>);
+                                    if (isCaldeira) badges.push(<span key="cald" className="px-2 py-0.5 rounded-md text-[11px] md:text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 shadow-2xs">🔥 Caldeira</span>);
+                                    if (isEnvase) badges.push(<span key="env" className="px-2 py-0.5 rounded-md text-[11px] md:text-[10px] font-bold bg-zinc-100 text-zinc-800 border border-zinc-200 shadow-2xs">📦 Envase</span>);
+                                    if (isRotulagem) badges.push(<span key="rot" className="px-2 py-0.5 rounded-md text-[11px] md:text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">🏷️ Rotulagem</span>);
+                                    if (isOrdensFin) badges.push(<span key="ord" className="px-2 py-0.5 rounded-md text-[11px] md:text-[10px] font-bold bg-zinc-200 text-zinc-900 border border-zinc-300 shadow-2xs">🏁 Concluído</span>);
+                                    if (isEspera) badges.push(<span key="esp" className="px-2 py-0.5 rounded-md text-[11px] md:text-[10px] font-bold bg-rose-50 text-rose-900 border border-rose-200 truncate max-w-[140px] shadow-2xs" title={lote.motivoEspera || ''}>⏸️ {lote.motivoEspera}</span>);
 
                                     if (badges.length === 0) {
                                       return <span className="text-[11px] text-zinc-400 font-medium italic">Aguardando início</span>;
@@ -6554,7 +6565,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   <button
                                     type="button"
                                     onClick={() => setTirarEsperaLote(lote.loteNumber)}
-                                    className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-md border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50 cursor-pointer"
+                                    className="inline-flex items-center text-[11px] md:text-[10px] font-bold px-2 py-0.5 rounded-md border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50 cursor-pointer"
                                     title="Tirar a marca de Em Espera deste lote (mostra a prévia antes de gravar)"
                                   >
                                     Tirar Em Espera
@@ -6563,7 +6574,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 {lote.motivoEspera && (
                                   <div
                                     onClick={() => handleOpenPauseModal(lote)}
-                                    className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-900 cursor-pointer hover:bg-amber-100 transition-colors line-clamp-1 max-w-[240px]"
+                                    className="inline-flex items-center gap-1 text-[11px] md:text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-900 cursor-pointer hover:bg-amber-100 transition-colors line-clamp-1 max-w-[240px]"
                                     title="Clique para editar motivo ou insumo faltante"
                                   >
                                     <span>⏸️</span>
@@ -6617,7 +6628,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   <button
                                     type="button"
                                     onClick={() => setTirarEsperaLote(lote.loteNumber)}
-                                    className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-md border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50 cursor-pointer whitespace-nowrap"
+                                    className="inline-flex items-center text-[11px] md:text-[10px] font-bold px-2 py-0.5 rounded-md border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50 cursor-pointer whitespace-nowrap"
                                     title="Tirar a marca de Em Espera deste lote (mostra a prévia antes de gravar)"
                                   >
                                     Tirar Em Espera
@@ -6691,7 +6702,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   }
                                   return (
                                     <span className={cn(
-                                      "inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border shadow-2xs transition-all group-hover:ring-2 group-hover:ring-zinc-300",
+                                      "inline-flex items-center gap-1 text-[11px] md:text-[10px] px-2 py-0.5 rounded-full border shadow-2xs transition-all group-hover:ring-2 group-hover:ring-zinc-300",
                                       badge.colorClass
                                     )}>
                                       <Calendar className="h-2.5 w-2.5" />
@@ -6704,11 +6715,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           </td>
 
                           {/* Etapas & Datas Registradas */}
-                          <td className="py-2 px-4 text-[10px] font-medium text-zinc-600 whitespace-nowrap">
+                          <td className="py-2 px-4 text-[11px] md:text-[10px] font-medium text-zinc-600 whitespace-nowrap">
                             <div className="flex flex-col gap-0.5">
                               {lote.dataPrevisao && currentTab !== 'terceirizados' && (
-                                <div className="flex items-center gap-1 text-indigo-900 font-semibold">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+                                <div className="flex items-center gap-1 text-zinc-900 font-semibold">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-zinc-400" />
                                   <span className="font-bold">Previsão:</span> {formatDateShort(lote.dataPrevisao)}
                                 </div>
                               )}
@@ -6719,34 +6730,34 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 </div>
                               )}
                               {lote.dataProducao && (
-                                <div className="flex items-center gap-1 text-blue-800">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                                <div className="flex items-center gap-1 text-zinc-800">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-zinc-600" />
                                   <span className="font-bold">Produzido:</span> {formatDateShort(lote.dataProducao)}
                                 </div>
                               )}
                               {lote.dataLiberadoEnvase && (
-                                <div className="flex items-center gap-1 text-teal-800">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
+                                <div className="flex items-center gap-1 text-zinc-800">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-zinc-500" />
                                   <span className="font-bold">Liberado Envase:</span> {formatDateShort(lote.dataLiberadoEnvase)}
                                 </div>
                               )}
                               {lote.dataEnvase && (
-                                <div className="flex items-center gap-1 text-purple-800">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-purple-500" />
+                                <div className="flex items-center gap-1 text-zinc-800">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-zinc-700" />
                                   <span className="font-bold">Envase:</span> {formatDateShort(lote.dataEnvase)}
                                 </div>
                               )}
                               {lote.dataRotulagem && (
-                                <div className="flex items-center gap-1 text-cyan-800">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-cyan-500" />
+                                <div className="flex items-center gap-1 text-zinc-800">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-zinc-900" />
                                   <span className="font-bold">Rotulagem:</span> {formatDateShort(lote.dataRotulagem)}
                                 </div>
                               )}
                               {lote.dataEmEspera && (
-                                <div className="flex items-center gap-1 text-orange-900 font-semibold">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-orange-500" />
+                                <div className="flex items-center gap-1 text-amber-900 font-semibold">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                                   <span className="font-bold">Espera:</span> {formatDateShort(lote.dataEmEspera)}
-                                  {lote.motivoEspera && <span className="opacity-75 text-[9px]">({lote.motivoEspera})</span>}
+                                  {lote.motivoEspera && <span className="opacity-75 text-[11px] md:text-[9px]">({lote.motivoEspera})</span>}
                                 </div>
                               )}
                               {lote.dataFinalizada && (
@@ -6769,7 +6780,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   <button
                                     type="button"
                                     onClick={() => handleMoveLoteNextDay(lote)}
-                                    className="p-1.5 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                                    className="p-1.5 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50 rounded-lg transition-colors cursor-pointer"
                                     title="Adiar lote (selecionar nova data)"
                                   >
                                     <CalendarPlus className="h-4 w-4" />
@@ -6804,7 +6815,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   <button
                                     type="button"
                                     onClick={() => handleOpenEditTerceirizado(lote)}
-                                    className="p-1.5 text-zinc-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors cursor-pointer"
+                                    className="p-1.5 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50 rounded-lg transition-colors cursor-pointer"
                                     title="Mover este lote para Terceirizados & Definir Fornecedor e Previsão"
                                   >
                                     <Building2 className="h-4 w-4" />
@@ -6823,7 +6834,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   <button
                                     type="button"
                                     onClick={() => handleOpenEditTerceirizado(lote)}
-                                    className="px-2.5 py-1 bg-zinc-50 hover:bg-indigo-50 text-zinc-700 hover:text-indigo-700 border border-zinc-200 hover:border-indigo-300 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                                    className="px-2.5 py-1 bg-zinc-50 hover:bg-zinc-50 text-zinc-700 hover:text-zinc-700 border border-zinc-200 hover:border-zinc-300 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
                                     title="Editar Fornecedor e Previsão"
                                   >
                                     <Pencil className="h-3.5 w-3.5 text-zinc-500" />
@@ -6935,7 +6946,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   Exibindo <strong>{filteredKitOrders.length}</strong> de <strong>{kitOrders.length}</strong> ordens de kits
                 </span>
                 {Object.keys(kitsColumnFilters).length > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-zinc-50 text-zinc-700 border border-zinc-200">
                     <SlidersHorizontal className="h-3 w-3" />
                     {Object.keys(kitsColumnFilters).length} coluna(s) com filtro
                   </span>
@@ -6976,7 +6987,69 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
           {/* Tabela de Ordens de Kits */}
           <div className="bg-white border border-zinc-200 rounded-lg shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
+            {/* Celular: cartões clicáveis (abre o mesmo detalhe do botão Editar) */}
+            <div className="md:hidden divide-y divide-zinc-100">
+              {loadingKits ? (
+                <div className="py-12 text-center text-zinc-400">
+                  <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-zinc-400" />
+                  <p className="text-xs font-semibold">Carregando ordens de kits...</p>
+                </div>
+              ) : filteredKitOrders.length === 0 ? (
+                <div className="py-12 px-4 text-center text-zinc-400">
+                  <Boxes className="h-8 w-8 mx-auto mb-2 text-zinc-300" />
+                  <p className="text-sm font-semibold text-zinc-700">Nenhuma ordem de kit encontrada</p>
+                </div>
+              ) : (
+                filteredKitOrders.map((order) => {
+                  const isCompleted = order.status === 'COMPLETED';
+                  const isProgress = order.status === 'IN_PROGRESS';
+                  const isPending = order.status === 'PENDING';
+                  const isEspera = (order.observations || '').toLowerCase().includes('espera');
+                  return (
+                    <button
+                      key={order.id}
+                      type="button"
+                      onClick={() => setSelectedKitOrder(order)}
+                      className={cn(
+                        "w-full min-h-11 text-left p-3 space-y-1.5 cursor-pointer active:bg-zinc-100",
+                        isCompleted ? "bg-zinc-50/40" : isEspera ? "bg-amber-50/30" : "bg-white"
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-mono font-bold text-xs text-zinc-900">#{order.orderNumber} <span className="text-zinc-500 font-semibold">· {order.kitProductCode}</span></div>
+                          <div className="font-bold text-sm text-zinc-900 leading-snug">{order.kitProductDescription}</div>
+                        </div>
+                        <span className={cn(
+                          "shrink-0 inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border",
+                          isCompleted
+                            ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                            : isProgress
+                              ? "bg-zinc-100 text-zinc-900 border-zinc-300"
+                              : isPending
+                                ? "bg-amber-100 text-amber-900 border-amber-300"
+                                : "bg-zinc-100 text-zinc-700 border-zinc-300"
+                        )}>
+                          {isCompleted ? 'Concluído' : isProgress ? 'Em Montagem' : isPending ? 'Pendente' : order.status}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-zinc-600">
+                        <span className="font-mono font-bold text-zinc-900">{order.quantity} <span className="text-[11px] font-normal text-zinc-500">solicitado</span></span>
+                        <span className="font-mono font-semibold text-emerald-700">{order.quantityAssembled ?? 0} <span className="text-[11px] font-normal text-zinc-400">montado</span></span>
+                        <span>{order.createdAt ? new Date(order.createdAt).toLocaleDateString('pt-BR') : '—'}</span>
+                        <span className="font-mono">{formatDurationBetween(order.createdAt, order.completedAt)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 text-xs text-zinc-500">
+                        <span className="truncate">{order.assembledBy || '—'}{order.observations ? ` · ${order.observations}` : ''}</span>
+                        <span className="shrink-0 px-3 py-2 bg-zinc-900 text-white rounded-lg text-xs font-semibold">Editar</span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-zinc-50/90 border-b border-zinc-200 text-[11px] font-bold text-zinc-600 uppercase tracking-wider select-none">
@@ -7064,7 +7137,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           key={order.id}
                           className={cn(
                             "hover:bg-zinc-50/80 transition-colors",
-                            isCompleted ? "bg-zinc-50/40" : isEspera ? "bg-orange-50/20" : "bg-white"
+                            isCompleted ? "bg-zinc-50/40" : isEspera ? "bg-amber-50/20" : "bg-white"
                           )}
                         >
                           {/* Nº Ordem */}
@@ -7092,21 +7165,21 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           {/* Quantidade Solicitada vs Montada */}
                           <td className="py-2.5 px-4 text-right whitespace-nowrap">
                             <div className="font-mono font-bold text-xs text-zinc-900">
-                              {order.quantity} <span className="text-[10px] text-zinc-500">solicitado</span>
+                              {order.quantity} <span className="text-[11px] md:text-[10px] text-zinc-500">solicitado</span>
                             </div>
                             <div className="text-[11px] font-mono text-emerald-700 font-semibold">
-                              {order.quantityAssembled ?? 0} <span className="text-[10px] text-zinc-400">montado</span>
+                              {order.quantityAssembled ?? 0} <span className="text-[11px] md:text-[10px] text-zinc-400">montado</span>
                             </div>
                           </td>
 
                           {/* Status Montagem */}
                           <td className="py-2.5 px-4 text-center whitespace-nowrap">
                             <span className={cn(
-                              "inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border",
+                              "inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] md:text-[10px] font-bold border",
                               isCompleted
                                 ? "bg-emerald-100 text-emerald-900 border-emerald-300"
                                 : isProgress
-                                  ? "bg-blue-100 text-blue-900 border-blue-300"
+                                  ? "bg-zinc-100 text-zinc-900 border-zinc-300"
                                   : isPending
                                     ? "bg-amber-100 text-amber-900 border-amber-300"
                                     : "bg-zinc-100 text-zinc-700 border-zinc-300"
@@ -7119,11 +7192,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           <td className="py-2.5 px-4 text-center whitespace-nowrap">
                             <div className={cn(
                               "font-mono font-bold text-xs",
-                              isCompleted ? "text-emerald-800" : isProgress ? "text-blue-700" : "text-zinc-600"
+                              isCompleted ? "text-emerald-800" : isProgress ? "text-zinc-700" : "text-zinc-600"
                             )}>
                               {formatDurationBetween(order.createdAt, order.completedAt)}
                             </div>
-                            <div className="text-[10px] text-zinc-400 font-medium">
+                            <div className="text-[11px] md:text-[10px] text-zinc-400 font-medium">
                               {isCompleted ? 'tempo total' : isProgress ? 'em montagem' : 'aguardando'}
                             </div>
                           </td>
@@ -7313,19 +7386,19 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               {idx + 1}º
                             </span>
                             {isPesagemConcluida ? (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 font-mono">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 font-mono">
                                 <Check className="h-3 w-3 text-emerald-700" />
                                 Concluído
                               </span>
                             ) : (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
                                 Pesando
                               </span>
                             )}
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
                                   <FastForward className="h-3 w-3 text-rose-600" />
@@ -7334,7 +7407,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(lote.loteNumber, adiadoInfo.dataOriginal, 'pesagem', lote.productCode)}
-                                  className="px-1.5 py-0.5 text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -7343,12 +7416,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               </div>
                             )}
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
                                 Multi-Produto
                               </span>
                             )}
                             {isSearched && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-900 text-white font-mono">Buscado</span>
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-900 text-white font-mono">Buscado</span>
                             )}
                           </div>
 
@@ -7357,7 +7430,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               type="button"
                               onClick={() => handleReorderPesagem(lote.loteNumber, 'up')}
                               disabled={isFirst}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-500 disabled:opacity-20 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-500 disabled:opacity-20 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Subir ordem"
                             >
                               <ArrowUp className="h-3.5 w-3.5" />
@@ -7366,7 +7439,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               type="button"
                               onClick={() => handleReorderPesagem(lote.loteNumber, 'down')}
                               disabled={isLast}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-500 disabled:opacity-20 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-500 disabled:opacity-20 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Descer ordem"
                             >
                               <ArrowDown className="h-3.5 w-3.5" />
@@ -7374,7 +7447,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -7382,7 +7455,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => setSelectedLoteDetails({ lote, etapa: 'pesagem' })}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-600 hover:text-zinc-900 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-600 hover:text-zinc-900 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver Detalhes do Item"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -7532,7 +7605,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       )}
                     >
                       <span>Todos na Fila</span>
-                      <span className="font-mono text-[10px] opacity-80">({baseLotesFilaPesagem.length})</span>
+                      <span className="font-mono text-[11px] md:text-[10px] opacity-80">({baseLotesFilaPesagem.length})</span>
                     </button>
                   </div>
 
@@ -7625,21 +7698,21 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1.5 font-mono text-xs font-extrabold text-zinc-900 flex-wrap">
                             {renderLoteNumberBadge(lote.loteNumber)}
-                            {!isMulti && lote.productCode && <span className="text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>}
+                            {!isMulti && lote.productCode && <span className="text-[11px] md:text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>}
                             {isEspera ? (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200 flex items-center gap-1 font-sans">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200 flex items-center gap-1 font-sans">
                                 <PauseCircle className="h-3 w-3 text-amber-600" />
                                 {esperaDetails.etapaLabel || 'Pausado'}
                               </span>
                             ) : (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono">
                                 Fila
                               </span>
                             )}
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
                                   <FastForward className="h-3 w-3 text-rose-600" />
@@ -7648,7 +7721,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(lote.loteNumber, adiadoInfo.dataOriginal, 'pesagem', lote.productCode)}
-                                  className="px-1.5 py-0.5 text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -7657,19 +7730,19 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               </div>
                             )}
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
                                 Multi-Produto
                               </span>
                             )}
                             {isSearched && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-900 text-white font-mono">Buscado</span>
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-900 text-white font-mono">Buscado</span>
                             )}
                           </div>
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -7677,7 +7750,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => setSelectedLoteDetails({ lote, etapa: 'pesagem' })}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-600 hover:text-zinc-900 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-600 hover:text-zinc-900 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver Detalhes do Item"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -7694,7 +7767,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   }
                                 }
                               }}
-                              className="p-1 hover:bg-rose-50 rounded text-zinc-400 hover:text-rose-600 cursor-pointer transition-colors"
+                              className="p-1 hover:bg-rose-50 rounded text-zinc-400 hover:text-rose-600 cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover/Ocultar da Fila de Pesagem"
                             >
                               <X className="h-3.5 w-3.5" />
@@ -7856,7 +7929,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 onDrop={(e) => handleDropProducao(e, 'ativa')}
                 className={cn(
                   "p-3 bg-zinc-50/50 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5 transition-colors",
-                  dragOverTarget === 'producao-reatores' ? "bg-blue-50/60 ring-2 ring-blue-500 rounded-xl" : ""
+                  dragOverTarget === 'producao-reatores' ? "bg-zinc-50/60 ring-2 ring-zinc-400 rounded-xl" : ""
                 )}
               >
                 {filteredLotesReatoresNormais.length === 0 ? (
@@ -7907,11 +7980,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           handleDropProducao(e, 'ativa', idx);
                         }}
                         className={cn(
-                          "bg-white border rounded-xl p-3.5 shadow-2xs hover:shadow-xs transition-all space-y-2.5 cursor-grab active:cursor-grabbing hover:border-blue-400",
+                          "bg-white border rounded-xl p-3.5 shadow-2xs hover:shadow-xs transition-all space-y-2.5 cursor-grab active:cursor-grabbing hover:border-zinc-400",
                           isAdiadoOriginal
                             ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
                             : isSearched
-                              ? "border-blue-500 ring-2 ring-blue-300/80 bg-blue-50/20"
+                              ? "border-zinc-500 ring-2 ring-zinc-300/80 bg-zinc-50/20"
                               : isProdConcluida
                                 ? "border-emerald-400 bg-emerald-50/20 ring-1 ring-emerald-200"
                                 : "border-zinc-200"
@@ -7935,7 +8008,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
                                   <FastForward className="h-3 w-3 text-rose-600" />
@@ -7944,7 +8017,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(lote.loteNumber, adiadoInfo.dataOriginal, 'producao', lote.productCode)}
-                                  className="px-1.5 py-0.5 text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -7953,17 +8026,17 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               </div>
                             )}
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
                                 Multi-Produto
                               </span>
                             )}
                             {isLoteParcial(lote) && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono" title="Ordem com apontamento parcial pendente">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono" title="Ordem com apontamento parcial pendente">
                                 Parcial
                               </span>
                             )}
                             {isSearched && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-900 text-white font-mono">Buscado</span>
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-900 text-white font-mono">Buscado</span>
                             )}
                           </div>
 
@@ -7972,7 +8045,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               type="button"
                               onClick={() => handleReorderProducao(lote.loteNumber, 'up')}
                               disabled={isFirst}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-500 disabled:opacity-20 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-500 disabled:opacity-20 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Subir ordem"
                             >
                               <ArrowUp className="h-3.5 w-3.5" />
@@ -7981,7 +8054,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               type="button"
                               onClick={() => handleReorderProducao(lote.loteNumber, 'down')}
                               disabled={isLast}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-500 disabled:opacity-20 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-500 disabled:opacity-20 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Descer ordem"
                             >
                               <ArrowDown className="h-3.5 w-3.5" />
@@ -7989,7 +8062,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -7997,7 +8070,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => setSelectedLoteDetails({ lote, etapa: 'producao' })}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-600 hover:text-zinc-900 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-600 hover:text-zinc-900 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver Detalhes do Item"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -8057,10 +8130,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           <button
                             type="button"
                             onClick={() => handleToggleCaldeiraLote(lote.loteNumber)}
-                            className="py-1.5 px-2.5 bg-orange-50 hover:bg-orange-100 text-orange-950 border border-orange-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center"
+                            className="py-1.5 px-2.5 bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center"
                             title="Mover para o Quadro de Caldeira ao lado"
                           >
-                            <Flame className="h-4 w-4 text-orange-600 fill-orange-500" />
+                            <Flame className="h-4 w-4 text-amber-600 fill-amber-500" />
                           </button>
                           <button
                             type="button"
@@ -8176,41 +8249,41 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           handleDropProducao(e, 'caldeira', idx);
                         }}
                         className={cn(
-                          "bg-white border-2 rounded-xl p-3.5 shadow-2xs hover:shadow-xs transition-all space-y-2.5 ring-1 cursor-grab active:cursor-grabbing hover:border-orange-400",
+                          "bg-white border-2 rounded-xl p-3.5 shadow-2xs hover:shadow-xs transition-all space-y-2.5 ring-1 cursor-grab active:cursor-grabbing hover:border-amber-400",
                           isAdiadoOriginal
                             ? "border-rose-400 bg-rose-50/25 ring-rose-300"
                             : isSearched
-                              ? "border-orange-500 ring-orange-300 bg-orange-50/20"
+                              ? "border-amber-500 ring-amber-300 bg-amber-50/20"
                               : isCaldeiraConcluida
                                 ? "border-emerald-400 bg-emerald-50/20 ring-emerald-200"
-                                : "border-orange-200 ring-orange-100"
+                                : "border-amber-200 ring-amber-100"
                         )}
                       >
-                        <div className="flex items-center justify-between gap-1 pb-2 border-b border-orange-100">
+                        <div className="flex items-center justify-between gap-1 pb-2 border-b border-amber-100">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-mono font-extrabold text-xs px-2.5 py-0.5 rounded-lg bg-orange-600 text-white flex items-center gap-1">
+                            <span className="font-mono font-extrabold text-xs px-2.5 py-0.5 rounded-lg bg-amber-600 text-white flex items-center gap-1">
                               <Flame className="h-3 w-3 fill-white text-white" />
                               <span>{idx + 1}º Caldeira</span>
                             </span>
                             {isCaldeiraConcluida ? (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 font-mono">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 font-mono">
                                 <Check className="h-3 w-3 text-emerald-700" />
                                 Concluído
                               </span>
                             ) : caldeiraAtiva ? (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-900 border border-rose-300 animate-pulse flex items-center gap-1">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-900 border border-rose-300 animate-pulse flex items-center gap-1">
                                 <Flame className="h-3 w-3 fill-rose-600 text-rose-600" />
                                 Aquecendo
                               </span>
                             ) : (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-orange-100 text-orange-900 border border-orange-200">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-200">
                                 Processo Térmico
                               </span>
                             )}
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
                                   <FastForward className="h-3 w-3 text-rose-600" />
@@ -8219,7 +8292,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(lote.loteNumber, adiadoInfo.dataOriginal, 'producao', lote.productCode)}
-                                  className="px-1.5 py-0.5 text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -8228,17 +8301,17 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               </div>
                             )}
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
                                 Multi-Produto
                               </span>
                             )}
                             {isLoteParcial(lote) && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono" title="Ordem com apontamento parcial pendente">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono" title="Ordem com apontamento parcial pendente">
                                 Parcial
                               </span>
                             )}
                             {isSearched && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-900 text-white font-mono">Buscado</span>
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-900 text-white font-mono">Buscado</span>
                             )}
                           </div>
 
@@ -8246,7 +8319,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 hover:bg-orange-100 rounded text-zinc-400 hover:text-indigo-600 cursor-pointer"
+                              className="p-1 hover:bg-amber-100 rounded text-zinc-400 hover:text-zinc-600 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -8254,7 +8327,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => setSelectedLoteDetails({ lote, etapa: 'producao' })}
-                              className="p-1 hover:bg-orange-50 rounded text-zinc-600 hover:text-orange-950 cursor-pointer"
+                              className="p-1 hover:bg-amber-50 rounded text-zinc-600 hover:text-amber-950 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver Detalhes do Item"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -8262,7 +8335,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleToggleCaldeiraLote(lote.loteNumber)}
-                              className="p-1 text-zinc-500 hover:text-rose-700 hover:bg-rose-50 border border-zinc-200 rounded-md cursor-pointer transition-colors"
+                              className="p-1 text-zinc-500 hover:text-rose-700 hover:bg-rose-50 border border-zinc-200 rounded-md cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover da Caldeira e retornar para os Reatores"
                             >
                               <Undo2 className="h-3.5 w-3.5" />
@@ -8277,7 +8350,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                         {renderLoteProblemaBanner(lote, 'producao')}
 
-                        <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-orange-100">
+                        <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-amber-100">
                           <span className="font-bold text-zinc-900">
                             {Number(lote.quantityKg || 0).toLocaleString('pt-BR')} kg
                           </span>
@@ -8286,7 +8359,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           </span>
                         </div>
 
-                        <div className="pt-2 border-t border-orange-100 flex items-center justify-between gap-1.5">
+                        <div className="pt-2 border-t border-amber-100 flex items-center justify-between gap-1.5">
                           <button
                             type="button"
                             onClick={() => {
@@ -8392,7 +8465,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       )}
                     >
                       <span>Todos na Fila</span>
-                      <span className="font-mono text-[10px] opacity-80">({baseLotesFilaProducao.length})</span>
+                      <span className="font-mono text-[11px] md:text-[10px] opacity-80">({baseLotesFilaProducao.length})</span>
                     </button>
                   </div>
 
@@ -8487,21 +8560,21 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1.5 font-mono text-xs font-extrabold text-zinc-900 flex-wrap">
                             {renderLoteNumberBadge(lote.loteNumber)}
-                            {!isMulti && lote.productCode && <span className="text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>}
+                            {!isMulti && lote.productCode && <span className="text-[11px] md:text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>}
                             {isEspera ? (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200 flex items-center gap-1 font-sans">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200 flex items-center gap-1 font-sans">
                                 <PauseCircle className="h-3 w-3 text-amber-600" />
                                 {esperaDetails.etapaLabel || 'Pausado'}
                               </span>
                             ) : (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 font-mono">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 font-mono">
                                 Fila
                               </span>
                             )}
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
                                   <FastForward className="h-3 w-3 text-rose-600" />
@@ -8510,7 +8583,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(lote.loteNumber, adiadoInfo.dataOriginal, 'producao', lote.productCode)}
-                                  className="px-1.5 py-0.5 text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -8519,24 +8592,24 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               </div>
                             )}
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
                                 Multi-Produto
                               </span>
                             )}
                             {isLoteParcial(lote) && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono" title="Ordem com apontamento parcial pendente">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono" title="Ordem com apontamento parcial pendente">
                                 Parcial
                               </span>
                             )}
                             {isSearched && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-900 text-white font-mono">Buscado</span>
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-900 text-white font-mono">Buscado</span>
                             )}
                           </div>
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -8544,7 +8617,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => setSelectedLoteDetails({ lote, etapa: 'producao' })}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-600 hover:text-zinc-900 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-600 hover:text-zinc-900 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver Detalhes do Item"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -8552,7 +8625,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleRemoverDaFila(lote.loteNumber, 'producao')}
-                              className="p-1 hover:bg-rose-50 rounded text-zinc-400 hover:text-rose-600 cursor-pointer transition-colors"
+                              className="p-1 hover:bg-rose-50 rounded text-zinc-400 hover:text-rose-600 cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover da Fila de Produção"
                             >
                               <X className="h-3.5 w-3.5" />
@@ -8595,7 +8668,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   handleMoverParaCaldeira(lote.loteNumber);
                                   handleResumeLote(lote, 'producao');
                                 }}
-                                className="py-1.5 px-2.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer text-center shadow-2xs flex items-center justify-center"
+                                className="py-1.5 px-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-xs font-bold transition-all cursor-pointer text-center shadow-2xs flex items-center justify-center"
                                 title="Retomar diretamente no Quadro de Caldeira"
                               >
                                 <Flame className="h-3.5 w-3.5 fill-white text-white" />
@@ -8676,7 +8749,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   await saveEtapaStatus(lote.loteNumber, 'producao', 'ativo', null, null, null, responsibleName);
                                   showToast(`Lote #${lote.loteNumber} alocado no Quadro de Caldeira em ${formatDateOnly(targetDate)}!`);
                                 }}
-                                className="flex-1 py-1.5 px-2 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer text-center shadow-2xs flex items-center justify-center"
+                                className="flex-1 py-1.5 px-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-xs font-bold transition-all cursor-pointer text-center shadow-2xs flex items-center justify-center"
                                 title="Iniciar processo térmico diretamente no Quadro de Caldeira"
                               >
                                 <Flame className="h-3.5 w-3.5 fill-white text-white" />
@@ -8901,7 +8974,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               {isAdiadoOriginal && (
                                 <div className="flex items-center gap-1 shrink-0">
                                   <span
-                                    className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                    className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
                                     title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                   >
                                     <FastForward className="h-3 w-3 text-rose-600" />
@@ -8910,7 +8983,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   <button
                                     type="button"
                                     onClick={() => handleCancelAdiarLote(item.loteNumber, adiadoInfo.dataOriginal, 'rotulagem', item.productCode)}
-                                    className="px-1.5 py-0.5 text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                    className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                     title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                   >
                                     <Undo2 className="h-2.5 w-2.5" />
@@ -8925,7 +8998,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 type="button"
                                 onClick={() => handleReorderRotulagem(item.id, 'MAQUINA', 'up')}
                                 disabled={isFirst}
-                                className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer"
+                                className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Subir ordem"
                               >
                                 <ArrowUp className="h-3.5 w-3.5" />
@@ -8934,7 +9007,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 type="button"
                                 onClick={() => handleReorderRotulagem(item.id, 'MAQUINA', 'down')}
                                 disabled={isLast}
-                                className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer"
+                                className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Descer ordem"
                               >
                                 <ArrowDown className="h-3.5 w-3.5" />
@@ -8953,7 +9026,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                     realLote,
                                   });
                                 }}
-                                className="p-1 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 rounded cursor-pointer"
+                                className="p-1 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Adiar lote (selecionar nova data)"
                               >
                                 <CalendarPlus className="h-3.5 w-3.5" />
@@ -8961,7 +9034,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <button
                                 type="button"
                                 onClick={() => setSelectedLoteDetails({ lote: item, etapa: 'rotulagem' })}
-                                className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded cursor-pointer"
+                                className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Ver Detalhes do Item"
                               >
                                 <Eye className="h-3.5 w-3.5" />
@@ -8969,7 +9042,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <button
                                 type="button"
                                 onClick={() => handleRemoveRotulagem(item.id)}
-                                className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
+                                className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Remover da rotulagem"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -8981,7 +9054,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                           <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-zinc-100">
                             <span className="font-bold text-zinc-900">
-                              {Number(item.quantity).toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-500 font-normal">un</span>
+                              {Number(item.quantity).toLocaleString('pt-BR')} <span className="text-[11px] md:text-[10px] text-zinc-500 font-normal">un</span>
                             </span>
                             <span className="text-[11px] text-zinc-500">
                               {Number(item.quantityKg).toLocaleString('pt-BR')} kg
@@ -8996,7 +9069,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveTipoRotulagem(item, 'MANUAL')}
-                              className="text-[10px] font-bold px-1.5 py-0.5 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 border border-zinc-200 rounded cursor-pointer transition-colors"
+                              className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 border border-zinc-200 rounded cursor-pointer transition-colors"
                               title="Mover para Rotulagem Manual"
                             >
                               Man
@@ -9027,7 +9100,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               <div className="bg-white border border-zinc-200 rounded-lg shadow-xs overflow-hidden flex flex-col">
                 <div className="bg-zinc-900 px-4 py-3 text-white flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Tag className="h-4 w-4 text-sky-400" />
+                    <Tag className="h-4 w-4 text-zinc-400" />
                     <span className="font-extrabold text-sm tracking-tight">Rotulagem Manual</span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -9124,7 +9197,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               {isAdiadoOriginal && (
                                 <div className="flex items-center gap-1 shrink-0">
                                   <span
-                                    className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                    className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
                                     title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                   >
                                     <FastForward className="h-3 w-3 text-rose-600" />
@@ -9133,7 +9206,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   <button
                                     type="button"
                                     onClick={() => handleCancelAdiarLote(item.loteNumber, adiadoInfo.dataOriginal, 'rotulagem', item.productCode)}
-                                    className="px-1.5 py-0.5 text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                    className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                     title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                   >
                                     <Undo2 className="h-2.5 w-2.5" />
@@ -9148,7 +9221,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 type="button"
                                 onClick={() => handleReorderRotulagem(item.id, 'MANUAL', 'up')}
                                 disabled={isFirst}
-                                className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer"
+                                className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Subir ordem"
                               >
                                 <ArrowUp className="h-3.5 w-3.5" />
@@ -9157,7 +9230,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 type="button"
                                 onClick={() => handleReorderRotulagem(item.id, 'MANUAL', 'down')}
                                 disabled={isLast}
-                                className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer"
+                                className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Descer ordem"
                               >
                                 <ArrowDown className="h-3.5 w-3.5" />
@@ -9176,7 +9249,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                     realLote,
                                   });
                                 }}
-                                className="p-1 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 rounded cursor-pointer"
+                                className="p-1 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Adiar lote (selecionar nova data)"
                               >
                                 <CalendarPlus className="h-3.5 w-3.5" />
@@ -9184,7 +9257,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <button
                                 type="button"
                                 onClick={() => setSelectedLoteDetails({ lote: item, etapa: 'rotulagem' })}
-                                className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded cursor-pointer"
+                                className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Ver Detalhes do Item"
                               >
                                 <Eye className="h-3.5 w-3.5" />
@@ -9192,7 +9265,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <button
                                 type="button"
                                 onClick={() => handleRemoveRotulagem(item.id)}
-                                className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
+                                className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Remover da rotulagem"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -9204,7 +9277,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                           <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-zinc-100">
                             <span className="font-bold text-zinc-900">
-                              {Number(item.quantity).toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-500 font-normal">un</span>
+                              {Number(item.quantity).toLocaleString('pt-BR')} <span className="text-[11px] md:text-[10px] text-zinc-500 font-normal">un</span>
                             </span>
                             <span className="text-[11px] text-zinc-500">
                               {Number(item.quantityKg).toLocaleString('pt-BR')} kg
@@ -9219,7 +9292,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveTipoRotulagem(item, 'MAQUINA')}
-                              className="text-[10px] font-bold px-1.5 py-0.5 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 border border-zinc-200 rounded cursor-pointer transition-colors"
+                              className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 border border-zinc-200 rounded cursor-pointer transition-colors"
                               title="Mover para Rotulagem Máquina"
                             >
                               Máq
@@ -9373,14 +9446,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1.5 font-mono text-xs font-extrabold text-zinc-900 flex-wrap">
                             {renderLoteNumberBadge(lote.loteNumber)}
-                            <span className="text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>
+                            <span className="text-[11px] md:text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
                                 Multi-Produto
                               </span>
                             )}
                             {isLoteParcial(lote) && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono" title="Ordem com apontamento parcial pendente">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono" title="Ordem com apontamento parcial pendente">
                                 Parcial
                               </span>
                             )}
@@ -9402,7 +9475,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -9410,7 +9483,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => setSelectedLoteDetails({ lote, etapa: 'rotulagem' })}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-600 hover:text-zinc-900 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-600 hover:text-zinc-900 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver Detalhes do Item"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -9418,12 +9491,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleRemoverDaFila(lote.loteNumber, 'rotulagem')}
-                              className="p-1 hover:bg-rose-50 rounded text-zinc-400 hover:text-rose-600 cursor-pointer transition-colors"
+                              className="p-1 hover:bg-rose-50 rounded text-zinc-400 hover:text-rose-600 cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover da Fila de Rotulagem"
                             >
                               <X className="h-3.5 w-3.5" />
                             </button>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-800 border border-zinc-200 font-mono">
+                            <span className="text-[11px] md:text-[10px] font-bold px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-800 border border-zinc-200 font-mono">
                               {getEffectiveStatus(lote)}
                             </span>
                           </div>
@@ -9433,7 +9506,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                         <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-zinc-100">
                           <span className="font-bold text-zinc-900">
-                            {formatarUnidadesLote(lote, "text-[10px] text-zinc-500 font-normal")}
+                            {formatarUnidadesLote(lote, "text-[11px] md:text-[10px] text-zinc-500 font-normal")}
                           </span>
                           <span className="text-[11px] text-zinc-500">
                             {Number(lote.quantityKg || 0).toLocaleString('pt-BR')} kg
@@ -9447,14 +9520,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                         <div className="pt-2 border-t border-zinc-100 space-y-1.5">
                           {(scheduledMaq || scheduledMan) && (
-                            <div className="flex flex-wrap items-center gap-1 text-[10px] font-bold">
+                            <div className="flex flex-wrap items-center gap-1 text-[11px] md:text-[10px] font-bold">
                               {scheduledMaq && (
                                 <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded">
                                   ✓ Na Máquina ({scheduledMaq.ordem}º)
                                 </span>
                               )}
                               {scheduledMan && (
-                                <span className="px-1.5 py-0.5 bg-sky-50 text-sky-800 border border-sky-200 rounded">
+                                <span className="px-1.5 py-0.5 bg-zinc-50 text-zinc-800 border border-zinc-200 rounded">
                                   ✓ No Manual ({scheduledMan.ordem}º)
                                 </span>
                               )}
@@ -9637,7 +9710,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 onDrop={(e) => handleDropEnvaseColumn(e, 'Linha 1')}
                 className={cn(
                   "p-3 bg-zinc-50/50 min-h-[500px] max-h-[750px] overflow-y-auto space-y-2.5 transition-all rounded-b-lg",
-                  dragOverTarget === 'envase_Linha 1' && "ring-2 ring-blue-600 bg-blue-50/50"
+                  dragOverTarget === 'envase_Linha 1' && "ring-2 ring-zinc-400 bg-zinc-50/50"
                 )}
               >
                 {loadingEnvase ? (
@@ -9694,11 +9767,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         onDrop={(e) => handleDropEnvaseColumn(e, 'Linha 1', idx)}
                         className={cn(
                           "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
-                          dragOverTarget === `envase_Linha 1_${idx}` && "border-t-4 border-t-blue-600 ring-2 ring-blue-300",
+                          dragOverTarget === `envase_Linha 1_${idx}` && "border-t-4 border-t-zinc-600 ring-2 ring-zinc-300",
                           isAdiadoOriginal
                             ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
                             : item.statusEnvase === 'EM_ENVASE'
-                              ? "border-purple-400 ring-1 ring-purple-300 bg-purple-50/20"
+                              ? "border-zinc-400 ring-1 ring-zinc-300 bg-zinc-50/20"
                               : item.statusEnvase === 'EM_ESPERA'
                                 ? "border-amber-400 ring-1 ring-amber-300 bg-amber-50/30"
                                 : isConcluido
@@ -9714,7 +9787,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
                                   <FastForward className="h-3 w-3 text-rose-600" />
@@ -9723,7 +9796,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(item.loteNumber, adiadoInfo.dataOriginal, 'envase', item.productCode)}
-                                  className="px-1.5 py-0.5 text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -9738,7 +9811,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               type="button"
                               onClick={() => handleReorderEnvase(item.id, 'Linha 1', 'up')}
                               disabled={isFirst}
-                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer"
+                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Subir ordem"
                             >
                               <ArrowUp className="h-3.5 w-3.5" />
@@ -9747,7 +9820,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               type="button"
                               onClick={() => handleReorderEnvase(item.id, 'Linha 1', 'down')}
                               disabled={isLast}
-                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer"
+                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Descer ordem"
                             >
                               <ArrowDown className="h-3.5 w-3.5" />
@@ -9767,7 +9840,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   envaseItem: item,
                                 });
                               }}
-                              className="p-1 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 rounded cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -9775,7 +9848,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => setSelectedLoteDetails({ lote: item, etapa: 'envase' })}
-                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded cursor-pointer"
+                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver Detalhes do Item"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -9783,7 +9856,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleRemoveEnvase(item.id, item.loteNumber)}
-                              className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover do quadro"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -9810,7 +9883,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                         <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-zinc-100">
                           <span className="font-bold text-zinc-900">
-                            {Number(item.quantity).toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-500 font-normal">un</span>
+                            {Number(item.quantity).toLocaleString('pt-BR')} <span className="text-[11px] md:text-[10px] text-zinc-500 font-normal">un</span>
                           </span>
                           <span className="text-[11px] text-zinc-500">
                             {Number(item.quantityKg).toLocaleString('pt-BR')} kg
@@ -9826,7 +9899,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLinha(item, 'Linha 2')}
-                              className="text-[10px] font-bold px-1.5 py-0.5 bg-zinc-50 hover:bg-indigo-50 text-zinc-700 hover:text-indigo-700 border border-zinc-200 rounded cursor-pointer transition-colors"
+                              className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 bg-zinc-50 hover:bg-zinc-50 text-zinc-700 hover:text-zinc-700 border border-zinc-200 rounded cursor-pointer transition-colors"
                               title="Mover para Linha 2"
                             >
                               L2
@@ -9834,7 +9907,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLinha(item, 'Linha 3')}
-                              className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded cursor-pointer transition-colors"
+                              className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded cursor-pointer transition-colors"
                               title="Mover para Linha 3 (Óleos)"
                             >
                               L3
@@ -9846,7 +9919,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <button
                                 type="button"
                                 onClick={() => handleChangeStatusEnvase(item, 'EM_ENVASE')}
-                                className="p-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded cursor-pointer transition-colors"
+                                className="p-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Retomar envase"
                               >
                                 <Play className="h-3.5 w-3.5 fill-emerald-600 text-emerald-600" />
@@ -9855,7 +9928,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <button
                                 type="button"
                                 onClick={() => handleOpenEnvaseEspera(item)}
-                                className="p-1 text-zinc-400 hover:text-amber-700 hover:bg-amber-50 rounded cursor-pointer transition-colors"
+                                className="p-1 text-zinc-400 hover:text-amber-700 hover:bg-amber-50 rounded cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Pausar / Colocar em espera"
                               >
                                 <PauseCircle className="h-3.5 w-3.5" />
@@ -9912,7 +9985,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 onDrop={(e) => handleDropEnvaseColumn(e, 'Linha 2')}
                 className={cn(
                   "p-3 bg-zinc-50/50 min-h-[500px] max-h-[750px] overflow-y-auto space-y-2.5 transition-all rounded-b-lg",
-                  dragOverTarget === 'envase_Linha 2' && "ring-2 ring-indigo-600 bg-indigo-50/50"
+                  dragOverTarget === 'envase_Linha 2' && "ring-2 ring-zinc-400 bg-zinc-50/50"
                 )}
               >
                 {loadingEnvase ? (
@@ -9969,11 +10042,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         onDrop={(e) => handleDropEnvaseColumn(e, 'Linha 2', idx)}
                         className={cn(
                           "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
-                          dragOverTarget === `envase_Linha 2_${idx}` && "border-t-4 border-t-indigo-600 ring-2 ring-indigo-300",
+                          dragOverTarget === `envase_Linha 2_${idx}` && "border-t-4 border-t-zinc-600 ring-2 ring-zinc-300",
                           isAdiadoOriginal
                             ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
                             : item.statusEnvase === 'EM_ENVASE'
-                              ? "border-purple-400 ring-1 ring-purple-300 bg-purple-50/20"
+                              ? "border-zinc-400 ring-1 ring-zinc-300 bg-zinc-50/20"
                               : item.statusEnvase === 'EM_ESPERA'
                                 ? "border-amber-400 ring-1 ring-amber-300 bg-amber-50/30"
                                 : isConcluido
@@ -9989,7 +10062,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
                                   <FastForward className="h-3 w-3 text-rose-600" />
@@ -9998,7 +10071,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(item.loteNumber, adiadoInfo.dataOriginal, 'envase', item.productCode)}
-                                  className="px-1.5 py-0.5 text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -10013,7 +10086,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               type="button"
                               onClick={() => handleReorderEnvase(item.id, 'Linha 2', 'up')}
                               disabled={isFirst}
-                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer"
+                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Subir ordem"
                             >
                               <ArrowUp className="h-3.5 w-3.5" />
@@ -10022,7 +10095,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               type="button"
                               onClick={() => handleReorderEnvase(item.id, 'Linha 2', 'down')}
                               disabled={isLast}
-                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer"
+                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Descer ordem"
                             >
                               <ArrowDown className="h-3.5 w-3.5" />
@@ -10042,7 +10115,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   envaseItem: item,
                                 });
                               }}
-                              className="p-1 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 rounded cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -10050,7 +10123,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => setSelectedLoteDetails({ lote: item, etapa: 'envase' })}
-                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded cursor-pointer"
+                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver Detalhes do Item"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -10058,7 +10131,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleRemoveEnvase(item.id, item.loteNumber)}
-                              className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover do quadro"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -10085,7 +10158,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                         <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-zinc-100">
                           <span className="font-bold text-zinc-900">
-                            {Number(item.quantity).toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-500 font-normal">un</span>
+                            {Number(item.quantity).toLocaleString('pt-BR')} <span className="text-[11px] md:text-[10px] text-zinc-500 font-normal">un</span>
                           </span>
                           <span className="text-[11px] text-zinc-500">
                             {Number(item.quantityKg).toLocaleString('pt-BR')} kg
@@ -10101,7 +10174,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLinha(item, 'Linha 1')}
-                              className="text-[10px] font-bold px-1.5 py-0.5 bg-zinc-50 hover:bg-blue-50 text-zinc-700 hover:text-blue-700 border border-zinc-200 rounded cursor-pointer transition-colors"
+                              className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 bg-zinc-50 hover:bg-zinc-50 text-zinc-700 hover:text-zinc-700 border border-zinc-200 rounded cursor-pointer transition-colors"
                               title="Mover para Linha 1"
                             >
                               L1
@@ -10109,7 +10182,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLinha(item, 'Linha 3')}
-                              className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded cursor-pointer transition-colors"
+                              className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded cursor-pointer transition-colors"
                               title="Mover para Linha 3 (Óleos)"
                             >
                               L3
@@ -10121,7 +10194,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <button
                                 type="button"
                                 onClick={() => handleChangeStatusEnvase(item, 'EM_ENVASE')}
-                                className="p-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded cursor-pointer transition-colors"
+                                className="p-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Retomar envase"
                               >
                                 <Play className="h-3.5 w-3.5 fill-emerald-600 text-emerald-600" />
@@ -10130,7 +10203,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <button
                                 type="button"
                                 onClick={() => handleOpenEnvaseEspera(item)}
-                                className="p-1 text-zinc-400 hover:text-amber-700 hover:bg-amber-50 rounded cursor-pointer transition-colors"
+                                className="p-1 text-zinc-400 hover:text-amber-700 hover:bg-amber-50 rounded cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Pausar / Colocar em espera"
                               >
                                 <PauseCircle className="h-3.5 w-3.5" />
@@ -10249,7 +10322,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           isAdiadoOriginal
                             ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
                             : item.statusEnvase === 'EM_ENVASE'
-                              ? "border-purple-400 ring-1 ring-purple-300 bg-purple-50/20"
+                              ? "border-zinc-400 ring-1 ring-zinc-300 bg-zinc-50/20"
                               : item.statusEnvase === 'EM_ESPERA'
                                 ? "border-amber-400 ring-1 ring-amber-300 bg-amber-50/30"
                                 : isConcluido
@@ -10265,7 +10338,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
-                                  className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
+                                  className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
                                   title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
                                   <FastForward className="h-3 w-3 text-rose-600" />
@@ -10274,7 +10347,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 <button
                                   type="button"
                                   onClick={() => handleCancelAdiarLote(item.loteNumber, adiadoInfo.dataOriginal, 'envase', item.productCode)}
-                                  className="px-1.5 py-0.5 text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
+                                  className="px-1.5 py-0.5 text-[11px] md:text-[10px] font-bold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-300 rounded flex items-center gap-0.5 transition-colors cursor-pointer shadow-2xs"
                                   title={`Cancelar adiamento e retornar lote para ${formatDateOnly(adiadoInfo.dataOriginal)}`}
                                 >
                                   <Undo2 className="h-2.5 w-2.5" />
@@ -10289,7 +10362,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               type="button"
                               onClick={() => handleReorderEnvase(item.id, 'Linha 3', 'up')}
                               disabled={isFirst}
-                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer"
+                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Subir ordem"
                             >
                               <ArrowUp className="h-3.5 w-3.5" />
@@ -10298,7 +10371,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               type="button"
                               onClick={() => handleReorderEnvase(item.id, 'Linha 3', 'down')}
                               disabled={isLast}
-                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer"
+                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded disabled:opacity-20 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Descer ordem"
                             >
                               <ArrowDown className="h-3.5 w-3.5" />
@@ -10318,7 +10391,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   envaseItem: item,
                                 });
                               }}
-                              className="p-1 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 rounded cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -10326,7 +10399,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => setSelectedLoteDetails({ lote: item, etapa: 'envase' })}
-                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded cursor-pointer"
+                              className="p-1 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver Detalhes do Item"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -10334,7 +10407,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleRemoveEnvase(item.id, item.loteNumber)}
-                              className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover do quadro"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -10361,7 +10434,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                         <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-zinc-100">
                           <span className="font-bold text-zinc-900">
-                            {Number(item.quantity).toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-500 font-normal">un</span>
+                            {Number(item.quantity).toLocaleString('pt-BR')} <span className="text-[11px] md:text-[10px] text-zinc-500 font-normal">un</span>
                           </span>
                           <span className="text-[11px] text-zinc-500">
                             {Number(item.quantityKg).toLocaleString('pt-BR')} kg
@@ -10377,7 +10450,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLinha(item, 'Linha 1')}
-                              className="text-[10px] font-bold px-1.5 py-0.5 bg-zinc-50 hover:bg-blue-50 text-zinc-700 hover:text-blue-700 border border-zinc-200 rounded cursor-pointer transition-colors"
+                              className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 bg-zinc-50 hover:bg-zinc-50 text-zinc-700 hover:text-zinc-700 border border-zinc-200 rounded cursor-pointer transition-colors"
                               title="Mover para Linha 1"
                             >
                               L1
@@ -10385,7 +10458,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLinha(item, 'Linha 2')}
-                              className="text-[10px] font-bold px-1.5 py-0.5 bg-zinc-50 hover:bg-indigo-50 text-zinc-700 hover:text-indigo-700 border border-zinc-200 rounded cursor-pointer transition-colors"
+                              className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 bg-zinc-50 hover:bg-zinc-50 text-zinc-700 hover:text-zinc-700 border border-zinc-200 rounded cursor-pointer transition-colors"
                               title="Mover para Linha 2"
                             >
                               L2
@@ -10397,7 +10470,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <button
                                 type="button"
                                 onClick={() => handleChangeStatusEnvase(item, 'EM_ENVASE')}
-                                className="p-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded cursor-pointer transition-colors"
+                                className="p-1 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Retomar envase"
                               >
                                 <Play className="h-3.5 w-3.5 fill-emerald-600 text-emerald-600" />
@@ -10406,7 +10479,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <button
                                 type="button"
                                 onClick={() => handleOpenEnvaseEspera(item)}
-                                className="p-1 text-zinc-400 hover:text-amber-700 hover:bg-amber-50 rounded cursor-pointer transition-colors"
+                                className="p-1 text-zinc-400 hover:text-amber-700 hover:bg-amber-50 rounded cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                                 title="Pausar / Colocar em espera"
                               >
                                 <PauseCircle className="h-3.5 w-3.5" />
@@ -10442,7 +10515,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   <Package className="h-4 w-4 text-white" />
                   <div>
                     <span className="text-sm font-extrabold tracking-tight">Lotes</span>
-                    <span className="block text-[10px] font-medium text-zinc-300">Aguardando encaixe no envase</span>
+                    <span className="block text-[11px] md:text-[10px] font-medium text-zinc-300">Aguardando encaixe no envase</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -10543,33 +10616,33 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         className={cn(
                           "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
                           temProblema ? "border-amber-400 bg-amber-50/20 ring-1 ring-amber-300" :
-                          isScheduled ? "border-indigo-300 bg-indigo-50/20" : "border-zinc-200"
+                          isScheduled ? "border-zinc-300 bg-zinc-50/20" : "border-zinc-200"
                         )}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1.5 font-mono text-xs font-extrabold text-zinc-900 flex-wrap">
                             {renderLoteNumberBadge(lote.loteNumber)}
-                            <span className="text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>
+                            <span className="text-[11px] md:text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
                                 Multi-Produto
                               </span>
                             )}
                             {isLoteParcial(lote) && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono" title="Ordem com apontamento parcial pendente">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono" title="Ordem com apontamento parcial pendente">
                                 Parcial
                               </span>
                             )}
                             {isLoteTerceirizado(lote) && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Lote Terceirizado">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Lote Terceirizado">
                                 Terceirizado
                               </span>
                             )}
                             {encaixeSearch.trim() && scheduledItem?.dataProgramada && parseLoteDateToIso(scheduledItem.dataProgramada) === envaseSelectedDate && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600 border border-zinc-200 font-sans">Já programado para esta data</span>
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600 border border-zinc-200 font-sans">Já programado para esta data</span>
                             )}
                             {encaixeSearch.trim() && scheduledItem?.dataProgramada && parseLoteDateToIso(scheduledItem.dataProgramada) !== envaseSelectedDate && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-sans">Agendado em {(() => { const iso = parseLoteDateToIso(scheduledItem.dataProgramada) || ''; const p = iso.split('-'); return p.length === 3 ? `${p[2]}/${p[1]}` : formatDateOnly(iso); })()}</span>
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-50 text-zinc-700 border border-zinc-200 font-sans">Agendado em {(() => { const iso = parseLoteDateToIso(scheduledItem.dataProgramada) || ''; const p = iso.split('-'); return p.length === 3 ? `${p[2]}/${p[1]}` : formatDateOnly(iso); })()}</span>
                             )}
                           </div>
                           <div className="flex items-center gap-1">
@@ -10589,7 +10662,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -10597,7 +10670,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => setSelectedLoteDetails({ lote, etapa: 'envase' })}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-600 hover:text-zinc-900 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-600 hover:text-zinc-900 cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver Detalhes do Item"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -10605,12 +10678,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleRemoverDaFila(lote.loteNumber, 'envase')}
-                              className="p-1 hover:bg-rose-50 rounded text-zinc-400 hover:text-rose-600 cursor-pointer transition-colors"
+                              className="p-1 hover:bg-rose-50 rounded text-zinc-400 hover:text-rose-600 cursor-pointer transition-colors max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Remover dos Liberados para Envase"
                             >
                               <X className="h-3.5 w-3.5" />
                             </button>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-teal-50 text-teal-800 border border-teal-200">
+                            <span className="text-[11px] md:text-[10px] font-bold px-2 py-0.5 rounded-md bg-zinc-50 text-zinc-800 border border-zinc-200">
                               {getEffectiveStatus(lote)}
                             </span>
                           </div>
@@ -10622,7 +10695,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                         <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-zinc-100">
                           <span className="font-bold text-zinc-900">
-                            {formatarUnidadesLote(lote, "text-[10px] text-zinc-500 font-normal")}
+                            {formatarUnidadesLote(lote, "text-[11px] md:text-[10px] text-zinc-500 font-normal")}
                           </span>
                           <span className="text-[11px] text-zinc-500">
                             {Number(lote.quantityKg || 0).toLocaleString('pt-BR')} kg
@@ -10652,13 +10725,13 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           {isScheduled && scheduledItem ? (
                             <div className="space-y-1.5">
                               <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
+                                <span className="text-[11px] md:text-[10px] font-bold text-zinc-700 bg-zinc-50 border border-zinc-200 px-2 py-0.5 rounded">
                                   {scheduledItem.linha} ({scheduledItem.ordem}º)
                                 </span>
                                 <button
                                   type="button"
                                   onClick={() => handleRemoveEnvase(scheduledItem.id, lote.loteNumber)}
-                                  className="text-[10px] font-bold text-rose-600 hover:text-rose-800 hover:underline cursor-pointer flex items-center gap-0.5"
+                                  className="text-[11px] md:text-[10px] font-bold text-rose-600 hover:text-rose-800 hover:underline cursor-pointer flex items-center gap-0.5"
                                   title="Remover do quadro de envase"
                                 >
                                   <Trash2 className="h-3 w-3" />
@@ -10670,7 +10743,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   <button
                                     type="button"
                                     onClick={() => handleMoveLinha(scheduledItem, 'Linha 1')}
-                                    className="flex-1 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200 rounded hover:bg-blue-100 cursor-pointer text-center"
+                                    className="flex-1 py-0.5 text-[11px] md:text-[10px] font-bold bg-zinc-50 text-zinc-800 border border-zinc-200 rounded hover:bg-zinc-100 cursor-pointer text-center"
                                     title="Mover para Linha 1"
                                   >
                                     L1
@@ -10680,7 +10753,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   <button
                                     type="button"
                                     onClick={() => handleMoveLinha(scheduledItem, 'Linha 2')}
-                                    className="flex-1 py-0.5 text-[10px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200 rounded hover:bg-indigo-100 cursor-pointer text-center"
+                                    className="flex-1 py-0.5 text-[11px] md:text-[10px] font-bold bg-zinc-50 text-zinc-800 border border-zinc-200 rounded hover:bg-zinc-100 cursor-pointer text-center"
                                     title="Mover para Linha 2"
                                   >
                                     L2
@@ -10690,7 +10763,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   <button
                                     type="button"
                                     onClick={() => handleMoveLinha(scheduledItem, 'Linha 3')}
-                                    className="flex-1 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 rounded hover:bg-amber-100 cursor-pointer text-center"
+                                    className="flex-1 py-0.5 text-[11px] md:text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 rounded hover:bg-amber-100 cursor-pointer text-center"
                                     title="Mover para Linha 3 (Óleos)"
                                   >
                                     L3
@@ -10703,7 +10776,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <button
                                 type="button"
                                 onClick={() => handleEncaixarLote(lote, 'Linha 1')}
-                                className="py-1 px-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer text-center shadow-2xs"
+                                className="py-1 px-1 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer text-center shadow-2xs"
                                 title="Encaixar na Linha 1"
                               >
                                 + L1
@@ -10711,7 +10784,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <button
                                 type="button"
                                 onClick={() => handleEncaixarLote(lote, 'Linha 2')}
-                                className="py-1 px-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer text-center shadow-2xs"
+                                className="py-1 px-1 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer text-center shadow-2xs"
                                 title="Encaixar na Linha 2"
                               >
                                 + L2
@@ -10790,11 +10863,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     {ordensFinalizadas.reduce((acc, l) => acc + (Number(l.quantity) || 0), 0).toLocaleString('pt-BR')} un
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-900 font-bold">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-bold">
                   <span>Parciais:</span>
                   <span className="font-mono">{ordensParciais.length}{ordensSearch ? ` / ${baseOrdensParciais.length}` : ''} ordens</span>
-                  <span className="text-purple-400 font-normal">|</span>
-                  <span className="font-mono text-[11px] text-purple-700">
+                  <span className="text-zinc-400 font-normal">|</span>
+                  <span className="font-mono text-[11px] text-zinc-700">
                     {ordensParciais.reduce((acc, l) => acc + (Number(l.quantidadeEnvasadaParcial || (l as any).quantidade_envasada_parcial) || 0), 0).toLocaleString('pt-BR')} un
                   </span>
                 </div>
@@ -10819,10 +10892,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   </span>
                 </div>
                 <div className="text-right flex items-center gap-1.5 flex-wrap justify-end">
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold" title="Lançadas no ERP (EA)">
+                  <span className="text-[11px] md:text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold" title="Lançadas no ERP (EA)">
                     {filteredOrdensFinalizadas.filter(l => l.erpStatus === 'EA').length} no ERP
                   </span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold" title="Pendentes no ERP">
+                  <span className="text-[11px] md:text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold" title="Pendentes no ERP">
                     {filteredOrdensFinalizadas.filter(l => l.erpStatus !== 'EA').length} pend.
                   </span>
                   <span className="text-zinc-500 text-xs">|</span>
@@ -10862,18 +10935,18 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               {rotuloLote(lote.loteNumber)}
                             </span>
                             {lote.erpStatus === 'EA' ? (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                              <span className="text-[11px] md:text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1">
                                 <CheckCircle2 className="h-3 w-3 text-emerald-600 inline shrink-0" />
                                 Lançado no ERP (EA)
                               </span>
                             ) : (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-300 flex items-center gap-1">
+                              <span className="text-[11px] md:text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-300 flex items-center gap-1">
                                 <Clock className="h-3 w-3 text-amber-600 inline shrink-0" />
                                 Pendente no ERP
                               </span>
                             )}
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
                                 Multi-Produto
                               </span>
                             )}
@@ -10883,7 +10956,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -10891,7 +10964,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => setSelectedLoteDetails({ lote, etapa: 'ordens' })}
-                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver detalhes do lote"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -10899,7 +10972,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleOpenHistory(lote)}
-                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver histórico do lote"
                             >
                               <History className="h-3.5 w-3.5" />
@@ -10915,7 +10988,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                         <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-zinc-100">
                           <span className="font-bold text-zinc-900">
-                            {formatarUnidadesLote(lote, "text-[10px] text-zinc-500 font-normal")}
+                            {formatarUnidadesLote(lote, "text-[11px] md:text-[10px] text-zinc-500 font-normal")}
                           </span>
                           <span className="text-[11px] text-zinc-500">
                             {Number(lote.quantityKg).toLocaleString('pt-BR')} kg
@@ -10929,20 +11002,20 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         {prevBadge && (
                           <div className="flex items-center justify-between pt-1 text-[11px]">
                             <span className="text-zinc-400">Previsão:</span>
-                            <span className={cn("px-1.5 py-0.5 rounded text-[10px] border", prevBadge.colorClass)}>
+                            <span className={cn("px-1.5 py-0.5 rounded text-[11px] md:text-[10px] border", prevBadge.colorClass)}>
                               {prevBadge.label}
                             </span>
                           </div>
                         )}
 
                         <div className="flex items-center justify-between gap-2 pt-2 border-t border-zinc-100">
-                          <div className="text-[10px] text-zinc-400">
+                          <div className="text-[11px] md:text-[10px] text-zinc-400">
                             Resp: <span className="font-semibold text-zinc-700">{lote.updatedBy || 'Sistema'}</span>
                           </div>
                           <button
                             type="button"
                             onClick={() => executeStatusUpdate(lote.loteNumber, 'Envase', null)}
-                            className="p-1.5 text-zinc-600 hover:text-zinc-900 bg-zinc-100 hover:bg-zinc-200 rounded-lg transition-colors cursor-pointer flex items-center justify-center"
+                            className="p-1.5 text-zinc-600 hover:text-zinc-900 bg-zinc-100 hover:bg-zinc-200 rounded-lg transition-colors cursor-pointer flex items-center justify-center max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                             title="Reverter para status anterior"
                           >
                             <RotateCcw className="h-3.5 w-3.5" />
@@ -10979,7 +11052,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               <div className="p-3 bg-zinc-50/50 min-h-[500px] max-h-[750px] overflow-y-auto space-y-2.5">
                 {filteredOrdensParciais.length === 0 ? (
                   <div className="py-16 text-center text-zinc-400 border border-dashed border-zinc-200 rounded-xl p-4 bg-white">
-                    <Clock className="h-8 w-8 mx-auto mb-2 text-purple-400" />
+                    <Clock className="h-8 w-8 mx-auto mb-2 text-zinc-400" />
                     <p className="text-xs font-bold text-zinc-700">Nenhuma ordem parcial ativa</p>
                     <p className="text-[11px] text-zinc-400 mt-1">
                       {ordensSearch ? `Nenhuma ordem correspondente à busca "${ordensSearch}".` : 'Adicione um apontamento parcial em qualquer lote da fila ao lado.'}
@@ -10995,18 +11068,18 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     return (
                       <div
                         key={loteRowKey(lote)}
-                        className="bg-white border border-purple-200 rounded-xl p-3.5 shadow-2xs hover:shadow-xs transition-all space-y-2.5"
+                        className="bg-white border border-zinc-200 rounded-xl p-3.5 shadow-2xs hover:shadow-xs transition-all space-y-2.5"
                       >
                         <div className="flex items-center justify-between gap-1 pb-2 border-b border-zinc-100">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-mono font-extrabold text-xs px-2.5 py-0.5 rounded-lg bg-zinc-900 text-white">
                               {rotuloLote(lote.loteNumber)}
                             </span>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-50 text-purple-900 border border-purple-200">
+                            <span className="text-[11px] md:text-[10px] font-bold px-2 py-0.5 rounded-md bg-zinc-50 text-zinc-900 border border-zinc-200">
                               Parcial ({pct}%)
                             </span>
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
                                 Multi-Produto
                               </span>
                             )}
@@ -11016,7 +11089,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -11024,7 +11097,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => setSelectedLoteDetails({ lote, etapa: 'ordens' })}
-                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver detalhes do lote"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -11032,7 +11105,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleOpenHistory(lote)}
-                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver histórico do lote"
                             >
                               <History className="h-3.5 w-3.5" />
@@ -11053,14 +11126,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         {/* Barra de Progresso Parcial */}
                         <div className="space-y-1 bg-zinc-50 p-2 rounded-lg border border-zinc-100">
                           <div className="flex items-center justify-between text-[11px] font-mono">
-                            <span className="font-bold text-purple-900">
+                            <span className="font-bold text-zinc-900">
                               {parcialQty.toLocaleString('pt-BR')} <span className="font-normal text-zinc-500">de {totalQty.toLocaleString('pt-BR')} un</span>
                             </span>
-                            <span className="font-bold text-purple-700">{pct}%</span>
+                            <span className="font-bold text-zinc-700">{pct}%</span>
                           </div>
                           <div className="w-full bg-zinc-200 h-2 rounded-full overflow-hidden">
                             <div
-                              className="bg-purple-600 h-full rounded-full transition-all duration-300"
+                              className="bg-zinc-900 h-full rounded-full transition-all duration-300"
                               style={{ width: `${pct}%` }}
                             />
                           </div>
@@ -11071,7 +11144,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           <button
                             type="button"
                             onClick={() => setParcialModalLote(lote)}
-                            className="p-1.5 bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-300 rounded-lg transition-colors cursor-pointer flex items-center justify-center"
+                            className="p-1.5 bg-zinc-50 hover:bg-zinc-100 text-zinc-900 border border-zinc-300 rounded-lg transition-colors cursor-pointer flex items-center justify-center"
                             title="Editar apontamento parcial"
                           >
                             <Pencil className="h-3.5 w-3.5" />
@@ -11097,7 +11170,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             <div className="col-span-12 xl:col-span-4 lg:col-span-12 bg-white border border-zinc-200 rounded-lg shadow-xs overflow-hidden flex flex-col">
               <div className="bg-zinc-900 px-4 py-3 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Package className="h-4 w-4 text-sky-400" />
+                  <Package className="h-4 w-4 text-zinc-400" />
                   <span className="text-sm font-extrabold tracking-tight">Lotes em Andamento</span>
                   <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-white/10 text-white">
                     {lotesParaOrdens.length}
@@ -11166,11 +11239,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <span className="font-mono font-extrabold text-xs px-2 py-0.5 rounded-lg bg-zinc-900 text-white">
                               {rotuloLote(lote.loteNumber)}
                             </span>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-800 border border-zinc-200">
+                            <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-800 border border-zinc-200">
                               {eff}
                             </span>
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                              <span className="text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
                                 Multi-Produto
                               </span>
                             )}
@@ -11180,7 +11253,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -11188,7 +11261,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => setSelectedLoteDetails({ lote, etapa: 'ordens' })}
-                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded hover:bg-zinc-100 transition-colors cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded hover:bg-zinc-100 transition-colors cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver detalhes do lote"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -11196,7 +11269,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleOpenHistory(lote)}
-                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded hover:bg-zinc-100 transition-colors cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded hover:bg-zinc-100 transition-colors cursor-pointer max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center"
                               title="Ver histórico do lote"
                             >
                               <History className="h-3.5 w-3.5" />
@@ -11212,7 +11285,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                         <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-zinc-100">
                           <span className="font-bold text-zinc-900">
-                            {formatarUnidadesLote(lote, "text-[10px] text-zinc-500 font-normal")}
+                            {formatarUnidadesLote(lote, "text-[11px] md:text-[10px] text-zinc-500 font-normal")}
                           </span>
                           <span className="text-[11px] text-zinc-500">
                             {Number(lote.quantityKg).toLocaleString('pt-BR')} kg
@@ -11228,10 +11301,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           <button
                             type="button"
                             onClick={() => setParcialModalLote(lote)}
-                            className="p-1.5 bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 rounded-lg transition-colors cursor-pointer flex items-center justify-center"
+                            className="p-1.5 bg-zinc-50 hover:bg-zinc-100 text-zinc-900 border border-zinc-200 rounded-lg transition-colors cursor-pointer flex items-center justify-center"
                             title="Registrar apontamento parcial"
                           >
-                            <Clock className="h-3.5 w-3.5 text-purple-600" />
+                            <Clock className="h-3.5 w-3.5 text-zinc-600" />
                           </button>
 
                           <button
@@ -11324,8 +11397,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 className={cn(
                   "px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer border",
                   calendarStatusFilter === 'PRODUCAO'
-                    ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                    : "bg-blue-50 text-blue-900 border-blue-200 hover:bg-blue-100"
+                    ? "bg-zinc-900 text-white border-zinc-900 shadow-xs"
+                    : "bg-zinc-50 text-zinc-900 border-zinc-200 hover:bg-zinc-100"
                 )}
               >
                 Produção
@@ -11336,8 +11409,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 className={cn(
                   "px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer border",
                   calendarStatusFilter === 'ENVASE'
-                    ? "bg-purple-600 text-white border-purple-600 shadow-xs"
-                    : "bg-purple-50 text-purple-900 border-purple-200 hover:bg-purple-100"
+                    ? "bg-zinc-900 text-white border-zinc-900 shadow-xs"
+                    : "bg-zinc-50 text-zinc-900 border-zinc-200 hover:bg-zinc-100"
                 )}
               >
                 Envase
@@ -11348,8 +11421,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 className={cn(
                   "px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer border",
                   calendarStatusFilter === 'ROTULAGEM'
-                    ? "bg-cyan-600 text-white border-cyan-600 shadow-xs"
-                    : "bg-cyan-50 text-cyan-900 border-cyan-200 hover:bg-cyan-100"
+                    ? "bg-zinc-900 text-white border-zinc-900 shadow-xs"
+                    : "bg-zinc-50 text-zinc-900 border-zinc-200 hover:bg-zinc-100"
                 )}
               >
                 Rotulagem
@@ -11360,8 +11433,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 className={cn(
                   "px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer border",
                   calendarStatusFilter === 'EM_ESPERA'
-                    ? "bg-orange-600 text-white border-orange-600 shadow-xs"
-                    : "bg-orange-50 text-orange-950 border-orange-200 hover:bg-orange-100"
+                    ? "bg-amber-600 text-white border-amber-600 shadow-xs"
+                    : "bg-amber-50 text-amber-950 border-amber-200 hover:bg-amber-100"
                 )}
               >
                 Em Espera
@@ -11460,7 +11533,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       {hasItems && (
                         <div className="flex items-center gap-1">
                           <span className={cn(
-                            "text-[10px] font-bold px-1.5 py-0.5 rounded-full",
+                            "text-[11px] md:text-[10px] font-bold px-1.5 py-0.5 rounded-full",
                             cell.openCount > 0 ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-900"
                           )}>
                             {cell.items.length} {cell.items.length === 1 ? 'lote' : 'lotes'}
@@ -11471,7 +11544,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                     {/* Feriado */}
                     {cell.holiday && (
-                      <span className="text-[9px] font-semibold text-rose-600 truncate block mt-0.5" title={cell.holiday.name}>
+                      <span className="text-[11px] md:text-[9px] font-semibold text-rose-600 truncate block mt-0.5" title={cell.holiday.name}>
                         {cell.holiday.name}
                       </span>
                     )}
@@ -11485,7 +11558,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           <div
                             key={loteRowKey(item)}
                             className={cn(
-                              "text-[10px] px-1.5 py-0.5 rounded-md truncate font-medium border flex items-center justify-between gap-1",
+                              "text-[11px] md:text-[10px] px-1.5 py-0.5 rounded-md truncate font-medium border flex items-center justify-between gap-1",
                               isEa || isFinal
                                 ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                                 : getBadgeClass(item.customStatus)
@@ -11496,14 +11569,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <strong className="font-mono mr-1">{rotuloLote(item.loteNumber)}:</strong>
                               {item.productDescription}
                             </span>
-                            <span className="font-mono text-[9px] opacity-75 shrink-0">
+                            <span className="font-mono text-[11px] md:text-[9px] opacity-75 shrink-0">
                               {item.quantityKg}kg
                             </span>
                           </div>
                         );
                       })}
                       {cell.items.length > 3 && (
-                        <div className="text-[9px] font-bold text-zinc-400 text-center">
+                        <div className="text-[11px] md:text-[9px] font-bold text-zinc-400 text-center">
                           +{cell.items.length - 3} mais...
                         </div>
                       )}
@@ -11563,15 +11636,15 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           </td>
                           <td className="py-2.5 px-3">
                             <div className="font-bold text-zinc-900">{item.productDescription}</div>
-                            <div className="text-[10px] font-mono text-zinc-400">SKU: {item.productCode}</div>
+                            <div className="text-[11px] md:text-[10px] font-mono text-zinc-400">SKU: {item.productCode}</div>
                           </td>
                           <td className="py-2.5 px-3 text-right font-mono whitespace-nowrap">
                             <div className="font-bold text-zinc-900">{formatarUnidadesLote(item)}</div>
-                            <div className="text-[10px] text-zinc-500 font-semibold">{Number(item.quantityKg || 0).toLocaleString('pt-BR')} kg</div>
+                            <div className="text-[11px] md:text-[10px] text-zinc-500 font-semibold">{Number(item.quantityKg || 0).toLocaleString('pt-BR')} kg</div>
                           </td>
                           <td className="py-2.5 px-3 text-center whitespace-nowrap">
                             <span className={cn(
-                              "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold border",
+                              "inline-flex items-center px-2 py-0.5 rounded-md text-[11px] md:text-[10px] font-semibold border",
                               getErpBadgeClass(item.erpStatus)
                             )}>
                               {isEa ? 'Concluído (EA)' : item.erpStatusLabel}
@@ -11604,7 +11677,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               </optgroup>
                             </select>
                           </td>
-                          <td className="py-2 px-3 text-[10px] font-medium text-zinc-600 whitespace-nowrap">
+                          <td className="py-2 px-3 text-[11px] md:text-[10px] font-medium text-zinc-600 whitespace-nowrap">
                             <div className="flex flex-col gap-0.5">
                               {item.dataPesagem && <div>🟡 <strong>Pesagem:</strong> {formatDateShort(item.dataPesagem)}</div>}
                               {item.dataProducao && <div>🔵 <strong>Produzido:</strong> {formatDateShort(item.dataProducao)}</div>}
@@ -11675,7 +11748,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
               <div className="p-3 bg-zinc-50 border border-zinc-200/80 rounded-xl space-y-1">
                 <span className="text-[11px] font-bold text-zinc-800 flex items-center gap-1.5">
-                  <Table className="h-3.5 w-3.5 text-blue-600" /> Aba 1: Lotes de Produção
+                  <Table className="h-3.5 w-3.5 text-zinc-600" /> Aba 1: Lotes de Produção
                 </span>
                 <p className="text-[11px] text-zinc-500 leading-relaxed">
                   Lotes internos, quantidades em unidades e kg, status ERP, status nosso, previsão e histórico de datas.
@@ -11684,7 +11757,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
               <div className="p-3 bg-zinc-50 border border-zinc-200/80 rounded-xl space-y-1">
                 <span className="text-[11px] font-bold text-zinc-800 flex items-center gap-1.5">
-                  <Building2 className="h-3.5 w-3.5 text-purple-600" /> Aba 2: Terceirizados
+                  <Building2 className="h-3.5 w-3.5 text-zinc-600" /> Aba 2: Terceirizados
                 </span>
                 <p className="text-[11px] text-zinc-500 leading-relaxed">
                   Lotes de terceirizados e solicitações em aberto com fornecedores e aprovações de insumos.
@@ -11706,26 +11779,9 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
       {/* MODAL DE EM ESPERA EM LOTE */}
       {showBatchEsperaModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-md w-full p-6 shadow-2xl border border-zinc-200 animate-in fade-in zoom-in-95 duration-150 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-              <div className="flex items-center gap-2">
-                <div className="p-2 bg-orange-100 text-orange-700 rounded-xl">
-                  <PauseCircle className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-base text-zinc-900">Pausar {selectedLotes.size} Lotes em Espera</h3>
-                  <p className="text-xs text-zinc-500">Selecione o motivo da pausa para os lotes selecionados</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => { setShowBatchEsperaModal(false); setBatchStatusValue(''); }}
-                className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+<Modal title={`Pausar ${selectedLotes.size} Lotes em Espera`} size="sm" onClose={() => { setShowBatchEsperaModal(false); setBatchStatusValue(''); }}>
+<div className="space-y-4">
+<p className="text-xs text-zinc-500">Selecione o motivo da pausa para os lotes selecionados</p>
 
             <div className="space-y-3 text-xs">
               <div className="space-y-1.5">
@@ -11771,45 +11827,77 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   handleApplyBatchStatus('Em Espera', m || 'Em Espera');
                 }}
                 disabled={isBatchUpdating}
-                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs disabled:opacity-50"
               >
                 {isBatchUpdating ? 'Aplicando...' : `Confirmar para ${selectedLotes.size} Lotes`}
               </button>
             </div>
-          </div>
-        </div>
+</div>
+</Modal>
       )}
 
       {/* MODAL PARA PAUSAR / AJUSTAR PAUSA DO LOTE */}
       {pauseModalLote && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white border border-zinc-200 rounded-xl max-w-lg w-full shadow-2xl overflow-hidden p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-              <div className="flex items-center gap-2 text-amber-600">
-                <PauseCircle className="h-5 w-5" />
-                <div>
-                  <h3 className="font-bold text-sm text-zinc-900 flex items-center gap-1.5">
-                    <span>Pausar Lote {rotuloLote(pauseModalLote.loteNumber)}</span>
-                    <span className="text-zinc-400 font-normal">|</span>
-                    <span className="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-900 border border-amber-300 font-semibold uppercase">
-                      {pauseModalEtapa === 'pesagem' ? 'Pesagem' :
-                        pauseModalEtapa === 'producao' ? 'Produção' :
-                        pauseModalEtapa === 'rotulagem' ? 'Rotulagem' : 'Envase'}
-                    </span>
-                  </h3>
-                  <p className="text-xs text-zinc-500 font-normal line-clamp-1">
-                    [{pauseModalLote.productCode}] {pauseModalLote.productDescription}
-                  </p>
-                </div>
+<Drawer size="md" onClose={() => setPauseModalLote(null)}
+  title={`Pausar Lote ${rotuloLote(pauseModalLote.loteNumber)}`}
+  badge={<span className="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-900 border border-amber-300 font-semibold uppercase">{pauseModalEtapa === 'pesagem' ? 'Pesagem' : pauseModalEtapa === 'producao' ? 'Produção' : pauseModalEtapa === 'rotulagem' ? 'Rotulagem' : 'Envase'}</span>}
+  subtitle={<span className="block whitespace-normal font-sans">[{pauseModalLote.productCode}] {pauseModalLote.productDescription}</span>}
+  footer={
+            <div className="flex w-full flex-wrap items-center justify-between gap-2">
+              <div>
+                {getLoteEtapaStatus(pauseModalLote, pauseModalEtapa).isEspera && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleResumeLote(pauseModalLote, pauseModalEtapa);
+                      setPauseModalLote(null);
+                    }}
+                    className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <Play className="h-3 w-3 fill-current" />
+                    <span>Retomar {
+                      pauseModalEtapa === 'pesagem' ? 'Pesagem' :
+                      pauseModalEtapa === 'producao' ? 'Produção' :
+                      pauseModalEtapa === 'rotulagem' ? 'Rotulagem' : 'Envase'
+                    }</span>
+                  </button>
+                )}
               </div>
-              <button
-                type="button"
-                onClick={() => setPauseModalLote(null)}
-                className="p-1 rounded-xl text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 cursor-pointer"
-              >
-                <X className="h-5 w-5" />
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPauseModalLote(null)}
+                  className="px-3.5 py-2 rounded-lg text-xs font-bold text-zinc-600 hover:bg-zinc-100 cursor-pointer transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSavePause}
+                  disabled={savingPause}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {savingPause ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      <span>Salvando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <PauseCircle className="h-3.5 w-3.5" />
+                      <span>Confirmar Pausa ({
+                        pauseModalEtapa === 'pesagem' ? 'Pesagem' :
+                        pauseModalEtapa === 'producao' ? 'Produção' :
+                        pauseModalEtapa === 'rotulagem' ? 'Rotulagem' : 'Envase'
+                      })</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
+}>
+<div className="space-y-4">
 
             {/* SELETOR DE ETAPAS / SETORES ISOLADOS */}
             <div>
@@ -11950,97 +12038,34 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               </div>
             </div>
 
-            <div className="pt-3 border-t border-zinc-100 flex items-center justify-between gap-2">
-              <div>
-                {getLoteEtapaStatus(pauseModalLote, pauseModalEtapa).isEspera && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleResumeLote(pauseModalLote, pauseModalEtapa);
-                      setPauseModalLote(null);
-                    }}
-                    className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
-                  >
-                    <Play className="h-3 w-3 fill-current" />
-                    <span>Retomar {
-                      pauseModalEtapa === 'pesagem' ? 'Pesagem' :
-                      pauseModalEtapa === 'producao' ? 'Produção' :
-                      pauseModalEtapa === 'rotulagem' ? 'Rotulagem' : 'Envase'
-                    }</span>
-                  </button>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPauseModalLote(null)}
-                  className="px-3.5 py-2 rounded-lg text-xs font-bold text-zinc-600 hover:bg-zinc-100 cursor-pointer transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSavePause}
-                  disabled={savingPause}
-                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  {savingPause ? (
-                    <>
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                      <span>Salvando...</span>
-                    </>
-                  ) : (
-                    <>
-                      <PauseCircle className="h-3.5 w-3.5" />
-                      <span>Confirmar Pausa ({
-                        pauseModalEtapa === 'pesagem' ? 'Pesagem' :
-                        pauseModalEtapa === 'producao' ? 'Produção' :
-                        pauseModalEtapa === 'rotulagem' ? 'Rotulagem' : 'Envase'
-                      })</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+</div>
+</Drawer>
       )}
 
       {/* MODAL PARA ADICIONAR LOTE NA FILA OU LIBERADOS PARA ENVASE */}
       {addLoteModalTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white border border-zinc-200 rounded-2xl max-w-xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-            {/* Cabeçalho */}
-            <div className="bg-zinc-900 text-white px-5 py-4 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-white/10 text-amber-400">
-                  <Plus className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-sm tracking-tight text-white">
-                    Adicionar Lote à Fila
-                  </h3>
-                  <p className="text-xs text-zinc-400">
-                    Destino: <span className="font-bold text-amber-400">{
-                      addLoteModalTarget === 'pesagem' ? 'Fila de Pesagem' :
-                      addLoteModalTarget === 'producao' ? 'Fila de Produção' :
-                      addLoteModalTarget === 'rotulagem' ? 'Lotes Disponíveis para Rotulagem' : 'Liberados para Envase'
-                    }</span>
-                  </p>
-                </div>
-              </div>
+<Drawer size="md" onClose={() => setAddLoteModalTarget(null)}
+  title="Adicionar Lote à Fila"
+  subtitle={<span className="block whitespace-normal font-sans">Destino: <span className="font-bold text-amber-700">{
+    addLoteModalTarget === 'pesagem' ? 'Fila de Pesagem' :
+    addLoteModalTarget === 'producao' ? 'Fila de Produção' :
+    addLoteModalTarget === 'rotulagem' ? 'Lotes Disponíveis para Rotulagem' : 'Liberados para Envase'
+  }</span></span>}
+  footer={
+            <div className="flex w-full flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setAddLoteModalTarget(null)}
-                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 cursor-pointer transition-colors"
+                className="px-4 py-1.5 text-xs font-bold text-zinc-700 hover:bg-zinc-200 rounded-lg transition-colors cursor-pointer"
               >
-                <X className="h-5 w-5" />
+                Fechar
               </button>
             </div>
+}>
+<div className="space-y-3">
 
             {/* Campo de Busca Rápida */}
-            <div className="p-4 bg-zinc-50 border-b border-zinc-200 shrink-0 space-y-2">
+            <div className="rounded-xl p-3 bg-zinc-50 border border-zinc-200 space-y-2">
               <div className="relative">
                 <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
                 <input
@@ -12067,7 +12092,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             </div>
 
             {/* Lista de Candidatos */}
-            <div className="p-4 overflow-y-auto space-y-2 flex-1 min-h-[250px]">
+            <div className="space-y-2 min-h-[250px]">
               {(() => {
                 const q = addLoteModalSearch.trim().toLowerCase();
                 const currentSet = new Set<string>();
@@ -12138,11 +12163,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           {rotuloLote(candidate.loteNumber)}
                         </span>
                         {candidate.productCode && (
-                          <span className="text-[10px] text-zinc-500 font-mono">
+                          <span className="text-[11px] md:text-[10px] text-zinc-500 font-mono">
                             [{candidate.productCode}]
                           </span>
                         )}
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-700 font-medium">
+                        <span className="text-[11px] md:text-[10px] px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-700 font-medium">
                           {getEffectiveStatus(candidate)}
                         </span>
                       </div>
@@ -12175,52 +12200,31 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             </div>
 
             {/* Rodapé */}
-            <div className="p-3 bg-zinc-100 border-t border-zinc-200 flex items-center justify-end shrink-0">
+</div>
+</Drawer>
+      )}
+
+      {/* MODAL DE PESQUISA FACILITADA: LOCALIZAR LOTE NAS DATAS E ETAPAS */}
+      {showLocalizarDataModal && (
+<Drawer size="lg" onClose={() => setShowLocalizarDataModal(false)}
+  title="Localizador de Datas e Agendamentos"
+  badge={<span className="text-[11px] md:text-[10px] font-mono px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">Busca Rápida</span>}
+  subtitle={<span className="block whitespace-normal font-sans">Encontre em qual data qualquer lote está agendado no Envase, Rotulagem, Produção ou Pesagem.</span>}
+  footer={
+            <div className="flex w-full flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setAddLoteModalTarget(null)}
+                onClick={() => setShowLocalizarDataModal(false)}
                 className="px-4 py-1.5 text-xs font-bold text-zinc-700 hover:bg-zinc-200 rounded-lg transition-colors cursor-pointer"
               >
                 Fechar
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL DE PESQUISA FACILITADA: LOCALIZAR LOTE NAS DATAS E ETAPAS */}
-      {showLocalizarDataModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white border border-zinc-200 rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-            {/* Cabeçalho */}
-            <div className="bg-zinc-900 text-white px-5 py-4 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-white/10 text-amber-400">
-                  <Calendar className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-sm tracking-tight text-white flex items-center gap-2">
-                    <span>Localizador de Datas e Agendamentos</span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">
-                      Busca Rápida
-                    </span>
-                  </h3>
-                  <p className="text-xs text-zinc-400">
-                    Encontre em qual data qualquer lote está agendado no Envase, Rotulagem, Produção ou Pesagem.
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowLocalizarDataModal(false)}
-                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 cursor-pointer transition-colors"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+}>
+<div className="space-y-3">
 
             {/* Input de Pesquisa */}
-            <div className="p-4 bg-zinc-50 border-b border-zinc-200 shrink-0 space-y-2">
+            <div className="rounded-xl p-3 bg-zinc-50 border border-zinc-200 space-y-2">
               <div className="relative">
                 <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
                 <input
@@ -12253,7 +12257,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             </div>
 
             {/* Lista de Resultados */}
-            <div className="p-4 overflow-y-auto space-y-3 flex-1 min-h-[300px]">
+            <div className="space-y-3 min-h-[300px]">
               {(() => {
                 const q = localizarDataSearch.trim().toLowerCase();
                 if (!q || q.length < 2) {
@@ -12340,7 +12344,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 [{prodCode}]
                               </span>
                             )}
-                            <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-zinc-100 text-zinc-800 border border-zinc-200">
+                            <span className="text-[11px] md:text-[10px] px-2 py-0.5 rounded font-bold bg-zinc-100 text-zinc-800 border border-zinc-200">
                               {effStatus}
                             </span>
                           </div>
@@ -12359,21 +12363,21 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       {/* Raio-X das Etapas & Datas */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs pt-2 border-t border-zinc-100">
                         {/* ENVASE */}
-                        <div className="p-2.5 rounded-lg bg-indigo-50/50 border border-indigo-100 space-y-1.5">
+                        <div className="p-2.5 rounded-lg bg-zinc-50/50 border border-zinc-100 space-y-1.5">
                           <div className="flex items-center justify-between">
-                            <span className="font-bold text-indigo-950 flex items-center gap-1.5 text-[11px]">
-                              <Droplets className="h-3.5 w-3.5 text-indigo-600" />
+                            <span className="font-bold text-zinc-950 flex items-center gap-1.5 text-[11px]">
+                              <Droplets className="h-3.5 w-3.5 text-zinc-600" />
                               Envase
                             </span>
                           </div>
                           {envaseItems.length > 0 ? (
                             envaseItems.map(item => (
-                              <div key={item.id} className="flex items-center justify-between gap-2 pt-1 border-t border-indigo-100/60 first:border-0 first:pt-0">
+                              <div key={item.id} className="flex items-center justify-between gap-2 pt-1 border-t border-zinc-100/60 first:border-0 first:pt-0">
                                 <div>
-                                  <div className="font-bold text-indigo-900 text-xs">
+                                  <div className="font-bold text-zinc-900 text-xs">
                                     📅 {formatDateOnly(item.dataProgramada)}
                                   </div>
-                                  <div className="text-[10px] text-indigo-700">
+                                  <div className="text-[11px] md:text-[10px] text-zinc-700">
                                     {item.linha} • {item.ordem}º da fila
                                   </div>
                                 </div>
@@ -12385,7 +12389,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                     setCurrentTab('quadro_envase');
                                     setShowLocalizarDataModal(false);
                                   }}
-                                  className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                                  className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-white rounded text-[11px] md:text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
                                 >
                                   Ver no Envase
                                 </button>
@@ -12403,7 +12407,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                     setCurrentTab('quadro_envase');
                                     setShowLocalizarDataModal(false);
                                   }}
-                                  className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold cursor-pointer transition-colors"
+                                  className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] md:text-[10px] font-bold cursor-pointer transition-colors"
                                 >
                                   Ver na Fila
                                 </button>
@@ -12427,7 +12431,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   <div className="font-bold text-emerald-900 text-xs">
                                     📅 {formatDateOnly(item.dataProgramada)}
                                   </div>
-                                  <div className="text-[10px] text-emerald-700">
+                                  <div className="text-[11px] md:text-[10px] text-emerald-700">
                                     {item.tipo === 'MAQUINA' ? 'Máquina' : 'Manual'} • {item.ordem}º da fila
                                   </div>
                                 </div>
@@ -12439,7 +12443,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                     setCurrentTab('quadro_rotulagem');
                                     setShowLocalizarDataModal(false);
                                   }}
-                                  className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                                  className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] md:text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
                                 >
                                   Ver na Rotulagem
                                 </button>
@@ -12456,7 +12460,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   setCurrentTab('quadro_rotulagem');
                                   setShowLocalizarDataModal(false);
                                 }}
-                                className="px-2 py-1 bg-zinc-200 hover:bg-zinc-300 text-zinc-800 rounded text-[10px] font-bold cursor-pointer transition-colors"
+                                className="px-2 py-1 bg-zinc-200 hover:bg-zinc-300 text-zinc-800 rounded text-[11px] md:text-[10px] font-bold cursor-pointer transition-colors"
                               >
                                 Ver Rotulagem
                               </button>
@@ -12483,7 +12487,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   setCurrentTab('quadro_pesagem');
                                   setShowLocalizarDataModal(false);
                                 }}
-                                className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                                className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-[11px] md:text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
                               >
                                 Ir para Pesagem
                               </button>
@@ -12492,9 +12496,9 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         </div>
 
                         {/* PRODUÇÃO */}
-                        <div className="p-2.5 rounded-lg bg-blue-50/50 border border-blue-100 space-y-1.5">
-                          <span className="font-bold text-blue-950 flex items-center gap-1.5 text-[11px]">
-                            <Flame className="h-3.5 w-3.5 text-blue-600" />
+                        <div className="p-2.5 rounded-lg bg-zinc-50/50 border border-zinc-100 space-y-1.5">
+                          <span className="font-bold text-zinc-950 flex items-center gap-1.5 text-[11px]">
+                            <Flame className="h-3.5 w-3.5 text-zinc-600" />
                             Produção / Reatores
                           </span>
                           <div className="flex items-center justify-between gap-2">
@@ -12510,7 +12514,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   setCurrentTab('quadro_producao');
                                   setShowLocalizarDataModal(false);
                                 }}
-                                className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                                className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-white rounded text-[11px] md:text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
                               >
                                 Ir para Produção
                               </button>
@@ -12525,38 +12529,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             </div>
 
             {/* Rodapé */}
-            <div className="p-3 bg-zinc-100 border-t border-zinc-200 flex items-center justify-end shrink-0">
-              <button
-                type="button"
-                onClick={() => setShowLocalizarDataModal(false)}
-                className="px-4 py-1.5 text-xs font-bold text-zinc-700 hover:bg-zinc-200 rounded-lg transition-colors cursor-pointer"
-              >
-                Fechar
-              </button>
-            </div>
-          </div>
-        </div>
+</div>
+</Drawer>
       )}
       {selectedKitOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white border border-zinc-200 rounded-xl max-w-lg w-full shadow-2xl overflow-hidden p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-              <div>
-                <h3 className="font-bold text-sm text-zinc-900">
-                  Ordem de Montagem #{selectedKitOrder.orderNumber}
-                </h3>
-                <p className="text-xs text-zinc-500 mt-0.5">
-                  {selectedKitOrder.kitProductDescription} (SKU: {selectedKitOrder.kitProductCode})
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedKitOrder(null)}
-                className="p-1 rounded-xl text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 cursor-pointer"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+<Modal title={`Ordem de Montagem #${selectedKitOrder.orderNumber}`} subtitle={`${selectedKitOrder.kitProductDescription} (SKU: ${selectedKitOrder.kitProductCode})`} size="sm" onClose={() => setSelectedKitOrder(null)}>
+<div className="space-y-4">
 
             <div className="space-y-3 text-xs">
               <div>
@@ -12581,7 +12559,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   defaultValue={selectedKitOrder.quantityAssembled ?? selectedKitOrder.quantity}
                   className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 font-mono font-bold text-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900"
                 />
-                <span className="text-[10px] text-zinc-400 mt-1 block">
+                <span className="text-[11px] md:text-[10px] text-zinc-400 mt-1 block">
                   Total solicitado na ordem: {selectedKitOrder.quantity} kits.
                 </span>
               </div>
@@ -12617,7 +12595,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 )}
                 <div className="flex items-center justify-between pt-1 border-t border-zinc-200 text-zinc-900 font-bold">
                   <span>Tempo {selectedKitOrder.status === 'COMPLETED' ? 'Total de Montagem' : 'Decorrido'}:</span>
-                  <span className="font-mono text-indigo-700 font-extrabold text-sm">
+                  <span className="font-mono text-zinc-700 font-extrabold text-sm">
                     {formatDurationBetween(selectedKitOrder.createdAt, selectedKitOrder.completedAt)}
                   </span>
                 </div>
@@ -12652,42 +12630,33 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 <span>Salvar Ordem de Kit</span>
               </button>
             </div>
-          </div>
-        </div>
+</div>
+</Modal>
       )}
 
       {/* MODAL DE HISTÓRICO DE DATAS E MUDANÇAS DE STATUS */}
       {historyModalLote && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="bg-white border border-zinc-200 rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
-            <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/70">
-              <div>
-                <div className="flex items-center gap-2">
-                  <History className="h-5 w-5 text-zinc-700" />
-                  <h3 className="font-bold text-base text-zinc-900">
-                    Histórico do Lote {rotuloLote(historyModalLote.loteNumber)}
-                  </h3>
-                </div>
-                <p className="text-xs text-zinc-500 mt-0.5 truncate max-w-md">
-                  {historyModalLote.productDescription} • {Number(historyModalLote.quantity).toLocaleString('pt-BR')} un ({Number(historyModalLote.quantityKg).toLocaleString('pt-BR')} kg)
-                </p>
-              </div>
-
+<Drawer size="lg" onClose={() => setHistoryModalLote(null)}
+  title={`Histórico do Lote ${rotuloLote(historyModalLote.loteNumber)}`}
+  subtitle={<span className="block whitespace-normal font-sans">{historyModalLote.productDescription} • {Number(historyModalLote.quantity).toLocaleString('pt-BR')} un ({Number(historyModalLote.quantityKg).toLocaleString('pt-BR')} kg)</span>}
+  footer={
+            <div className="flex w-full flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setHistoryModalLote(null)}
-                className="p-1.5 rounded-xl text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 transition-colors cursor-pointer"
+                className="px-4 py-2 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-colors cursor-pointer"
               >
-                <X className="h-5 w-5" />
+                Fechar
               </button>
             </div>
+}>
 
-            <div className="p-6 overflow-y-auto space-y-4 flex-1">
+            <div className="space-y-4 min-w-0 max-w-full">
               {/* TEMPO EM CADA ETAPA */}
               {(() => {
                 const metrics = calculateStageDurations(historyModalLote);
                 return (
-                  <div className="bg-gradient-to-br from-zinc-50 to-zinc-100/70 border border-zinc-200 rounded-lg p-4 space-y-3 shadow-2xs">
+                  <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-4 space-y-3 shadow-2xs">
                     <div className="flex items-center justify-between border-b border-zinc-200/80 pb-2.5">
                       <div className="flex items-center gap-2">
                         <Clock className="h-4 w-4 text-zinc-700" />
@@ -12697,23 +12666,23 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       </div>
                       <div className="text-xs font-mono font-bold text-zinc-700 bg-white px-2.5 py-1 rounded-lg border border-zinc-200 flex items-center gap-1.5 shadow-2xs">
                         <span>Tempo Total:</span>
-                        <span className={metrics.totalIsCompleted ? "text-emerald-700 font-extrabold" : "text-indigo-700 font-extrabold"}>
+                        <span className={metrics.totalIsCompleted ? "text-emerald-700 font-extrabold" : "text-zinc-700 font-extrabold"}>
                           {metrics.totalDuration}
                         </span>
                         {metrics.totalIsCompleted && (
-                          <span className="text-[10px] text-emerald-600 font-medium">✓ finalizado</span>
+                          <span className="text-[11px] md:text-[10px] text-emerald-600 font-medium">✓ finalizado</span>
                         )}
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       {metrics.stages.map((st) => (
                         <div
                           key={st.stage}
                           className={cn(
                             "p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all",
                             st.isActive
-                              ? "bg-white border-blue-400 ring-2 ring-blue-100 shadow-xs"
+                              ? "bg-white border-zinc-400 ring-2 ring-zinc-100 shadow-xs"
                               : st.isCompleted
                                 ? "bg-white border-zinc-200/90 shadow-2xs"
                                 : "bg-zinc-50/50 border-zinc-200/50 text-zinc-400 opacity-75"
@@ -12722,12 +12691,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           <div className="flex items-center justify-between">
                             <span className={cn(
                               "font-bold text-xs",
-                              st.isActive ? "text-blue-900 font-extrabold" : st.isCompleted ? "text-zinc-800" : "text-zinc-500"
+                              st.isActive ? "text-zinc-900 font-extrabold" : st.isCompleted ? "text-zinc-800" : "text-zinc-500"
                             )}>
                               {st.label}
                             </span>
                             {st.isActive ? (
-                              <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-blue-100 text-blue-800 animate-pulse">
+                              <span className="px-1.5 py-0.5 rounded-md text-[11px] md:text-[9px] font-bold bg-zinc-100 text-zinc-800 animate-pulse">
                                 Ativa
                               </span>
                             ) : st.isCompleted ? (
@@ -12736,10 +12705,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           </div>
 
                           <div className="mt-2 flex items-baseline justify-between pt-1.5 border-t border-zinc-100">
-                            <span className="text-[10px] text-zinc-400 font-medium">Duração:</span>
+                            <span className="text-[11px] md:text-[10px] text-zinc-400 font-medium">Duração:</span>
                             <span className={cn(
                               "font-mono font-bold text-xs",
-                              st.isActive ? "text-blue-700 font-extrabold" : st.isCompleted ? "text-zinc-900" : "text-zinc-400"
+                              st.isActive ? "text-zinc-700 font-extrabold" : st.isCompleted ? "text-zinc-900" : "text-zinc-400"
                             )}>
                               {st.durationFormatted}
                             </span>
@@ -12773,23 +12742,23 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 return (
                   <div className="space-y-3">
                     {/* Bloco Estimativa de Envase */}
-                    <div className="bg-sky-50/40 border border-sky-200 rounded-xl p-3.5 text-xs space-y-2">
-                      <div className="flex items-center justify-between pb-1.5 border-b border-sky-100">
-                        <span className="font-bold text-sky-950 flex items-center gap-1.5">
-                          <Droplets className="h-4 w-4 text-sky-600" />
+                    <div className="bg-zinc-50/40 border border-zinc-200 rounded-xl p-3.5 text-xs space-y-2">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-zinc-100">
+                        <span className="font-bold text-zinc-950 flex items-center gap-1.5">
+                          <Droplets className="h-4 w-4 text-zinc-600" />
                           Estimativa de Envase ({linEnvase})
                         </span>
-                        <span className="font-mono text-[10px] bg-sky-100 text-sky-900 px-2 py-0.5 rounded font-bold">
+                        <span className="font-mono text-[11px] md:text-[10px] bg-zinc-100 text-zinc-900 px-2 py-0.5 rounded font-bold">
                           1.200 un/h nominal
                         </span>
                       </div>
                       <div className="grid grid-cols-2 gap-2 font-mono">
                         <div>
-                          <span className="text-[10px] text-zinc-400 block font-sans">Tempo Previsto:</span>
-                          <span className="font-bold text-sky-900">{tempoFmtEnvase}</span>
+                          <span className="text-[11px] md:text-[10px] text-zinc-400 block font-sans">Tempo Previsto:</span>
+                          <span className="font-bold text-zinc-900">{tempoFmtEnvase}</span>
                         </div>
                         <div>
-                          <span className="text-[10px] text-zinc-400 block font-sans">Início do Envase:</span>
+                          <span className="text-[11px] md:text-[10px] text-zinc-400 block font-sans">Início do Envase:</span>
                           <span className="text-zinc-800">{historyModalLote.dataEnvase ? formatDateTime(historyModalLote.dataEnvase) : 'Aguardando linha'}</span>
                         </div>
                       </div>
@@ -12802,25 +12771,25 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           <CheckSquare className="h-4 w-4 text-emerald-600" />
                           Histórico de Rendimento & Fechamento de Massa
                         </span>
-                        <span className="font-mono text-[10px] bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded font-bold">
+                        <span className="font-mono text-[11px] md:text-[10px] bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded font-bold">
                           {rendPct > 0 ? `${rendPct}% aproveitamento` : 'Em processamento'}
                         </span>
                       </div>
-                      <div className="grid grid-cols-4 gap-2 text-center font-mono">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center font-mono">
                         <div className="bg-white p-2 rounded-lg border border-zinc-200">
-                          <span className="text-[9px] uppercase font-bold text-zinc-400 block font-sans">Planejado</span>
+                          <span className="text-[11px] md:text-[9px] uppercase font-bold text-zinc-400 block font-sans">Planejado</span>
                           <span className="font-bold text-zinc-800">{totalMassa} kg</span>
                         </div>
-                        <div className="bg-white p-2 rounded-lg border border-purple-200">
-                          <span className="text-[9px] uppercase font-bold text-purple-600 block font-sans">Apontado</span>
-                          <span className="font-bold text-purple-700">{massaReal} kg</span>
+                        <div className="bg-white p-2 rounded-lg border border-zinc-200">
+                          <span className="text-[11px] md:text-[9px] uppercase font-bold text-zinc-600 block font-sans">Apontado</span>
+                          <span className="font-bold text-zinc-700">{massaReal} kg</span>
                         </div>
                         <div className="bg-white p-2 rounded-lg border border-emerald-200">
-                          <span className="text-[9px] uppercase font-bold text-emerald-600 block font-sans">Rendimento</span>
+                          <span className="text-[11px] md:text-[9px] uppercase font-bold text-emerald-600 block font-sans">Rendimento</span>
                           <span className="font-bold text-emerald-700">{rendPct > 0 ? `${rendPct}%` : '—'}</span>
                         </div>
                         <div className="bg-white p-2 rounded-lg border border-zinc-200">
-                          <span className="text-[9px] uppercase font-bold text-zinc-400 block font-sans">Saldo/Perda</span>
+                          <span className="text-[11px] md:text-[9px] uppercase font-bold text-zinc-400 block font-sans">Saldo/Perda</span>
                           <span className="font-bold text-amber-700">{saldKg} kg</span>
                         </div>
                       </div>
@@ -12835,39 +12804,39 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               })()}
 
               <div className="bg-zinc-50 border border-zinc-200/80 rounded-lg p-4 space-y-2">
-                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                <span className="text-[11px] md:text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
                   Datas Registradas por Etapa
                 </span>
-                <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                   <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-zinc-100">
                     <span className="font-semibold text-amber-900">Pesagem:</span>
                     <span className="font-mono text-zinc-600">{formatDateTime(historyModalLote.dataPesagem)}</span>
                   </div>
                   <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-zinc-100">
-                    <span className="font-semibold text-blue-900">Produção:</span>
+                    <span className="font-semibold text-zinc-900">Produção:</span>
                     <span className="font-mono text-zinc-600">{formatDateTime(historyModalLote.dataProducao)}</span>
                   </div>
                   <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-zinc-100">
-                    <span className="font-semibold text-purple-900">Envase:</span>
+                    <span className="font-semibold text-zinc-900">Envase:</span>
                     <span className="font-mono text-zinc-600">{formatDateTime(historyModalLote.dataEnvase)}</span>
                   </div>
                   <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-zinc-100">
-                    <span className="font-semibold text-cyan-900">Rotulagem:</span>
+                    <span className="font-semibold text-zinc-900">Rotulagem:</span>
                     <span className="font-mono text-zinc-600">{formatDateTime(historyModalLote.dataRotulagem)}</span>
                   </div>
                   {historyModalLote.dataPrevisao && (
-                    <div className="col-span-2 flex items-center justify-between p-2 bg-indigo-50/70 rounded-xl border border-indigo-200">
-                      <span className="font-semibold text-indigo-950 flex items-center gap-1.5">
-                        <Calendar className="h-3.5 w-3.5 text-indigo-600" />
+                    <div className="col-span-2 flex items-center justify-between p-2 bg-zinc-50/70 rounded-xl border border-zinc-200">
+                      <span className="font-semibold text-zinc-950 flex items-center gap-1.5">
+                        <Calendar className="h-3.5 w-3.5 text-zinc-600" />
                         Previsão de Produção (Meta):
                       </span>
-                      <span className="font-mono text-indigo-800 font-bold">{formatDateTime(historyModalLote.dataPrevisao)}</span>
+                      <span className="font-mono text-zinc-800 font-bold">{formatDateTime(historyModalLote.dataPrevisao)}</span>
                     </div>
                   )}
                   {historyModalLote.dataEmEspera && (
-                    <div className="col-span-2 flex items-center justify-between p-2 bg-orange-50/60 rounded-xl border border-orange-200">
-                      <span className="font-semibold text-orange-950">Em Espera ({historyModalLote.motivoEspera || 'Pausado'}):</span>
-                      <span className="font-mono text-orange-800">{formatDateTime(historyModalLote.dataEmEspera)}</span>
+                    <div className="col-span-2 flex items-center justify-between p-2 bg-amber-50/60 rounded-xl border border-amber-200">
+                      <span className="font-semibold text-amber-950">Em Espera ({historyModalLote.motivoEspera || 'Pausado'}):</span>
+                      <span className="font-mono text-amber-800">{formatDateTime(historyModalLote.dataEmEspera)}</span>
                     </div>
                   )}
                   <div className="col-span-2 flex items-center justify-between p-2 bg-white rounded-xl border border-zinc-100">
@@ -12878,7 +12847,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               </div>
 
               <div className="space-y-2 pt-2">
-                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                <span className="text-[11px] md:text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
                   Linha do Tempo de Alterações
                 </span>
 
@@ -12906,9 +12875,9 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         >
                           <div className="flex items-center gap-2">
                             <span className={cn(
-                              "px-2 py-0.5 rounded-md text-[10px] font-bold border",
+                              "px-2 py-0.5 rounded-md text-[11px] md:text-[10px] font-bold border",
                               entry.status === 'Previsão Alterada'
-                                ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                                ? "bg-zinc-50 text-zinc-700 border-zinc-200"
                                 : getBadgeClass(entry.status)
                             )}>
                               {entry.status}
@@ -12917,14 +12886,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <span className="font-bold text-zinc-900">{entry.changedBy || 'Operador'}</span>
                               {entry.notes && (
                                 <span className={cn(
-                                  "text-[10px] ml-1.5 font-bold",
-                                  entry.status === 'Previsão Alterada' ? "text-indigo-800" : "text-orange-800"
+                                  "text-[11px] md:text-[10px] ml-1.5 font-bold",
+                                  entry.status === 'Previsão Alterada' ? "text-zinc-800" : "text-amber-800"
                                 )}>
                                   • {entry.notes}
                                 </span>
                               )}
                               {durationInStatus && (
-                                <div className="text-[10px] text-zinc-400 mt-0.5">
+                                <div className="text-[11px] md:text-[10px] text-zinc-400 mt-0.5">
                                   Permaneceu por: <strong className="font-mono text-zinc-600">{durationInStatus}</strong>
                                 </div>
                               )}
@@ -12942,47 +12911,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               </div>
             </div>
 
-            <div className="px-6 py-3.5 bg-zinc-50 border-t border-zinc-100 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setHistoryModalLote(null)}
-                className="px-4 py-2 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-colors cursor-pointer"
-              >
-                Fechar
-              </button>
-            </div>
-          </div>
-        </div>
+</Drawer>
       )}
 
           {/* MODAL DE EDIÇÃO DE TERCEIRIZADO (FORNECEDOR E PREVISÃO) */}
       {editTerceirizadoLote && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-xl shadow-xl border border-zinc-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="px-5 py-4 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
-              <div className="flex items-center gap-2">
-                <div className="p-2 bg-indigo-50 text-indigo-700 rounded-lg">
-                  <Building2 className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-sm text-zinc-900">
-                    {editTerceirizadoLote.isTerceirizado ? 'Editar Lote Terceirizado' : 'Mover para Terceirizados'}
-                  </h3>
-                  <p className="text-xs text-zinc-500 font-mono">
-                    Lote {rotuloLote(editTerceirizadoLote.loteNumber)} • {editTerceirizadoLote.productCode}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditTerceirizadoLote(null)}
-                className="p-1.5 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+<Modal title={editTerceirizadoLote.isTerceirizado ? 'Editar Lote Terceirizado' : 'Mover para Terceirizados'} subtitle={`Lote ${rotuloLote(editTerceirizadoLote.loteNumber)} • ${editTerceirizadoLote.productCode}`} size="sm" onClose={() => setEditTerceirizadoLote(null)}>
 
-            <div className="p-5 space-y-4">
+            <div className="space-y-4">
               <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-3 space-y-1">
                 <p className="text-xs font-bold text-zinc-800 line-clamp-2">
                   {editTerceirizadoLote.productDescription}
@@ -13033,7 +12969,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               )}
             </div>
 
-            <div className="px-5 py-3 bg-zinc-50/80 border-t border-zinc-100 flex items-center justify-end gap-2">
+            <div className="pt-3 mt-4 border-t border-zinc-100 flex flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setEditTerceirizadoLote(null)}
@@ -13051,34 +12987,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 <span>Salvar Alterações</span>
               </button>
             </div>
-          </div>
-        </div>
+</Modal>
       )}
 
       {/* MODAL DE ESPERA DO ENVASE COM MOTIVO */}
       {envaseEsperaItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/40 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-xl max-w-md w-full border border-zinc-200 shadow-2xl overflow-hidden flex flex-col">
-            <div className="p-5 border-b border-zinc-100 flex items-center justify-between bg-amber-50/60">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-amber-100 text-amber-800 rounded-xl">
-                  <PauseCircle className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-zinc-900">Colocar Envase em Espera</h3>
-                  <p className="text-xs text-zinc-500">Lote {rotuloLote(envaseEsperaItem.loteNumber)} • {envaseEsperaItem.linha}</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEnvaseEsperaItem(null)}
-                className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-xl transition-colors cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+<Modal title="Colocar Envase em Espera" subtitle={`Lote ${rotuloLote(envaseEsperaItem.loteNumber)} • ${envaseEsperaItem.linha}`} size="sm" onClose={() => setEnvaseEsperaItem(null)}>
 
-            <div className="p-5 space-y-4">
+            <div className="space-y-4">
               <div className="bg-zinc-50 p-3 rounded-xl border border-zinc-200 text-xs space-y-1">
                 <div className="font-bold text-zinc-900">{envaseEsperaItem.productCode} - {envaseEsperaItem.productDescription}</div>
                 <div className="flex items-center justify-between text-zinc-500 font-mono text-[11px] pt-1">
@@ -13158,7 +13074,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               )}
             </div>
 
-            <div className="p-4 bg-zinc-50 border-t border-zinc-100 flex items-center justify-end gap-2">
+            <div className="pt-3 mt-4 border-t border-zinc-100 flex flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setEnvaseEsperaItem(null)}
@@ -13179,8 +13095,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 <span>Confirmar Espera</span>
               </button>
             </div>
-          </div>
-        </div>
+</Modal>
       )}
 
       {/* MODAL CONTEXTUAL: VER DETALHES DO ITEM */}
@@ -13240,7 +13155,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             case 'pesagem':
               return {
                 title: 'Detalhes do Lote — Pesagem',
-                icon: <Scale className="h-5 w-5 text-indigo-600" />,
+                icon: <Scale className="h-5 w-5 text-zinc-600" />,
               };
             case 'producao':
               return {
@@ -13250,12 +13165,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             case 'rotulagem':
               return {
                 title: 'Detalhes do Lote — Rotulagem',
-                icon: <Tag className="h-5 w-5 text-blue-600" />,
+                icon: <Tag className="h-5 w-5 text-zinc-600" />,
               };
             case 'envase':
               return {
                 title: 'Detalhes do Lote — Envase',
-                icon: <Droplets className="h-5 w-5 text-sky-600" />,
+                icon: <Droplets className="h-5 w-5 text-zinc-600" />,
               };
             case 'ordens':
             default:
@@ -13269,53 +13184,54 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         const info = getEtapaInfo();
 
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/40 backdrop-blur-xs animate-in fade-in duration-200">
-            <div className="bg-white rounded-2xl max-w-3xl w-full border border-zinc-200 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
-              {/* Top Header */}
-              <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/70">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-white border border-zinc-200 rounded-xl shadow-2xs">
-                    {info.icon}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-extrabold text-base text-zinc-900">{info.title}</h3>
-                      <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-zinc-900 text-white">
-                        {rotuloLote(lote.loteNumber)}
-                      </span>
-                    </div>
-                    <p className="text-xs text-zinc-600 font-medium line-clamp-1 mt-0.5">
-                      {lote.productCode} — {lote.productDescription}
-                    </p>
-                  </div>
-                </div>
+<Drawer size="2xl" onClose={() => setSelectedLoteDetails(null)}
+  title={<span className="flex items-center gap-2">{info.icon}<span className="truncate">{info.title}</span></span>}
+  badge={<span className="font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-zinc-900 text-white">{rotuloLote(lote.loteNumber)}</span>}
+  subtitle={<span className="block whitespace-normal font-sans">{lote.productCode} — {lote.productDescription}</span>}
+  footer={
+              <div className="flex w-full flex-wrap items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const l = lote;
+                    setSelectedLoteDetails(null);
+                    handleOpenHistory(l);
+                  }}
+                  className="px-4 py-2 text-xs font-bold text-zinc-700 hover:text-zinc-950 bg-zinc-200/70 hover:bg-zinc-200 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                  title="Ver todo o histórico cronológico deste lote"
+                >
+                  <History className="h-4 w-4" />
+                  <span>Histórico do Lote</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setSelectedLoteDetails(null)}
-                  className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-xl transition-colors cursor-pointer"
+                  className="px-6 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
                 >
-                  <X className="h-5 w-5" />
+                  Fechar
                 </button>
               </div>
+}>
 
               {/* Scrollable Body */}
-              <div className="p-6 overflow-y-auto space-y-5">
+              <div className="space-y-5 min-w-0">
                 {/* 1. Métricas Chave do Lote */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-zinc-50 p-3.5 rounded-xl border border-zinc-200 text-xs">
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Qtd Planejada</span>
+                    <span className="text-[11px] md:text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Qtd Planejada</span>
                     <span className="font-mono font-bold text-sm text-zinc-900">{totalUnidades.toLocaleString('pt-BR')} un</span>
                   </div>
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Massa Total</span>
+                    <span className="text-[11px] md:text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Massa Total</span>
                     <span className="font-mono font-bold text-sm text-zinc-900">{totalKg.toLocaleString('pt-BR')} kg</span>
                   </div>
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Data de Abertura</span>
+                    <span className="text-[11px] md:text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Data de Abertura</span>
                     <span className="font-mono text-sm font-semibold text-zinc-800">{formatDateOnly(lote.date)}</span>
                   </div>
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Status Geral</span>
+                    <span className="text-[11px] md:text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Status Geral</span>
                     <span className={cn("px-2 py-0.5 rounded-md text-[11px] font-bold border inline-block mt-0.5", getBadgeClass(eff))}>
                       {eff}
                     </span>
@@ -13334,7 +13250,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       </div>
                     )}
                     {lote.isTerceirizado && (
-                      <div className="flex items-center gap-1.5 px-3 py-1 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-900">
+                      <div className="flex items-center gap-1.5 px-3 py-1 bg-zinc-50 border border-zinc-200 rounded-lg text-zinc-900">
                         <Building2 className="h-3.5 w-3.5" />
                         <span className="font-bold">Terceirizado:</span>
                         <span>{lote.fornecedorTerceirizado || (lote as any).fornecedor_terceirizado || 'Fornecedor Externo'}</span>
@@ -13362,20 +13278,20 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       isPesagemConcluida
                         ? "bg-emerald-50/40 border-emerald-300 ring-1 ring-emerald-200"
                         : lote.dataPesagem
-                          ? "bg-indigo-50/40 border-indigo-300 ring-1 ring-indigo-200"
+                          ? "bg-zinc-50/40 border-zinc-300 ring-1 ring-zinc-200"
                           : "bg-zinc-50 border-zinc-200 opacity-80"
                     )}>
                       <div className="flex items-center justify-between pb-1.5 border-b border-zinc-200/60">
                         <div className="flex items-center gap-1.5 font-bold text-zinc-900">
-                          <Scale className="h-4 w-4 text-indigo-600" />
+                          <Scale className="h-4 w-4 text-zinc-600" />
                           <span>1. Pesagem</span>
                         </div>
                         <span className={cn(
-                          "px-1.5 py-0.5 rounded text-[10px] font-bold font-mono",
+                          "px-1.5 py-0.5 rounded text-[11px] md:text-[10px] font-bold font-mono",
                           isPesagemConcluida
                             ? "bg-emerald-100 text-emerald-800"
                             : lote.dataPesagem
-                              ? "bg-indigo-100 text-indigo-800"
+                              ? "bg-zinc-100 text-zinc-800"
                               : "bg-zinc-200 text-zinc-600"
                         )}>
                           {isPesagemConcluida ? '✓ Concluído' : lote.dataPesagem ? 'Na Balança' : 'Pendente'}
@@ -13386,7 +13302,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           Início: <strong className="text-zinc-800 font-sans">{lote.dataPesagem ? formatDateTime(lote.dataPesagem) : 'Aguardando'}</strong>
                         </div>
                         <div className="text-zinc-500">
-                          Duração: <strong className="text-indigo-700">{lote.dataPesagem ? formatDurationBetween(lote.dataPesagem, lote.dataProducao) : '—'}</strong>
+                          Duração: <strong className="text-zinc-700">{lote.dataPesagem ? formatDurationBetween(lote.dataPesagem, lote.dataProducao) : '—'}</strong>
                         </div>
                       </div>
                     </div>
@@ -13406,7 +13322,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           <span>2. Fabricação</span>
                         </div>
                         <span className={cn(
-                          "px-1.5 py-0.5 rounded text-[10px] font-bold font-mono",
+                          "px-1.5 py-0.5 rounded text-[11px] md:text-[10px] font-bold font-mono",
                           isProducaoConcluida
                             ? "bg-emerald-100 text-emerald-800"
                             : lote.dataProducao
@@ -13435,20 +13351,20 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       isRotulagemConcluida
                         ? "bg-emerald-50/40 border-emerald-300 ring-1 ring-emerald-200"
                         : lote.dataRotulagem
-                          ? "bg-blue-50/40 border-blue-300 ring-1 ring-blue-200"
+                          ? "bg-zinc-50/40 border-zinc-300 ring-1 ring-zinc-200"
                           : "bg-zinc-50 border-zinc-200 opacity-80"
                     )}>
                       <div className="flex items-center justify-between pb-1.5 border-b border-zinc-200/60">
                         <div className="flex items-center gap-1.5 font-bold text-zinc-900">
-                          <Tag className="h-4 w-4 text-blue-600" />
+                          <Tag className="h-4 w-4 text-zinc-600" />
                           <span>3. Rotulagem</span>
                         </div>
                         <span className={cn(
-                          "px-1.5 py-0.5 rounded text-[10px] font-bold font-mono",
+                          "px-1.5 py-0.5 rounded text-[11px] md:text-[10px] font-bold font-mono",
                           isRotulagemConcluida
                             ? "bg-emerald-100 text-emerald-800"
                             : lote.dataRotulagem
-                              ? "bg-blue-100 text-blue-800"
+                              ? "bg-zinc-100 text-zinc-800"
                               : "bg-zinc-200 text-zinc-600"
                         )}>
                           {isRotulagemConcluida ? '✓ Concluído' : lote.dataRotulagem ? 'Rotulando' : 'Programado'}
@@ -13462,7 +13378,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           Início: <strong className="text-zinc-800 font-sans">{lote.dataRotulagem ? formatDateTime(lote.dataRotulagem) : 'Aguardando'}</strong>
                         </div>
                         <div className="text-zinc-500">
-                          Duração: <strong className="text-blue-700">{lote.dataRotulagem ? formatDurationBetween(lote.dataRotulagem, lote.dataFinalizada) : '—'}</strong>
+                          Duração: <strong className="text-zinc-700">{lote.dataRotulagem ? formatDurationBetween(lote.dataRotulagem, lote.dataFinalizada) : '—'}</strong>
                         </div>
                       </div>
                     </div>
@@ -13473,20 +13389,20 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       isEnvaseConcluido
                         ? "bg-emerald-50/40 border-emerald-300 ring-1 ring-emerald-200"
                         : lote.dataEnvase
-                          ? "bg-sky-50/40 border-sky-300 ring-1 ring-sky-200"
+                          ? "bg-zinc-50/40 border-zinc-300 ring-1 ring-zinc-200"
                           : "bg-zinc-50 border-zinc-200 opacity-80"
                     )}>
                       <div className="flex items-center justify-between pb-1.5 border-b border-zinc-200/60">
                         <div className="flex items-center gap-1.5 font-bold text-zinc-900">
-                          <Droplets className="h-4 w-4 text-sky-600" />
+                          <Droplets className="h-4 w-4 text-zinc-600" />
                           <span>4. Envase</span>
                         </div>
                         <span className={cn(
-                          "px-1.5 py-0.5 rounded text-[10px] font-bold font-mono",
+                          "px-1.5 py-0.5 rounded text-[11px] md:text-[10px] font-bold font-mono",
                           isEnvaseConcluido
                             ? "bg-emerald-100 text-emerald-800"
                             : lote.dataEnvase
-                              ? "bg-sky-100 text-sky-800"
+                              ? "bg-zinc-100 text-zinc-800"
                               : "bg-zinc-200 text-zinc-600"
                         )}>
                           {isEnvaseConcluido ? '✓ Envasado' : lote.dataEnvase ? 'Em Linha' : 'Aguardando'}
@@ -13500,7 +13416,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           Entrada: <strong className="text-zinc-800 font-sans">{dataInicioEnvase ? formatDateTime(dataInicioEnvase) : 'Aguardando'}</strong>
                         </div>
                         <div className="text-zinc-500">
-                          Duração: <strong className="text-sky-700">{lote.dataEnvase ? formatDurationBetween(lote.dataEnvase, lote.dataFinalizada) : '—'}</strong>
+                          Duração: <strong className="text-zinc-700">{lote.dataEnvase ? formatDurationBetween(lote.dataEnvase, lote.dataFinalizada) : '—'}</strong>
                         </div>
                       </div>
                     </div>
@@ -13508,36 +13424,36 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 </div>
 
                 {/* 3. ESTIMATIVA DE ENVASE */}
-                <div className="bg-sky-50/40 border border-sky-200 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center justify-between pb-2 border-b border-sky-100">
-                    <span className="text-xs font-bold text-sky-950 flex items-center gap-1.5">
-                      <Droplets className="h-4 w-4 text-sky-600" />
+                <div className="bg-zinc-50/40 border border-zinc-200 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
+                    <span className="text-xs font-bold text-zinc-950 flex items-center gap-1.5">
+                      <Droplets className="h-4 w-4 text-zinc-600" />
                       Estimativa de Envase & Ritmo da Linha
                     </span>
-                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-sky-100 text-sky-900">
+                    <span className="text-[11px] md:text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-900">
                       {linhaEnvase} • {taxaMediaEnvasePorHora.toLocaleString('pt-BR')} un/h nominal
                     </span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                    <div className="bg-white p-2.5 rounded-lg border border-sky-100 shadow-2xs font-mono">
-                      <span className="text-[10px] uppercase font-bold text-zinc-400 block font-sans">Tempo Previsto de Envase</span>
-                      <span className="text-sm font-bold text-sky-900">{tempoFormatadoEnvase}</span>
-                      <span className="text-[10px] text-zinc-400 block font-sans mt-0.5">para {totalUnidades.toLocaleString('pt-BR')} unidades</span>
+                    <div className="bg-white p-2.5 rounded-lg border border-zinc-100 shadow-2xs font-mono">
+                      <span className="text-[11px] md:text-[10px] uppercase font-bold text-zinc-400 block font-sans">Tempo Previsto de Envase</span>
+                      <span className="text-sm font-bold text-zinc-900">{tempoFormatadoEnvase}</span>
+                      <span className="text-[11px] md:text-[10px] text-zinc-400 block font-sans mt-0.5">para {totalUnidades.toLocaleString('pt-BR')} unidades</span>
                     </div>
 
-                    <div className="bg-white p-2.5 rounded-lg border border-sky-100 shadow-2xs font-mono">
-                      <span className="text-[10px] uppercase font-bold text-zinc-400 block font-sans">Previsão Estimada de Término</span>
+                    <div className="bg-white p-2.5 rounded-lg border border-zinc-100 shadow-2xs font-mono">
+                      <span className="text-[11px] md:text-[10px] uppercase font-bold text-zinc-400 block font-sans">Previsão Estimada de Término</span>
                       <span className="text-sm font-bold text-zinc-900">
                         {previsaoConclusaoEnvase || (dataInicioEnvase ? 'Em cálculo' : 'Disponível após liberação')}
                       </span>
-                      <span className="text-[10px] text-zinc-400 block font-sans mt-0.5">
+                      <span className="text-[11px] md:text-[10px] text-zinc-400 block font-sans mt-0.5">
                         {dataInicioEnvase ? `Início: ${formatDateTime(dataInicioEnvase)}` : 'Aguardando entrada em linha'}
                       </span>
                     </div>
 
-                    <div className="bg-white p-2.5 rounded-lg border border-sky-100 shadow-2xs font-mono">
-                      <span className="text-[10px] uppercase font-bold text-zinc-400 block font-sans">Status Operacional do Envase</span>
+                    <div className="bg-white p-2.5 rounded-lg border border-zinc-100 shadow-2xs font-mono">
+                      <span className="text-[11px] md:text-[10px] uppercase font-bold text-zinc-400 block font-sans">Status Operacional do Envase</span>
                       <span className={cn(
                         "text-xs font-bold font-sans inline-block mt-0.5 px-2 py-0.5 rounded",
                         isEnvaseConcluido
@@ -13545,13 +13461,13 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           : envaseItem?.statusEnvase === 'EM_ESPERA'
                             ? "bg-amber-100 text-amber-900"
                             : envaseItem?.statusEnvase === 'EM_ENVASE'
-                              ? "bg-purple-100 text-purple-900"
+                              ? "bg-zinc-100 text-zinc-900"
                               : "bg-zinc-100 text-zinc-700"
                       )}>
                         {isEnvaseConcluido ? '✓ Envase Concluído' : envaseItem?.statusEnvase === 'EM_ESPERA' ? '⏸️ Linha em Espera' : envaseItem?.statusEnvase === 'EM_ENVASE' ? '⚡ Envasando em Linha' : 'Programado na Fila'}
                       </span>
                       {envaseItem?.motivoEspera && (
-                        <span className="text-[10px] text-amber-700 block font-sans truncate mt-0.5" title={envaseItem.motivoEspera}>
+                        <span className="text-[11px] md:text-[10px] text-amber-700 block font-sans truncate mt-0.5" title={envaseItem.motivoEspera}>
                           {envaseItem.motivoEspera}
                         </span>
                       )}
@@ -13567,11 +13483,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       Histórico de Aproveitamento de Massa & Fechamento da OP
                     </span>
                     <span className={cn(
-                      "text-[10px] font-mono px-2 py-0.5 rounded-md font-bold",
+                      "text-[11px] md:text-[10px] font-mono px-2 py-0.5 rounded-md font-bold",
                       isFinalizada
                         ? "bg-emerald-100 text-emerald-900"
                         : parcialQty > 0
-                          ? "bg-purple-100 text-purple-900"
+                          ? "bg-zinc-100 text-zinc-900"
                           : "bg-zinc-100 text-zinc-700"
                     )}>
                       {isFinalizada ? 'Ordem Finalizada' : parcialQty > 0 ? 'Envase Parcial' : 'Em Andamento'}
@@ -13580,32 +13496,32 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center font-mono">
                     <div className="bg-white p-2.5 rounded-lg border border-zinc-200 shadow-2xs">
-                      <span className="text-[10px] uppercase font-bold text-zinc-400 block font-sans">Massa Planejada</span>
+                      <span className="text-[11px] md:text-[10px] uppercase font-bold text-zinc-400 block font-sans">Massa Planejada</span>
                       <span className="font-bold text-sm text-zinc-800">{totalKg.toLocaleString('pt-BR')} kg</span>
-                      <span className="text-[10px] text-zinc-500 block font-sans">{totalUnidades.toLocaleString('pt-BR')} un</span>
+                      <span className="text-[11px] md:text-[10px] text-zinc-500 block font-sans">{totalUnidades.toLocaleString('pt-BR')} un</span>
                     </div>
 
-                    <div className="bg-white p-2.5 rounded-lg border border-purple-200 shadow-2xs">
-                      <span className="text-[10px] uppercase font-bold text-purple-600 block font-sans">Real Envasado</span>
-                      <span className="font-bold text-sm text-purple-700">{massaRealKg.toLocaleString('pt-BR')} kg</span>
-                      <span className="text-[10px] text-purple-600 block font-sans">{qtdRealEnvasada.toLocaleString('pt-BR')} un</span>
+                    <div className="bg-white p-2.5 rounded-lg border border-zinc-200 shadow-2xs">
+                      <span className="text-[11px] md:text-[10px] uppercase font-bold text-zinc-600 block font-sans">Real Envasado</span>
+                      <span className="font-bold text-sm text-zinc-700">{massaRealKg.toLocaleString('pt-BR')} kg</span>
+                      <span className="text-[11px] md:text-[10px] text-zinc-600 block font-sans">{qtdRealEnvasada.toLocaleString('pt-BR')} un</span>
                     </div>
 
                     <div className="bg-white p-2.5 rounded-lg border border-emerald-200 shadow-2xs">
-                      <span className="text-[10px] uppercase font-bold text-emerald-600 block font-sans">Aproveitamento</span>
+                      <span className="text-[11px] md:text-[10px] uppercase font-bold text-emerald-600 block font-sans">Aproveitamento</span>
                       <span className={cn(
                         "font-extrabold text-sm",
                         rendimentoPct >= 98 ? "text-emerald-700" : rendimentoPct >= 90 ? "text-amber-700" : "text-zinc-700"
                       )}>
                         {rendimentoPct > 0 ? `${rendimentoPct}%` : '—'}
                       </span>
-                      <span className="text-[10px] text-zinc-400 block font-sans">meta: 98% a 100%</span>
+                      <span className="text-[11px] md:text-[10px] text-zinc-400 block font-sans">meta: 98% a 100%</span>
                     </div>
 
                     <div className="bg-white p-2.5 rounded-lg border border-zinc-200 shadow-2xs">
-                      <span className="text-[10px] uppercase font-bold text-zinc-400 block font-sans">Saldo / Perda</span>
+                      <span className="text-[11px] md:text-[10px] uppercase font-bold text-zinc-400 block font-sans">Saldo / Perda</span>
                       <span className="font-bold text-sm text-amber-700">{saldoKg.toLocaleString('pt-BR')} kg</span>
-                      <span className="text-[10px] text-amber-600 block font-sans">{saldoUn.toLocaleString('pt-BR')} un</span>
+                      <span className="text-[11px] md:text-[10px] text-amber-600 block font-sans">{saldoUn.toLocaleString('pt-BR')} un</span>
                     </div>
                   </div>
 
@@ -13645,7 +13561,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             : 'Em Aberto / Execução no Chão de Fábrica'}
                       </span>
                       {lote.dataFinalizada && (
-                        <span className="text-[10px] font-mono text-zinc-500 block">
+                        <span className="text-[11px] md:text-[10px] font-mono text-zinc-500 block">
                           Finalizada em: {formatDateTime(lote.dataFinalizada)}
                         </span>
                       )}
@@ -13672,9 +13588,9 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                 {/* 5. CONTEXTO APROFUNDADO DA ETAPA */}
                 {etapa === 'pesagem' && (
-                  <div className="space-y-3 bg-indigo-50/30 border border-indigo-100 rounded-xl p-3.5">
-                    <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
-                      <Scale className="h-4 w-4 text-indigo-600" />
+                  <div className="space-y-3 bg-zinc-50/30 border border-zinc-100 rounded-xl p-3.5">
+                    <span className="text-xs font-bold text-zinc-950 flex items-center gap-1.5">
+                      <Scale className="h-4 w-4 text-zinc-600" />
                       Insumos & Matérias-Primas do Lote
                     </span>
 
@@ -13685,7 +13601,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           <PauseCircle className="h-4 w-4 text-amber-600" />
                           <span>Lote Colocado em Espera</span>
                           {lote.dataEmEspera && (
-                            <span className="text-[10px] font-mono text-amber-700 ml-auto">
+                            <span className="text-[11px] md:text-[10px] font-mono text-amber-700 ml-auto">
                               desde {formatDateTime(lote.dataEmEspera)}
                             </span>
                           )}
@@ -13729,7 +13645,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 {etapa === 'producao' && (
                   <div className="space-y-3 bg-amber-50/30 border border-amber-100 rounded-xl p-3.5">
                     <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
-                      <Flame className="h-4 w-4 text-orange-600" />
+                      <Flame className="h-4 w-4 text-amber-600" />
                       Processamento Térmico (Caldeira / Vapor)
                     </span>
 
@@ -13738,20 +13654,20 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       caldeiraLigadaNoLote
                         ? "bg-rose-50 border-rose-300 text-rose-950"
                         : hasCaldeira
-                          ? "bg-orange-50 border-orange-200 text-orange-950"
+                          ? "bg-amber-50 border-amber-200 text-amber-950"
                           : "bg-zinc-50 border-zinc-200 text-zinc-700"
                     )}>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5 font-bold">
-                          <Flame className={cn("h-4 w-4", caldeiraLigadaNoLote ? "fill-rose-500 text-rose-500 animate-pulse" : hasCaldeira ? "fill-orange-500 text-orange-500" : "text-zinc-400")} />
+                          <Flame className={cn("h-4 w-4", caldeiraLigadaNoLote ? "fill-rose-500 text-rose-500 animate-pulse" : hasCaldeira ? "fill-amber-500 text-amber-500" : "text-zinc-400")} />
                           <span>Status do Vapor</span>
                         </div>
                         <span className={cn(
-                          "px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase",
+                          "px-2 py-0.5 rounded text-[11px] md:text-[10px] font-mono font-bold uppercase",
                           caldeiraLigadaNoLote
                             ? "bg-rose-600 text-white animate-pulse"
                             : hasCaldeira
-                              ? "bg-orange-200 text-orange-900"
+                              ? "bg-amber-200 text-amber-900"
                               : "bg-zinc-200 text-zinc-700"
                         )}>
                           {caldeiraLigadaNoLote ? 'Aquecendo Agora' : hasCaldeira ? 'Requer Caldeira' : 'Processo a Frio'}
@@ -13781,7 +13697,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 {/* Observações Operacionais */}
                 {lote.notes && (
                   <div className="p-3 bg-zinc-50 rounded-xl border border-zinc-200 text-xs">
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase block mb-1">
+                    <span className="text-[11px] md:text-[10px] font-bold text-zinc-400 uppercase block mb-1">
                       Observações Registradas
                     </span>
                     <p className="text-zinc-700 italic">"{lote.notes}"</p>
@@ -13795,70 +13711,23 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               </div>
 
               {/* Footer Actions */}
-              <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-100 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const l = lote;
-                    setSelectedLoteDetails(null);
-                    handleOpenHistory(l);
-                  }}
-                  className="px-4 py-2 text-xs font-bold text-zinc-700 hover:text-zinc-950 bg-zinc-200/70 hover:bg-zinc-200 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
-                  title="Ver todo o histórico cronológico deste lote"
-                >
-                  <History className="h-4 w-4" />
-                  <span>Histórico do Lote</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedLoteDetails(null)}
-                  className="px-6 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
-                >
-                  Fechar
-                </button>
-              </div>
-            </div>
-          </div>
+</Drawer>
         );
       })()}
 
       {/* MODAL AJUSTAR DATAS E HORÁRIOS MANUALMENTE */}
       {editTimestampsLote && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/40 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-xl max-w-lg w-full border border-zinc-200 shadow-2xl overflow-hidden flex flex-col">
-            <div className="p-5 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-amber-100 text-amber-800 rounded-xl">
-                  <Clock className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-zinc-900 flex items-center gap-1.5">
-                    <span>Ajustar Datas do Lote {rotuloLote(editTimestampsLote.loteNumber)}</span>
-                  </h3>
-                  <p className="text-xs text-zinc-500 truncate max-w-sm">
-                    {editTimestampsLote.productDescription}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditTimestampsLote(null)}
-                className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-xl transition-colors cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+<Modal title={`Ajustar Datas do Lote ${rotuloLote(editTimestampsLote.loteNumber)}`} subtitle={editTimestampsLote.productDescription} size="lg" onClose={() => setEditTimestampsLote(null)}>
 
-            <div className="p-5 space-y-3.5 max-h-[70vh] overflow-y-auto">
-              <div className="p-2.5 bg-blue-50/60 border border-blue-200 rounded-xl text-xs text-blue-950">
+            <div className="space-y-3.5">
+              <div className="p-2.5 bg-zinc-50/60 border border-zinc-200 rounded-xl text-xs text-zinc-950">
                 Ajuste manualmente os registros de horário de cada etapa do lote. Deixe em branco se a etapa ainda não foi iniciada ou concluída.
               </div>
 
               {/* Data Previsão / Programada */}
               <div className="space-y-1">
                 <label className="text-xs font-bold text-zinc-700 flex items-center gap-1">
-                  <Calendar className="h-3.5 w-3.5 text-indigo-600" />
+                  <Calendar className="h-3.5 w-3.5 text-zinc-600" />
                   <span>Data Programada / Previsão (Dia de Produção)</span>
                 </label>
                 <input
@@ -13887,7 +13756,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 {/* Data Produção */}
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-zinc-700 flex items-center gap-1">
-                    <FlaskConical className="h-3.5 w-3.5 text-blue-600" />
+                    <FlaskConical className="h-3.5 w-3.5 text-zinc-600" />
                     <span>Início Produção</span>
                   </label>
                   <input
@@ -13901,7 +13770,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 {/* Data Liberado Envase */}
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-zinc-700 flex items-center gap-1">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-teal-600" />
+                    <CheckCircle2 className="h-3.5 w-3.5 text-zinc-600" />
                     <span>Liberado para Envase</span>
                   </label>
                   <input
@@ -13915,7 +13784,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 {/* Data Envase */}
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-zinc-700 flex items-center gap-1">
-                    <Droplets className="h-3.5 w-3.5 text-purple-600" />
+                    <Droplets className="h-3.5 w-3.5 text-zinc-600" />
                     <span>Início Envase</span>
                   </label>
                   <input
@@ -13956,7 +13825,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               </div>
             </div>
 
-            <div className="p-4 bg-zinc-50 border-t border-zinc-100 flex items-center justify-between gap-2">
+            <div className="pt-3 mt-4 border-t border-zinc-100 flex flex-wrap items-center justify-between gap-2">
               <button
                 type="button"
                 onClick={() => setEditTimestampsLote(null)}
@@ -13985,49 +13854,15 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 )}
               </button>
             </div>
-          </div>
-        </div>
+</Modal>
       )}
 
       {/* Modal para Selecionar Data para Adiar Lote / Programação */}
       {adiarModalItem && (
-        <div
-          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
-          onClick={() => {
-            if (!savingAdiarLote) setAdiarModalItem(null);
-          }}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl border border-zinc-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200"
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="bg-gradient-to-r from-zinc-900 to-zinc-800 text-white px-5 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-indigo-500/20 text-indigo-300 rounded-xl border border-indigo-400/30">
-                  <CalendarPlus className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-base tracking-tight leading-none text-white">
-                    Adiar Lote
-                  </h3>
-                  <p className="text-[11px] text-zinc-300 mt-1 font-medium">
-                    {adiarModalItem.etapaLabel || 'Programação de Produção / Envase'}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAdiarModalItem(null)}
-                disabled={savingAdiarLote}
-                className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer disabled:opacity-30"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+<Modal title="Adiar Lote" subtitle={adiarModalItem.etapaLabel || 'Programação de Produção / Envase'} size="sm" onClose={() => { if (!savingAdiarLote) setAdiarModalItem(null); }}>
 
             {/* Modal Body */}
-            <div className="p-5 space-y-4">
+            <div className="space-y-4">
               {/* Card Resumo do Lote */}
               <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3.5 space-y-2">
                 <div className="flex items-center justify-between gap-2">
@@ -14079,7 +13914,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               {/* Seletor de Data */}
               <div className="space-y-2">
                 <label className="text-xs font-extrabold text-zinc-800 flex items-center gap-1.5">
-                  <Calendar className="h-4 w-4 text-indigo-600" />
+                  <Calendar className="h-4 w-4 text-zinc-600" />
                   <span>Selecione a Nova Data Desejada</span>
                 </label>
 
@@ -14090,15 +13925,15 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     const val = e.target.value;
                     setAdiarModalItem(prev => prev ? { ...prev, targetDate: val } : null);
                   }}
-                  className="w-full bg-white border-2 border-indigo-200 focus:border-indigo-600 rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer shadow-xs transition-colors"
+                  className="w-full bg-white border-2 border-zinc-200 focus:border-zinc-900 rounded-xl px-3 py-2 text-sm font-mono font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-400/20 cursor-pointer shadow-xs transition-colors"
                 />
 
                 {/* Prévia amigável por extenso */}
                 {adiarModalItem.targetDate && (
-                  <div className="p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-xl text-xs text-indigo-950 flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-indigo-600 shrink-0" />
+                  <div className="p-2.5 bg-zinc-50/70 border border-zinc-200 rounded-xl text-xs text-zinc-950 flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-zinc-600 shrink-0" />
                     <div>
-                      <span className="text-[11px] text-indigo-700 block font-semibold">Previsão confirmada:</span>
+                      <span className="text-[11px] text-zinc-700 block font-semibold">Previsão confirmada:</span>
                       <strong className="text-xs font-bold capitalize">
                         {formatWeekdayAndDate(adiarModalItem.targetDate)}
                       </strong>
@@ -14116,7 +13951,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   <button
                     type="button"
                     onClick={() => setQuickDate(1)}
-                    className="px-2 py-1.5 text-xs font-bold bg-zinc-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300 border border-zinc-200 rounded-lg text-zinc-700 transition-colors cursor-pointer text-center"
+                    className="px-2 py-1.5 text-xs font-bold bg-zinc-100 hover:bg-zinc-50 hover:text-zinc-700 hover:border-zinc-300 border border-zinc-200 rounded-lg text-zinc-700 transition-colors cursor-pointer text-center"
                     title="Adiar em 1 dia"
                   >
                     +1 Dia
@@ -14124,7 +13959,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   <button
                     type="button"
                     onClick={() => setQuickDate(2)}
-                    className="px-2 py-1.5 text-xs font-bold bg-zinc-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300 border border-zinc-200 rounded-lg text-zinc-700 transition-colors cursor-pointer text-center"
+                    className="px-2 py-1.5 text-xs font-bold bg-zinc-100 hover:bg-zinc-50 hover:text-zinc-700 hover:border-zinc-300 border border-zinc-200 rounded-lg text-zinc-700 transition-colors cursor-pointer text-center"
                     title="Adiar em 2 dias"
                   >
                     +2 Dias
@@ -14132,7 +13967,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   <button
                     type="button"
                     onClick={() => setQuickDate(3)}
-                    className="px-2 py-1.5 text-xs font-bold bg-zinc-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300 border border-zinc-200 rounded-lg text-zinc-700 transition-colors cursor-pointer text-center"
+                    className="px-2 py-1.5 text-xs font-bold bg-zinc-100 hover:bg-zinc-50 hover:text-zinc-700 hover:border-zinc-300 border border-zinc-200 rounded-lg text-zinc-700 transition-colors cursor-pointer text-center"
                     title="Adiar em 3 dias"
                   >
                     +3 Dias
@@ -14140,7 +13975,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   <button
                     type="button"
                     onClick={setQuickNextMonday}
-                    className="px-2 py-1.5 text-xs font-bold bg-zinc-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300 border border-zinc-200 rounded-lg text-zinc-700 transition-colors cursor-pointer text-center truncate"
+                    className="px-2 py-1.5 text-xs font-bold bg-zinc-100 hover:bg-zinc-50 hover:text-zinc-700 hover:border-zinc-300 border border-zinc-200 rounded-lg text-zinc-700 transition-colors cursor-pointer text-center truncate"
                     title="Adiar para a próxima segunda-feira útil"
                   >
                     Próx. Seg
@@ -14148,7 +13983,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   <button
                     type="button"
                     onClick={() => setQuickDate(7)}
-                    className="px-2 py-1.5 text-xs font-bold bg-zinc-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300 border border-zinc-200 rounded-lg text-zinc-700 transition-colors cursor-pointer text-center"
+                    className="px-2 py-1.5 text-xs font-bold bg-zinc-100 hover:bg-zinc-50 hover:text-zinc-700 hover:border-zinc-300 border border-zinc-200 rounded-lg text-zinc-700 transition-colors cursor-pointer text-center"
                     title="Adiar em 1 semana (7 dias)"
                   >
                     +1 Sem
@@ -14158,7 +13993,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 bg-zinc-50 border-t border-zinc-100 flex items-center justify-between gap-3">
+            <div className="pt-3 mt-4 border-t border-zinc-100 flex flex-wrap items-center justify-between gap-3">
               <button
                 type="button"
                 onClick={() => setAdiarModalItem(null)}
@@ -14172,7 +14007,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 type="button"
                 onClick={() => handleConfirmAdiarLote(adiarModalItem.targetDate)}
                 disabled={savingAdiarLote || !adiarModalItem.targetDate}
-                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-extrabold shadow-sm transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-700 text-white rounded-xl text-xs font-extrabold shadow-sm transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
               >
                 {savingAdiarLote ? (
                   <>
@@ -14187,8 +14022,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 )}
               </button>
             </div>
-          </div>
-        </div>
+</Modal>
       )}
 
       {/* ESTILO GLOBAL PARA IMPRESSÃO DE FOLHA A4 */}
@@ -14234,50 +14068,55 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
       {/* MODAL DE RELATÓRIO DE ENVASE PERSONALIZADO (INTERATIVO EM TELA) */}
       {showRelatorioEnvaseModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150 no-print"
-          onClick={() => setShowRelatorioEnvaseModal(false)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl border border-zinc-200 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="bg-gradient-to-r from-zinc-900 to-zinc-800 text-white px-6 py-4 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-indigo-500/20 text-indigo-300 rounded-xl border border-indigo-400/30">
-                  <Printer className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-base tracking-tight text-white flex items-center gap-2">
-                    <span>Relatório de Programação de Envase</span>
-                    <span className="text-[11px] font-mono font-bold bg-indigo-600/80 px-2 py-0.5 rounded-full text-white">
-                      {relatorioTotals.totalCount} {relatorioTotals.totalCount === 1 ? 'item' : 'itens'}
-                    </span>
-                  </h3>
-                  <p className="text-xs text-zinc-300 mt-0.5 font-medium">
-                    Filtre o período personalizado para conferência, impressão em folha A4 ou exportação para Excel.
-                  </p>
-                </div>
-              </div>
+<Drawer size="full" onClose={() => setShowRelatorioEnvaseModal(false)}
+  title={<span className="block whitespace-normal">Relatório de Programação de Envase</span>}
+  badge={<span className="text-[11px] font-mono font-bold bg-zinc-900 px-2 py-0.5 rounded-full text-white">{relatorioTotals.totalCount} {relatorioTotals.totalCount === 1 ? 'item' : 'itens'}</span>}
+  subtitle={<span className="block whitespace-normal font-sans">Filtre o período personalizado para conferência, impressão em folha A4 ou exportação para Excel.</span>}
+  footer={
+            <div className="flex w-full flex-wrap items-center justify-between gap-2">
               <button
                 type="button"
                 onClick={() => setShowRelatorioEnvaseModal(false)}
-                className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                className="px-4 py-2 text-xs font-bold text-zinc-600 hover:text-zinc-900 bg-zinc-200/80 hover:bg-zinc-200 rounded-xl transition-colors cursor-pointer"
               >
-                <X className="h-5 w-5" />
+                Fechar
               </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportRelatorioEnvaseExcel}
+                  disabled={relatorioEnvaseItems.length === 0}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                  title="Exportar dados do relatório para arquivo Excel (.xlsx)"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>Exportar Excel</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handlePrintRelatorioEnvase}
+                  disabled={relatorioEnvaseItems.length === 0}
+                  className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-700 text-white rounded-xl text-xs font-extrabold shadow-sm transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                  title="Abrir prévia de impressão e imprimir em folha A4"
+                >
+                  <Printer className="h-4 w-4" />
+                  <span>Imprimir Relatório</span>
+                </button>
+              </div>
             </div>
+}>
 
             {/* Modal Body / Scrollable Area */}
-            <div className="p-5 overflow-y-auto space-y-4 flex-1">
+            <div className="space-y-4 min-w-0">
               {/* Barra de Filtros e Período */}
               <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 space-y-3">
                 {/* Linha 1: Seletores de Data e Atalhos */}
                 <div>
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                     <span className="text-xs font-bold text-zinc-700 flex items-center gap-1.5">
-                      <Calendar className="h-4 w-4 text-indigo-600" />
+                      <Calendar className="h-4 w-4 text-zinc-600" />
                       <span>Período Personalizado:</span>
                     </span>
 
@@ -14287,35 +14126,35 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       <button
                         type="button"
                         onClick={() => handleSetRelatorioPeriod('hoje')}
-                        className="px-2 py-0.5 rounded-md bg-white border border-zinc-200 hover:bg-indigo-50 hover:text-indigo-700 font-bold text-zinc-700 text-[11px] cursor-pointer transition-colors"
+                        className="px-2 py-0.5 rounded-md bg-white border border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700 font-bold text-zinc-700 text-[11px] cursor-pointer transition-colors"
                       >
                         Hoje
                       </button>
                       <button
                         type="button"
                         onClick={() => handleSetRelatorioPeriod('amanha')}
-                        className="px-2 py-0.5 rounded-md bg-white border border-zinc-200 hover:bg-indigo-50 hover:text-indigo-700 font-bold text-zinc-700 text-[11px] cursor-pointer transition-colors"
+                        className="px-2 py-0.5 rounded-md bg-white border border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700 font-bold text-zinc-700 text-[11px] cursor-pointer transition-colors"
                       >
                         Amanhã
                       </button>
                       <button
                         type="button"
                         onClick={() => handleSetRelatorioPeriod('semana')}
-                        className="px-2 py-0.5 rounded-md bg-white border border-zinc-200 hover:bg-indigo-50 hover:text-indigo-700 font-bold text-zinc-700 text-[11px] cursor-pointer transition-colors"
+                        className="px-2 py-0.5 rounded-md bg-white border border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700 font-bold text-zinc-700 text-[11px] cursor-pointer transition-colors"
                       >
                         Esta Semana
                       </button>
                       <button
                         type="button"
                         onClick={() => handleSetRelatorioPeriod('7dias')}
-                        className="px-2 py-0.5 rounded-md bg-white border border-zinc-200 hover:bg-indigo-50 hover:text-indigo-700 font-bold text-zinc-700 text-[11px] cursor-pointer transition-colors"
+                        className="px-2 py-0.5 rounded-md bg-white border border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700 font-bold text-zinc-700 text-[11px] cursor-pointer transition-colors"
                       >
                         Próx. 7 Dias
                       </button>
                       <button
                         type="button"
                         onClick={() => handleSetRelatorioPeriod('mes')}
-                        className="px-2 py-0.5 rounded-md bg-white border border-zinc-200 hover:bg-indigo-50 hover:text-indigo-700 font-bold text-zinc-700 text-[11px] cursor-pointer transition-colors"
+                        className="px-2 py-0.5 rounded-md bg-white border border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700 font-bold text-zinc-700 text-[11px] cursor-pointer transition-colors"
                       >
                         Este Mês
                       </button>
@@ -14387,7 +14226,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       <select
                         value={relatorioAgrupamento}
                         onChange={e => setRelatorioAgrupamento(e.target.value as any)}
-                        className="w-full bg-white border border-zinc-300 rounded-xl px-2.5 py-1.5 text-xs font-bold text-indigo-700 focus:outline-none focus:ring-1 focus:ring-zinc-900 cursor-pointer"
+                        className="w-full bg-white border border-zinc-300 rounded-xl px-2.5 py-1.5 text-xs font-bold text-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-900 cursor-pointer"
                       >
                         <option value="linha">Quadro por Linha (Compacto - Linhas 1, 2 e 3)</option>
                         <option value="tabela">Tabela Geral Detalhada</option>
@@ -14424,7 +14263,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       type="checkbox"
                       checked={relatorioIncluirLiberados}
                       onChange={e => setRelatorioIncluirLiberados(e.target.checked)}
-                      className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4 cursor-pointer"
+                      className="rounded text-zinc-600 focus:ring-zinc-400 h-4 w-4 cursor-pointer"
                     />
                     <span>Incluir lotes liberados aguardando esteira</span>
                   </label>
@@ -14443,11 +14282,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 </div>
 
                 <div className="p-3 bg-white border border-zinc-200 rounded-xl shadow-2xs">
-                  <span className="text-[11px] font-bold text-indigo-600 uppercase tracking-wide block">
+                  <span className="text-[11px] font-bold text-zinc-600 uppercase tracking-wide block">
                     Volume a Envasar
                   </span>
-                  <div className="text-xl font-mono font-extrabold text-indigo-700 mt-0.5">
-                    {Number(relatorioTotals.totalUn).toLocaleString('pt-BR')} <span className="text-xs font-normal text-indigo-500">un</span>
+                  <div className="text-xl font-mono font-extrabold text-zinc-700 mt-0.5">
+                    {Number(relatorioTotals.totalUn).toLocaleString('pt-BR')} <span className="text-xs font-normal text-zinc-500">un</span>
                   </div>
                 </div>
 
@@ -14461,16 +14300,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 </div>
 
                 <div className="p-3 bg-white border border-zinc-200 rounded-xl shadow-2xs flex flex-col justify-center text-xs">
-                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide block mb-1">
+                  <span className="text-[11px] md:text-[10px] font-bold text-zinc-500 uppercase tracking-wide block mb-1">
                     Divisão por Linhas
                   </span>
                   <div className="space-y-0.5 text-[11px] font-mono">
                     <div className="flex justify-between">
-                      <span className="text-blue-700 font-bold">L1:</span>
+                      <span className="text-zinc-700 font-bold">L1:</span>
                       <span>{relatorioTotals.linha1Count} lotes ({Number(relatorioTotals.linha1Un).toLocaleString('pt-BR')} un)</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-indigo-700 font-bold">L2:</span>
+                      <span className="text-zinc-700 font-bold">L2:</span>
                       <span>{relatorioTotals.linha2Count} lotes ({Number(relatorioTotals.linha2Un).toLocaleString('pt-BR')} un)</span>
                     </div>
                     <div className="flex justify-between">
@@ -14519,7 +14358,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <div className="px-3 py-2 bg-zinc-900 text-white flex items-center justify-between">
                               <div className="flex items-center gap-1.5 min-w-0">
                                 <span className="font-extrabold text-xs tracking-tight truncate">{group.title}</span>
-                                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-white/20 text-white shrink-0">
+                                <span className="px-1.5 py-0.2 rounded-full text-[11px] md:text-[10px] font-mono font-bold bg-white/20 text-white shrink-0">
                                   {group.items.length}
                                 </span>
                               </div>
@@ -14540,7 +14379,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                     key={it.id || idx}
                                     className={cn(
                                       "p-2 rounded-lg border bg-white shadow-2xs text-xs space-y-1 transition-all",
-                                      it.statusEnvase === 'EM_ENVASE' ? "border-purple-300 ring-1 ring-purple-200 bg-purple-50/20" :
+                                      it.statusEnvase === 'EM_ENVASE' ? "border-zinc-300 ring-1 ring-zinc-200 bg-zinc-50/20" :
                                       it.statusEnvase === 'EM_ESPERA' ? "border-amber-300 bg-amber-50/30" :
                                       it.statusEnvase === 'CONCLUIDO' ? "border-emerald-200 bg-emerald-50/15" :
                                       "border-zinc-200"
@@ -14548,12 +14387,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   >
                                     <div className="flex items-center justify-between gap-1 text-[11px]">
                                       <div className="flex items-center gap-1.5 font-mono">
-                                        <span className="font-extrabold px-1.5 py-0.2 rounded bg-zinc-900 text-white text-[10px]">
+                                        <span className="font-extrabold px-1.5 py-0.2 rounded bg-zinc-900 text-white text-[11px] md:text-[10px]">
                                           {it.ordem > 0 && it.ordem < 999 ? `${it.ordem}º` : '—'}
                                         </span>
                                         <span className="font-bold text-zinc-900">{rotuloLote(it.loteNumber)}</span>
                                       </div>
-                                      <div className="flex items-center gap-1 font-mono text-[10px] text-zinc-500">
+                                      <div className="flex items-center gap-1 font-mono text-[11px] md:text-[10px] text-zinc-500">
                                         <span>{it.productCode}</span>
                                         {relatorioDataInicio !== relatorioDataFim && (
                                           <span className="px-1 py-0.2 bg-zinc-100 rounded text-zinc-700 font-semibold">{it.dataProgramadaFmt}</span>
@@ -14567,13 +14406,13 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                                     <div className="flex items-center justify-between text-[11px] pt-1 border-t border-zinc-100 font-mono">
                                       <div>
-                                        <strong className="text-indigo-700">{Number(it.quantity).toLocaleString('pt-BR')} un</strong>
+                                        <strong className="text-zinc-700">{Number(it.quantity).toLocaleString('pt-BR')} un</strong>
                                         {it.quantityKg > 0 && (
-                                          <span className="text-zinc-500 text-[10px] ml-1">({Number(it.quantityKg).toLocaleString('pt-BR')} kg)</span>
+                                          <span className="text-zinc-500 text-[11px] md:text-[10px] ml-1">({Number(it.quantityKg).toLocaleString('pt-BR')} kg)</span>
                                         )}
                                       </div>
-                                      <div className="text-[10px] font-sans font-semibold">
-                                        {it.statusEnvase === 'EM_ENVASE' && <span className="text-purple-700">⚡ Em Envase</span>}
+                                      <div className="text-[11px] md:text-[10px] font-sans font-semibold">
+                                        {it.statusEnvase === 'EM_ENVASE' && <span className="text-zinc-700">⚡ Em Envase</span>}
                                         {it.statusEnvase === 'EM_ESPERA' && (
                                           <span className="text-amber-700 truncate max-w-[120px]" title={it.observacoes}>
                                             ⏸️ {it.observacoes ? it.observacoes.slice(0, 16) : 'Espera'}
@@ -14581,7 +14420,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                         )}
                                         {it.statusEnvase === 'CONCLUIDO' && <span className="text-emerald-700">✅ Concluído</span>}
                                         {it.statusEnvase === 'PROGRAMADO' && <span className="text-zinc-500">Programado</span>}
-                                        {it.statusEnvase === 'LIBERADO' && <span className="text-cyan-700">Liberado</span>}
+                                        {it.statusEnvase === 'LIBERADO' && <span className="text-zinc-700">Liberado</span>}
                                       </div>
                                     </div>
                                   </div>
@@ -14594,12 +14433,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                       {/* Lotes liberados aguardando esteira */}
                       {relatorioIncluirLiberados && relatorioLinhasGroups.liberados.items.length > 0 && (
-                        <div className="bg-white border border-cyan-200 rounded-xl p-3 shadow-xs">
+                        <div className="bg-white border border-zinc-200 rounded-xl p-3 shadow-xs">
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-extrabold text-cyan-900">
+                            <span className="text-xs font-extrabold text-zinc-900">
                               Lotes Liberados Aguardando Linha ({relatorioLinhasGroups.liberados.items.length})
                             </span>
-                            <span className="text-xs font-mono font-bold text-cyan-700">
+                            <span className="text-xs font-mono font-bold text-zinc-700">
                               {Number(relatorioLinhasGroups.liberados.totalUn).toLocaleString('pt-BR')} un
                             </span>
                           </div>
@@ -14611,7 +14450,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   <span className="text-zinc-500">{it.productCode}</span>
                                 </div>
                                 <div className="font-semibold text-zinc-800 truncate text-[11px]">{it.productDescription}</div>
-                                <div className="flex justify-between text-[10px] font-mono text-cyan-800">
+                                <div className="flex justify-between text-[11px] md:text-[10px] font-mono text-zinc-800">
                                   <strong>{Number(it.quantity).toLocaleString('pt-BR')} un</strong>
                                   <span>{Number(it.quantityKg).toLocaleString('pt-BR')} kg</span>
                                 </div>
@@ -14624,7 +14463,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   ) : relatorioAgrupamento === 'produto' ? (
                     /* Visualização Consolidada por SKU */
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-600 font-bold uppercase text-[10px] tracking-wider sticky top-0">
+                      <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-600 font-bold uppercase text-[11px] md:text-[10px] tracking-wider sticky top-0">
                         <tr>
                           <th className="py-2 px-3">Cód. SKU</th>
                           <th className="py-2 px-3">Descrição do Produto</th>
@@ -14641,7 +14480,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <td className="py-2 px-3 font-mono font-bold text-zinc-900">{prod.productCode || '—'}</td>
                             <td className="py-2 px-3 font-semibold text-zinc-800">{prod.productDescription}</td>
                             <td className="py-2 px-3 text-zinc-600">{prod.categoriaEnvase}</td>
-                            <td className="py-2 px-3 font-mono font-extrabold text-indigo-700 text-right">
+                            <td className="py-2 px-3 font-mono font-extrabold text-zinc-700 text-right">
                               {Number(prod.totalUn).toLocaleString('pt-BR')} un
                             </td>
                             <td className="py-2 px-3 font-mono text-zinc-700 text-right">
@@ -14659,7 +14498,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       <tfoot className="bg-zinc-100 border-t border-zinc-200 font-bold text-xs sticky bottom-0">
                         <tr>
                           <td colSpan={3} className="py-2 px-3 text-zinc-800 font-extrabold">TOTAL GERAL CONSOLIDADO:</td>
-                          <td className="py-2 px-3 text-right font-mono font-black text-indigo-800">
+                          <td className="py-2 px-3 text-right font-mono font-black text-zinc-800">
                             {Number(relatorioTotals.totalUn).toLocaleString('pt-BR')} un
                           </td>
                           <td className="py-2 px-3 text-right font-mono font-black text-zinc-800">
@@ -14674,7 +14513,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   ) : (
                     /* Visualização Detalhada em Tabela */
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-600 font-bold uppercase text-[10px] tracking-wider sticky top-0">
+                      <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-600 font-bold uppercase text-[11px] md:text-[10px] tracking-wider sticky top-0">
                         <tr>
                           <th className="py-2 px-2.5">Data</th>
                           <th className="py-2 px-2.5">Linha</th>
@@ -14692,7 +14531,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         {relatorioEnvaseItems.map((it, idx) => (
                           <tr key={`${it.id}_${idx}`} className="hover:bg-zinc-50/80">
                             <td className="py-2 px-2.5 font-mono text-zinc-700 whitespace-nowrap">
-                              {it.dataProgramadaFmt} <span className="text-[10px] text-zinc-400">({it.diaSemana})</span>
+                              {it.dataProgramadaFmt} <span className="text-[11px] md:text-[10px] text-zinc-400">({it.diaSemana})</span>
                             </td>
                             <td className="py-2 px-2.5 font-bold text-zinc-800 whitespace-nowrap">
                               {it.linha}
@@ -14712,7 +14551,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <td className="py-2 px-2.5 text-zinc-600 text-[11px] whitespace-nowrap">
                               {it.categoriaEnvase} • {it.cor}
                             </td>
-                            <td className="py-2 px-2.5 font-mono font-extrabold text-indigo-700 text-right whitespace-nowrap">
+                            <td className="py-2 px-2.5 font-mono font-extrabold text-zinc-700 text-right whitespace-nowrap">
                               {Number(it.quantity).toLocaleString('pt-BR')} un
                             </td>
                             <td className="py-2 px-2.5 font-mono text-zinc-700 text-right whitespace-nowrap">
@@ -14720,7 +14559,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             </td>
                             <td className="py-2 px-2.5 whitespace-nowrap">
                               <span className={cn(
-                                "px-2 py-0.5 rounded text-[10px] font-bold font-mono",
+                                "px-2 py-0.5 rounded text-[11px] md:text-[10px] font-bold font-mono",
                                 it.statusEnvase === 'CONCLUIDO' ? "bg-emerald-100 text-emerald-800" :
                                 it.statusEnvase === 'EM_ENVASE' ? "bg-amber-100 text-amber-800" :
                                 it.statusEnvase === 'EM_ESPERA' ? "bg-rose-100 text-rose-800" :
@@ -14737,7 +14576,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           <td colSpan={7} className="py-2 px-3 text-zinc-800 font-extrabold">
                             TOTAL GERAL ({relatorioTotals.totalCount} lotes):
                           </td>
-                          <td className="py-2 px-2.5 text-right font-mono font-black text-indigo-800 whitespace-nowrap">
+                          <td className="py-2 px-2.5 text-right font-mono font-black text-zinc-800 whitespace-nowrap">
                             {Number(relatorioTotals.totalUn).toLocaleString('pt-BR')} un
                           </td>
                           <td className="py-2 px-2.5 text-right font-mono font-black text-zinc-800 whitespace-nowrap">
@@ -14753,41 +14592,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             </div>
 
             {/* Modal Footer Actions */}
-            <div className="p-4 bg-zinc-50 border-t border-zinc-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
-              <button
-                type="button"
-                onClick={() => setShowRelatorioEnvaseModal(false)}
-                className="px-4 py-2 text-xs font-bold text-zinc-600 hover:text-zinc-900 bg-zinc-200/80 hover:bg-zinc-200 rounded-xl transition-colors cursor-pointer"
-              >
-                Fechar
-              </button>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleExportRelatorioEnvaseExcel}
-                  disabled={relatorioEnvaseItems.length === 0}
-                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                  title="Exportar dados do relatório para arquivo Excel (.xlsx)"
-                >
-                  <Download className="h-4 w-4" />
-                  <span>Exportar Excel</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handlePrintRelatorioEnvase}
-                  disabled={relatorioEnvaseItems.length === 0}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-extrabold shadow-sm transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                  title="Abrir prévia de impressão e imprimir em folha A4"
-                >
-                  <Printer className="h-4 w-4" />
-                  <span>Imprimir Relatório</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+</Drawer>
       )}
 
       {/* ÁREA DE IMPRESSÃO LIMPA (FOLHA A4 - VISÍVEL APENAS NA IMPRESSÃO) */}
