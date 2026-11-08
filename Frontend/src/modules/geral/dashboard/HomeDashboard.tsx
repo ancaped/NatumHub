@@ -15,45 +15,20 @@ import {
   sortSubmodulesByUsage,
 } from '../lib/nav/navRegistry';
 import { ReportHeader, ReportTabs, StatusBadge, type VarianteBadge } from '../components/ui/ReportKit';
+import Graficos, { haGraficos } from './Graficos';
+import {
+  contarFaltas,
+  type ChecagemSaude,
+  type PedidoCompra,
+  type RelatorioFaltas,
+  type RespostaSaude,
+  type Severidade,
+} from './tipos';
 
 interface HomeDashboardProps {
   currentUser: AuthUser | null;
   usage: Record<string, number>;
   setView: (view: string) => void;
-}
-
-type Severidade = 'ok' | 'aviso' | 'critico';
-
-interface ChecagemSaude {
-  chave: string;
-  titulo: string;
-  severidade: Severidade;
-  quantidade: number;
-}
-
-interface RespostaSaude {
-  ultima: { executadoEm: string; resultado?: { checagens?: ChecagemSaude[] } } | null;
-}
-
-interface InsumoFalta {
-  status: 'ok' | 'depende_atrasado' | 'chega_depois' | 'chega_sem_data' | 'falta';
-}
-
-interface ProdutoFalta {
-  semFormula: boolean;
-  embalagem: InsumoFalta[];
-  materiaPrima: InsumoFalta[];
-}
-
-interface RelatorioFaltas {
-  semana: string;
-  ordens: { linha: string; produtos: ProdutoFalta[] }[];
-}
-
-interface PedidoCompra {
-  nRegistro: number;
-  cNomeF?: string | null;
-  dPrevisao?: string | null;
 }
 
 interface ItemAtencao {
@@ -103,15 +78,7 @@ function itensDeFaltas(rel: RelatorioFaltas): ItemAtencao[] {
   const semanaNum = rel.semana.split('-W')[1] ?? rel.semana;
   return rel.ordens
     .map((l) => {
-      let semCobertura = 0;
-      let outros = 0;
-      for (const p of l.produtos) {
-        if (p.semFormula) semCobertura += 1;
-        for (const i of [...p.embalagem, ...p.materiaPrima]) {
-          if (i.status === 'falta') semCobertura += 1;
-          else outros += 1;
-        }
-      }
+      const { semCobertura, outros } = contarFaltas(l.produtos);
       const critico = semCobertura > 0;
       const partes = [
         semCobertura > 0 ? `${semCobertura} sem cobertura` : null,
@@ -161,6 +128,9 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
   const [faltasItens, setFaltasItens] = useState<ItemAtencao[]>([]);
   const ultimaBuscaFaltas = useRef(0);
   const [pedidosItens, setPedidosItens] = useState<ItemAtencao[]>([]);
+  const [checagensBrutas, setChecagensBrutas] = useState<ChecagemSaude[]>([]);
+  const [faltasBrutas, setFaltasBrutas] = useState<RelatorioFaltas | null>(null);
+  const [pedidosBrutos, setPedidosBrutos] = useState<PedidoCompra[]>([]);
   const podeVerFaltas = canAccessView(currentUser, 'admin_produtos_ativos_relatorios');
   const podeVerPedidos = canAccessView(currentUser, 'compras_pedidos');
   const [ultimaChecagem, setUltimaChecagem] = useState<string | null>(null);
@@ -183,15 +153,18 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
     }
     if (saude.status === 'fulfilled') {
       const checagens = saude.value.ultima?.resultado?.checagens ?? [];
+      setChecagensBrutas(checagens);
       lista.push(...checagens.filter((c) => c.severidade !== 'ok' && c.quantidade > 0).map(itemDeChecagem));
       setUltimaChecagem(saude.value.ultima?.executadoEm ?? null);
     }
     if (faltas.status === 'fulfilled' && faltas.value) {
       ultimaBuscaFaltas.current = Date.now();
       setFaltasItens(itensDeFaltas(faltas.value));
+      setFaltasBrutas(faltas.value);
     }
     if (pedidos.status === 'fulfilled' && Array.isArray(pedidos.value)) {
       setPedidosItens(itemDePedidosAtrasados(pedidos.value));
+      setPedidosBrutos(pedidos.value);
     }
     // Só considera falha quando nada respondeu (sem permissão na saúde do ERP é normal para operador comum).
     setFalhou(avisos.status === 'rejected' && saude.status === 'rejected' && faltas.status === 'rejected' && pedidos.status === 'rejected');
@@ -213,6 +186,16 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
       ),
     [avisosItens, faltasItens, pedidosItens, podeVerFaltas, podeVerPedidos]
   );
+
+  const dadosGraficos = useMemo(
+    () => ({
+      checagens: checagensBrutas,
+      faltas: podeVerFaltas ? faltasBrutas : null,
+      pedidos: podeVerPedidos ? pedidosBrutos : [],
+    }),
+    [checagensBrutas, faltasBrutas, pedidosBrutos, podeVerFaltas, podeVerPedidos]
+  );
+  const mostrarGraficos = haGraficos(dadosGraficos);
 
   const grupos = useMemo(() => {
     return getNavModuleGroups(currentUser).map((g) => ({
@@ -240,7 +223,7 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto bg-zinc-50">
-      <div className="w-full max-w-5xl mx-auto p-3 sm:p-6">
+      <div className="w-full max-w-[1600px] mx-auto p-3 pb-24 sm:p-6 sm:pb-24 xl:px-10">
         <ReportHeader
           titulo={nome ? `Olá, ${nome}` : 'Início'}
           subtitulo={
@@ -273,7 +256,12 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
         />
 
         {aba === 'atencao' && (
-          <div className="panel-card" style={{ padding: 0 }}>
+          <div
+            className={`grid gap-4 items-start ${
+              mostrarGraficos ? 'xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]' : ''
+            }`}
+          >
+          <div className="panel-card min-w-0" style={{ padding: 0 }}>
             {carregando && itens.length === 0 ? (
               <div className="flex items-center justify-center gap-2 py-10 text-sm text-zinc-500">
                 <Loader2 className="h-4 w-4 animate-spin" /> Carregando…
@@ -319,6 +307,8 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
               </ul>
             )}
           </div>
+          {mostrarGraficos && <Graficos {...dadosGraficos} />}
+          </div>
         )}
 
         {aba === 'atalhos' && (
@@ -326,7 +316,7 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
             {maisUsados.length > 0 && (
               <section>
                 <h3 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 mb-2">Mais usados</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2">
                   {maisUsados.map((i) => (
                     <Atalho key={`u-${i.view}`} icone={i.icon} titulo={i.label} subtitulo={i.grupo} onClick={() => abrir(i.view)} />
                   ))}
@@ -336,7 +326,7 @@ export default function HomeDashboard({ currentUser, usage, setView }: HomeDashb
             {grupos.map((g) => (
               <section key={g.key}>
                 <h3 className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 mb-2">{g.label}</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2">
                   {g.itens.map((i) => (
                     <Atalho key={`${g.key}-${i.view}`} icone={i.icon} titulo={i.label} onClick={() => abrir(i.view)} />
                   ))}
