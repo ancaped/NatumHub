@@ -70,7 +70,7 @@ export default function AbaOrdensConversao({ ctx }: { ctx: any }) {
                     <p className="p-8 text-center text-zinc-500 font-bold text-xs">Nenhuma conversão encontrada.</p>
                   )}
                   {viraOrdersFiltradas.map(o => (
-                    <div key={o.id} className="p-3 space-y-2">
+                    <div key={o.id} role="button" tabIndex={0} onClick={() => handleOpenEditViraOrderModal(o)} onKeyDown={(e) => { if (e.key === 'Enter') handleOpenEditViraOrderModal(o); }} className="p-3 space-y-2 cursor-pointer active:bg-zinc-50">
                       <div className="flex items-start justify-between gap-3">
                         <span className="font-extrabold text-zinc-950 text-sm">{o.orderNumber}</span>
                         <div className="text-right shrink-0">
@@ -96,10 +96,7 @@ export default function AbaOrdensConversao({ ctx }: { ctx: any }) {
                         }`}>ERP: {o.erpLaunched === 1 ? 'Sim' : 'Não'}</span>
                         <span className="text-[10px] text-zinc-500 ml-auto">{o.completedAt ? `Concluída ${o.completedAt}${o.assembledBy ? ` por ${o.assembledBy}` : ''}` : `Emitida ${o.createdAt}`}</span>
                       </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => handleOpenEditViraOrderModal(o)} className="flex-1 min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl bg-zinc-900 text-white text-xs font-bold cursor-pointer">
-                          <Eye size={14} /> Abrir
-                        </button>
+                      <div className="flex gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
                         <button onClick={() => { setPrintingOrder(buildViraPrintPayload(o)); setTimeout(() => window.print(), 100); }} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 cursor-pointer" aria-label="Imprimir folha">
                           <Printer size={16} />
                         </button>
@@ -153,7 +150,7 @@ export default function AbaOrdensConversao({ ctx }: { ctx: any }) {
                         }
 
                         return filtered.map(o => (
-                          <tr key={o.id} className="border-b border-zinc-150 hover:bg-zinc-50/50">
+                          <tr key={o.id} onClick={() => handleOpenEditViraOrderModal(o)} className="border-b border-zinc-150 hover:bg-zinc-50 cursor-pointer">
                             <td className="p-4 font-extrabold text-zinc-955">{o.orderNumber}</td>
                             <td className="p-4 space-y-1">
                               <div className="flex items-center gap-1.5 text-zinc-800 font-bold">
@@ -202,7 +199,7 @@ export default function AbaOrdensConversao({ ctx }: { ctx: any }) {
                               </span>
                             </td>
                             <td className="p-4">
-                              <div className="flex gap-2 justify-center items-center">
+                              <div className="flex gap-2 justify-center items-center" onClick={(e) => e.stopPropagation()}>
                                 <button 
                                   onClick={() => {
                                     setPrintingOrder(buildViraPrintPayload(o));
@@ -212,13 +209,6 @@ export default function AbaOrdensConversao({ ctx }: { ctx: any }) {
                                   title="Imprimir Folha de Conversão"
                                 >
                                   <Printer size={14} />
-                                </button>
-                                <button 
-                                  onClick={() => handleOpenEditViraOrderModal(o)}
-                                  className="p-1.5 hover:bg-zinc-100 text-zinc-650 hover:text-zinc-900 rounded-lg cursor-pointer"
-                                  title="Registrar Retorno / Observar"
-                                >
-                                  <Eye size={14} />
                                 </button>
                                 <button 
                                   onClick={() => handleDeleteViraOrder(o.id)}

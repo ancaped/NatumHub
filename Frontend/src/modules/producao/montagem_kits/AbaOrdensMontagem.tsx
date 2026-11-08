@@ -83,7 +83,7 @@ export default function AbaOrdensMontagem({ ctx }: { ctx: any }) {
                 <>
                 <div className="md:hidden divide-y divide-zinc-100">
                   {filteredOrders.map((o) => (
-                    <div key={o.id} className="p-3 space-y-2">
+                    <div key={o.id} role="button" tabIndex={0} onClick={() => handleOpenEditModal(o)} onKeyDown={(e) => { if (e.key === 'Enter') handleOpenEditModal(o); }} className="p-3 space-y-2 cursor-pointer active:bg-zinc-50">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <span className="font-extrabold text-zinc-950 text-sm">Lote {o.orderNumber}</span>
@@ -115,10 +115,7 @@ export default function AbaOrdensMontagem({ ctx }: { ctx: any }) {
                         </span>
                         <span className="text-[10px] text-zinc-500 ml-auto">{o.completedAt ? `Montado ${o.completedAt}${o.assembledBy ? ` por ${o.assembledBy}` : ''}` : `Emitida ${o.createdAt}`}</span>
                       </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => handleOpenEditModal(o)} className="flex-1 min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl bg-zinc-900 text-white text-xs font-bold cursor-pointer">
-                          <Eye size={14} /> Abrir
-                        </button>
+                      <div className="flex gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
                         <button onClick={() => handlePrintOrder(o)} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 cursor-pointer" title="Imprimir" aria-label="Imprimir ordem">
                           <Printer size={16} />
                         </button>
@@ -145,7 +142,7 @@ export default function AbaOrdensMontagem({ ctx }: { ctx: any }) {
                     </thead>
                     <tbody>
                       {filteredOrders.map((o) => (
-                        <tr key={o.id} className="border-b border-zinc-150 hover:bg-zinc-50/50">
+                        <tr key={o.id} onClick={() => handleOpenEditModal(o)} className="border-b border-zinc-150 hover:bg-zinc-50 cursor-pointer">
                           <td className="p-3 font-extrabold text-zinc-950">{o.orderNumber}</td>
                           <td className="p-3">
                             <span className="font-bold text-zinc-900 block">{o.kitProductDescription}</span>
@@ -188,20 +185,13 @@ export default function AbaOrdensMontagem({ ctx }: { ctx: any }) {
                             </span>
                           </td>
                           <td className="p-3">
-                            <div className="flex gap-2 justify-center items-center">
+                            <div className="flex gap-2 justify-center items-center" onClick={(e) => e.stopPropagation()}>
                               <button 
                                 onClick={() => handlePrintOrder(o)}
                                 className="p-1.5 hover:bg-zinc-100 text-zinc-650 hover:text-zinc-900 rounded-lg cursor-pointer"
                                 title="Imprimir Ordem para preenchimento manual"
                               >
                                 <Printer size={14} />
-                              </button>
-                              <button 
-                                onClick={() => handleOpenEditModal(o)}
-                                className="p-1.5 hover:bg-zinc-100 text-zinc-650 hover:text-zinc-900 rounded-lg cursor-pointer"
-                                title="Preencher Retorno / Editar"
-                              >
-                                <Eye size={14} />
                               </button>
                               <button 
                                 onClick={() => handleDeleteOrder(o.id)}

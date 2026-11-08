@@ -37,6 +37,7 @@ import DrawerEditarOrdem from './DrawerEditarOrdem';
 import DrawerNovaOrdemConversao from './DrawerNovaOrdemConversao';
 import DrawerEditarOrdemConversao from './DrawerEditarOrdemConversao';
 import DrawerNovoKit from './DrawerNovoKit';
+import DrawerKitComponentes from './DrawerKitComponentes';
 
 export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBackToHub: () => void; buscaInicial?: string }) {
   const { avisar, aviso } = useAviso();
@@ -71,7 +72,7 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   const [kitsPage, setKitsPage] = useState(1);
   const [kitsTotalPages, setKitsTotalPages] = useState(1);
   const [kitsTotalItems, setKitsTotalItems] = useState(0);
-  const [expandedKits, setExpandedKits] = useState([]);
+  const [kitDetalheCodigo, setKitDetalheCodigo] = useState('');
   const [kitSortField, setKitSortField] = useState('codigo');
   const [kitSortDir, setKitSortDir] = useState('asc');
 
@@ -812,12 +813,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
   }, [categories, products, kits, kitComposicao, kitCompSearch]);
 
 
-  const toggleKitExpanded = (code) => {
-    setExpandedKits(prev => 
-      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
-    );
-  };
-
   const handleOpenNewOrderModal = async (preselectedKitCode = '') => {
     await fetchAllKitsDropdown();
     await fetchNextOrderNumber();
@@ -1220,7 +1215,8 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     editViraPackagingLines,
     editViraQuantityAssembled,
     editViraStatus,
-    expandedKits,
+    kitDetalheCodigo,
+    setKitDetalheCodigo,
     fetchKits,
     fetchOrders,
     filterStatus,
@@ -1332,7 +1328,6 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
     submittingEditViraOrder,
     submittingNewOrder,
     submittingNewViraOrder,
-    toggleKitExpanded,
     truncPrint,
     uploadingKitsConfig,
     viraComposicao,
@@ -1492,6 +1487,8 @@ export default function MontagemKitsView({ onBackToHub, buscaInicial }: { onBack
           fetchKits();
         }}
       />
+
+      {kitDetalheCodigo && activeSubTab === 'componentes' && <DrawerKitComponentes ctx={ctx} />}
 
       {/* MODAL: SELECIONAR NOVO KIT PARA COMPOSIÇÃO */}
       {isNewKitModalOpen && (
