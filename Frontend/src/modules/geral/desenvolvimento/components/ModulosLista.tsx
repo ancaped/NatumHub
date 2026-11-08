@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import type { MapaGroup, MapaModule } from '../types';
-import { FilterBar, FiltroSelect, StatusBadge, TabelaPainel, type VarianteBadge } from '../../components/ui/ReportKit';
+import { FilterBar, FiltroSelect, StatusBadge, TabelaPainel } from '../../components/ui/ReportKit';
+import { statusModulo } from '../rotulos';
 
 interface ModulosListaProps {
   groups: MapaGroup[];
@@ -9,13 +10,6 @@ interface ModulosListaProps {
   abertosPorModulo: Record<string, number>;
   onSelectModule: (moduleKey: string) => void;
 }
-
-const STATUS: Record<string, { rotulo: string; variante: VarianteBadge }> = {
-  live: { rotulo: 'No ar', variante: 'saudavel' },
-  stub: { rotulo: 'Rascunho', variante: 'aguardando' },
-  planned: { rotulo: 'Planejado', variante: 'ordem' },
-  descontinuado: { rotulo: 'Descontinuado', variante: 'descontinuado' },
-};
 
 export default function ModulosLista({
   groups,
@@ -67,7 +61,7 @@ export default function ModulosLista({
           {/* Celular: cartões com alvo de toque de 44 px. */}
           <ul className="md:hidden flex flex-col gap-2">
             {linhas.map((m) => {
-              const st = STATUS[m.status] || { rotulo: m.status, variante: 'descontinuado' as VarianteBadge };
+              const st = statusModulo(m.status);
               const abertos = abertosPorModulo[m.moduleKey] || 0;
               return (
                 <li key={m.moduleKey}>
@@ -99,7 +93,7 @@ export default function ModulosLista({
             </thead>
             <tbody>
               {linhas.map((m) => {
-                const st = STATUS[m.status] || { rotulo: m.status, variante: 'descontinuado' as VarianteBadge };
+                const st = statusModulo(m.status);
                 const abertos = abertosPorModulo[m.moduleKey] || 0;
                 return (
                   <tr

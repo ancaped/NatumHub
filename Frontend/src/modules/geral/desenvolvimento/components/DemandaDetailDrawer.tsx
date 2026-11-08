@@ -7,6 +7,8 @@ import {
 import type { Feedback, FeedbackDetail, FeedbackNote } from '../types';
 import { cn } from '../../lib/utils';
 import Drawer from '../../components/ui/Drawer';
+import { StatusBadge } from '../../components/ui/ReportKit';
+import { statusChamado } from '../rotulos';
 import Modal from '../../components/ui/Modal';
 
 interface DemandaDetailDrawerProps {
@@ -144,9 +146,7 @@ export default function DemandaDetailDrawer({
               {copiedId ? <Check className="h-2.5 w-2.5 text-emerald-600" /> : <Copy className="h-2.5 w-2.5 text-zinc-400" />}
             </button>
 
-            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-800 border border-zinc-200">
-              {feedback.status}
-            </span>
+            <StatusBadge variante="descontinuado">{statusChamado(feedback.status)}</StatusBadge>
           </div>
         }
         footer={

@@ -20,6 +20,7 @@ import ModuleCreationWizard from './components/ModuleCreationWizard';
 import ModulosLista from './components/ModulosLista';
 import { contarAbertosPorModulo } from './vinculo';
 import { layoutOrganograma } from './layoutOrganograma';
+import { criarNomeModulo } from './rotulos';
 import { BotaoAcao, ReportTabs } from '../components/ui/ReportKit';
 
 interface DesenvolvimentoViewProps {
@@ -104,6 +105,8 @@ export default function DesenvolvimentoView({
     setSelectedFeedbackId(f.id);
     void loadFeedbackDetail(f.id);
   };
+
+  const nomeModulo = useMemo(() => criarNomeModulo(snap?.modules || []), [snap?.modules]);
 
   // Módulo ativo
   const selectedModule = useMemo(() => {
@@ -325,6 +328,7 @@ export default function DesenvolvimentoView({
 
             {activeTab === 'fila' && (
               <DemandasQueueTab
+                nomeModulo={nomeModulo}
                 feedbacks={feedbacks}
                 loading={loading}
                 selectedId={selectedFeedbackId}
@@ -353,11 +357,7 @@ export default function DesenvolvimentoView({
                 >
                   Voltar aos módulos
                 </button>
-                <TimelineAuditTab
-                  activities={snap?.activity || []}
-                  loading={loading}
-                  onRefresh={loadData}
-                />
+                <TimelineAuditTab activities={snap?.activity || []} nomeModulo={nomeModulo} />
               </div>
             )}
 
@@ -383,6 +383,7 @@ export default function DesenvolvimentoView({
         {/* Drawer do Módulo Técnico (aberto ao clicar no Mapa) */}
         {selectedModule && (
           <ModuleDetailDrawer
+            nomeModulo={nomeModulo}
             module={selectedModule}
             onClose={() => setSelectedModuleKey(null)}
             acoes={snap?.acoes || []}
