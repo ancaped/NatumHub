@@ -91,6 +91,95 @@ pub async fn listar_fila(pool: &PgPool, status: &[String], modulo: Option<&str>,
         .collect())
 }
 
+/// Conversa que não tem dono na tabela de módulos do `AGENTS.md`: o relato fica com a conversa do Feedback.
+pub const SEM_DONO: &str = "Feedback (sem dono definido)";
+
+/// Qual conversa especialista cuida do `module_key` (tabela "uma conversa por módulo" do `AGENTS.md`).
+pub fn conversa_do_modulo(modulo: Option<&str>) -> &'static str {
+    let m = modulo.map(str::trim).unwrap_or("");
+    match m {
+        "" | "hub" | "geral" => SEM_DONO,
+        "hub_settings" | "hub_operadores" => "Configurações Gerais",
+        "desenvolvimento" | "mapa_arquitetura" => "Desenvolvimento",
+        "estoque_itens" | "estoque_almoxarifado" | "estoque_supermercado" | "estoque_pecas" | "estoque_equipamentos"
+        | "estoque_manutencoes" => "Almoxarifado",
+        "producao" | "planejamento_producao" | "montagem_kits" | "microbiologia" | "fisco_quimica" => "Produção",
+        "controle_qualidade" => "Controle de Qualidade",
+        "administrativo" => "Administrativo",
+        m if m.starts_with("producao_") => "Produção",
+        m if m.starts_with("compras") => "Compras",
+        m if m.starts_with("qualidade_") => "Controle de Qualidade",
+        m if m.starts_with("admin_") => "Administrativo",
+        m if m.starts_with("estoque") => "Estoque",
+        m if m.starts_with("vendas") || m.starts_with("expedicao") => "Vendas",
+        m if m.starts_with("ferramentas_") => "Ferramentas",
+        _ => SEM_DONO,
+    }
+}
+
+/// Os relatos de uma conversa especialista, com o texto pronto para mandar a ela.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GrupoTriagem {
+    pub conversa: &'static str,
+    pub modulos: Vec<String>,
+    pub total: usize,
+    /// Mensagem pronta para colar ou enviar à conversa dona.
+    pub briefing: String,
+    pub feedbacks: Vec<FeedbackFila>,
+}
+
+fn briefing(conversa: &str, feedbacks: &[FeedbackFila]) -> String {
+    let mut t = format!("Relatos do Feedback para a conversa {conversa} ({} na fila, do mais urgente ao menos):\n", feedbacks.len());
+    for f in feedbacks {
+        let desc = f.descricao.replace('\n', " ");
+        let corte = if f.descricao_cortada { "…" } else { "" };
+        let anexos = match (f.tem_logs, f.tem_print) {
+            (true, true) => " [logs, print]",
+            (true, false) => " [logs]",
+            (false, true) => " [print]",
+            _ => "",
+        };
+        t.push_str(&format!(
+            "- {id} · prioridade {p} · {tipo} · {status} · tela: {tela}{anexos}\n  {desc}{corte}\n",
+            id = f.id, p = f.prioridade, tipo = f.tipo, status = f.status, tela = f.tela,
+        ));
+    }
+    t.push_str(
+        "\nComo trabalhar: leia o relato inteiro com GET /api/hub/feedbacks/<id>?print=false (descrição, logs, notas); \
+         corrija no seu módulo; entregue com POST /api/hub/feedbacks/<id>/resolver {\"nota\": \"o que fez e como conferir\"} \
+         (sem confirmar=true é só a prévia; repita com ?confirmar=true). Quem aprova é o supervisor. Relato que não é do seu módulo: avise a conversa do Feedback, não mexa.",
+    );
+    t
+}
+
+/// Junta os relatos por conversa especialista. Grupos na ordem do relato mais urgente; dentro do grupo a ordem da fila.
+pub fn agrupar(feedbacks: Vec<FeedbackFila>) -> Vec<GrupoTriagem> {
+    let mut grupos: Vec<(&'static str, Vec<FeedbackFila>)> = Vec::new();
+    for f in feedbacks {
+        let conversa = conversa_do_modulo(f.modulo.as_deref());
+        match grupos.iter_mut().find(|(c, _)| *c == conversa) {
+            Some((_, v)) => v.push(f),
+            None => grupos.push((conversa, vec![f])),
+        }
+    }
+    grupos.sort_by_key(|(_, v)| v.iter().map(|f| f.prioridade).min().unwrap_or(i32::MAX));
+    grupos
+        .into_iter()
+        .map(|(conversa, feedbacks)| {
+            let mut modulos: Vec<String> = feedbacks.iter().filter_map(|f| f.modulo.clone()).collect();
+            modulos.sort();
+            modulos.dedup();
+            GrupoTriagem { conversa, modulos, total: feedbacks.len(), briefing: briefing(conversa, &feedbacks), feedbacks }
+        })
+        .collect()
+}
+
+/// Fila pronta para trabalhar (padrão `queued` e `in_progress`), agrupada por conversa dona.
+pub async fn triar(pool: &PgPool, status: &[String]) -> Result<Vec<GrupoTriagem>, ErroApi> {
+    Ok(agrupar(listar_fila(pool, status, None, 200).await?))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Transicao {
     /// Fila de execução → Em aberto (conferência). Quem fez a correção deixa a nota de resolução.
@@ -181,6 +270,13 @@ pub fn acoes() -> Vec<Acao> {
             ],
         ),
         Acao::leitura(
+            "triar_feedbacks",
+            MODULO,
+            "Triagem pronta para repartir o trabalho: pega os feedbacks prontos para trabalhar (por padrão `queued` e `in_progress`, até 200) e os agrupa pela conversa especialista dona do módulo (tabela do AGENTS.md). Cada grupo traz `conversa`, `modulos`, `total`, os relatos em formato enxuto e um `briefing` com o texto pronto para mandar a essa conversa. Relato sem módulo reconhecido cai em \"Feedback (sem dono definido)\". Não grava nada.",
+            "/api/hub/feedbacks/triagem",
+            vec![param("status", "query", "texto", false, "queued,in_progress (padrão), abertos, todos ou lista separada por vírgula.")],
+        ),
+        Acao::leitura(
             "detalhar_feedback",
             MODULO,
             "Um feedback pelo id, com a descrição inteira, tela, módulo, solicitante, status, prioridade, logs do console, as notas em ordem e o print (imagem em base64, pesada). Passe `print=false` para vir sem o print e poupar o contexto. Dá 404 se o id não existir.",
@@ -251,6 +347,52 @@ mod tests {
         assert!(Transicao::Devolver.destino("queued").is_err());
     }
 
+    fn relato(id: &str, modulo: Option<&str>, prioridade: i32) -> FeedbackFila {
+        FeedbackFila {
+            id: id.into(), tipo: "bug".into(), status: "queued".into(), prioridade, modulo: modulo.map(String::from),
+            tela: "Tela X".into(), descricao: "algo quebrou".into(), descricao_cortada: false, solicitante: None,
+            criado_em: None, notas: 0, tem_logs: true, tem_print: false,
+        }
+    }
+
+    #[test]
+    fn modulo_vira_a_conversa_da_tabela_do_agents() {
+        for (m, c) in [
+            ("producao_lotes", "Produção"), ("montagem_kits", "Produção"), ("microbiologia", "Produção"),
+            ("compras_pedidos", "Compras"), ("qualidade_avarias", "Controle de Qualidade"), ("controle_qualidade", "Controle de Qualidade"),
+            ("admin_funcionarios", "Administrativo"), ("administrativo", "Administrativo"),
+            ("estoque_almoxarifado", "Almoxarifado"), ("estoque_produtos", "Estoque"),
+            ("vendas_online", "Vendas"), ("expedicao_ecommerce", "Vendas"), ("ferramentas_etiquetas", "Ferramentas"),
+            ("hub_settings", "Configurações Gerais"), ("desenvolvimento", "Desenvolvimento"),
+        ] {
+            assert_eq!(conversa_do_modulo(Some(m)), c, "{m}");
+        }
+        for m in [None, Some(""), Some("hub"), Some("financeiro"), Some("xyz")] {
+            assert_eq!(conversa_do_modulo(m), SEM_DONO, "{m:?}");
+        }
+    }
+
+    #[test]
+    fn agrupar_junta_por_conversa_e_poe_o_mais_urgente_primeiro() {
+        let g = agrupar(vec![
+            relato("a", Some("compras_pedidos"), 50),
+            relato("b", Some("producao_lotes"), 10),
+            relato("c", Some("compras_notas"), 5),
+            relato("d", None, 99),
+        ]);
+        let nomes: Vec<&str> = g.iter().map(|x| x.conversa).collect();
+        assert_eq!(nomes, ["Compras", "Produção", SEM_DONO]);
+        assert_eq!(g[0].total, 2);
+        assert_eq!(g[0].modulos, ["compras_notas", "compras_pedidos"]);
+        assert!(g[0].briefing.contains("conversa Compras (2 na fila") && g[0].briefing.contains("- a ·") && g[0].briefing.contains("[logs]"));
+        assert!(g[0].briefing.contains("/resolver") && g[0].briefing.contains("confirmar=true"));
+    }
+
+    #[test]
+    fn fila_vazia_nao_gera_grupo() {
+        assert!(agrupar(vec![]).is_empty());
+    }
+
     async fn status_de(pool: &PgPool, id: &str) -> String {
         sqlx::query_scalar("SELECT status FROM feedbacks WHERE id = $1").bind(id).fetch_one(pool).await.unwrap()
     }
@@ -278,6 +420,10 @@ mod tests {
         assert_eq!(fila[0].descricao.chars().count(), 300);
         assert!(fila[0].descricao_cortada && !fila[0].tem_print && fila[0].notas == 0);
         assert!(listar_fila(&pool, &["resolved".to_string()], Some(&modulo), 10).await.unwrap().is_empty());
+        let grupos = triar(&pool, &interpretar_status(Some("queued,in_progress")).unwrap()).await.unwrap();
+        let g = grupos.iter().find(|g| g.feedbacks.iter().any(|f| f.id == id)).expect("a triagem traz o relato");
+        assert_eq!(g.conversa, SEM_DONO, "módulo de teste não tem conversa dona");
+        assert!(g.briefing.contains(&id));
 
         assert_eq!(transicionar(&pool, Transicao::Resolver, &id, "Agente Teste", "  ", false).await.unwrap_err().status, axum::http::StatusCode::BAD_REQUEST);
         let previa = transicionar(&pool, Transicao::Resolver, &id, "Agente Teste", "Corrigido em X", false).await.unwrap();
