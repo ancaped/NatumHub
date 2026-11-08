@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { X, RefreshCw } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -74,6 +74,15 @@ export default function Drawer({
     };
   }, [isOpen, onClose]);
 
+  // Barra de abas: no celular a aba ativa fica centralizada dentro da própria faixa (sem rolar a página)
+  const abasRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const faixa = abasRef.current;
+    const ativa = faixa?.querySelector<HTMLElement>('[data-aba-ativa="true"]');
+    if (!faixa || !ativa) return;
+    faixa.scrollLeft = ativa.offsetLeft - (faixa.clientWidth - ativa.offsetWidth) / 2;
+  }, [isOpen, activeTab]);
+
   if (!isOpen) return null;
 
   const visibleTabs = tabs ? tabs.filter((t) => t.show !== false) : [];
@@ -135,7 +144,7 @@ export default function Drawer({
 
         {/* Barra de Sub-abas Opcional */}
         {visibleTabs.length > 0 && (
-          <div className="flex items-center border-b border-zinc-200 bg-zinc-50/40 px-4 shrink-0 overflow-x-auto gap-1 py-1 scrollbar-none touch-pan-x">
+          <div ref={abasRef} className="relative flex items-center border-b border-zinc-200 bg-zinc-50/40 px-4 shrink-0 overflow-x-auto gap-1 py-1 scrollbar-none touch-pan-x">
             {visibleTabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -144,11 +153,12 @@ export default function Drawer({
                   key={tab.id}
                   type="button"
                   onClick={() => onTabChange?.(tab.id)}
+                  data-aba-ativa={isActive ? 'true' : undefined}
                   className={cn(
-                    'shrink-0 px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border select-none',
+                    'shrink-0 px-3 py-2 max-sm:min-h-10 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border select-none',
                     isActive
                       ? 'bg-zinc-900 text-white border-zinc-900 shadow-2xs'
-                      : 'text-zinc-650 border-transparent hover:bg-zinc-100 hover:text-zinc-900'
+                      : 'text-zinc-600 border-transparent hover:bg-zinc-100 hover:text-zinc-900'
                   )}
                 >
                   {Icon && <Icon className={cn('h-3.5 w-3.5 shrink-0', isActive ? 'text-white' : 'text-zinc-400')} />}

@@ -176,7 +176,9 @@ export function SeloCobertura({ resultado, onClick, compacto }: { resultado?: Re
           onClick?.();
         }}
         title={`${rotulo}${linhas.length > 0 ? '\n' + linhas.join('\n') : ''}`}
-        style={{ width: 10, height: 10, borderRadius: '50%', background: cor, border: 'none', padding: 0, flexShrink: 0, cursor: 'pointer' }}
+        // ponto de 10 px no desktop; no celular a área de toque é 44 px (padding de 17 px, cor só no miolo)
+        className="w-2.5 h-2.5 max-md:w-11 max-md:h-11 max-md:p-[17px] max-md:bg-clip-content"
+        style={{ borderRadius: '50%', backgroundColor: cor, border: 'none', flexShrink: 0, cursor: 'pointer' }}
         aria-label={rotulo}
       />
     );
