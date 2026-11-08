@@ -4,16 +4,10 @@ import {
   Sliders,
   Plus,
   Trash2,
-  ExternalLink,
 } from 'lucide-react';
 import Modal from '../../../../modules/geral/components/ui/Modal';
 import type { RecebimentoErpItem } from '../types';
-import {
-  printBombonaLabels,
-  buildBarcodeSvg,
-  buildBombonaBatchTemplates,
-  type BombonaLabelConfig,
-} from '../lib/printEtiquetasBombona';
+import { obterModeloPorChave, preencherModelo } from '../../../ferramentas/etiquetas/lib/modelos';
 import PrintModal from '../../../ferramentas/etiquetas/components/PrintModal';
 import type { LabelTemplate } from '../../../ferramentas/etiquetas/lib/types';
 
@@ -39,6 +33,7 @@ export default function ImprimirEtiquetasBombonaModal({
   const [copiasPorBombona, setCopiasPorBombona] = useState<number>(1);
   const [rows, setRows] = useState<BombonaRow[]>([]);
   const [statusText, setStatusText] = useState('APROVADO');
+  const [erroModelo, setErroModelo] = useState('');
 
   // Estado para abrir a janela padrão de conexão com a impressora (PrintModal)
   const [printModalOpen, setPrintModalOpen] = useState(false);
@@ -132,42 +127,41 @@ export default function ImprimirEtiquetasBombonaModal({
   const totalSomaPesos = rows.reduce((acc, r) => acc + r.peso, 0);
   const totalEtiquetasImprimir = rows.reduce((acc, r) => acc + r.copias, 0);
 
-  const getBuildConfig = (): BombonaLabelConfig => ({
-    codigoReceb: erpItem.codigo_receb,
-    codigoRef: erpItem.codigo_ref,
-    insumoNome: erpItem.insumo_desc,
-    fornecedor: erpItem.fornecedor,
-    lote: erpItem.lote_fornec,
-    dataEntrada: erpItem.data_entrada,
-    dataValidade: erpItem.data_validade,
-    notaFiscal: erpItem.nota.toString(),
-    unidade: erpItem.unidade,
-    statusText,
-    bombonas: rows.map((r) => ({
-      peso: r.peso,
-      copias: r.copias,
-    })),
-  });
-
-  // Abertura da janela padrão do sistema para conexão com a impressora (PrintModal)
-  const handleOpenStandardPrinterModal = (e: React.FormEvent) => {
+  // Monta uma etiqueta por bombona (e por cópia) a partir do modelo registrado "bombona" em Etiquetas
+  const handleOpenStandardPrinterModal = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cfg = getBuildConfig();
-    const templates = buildBombonaBatchTemplates(cfg);
-    setActiveTemplates(templates);
-    setPrintModalOpen(true);
+    setErroModelo('');
+    try {
+      const modelo = await obterModeloPorChave('bombona');
+      if (!modelo) throw new Error('Modelo "bombona" não encontrado em Etiquetas');
+      const lista: LabelTemplate[] = [];
+      rows.forEach((r, idx) => {
+        const pesoFmt = Number.isInteger(r.peso)
+          ? String(r.peso)
+          : r.peso.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const etiqueta = preencherModelo(modelo, {
+          codigo_receb: erpItem.codigo_receb,
+          codigo_ref: erpItem.codigo_ref,
+          insumo_nome: erpItem.insumo_desc,
+          fornecedor: erpItem.fornecedor,
+          lote: erpItem.lote_fornec,
+          data_entrada: erpItem.data_entrada || '—',
+          data_validade: erpItem.data_validade || '—',
+          peso: pesoFmt,
+          unidade: erpItem.unidade || 'KG',
+          nota_fiscal: erpItem.nota,
+          status: statusText,
+          bombona_idx: idx + 1,
+          bombona_total: rows.length,
+        });
+        for (let c = 0; c < Math.max(1, r.copias); c++) lista.push(etiqueta);
+      });
+      setActiveTemplates(lista);
+      setPrintModalOpen(true);
+    } catch (err: unknown) {
+      setErroModelo(err instanceof Error ? err.message : 'Falha ao carregar o modelo');
+    }
   };
-
-  // Fallback para impressão direta via navegador
-  const handlePrintBrowser = () => {
-    const cfg = getBuildConfig();
-    printBombonaLabels(cfg);
-    onClose();
-  };
-
-  // Preview da primeira bombona no modelo antigo
-  const previewPeso = rows[0]?.peso || (erpItem.quantidade / numBombonas);
-  const barcodeSvg = buildBarcodeSvg(erpItem.codigo_receb);
 
   return (
     <>
@@ -368,92 +362,10 @@ export default function ImprimirEtiquetasBombonaModal({
             )}
           </div>
 
-          {/* Pré-visualização Fiel ao Modelo Antigo */}
-          <div className="space-y-2">
-            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">
-              Pré-visualização da Etiqueta (Modelo Antigo — 100mm × 50mm)
-            </span>
-
-            <div className="flex justify-center p-4 bg-zinc-100 rounded-2xl border border-zinc-200">
-              <div
-                style={{
-                  width: '380px',
-                  height: '190px',
-                  boxSizing: 'border-box',
-                }}
-                className="bg-white text-black p-3 rounded-lg border-2 border-black shadow-sm flex flex-col justify-between font-sans select-none"
-              >
-                {/* TOPO: CÓDIGO DE BARRAS À ESQUERDA E CÓDIGO/DESCRIÇÃO À DIREITA */}
-                <div className="flex items-center border-b-2 border-black pb-1.5 gap-2">
-                  <div className="w-[125px] flex flex-col items-center justify-center">
-                    <div
-                      className="w-full flex justify-center [&>svg]:h-[30px] [&>svg]:w-[115px]"
-                      dangerouslySetInnerHTML={{ __html: barcodeSvg }}
-                    />
-                    <span className="font-mono text-[9px] font-bold tracking-wider leading-none mt-0.5">
-                      {erpItem.codigo_receb}
-                    </span>
-                  </div>
-                  <div className="flex-1 overflow-hidden">
-                    <div className="text-[10px] font-bold leading-tight font-mono">{erpItem.codigo_ref}</div>
-                    <div className="text-[12px] font-black uppercase leading-tight line-clamp-2">
-                      {erpItem.insumo_desc}
-                    </div>
-                  </div>
-                </div>
-
-                {/* CORPO: DADOS DO FORNECEDOR / LOTE E CARIMBO APROVADO */}
-                <div className="flex flex-1 pt-1.5 gap-2">
-                  <div className="flex-1 flex flex-col justify-between text-[9px] leading-tight">
-                    <div className="truncate">
-                      <strong className="text-[8px] text-zinc-700">FORNEC: </strong>
-                      <span>{erpItem.fornecedor}</span>
-                    </div>
-                    <div>
-                      <strong className="text-[8px] text-zinc-700">LOTE: </strong>
-                      <span className="font-mono font-bold">{erpItem.lote_fornec}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <div>
-                        <strong className="text-[8px] text-zinc-700">ENTR: </strong>
-                        <span className="font-mono">{erpItem.data_entrada}</span>
-                      </div>
-                      <div>
-                        <strong className="text-[8px] text-zinc-700">VAL: </strong>
-                        <span className="font-mono">{erpItem.data_validade || '—'}</span>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-baseline border-t border-zinc-300 pt-0.5">
-                      <div>
-                        <strong className="text-[8px] text-zinc-700">QTDE. EMB: </strong>
-                        <span className="text-[11px] font-extrabold font-mono">
-                          {previewPeso.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}{' '}
-                          {erpItem.unidade}
-                        </span>
-                      </div>
-                      <div>
-                        <strong className="text-[8px] text-zinc-700">NF: </strong>
-                        <span className="font-mono font-bold">{erpItem.nota}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* CARIMBO DE STATUS */}
-                  <div className="w-[85px] border-l-2 border-black pl-2 flex flex-col items-center justify-center">
-                    <div className="border-2 border-black font-black text-[11px] px-1 py-1 text-center w-full rounded">
-                      {statusText}
-                    </div>
-                    <span className="text-[8px] font-bold text-zinc-600 mt-1">
-                      BOMBONA 1/{rows.length}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          {erroModelo && <p className="text-xs font-semibold text-rose-700">{erroModelo}</p>}
 
           {/* Rodapé de Ações */}
-          <div className="flex items-center justify-between pt-3 border-t border-zinc-200">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-zinc-200">
             <div className="text-xs text-zinc-500">
               Total a imprimir: <strong className="text-zinc-900 font-mono">{totalEtiquetasImprimir}</strong> etiqueta(s) em {rows.length} volume(s)
             </div>
@@ -467,21 +379,11 @@ export default function ImprimirEtiquetasBombonaModal({
               </button>
 
               <button
-                type="button"
-                onClick={handlePrintBrowser}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-zinc-700 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-xl shadow-xs transition cursor-pointer"
-                title="Imprimir direto via diálogo do navegador"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                Imprimir via Navegador
-              </button>
-
-              <button
                 type="submit"
                 className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-zinc-900 hover:bg-zinc-800 rounded-xl shadow-xs transition cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5" />
-                Conectar Impressora (Janela Padrão)
+                Imprimir etiquetas
               </button>
             </div>
           </div>
