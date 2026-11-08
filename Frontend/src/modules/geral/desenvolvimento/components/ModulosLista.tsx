@@ -64,6 +64,30 @@ export default function ModulosLista({
         <div className="panel-card py-16 text-center text-sm text-zinc-500">Nenhum módulo com esse nome.</div>
       ) : (
         <div className="flex-1 min-h-0 overflow-auto">
+          {/* Celular: cartões com alvo de toque de 44 px. */}
+          <ul className="md:hidden flex flex-col gap-2">
+            {linhas.map((m) => {
+              const st = STATUS[m.status] || { rotulo: m.status, variante: 'descontinuado' as VarianteBadge };
+              const abertos = abertosPorModulo[m.moduleKey] || 0;
+              return (
+                <li key={m.moduleKey}>
+                  <button
+                    type="button"
+                    onClick={() => onSelectModule(m.moduleKey)}
+                    className={`w-full min-h-[44px] text-left rounded-xl border bg-white px-3 py-2.5 flex items-center gap-3 ${selectedKey === m.moduleKey ? 'border-zinc-900' : 'border-zinc-200'}`}
+                  >
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-semibold text-zinc-900 truncate">{m.label}</span>
+                      <span className="block text-xs text-zinc-500 truncate">{nomeGrupo(m.groupKey)}</span>
+                    </span>
+                    <StatusBadge variante={st.variante}>{st.rotulo}</StatusBadge>
+                    {abertos > 0 && <StatusBadge variante="ordem">{abertos}</StatusBadge>}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="hidden md:block">
           <TabelaPainel>
             <thead>
               <tr>
@@ -96,6 +120,7 @@ export default function ModulosLista({
               })}
             </tbody>
           </TabelaPainel>
+          </div>
         </div>
       )}
     </div>
