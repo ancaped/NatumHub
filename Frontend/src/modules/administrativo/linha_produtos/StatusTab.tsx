@@ -21,7 +21,8 @@ interface Props {
   /** Recarrega os dados da tela depois de gravar. */
   onReload: () => Promise<void> | void;
   /** Abre o painel de composição do kit (mora no arquivo principal). */
-  onAbrirComposicao: (codigo: string, descricao: string) => void;
+  /** Abre Produção > Kits (a composição não se edita aqui); ausente se o operador não tem acesso. */
+  onAbrirKits?: () => void;
   /** Códigos dos produtos que têm ajuste manual (visão "Ajuste manual"). */
   codigosComAjuste: Set<string>;
 }
@@ -39,7 +40,7 @@ const VISTAS: { id: Vista; label: string }[] = [
 ];
 
 /** Aba Produtos da Linha de Produtos: tabela com filtros, paginação, ações em lote e painel de edição do produto. */
-export default function StatusTab({ products, categories, configs, kitComposicao, graduationCandidates, loading, pedirBulk, avisar, onReload, onAbrirComposicao, codigosComAjuste }: Props) {
+export default function StatusTab({ products, categories, configs, kitComposicao, graduationCandidates, loading, pedirBulk, avisar, onReload, onAbrirKits, codigosComAjuste }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [lineFilter, setLineFilter] = useState('ALL');
@@ -596,13 +597,11 @@ export default function StatusTab({ products, categories, configs, kitComposicao
                                 >
                                   <Edit className="w-4 h-4" />
                                 </button>
-                                {isKit && (
+                                {isKit && onAbrirKits && (
                                   <button
-                                    onClick={() => {
-                                      onAbrirComposicao(p.codigo, p.descricao);
-                                    }}
+                                    onClick={() => onAbrirKits()}
                                     className="p-1.5 hover:bg-zinc-100 text-zinc-600 rounded-lg transition-colors cursor-pointer"
-                                    title="Gerenciar Composição do Kit"
+                                    title="Composição do kit: abrir Produção > Kits"
                                   >
                                     <Layers className="w-4 h-4" />
                                   </button>
@@ -746,18 +745,16 @@ export default function StatusTab({ products, categories, configs, kitComposicao
                 <p className="text-[11px] text-zinc-600 leading-snug">
                   Este item é montado a partir de componentes/insumos.
                 </p>
+                {onAbrirKits && (
                 <button
                   type="button"
-                  onClick={() => {
-                    if (selectedProduct) {
-                      onAbrirComposicao(selectedProduct.codigo, selectedProduct.descricao);
-                    }
-                  }}
+                  onClick={() => onAbrirKits()}
                   className="w-full py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-xs cursor-pointer"
                 >
                   <Layers className="w-4 h-4" />
-                  Ver / Editar Composição deste Kit
+                  Abrir Produção &gt; Kits
                 </button>
+                )}
               </div>
             )}
 
