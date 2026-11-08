@@ -188,6 +188,7 @@ const VIEW_TO_GROUP = (() => {
 export function getModuleGroupForView(view: string): NavModuleGroup | null {
   if (view === 'hub' || view === 'linha_produtos') return null;
   if (view === 'linha_produtos' || view === 'estoque_ativos') return VIEW_TO_GROUP.get('admin_linha_produtos') ?? null;
+  if (view === 'admin_faltas_linha') return VIEW_TO_GROUP.get('admin_produtos_ativos_relatorios') ?? null;
   return VIEW_TO_GROUP.get(view) ?? null;
 }
 

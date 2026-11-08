@@ -119,7 +119,7 @@ function itensDeFaltas(rel: RelatorioFaltas): ItemAtencao[] {
         variante: critico ? 'critico' : 'ordem',
         rotulo: critico ? 'falta' : 'aviso',
         peso: critico ? 0 : 1,
-        destino: 'admin_produtos_ativos_relatorios',
+        destino: 'admin_faltas_linha',
       } as ItemAtencao;
     })
     .sort((a, b) => a.peso - b.peso || a.assunto.localeCompare(b.assunto, 'pt-BR'));

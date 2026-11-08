@@ -11,6 +11,8 @@ function viewToModuleKey(view: string): string | null {
   if (view === 'linha_produtos' || view === 'estoque_ativos') return 'admin_linha_produtos';
   if (view === 'admin_linha_produtos') return 'admin_linha_produtos';
   if (view === 'compras_simulation') return 'compras_materia_prima';
+  // Atalho que abre Relatórios já na aba de faltas (dashboard): mesmo módulo do Relatórios.
+  if (view === 'admin_faltas_linha') return 'admin_produtos_ativos_relatorios';
   if (ALL_KEYS.has(view)) return view;
   return null;
 }
