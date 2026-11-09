@@ -48,6 +48,9 @@ const ODOR_SUGGESTIONS = [
   'Refrescante / Mentolado'
 ];
 
+// Limites do padrão seguem aceitando milhar (12,000 ou 12.000 = 12000); só o valor medido é como digitado.
+const limiteVisc = (v: string) => parseInt(String(v).replace(/[.,\s]/g, ''), 10) || 0;
+
 export function PatternsTab({
   products,
   patterns,
@@ -231,8 +234,8 @@ export function PatternsTab({
 
     const phMin = parseInputNumber(patPhMin, false);
     const phMax = parseInputNumber(patPhMax, false);
-    const viscMin = parseInputNumber(patViscMin, true);
-    const viscMax = parseInputNumber(patViscMax, true);
+    const viscMin = limiteVisc(patViscMin);
+    const viscMax = limiteVisc(patViscMax);
     const densTarget = parseInputNumber(patDensityTarget, false);
     const densTol = parseInputNumber(patDensityTolerance, false);
     const vol = parseInputNumber(patVol, false);
