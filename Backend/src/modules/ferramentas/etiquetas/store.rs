@@ -509,10 +509,11 @@ fn unidades_do_lote(kg: f64, detalhes: Option<&str>, descricao: Option<&str>) ->
         .filter_map(|p| p.trim().strip_prefix("Unidades:").and_then(|v| v.trim().parse::<f64>().ok()))
         .find(|u| *u > 0.0);
     let peso = crate::modules::producao::lotes::parse_unit_weight_from_desc(descricao.unwrap_or(""));
+    // O ERP grava "Unidades: 1" como padrão em lote de muitos kg: 1 unidade só vale quando o lote é de ~1 unidade.
+    let estimativa = if peso > 0.0 { kg / peso } else { kg };
     match conferidas {
-        Some(u) => (u.round() as i32, false),
-        None if peso > 0.0 => ((kg / peso).round() as i32, true),
-        None => (kg.round() as i32, true),
+        Some(u) if u > 1.0 || estimativa < 1.5 => (u.round() as i32, false),
+        _ => (estimativa.round().max(1.0) as i32, true),
     }
 }
 
@@ -663,6 +664,15 @@ mod testes_lotes {
     #[test]
     fn unidades_conferidas_tem_prioridade_sobre_o_peso() {
         assert_eq!(unidades_do_lote(150.0, Some("Lote X|Unidades: 480"), Some("SH 300 ML")), (480, false));
+    }
+
+    #[test]
+    fn unidades_1_do_erp_em_lote_grande_e_padrao_e_estima_pelo_peso() {
+        let (u, estimada) = unidades_do_lote(300.0, Some("Status: EN | Unidades: 1"), Some("SH HOMEM 300 ML"));
+        assert!(estimada);
+        assert!(u > 100);
+        // lote de 1 unidade de verdade continua 1
+        assert_eq!(unidades_do_lote(0.3, Some("Unidades: 1"), Some("SH HOMEM 300 ML")), (1, false));
     }
 
     #[test]
