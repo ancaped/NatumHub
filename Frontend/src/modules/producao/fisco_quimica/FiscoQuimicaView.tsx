@@ -284,7 +284,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
 
   if (loading && !products.length && !analyses.length) {
     return (
-      <div className="flex h-screen items-center justify-center bg-zinc-50">
+      <div className="flex h-dvh items-center justify-center bg-zinc-50">
         <Loader2 className="h-8 w-8 animate-spin text-zinc-800" />
       </div>
     );
