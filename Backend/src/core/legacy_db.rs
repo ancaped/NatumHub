@@ -2010,7 +2010,7 @@ GROUP BY LTRIM(RTRIM(k.cKit)), LTRIM(RTRIM(k.cCodProd));
 SELECT
     CAST(e.nRegistro AS BIGINT) AS nRegistro,
     CAST(LTRIM(RTRIM(e.cReferencia)) AS NVARCHAR(60)) AS cReferencia,
-    CONVERT(VARCHAR(8), TRY_CONVERT(date, e.dRegistro), 112) AS dRegistro,
+    CONVERT(VARCHAR(8), e.dRegistro, 112) AS dRegistro,
     CAST(e.cHora AS NVARCHAR(10)) AS cHora,
     CAST(e.cTipoES AS NVARCHAR(2)) AS cTipoES,
     CAST(e.nQtde AS FLOAT) AS nQtde,

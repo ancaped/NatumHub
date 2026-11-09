@@ -357,7 +357,18 @@ pub async fn trigger_db_sync(
     axum::extract::Query(q): axum::extract::Query<SyncQuery>,
 ) -> impl IntoResponse {
     let mode = crate::core::legacy_db::SyncMode::parse(q.mode.as_deref());
-    match execute_erp_sync(state, "Banco SQL Server NATUM", mode).await {
+    // Roda destacado do pedido HTTP: se o navegador desconectar (aba fechada, timeout, rede), o sync segue até o fim
+    // em vez de ser descartado no meio e deixar o lock do dia em "em_andamento".
+    let pool = state.db.pool().clone();
+    let tarefa = tokio::spawn(execute_erp_sync(state, "Banco SQL Server NATUM", mode));
+    let resultado = match tarefa.await {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = crate::core::pg_db::release_daily_sync(&pool).await;
+            Err(format!("Sync interrompido de forma inesperada: {e}"))
+        }
+    };
+    match resultado {
         Ok(res) => (
             StatusCode::OK,
             Json(json!({
@@ -463,7 +474,18 @@ pub async fn execute_lotes_sync(
 
 /// POST /api/import/lotes — atualiza do ERP os lotes recentes e abertos (status, itens, laudos).
 pub async fn trigger_lotes_sync(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match execute_lotes_sync(&state).await {
+    // Destacado do pedido HTTP (ver trigger_db_sync): desconexão do navegador não cancela o sync.
+    let pool = state.db.pool().clone();
+    let st = state.clone();
+    let tarefa = tokio::spawn(async move { execute_lotes_sync(&st).await });
+    let resultado = match tarefa.await {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = crate::core::pg_db::release_daily_sync(&pool).await;
+            Err(format!("Sync interrompido de forma inesperada: {e}"))
+        }
+    };
+    match resultado {
         Ok(res) => (StatusCode::OK, Json(json!({ "status": "success", "resultado": res }))).into_response(),
         Err(e) if e == crate::core::pg_db::SYNC_ALREADY_RUNNING => (
             StatusCode::CONFLICT,
