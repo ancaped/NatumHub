@@ -4,7 +4,7 @@ use std::sync::Arc;
 use chrono::{Local, NaiveTime, Timelike};
 use tokio::time::{interval, Duration};
 
-use crate::handlers::imports::execute_erp_sync;
+use crate::handlers::imports::{execute_erp_sync, execute_lotes_sync};
 use crate::handlers::AppState;
 
 static SYNC_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
@@ -151,6 +151,63 @@ pub async fn start_erp_sync_scheduler(state: Arc<AppState>) {
                     &e,
                     None,
                 );
+            }
+        }
+    }
+}
+
+/// Task em background: sync leve de lotes a cada N minutos (`erp_lotes_sync_interval_minutes`, padrão 5;
+/// 0 desativa). Mantém status, itens e laudos das ordens em dia sem esperar o sync completo (que roda de
+/// 2 em 2 horas). Pula o ciclo se houver outro sync rodando; se o ERP não responder, espera mais antes
+/// de tentar de novo, para não repetir a falha a cada ciclo.
+pub async fn start_lotes_sync_scheduler(state: Arc<AppState>) {
+    const PADRAO_MIN: u64 = 5;
+    const ESPERA_APOS_FALHA_MIN: u64 = 30;
+
+    tokio::time::sleep(Duration::from_secs(90)).await;
+    let mut ticker = interval(Duration::from_secs(30));
+    let mut ultima_tentativa: Option<std::time::Instant> = None;
+    let mut esperar_min = 0u64;
+    let mut falhando = false;
+
+    loop {
+        ticker.tick().await;
+
+        let intervalo_min: u64 = state
+            .db
+            .get_setting("erp_lotes_sync_interval_minutes")
+            .await
+            .ok()
+            .flatten()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(PADRAO_MIN);
+        if intervalo_min == 0 {
+            continue;
+        }
+        let espera = Duration::from_secs(60 * esperar_min.max(intervalo_min));
+        if ultima_tentativa.is_some_and(|t| t.elapsed() < espera) {
+            continue;
+        }
+        if SYNC_IN_PROGRESS.load(Ordering::SeqCst) {
+            continue;
+        }
+        ultima_tentativa = Some(std::time::Instant::now());
+
+        match execute_lotes_sync(&state).await {
+            Ok(_) => {
+                falhando = false;
+                esperar_min = 0;
+            }
+            Err(e) if e == crate::core::pg_db::SYNC_ALREADY_RUNNING => {
+                // Outro sync em andamento: tenta no próximo ciclo normal.
+                esperar_min = 0;
+            }
+            Err(e) => {
+                if !falhando {
+                    eprintln!("[ERP Lotes] Falha ao atualizar lotes: {e}. Nova tentativa em {ESPERA_APOS_FALHA_MIN} min.");
+                }
+                falhando = true;
+                esperar_min = ESPERA_APOS_FALHA_MIN;
             }
         }
     }

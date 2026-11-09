@@ -559,6 +559,469 @@ async fn load_hub_open_sales_order_keys(pool: &PgPool) -> Vec<(i32, String)> {
         .collect()
 }
 
+/// Lê do ERP os lotes (Lotes) da janela e os que o Nexus ainda trata como abertos: uma `LoteRow` por item
+/// (até 4 por ordem). Usado pelo sync completo (passo H) e pelo sync leve de lotes.
+async fn ler_lotes_erp(
+    client: &mut Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    since_dt: &str,
+    hub_open_lotes: &[i32],
+) -> anyhow::Result<Vec<LoteRow>> {
+    let open_lotes_condition = if hub_open_lotes.is_empty() {
+        String::new()
+    } else {
+        let in_list = hub_open_lotes
+            .iter()
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("OR l.nLote IN ({in_list})")
+    };
+
+    let query_lotes = format!(
+        "
+SELECT 
+    l.nLote,
+    l.cCodProd COLLATE Latin1_General_CI_AS as cCodProd,
+    l.cCodProd2 COLLATE Latin1_General_CI_AS as cCodProd2,
+    l.cCodProd3 COLLATE Latin1_General_CI_AS as cCodProd3,
+    l.cCodProd4 COLLATE Latin1_General_CI_AS as cCodProd4,
+    CAST(l.nQtde AS FLOAT) as nQtde,
+    CAST(l.nQtde1 AS FLOAT) as nQtde1,
+    CAST(l.nQtde2 AS FLOAT) as nQtde2,
+    CAST(l.nQtde3 AS FLOAT) as nQtde3,
+    CAST(l.nQtde4 AS FLOAT) as nQtde4,
+    CONVERT(varchar, l.dLote, 120) COLLATE Latin1_General_CI_AS as dLote,
+    l.cStatus COLLATE Latin1_General_CI_AS as cStatus,
+    l.cFabricadopor COLLATE Latin1_General_CI_AS as cFabricadopor,
+    l.cAutorizadopor COLLATE Latin1_General_CI_AS as cAutorizadopor,
+    CAST(l.nUnidades AS FLOAT) as nUnidades,
+    CAST(l.nUnidades1 AS FLOAT) as nUnidades1,
+    CAST(l.nUnidades2 AS FLOAT) as nUnidades2,
+    CAST(l.nUnidades3 AS FLOAT) as nUnidades3,
+    CAST(l.nUnidades4 AS FLOAT) as nUnidades4,
+    CAST(l.nUnidadesReais1 AS FLOAT) as nUnidadesReais1,
+    CAST(l.nUnidadesReais2 AS FLOAT) as nUnidadesReais2,
+    CAST(l.nUnidadesReais3 AS FLOAT) as nUnidadesReais3,
+    CAST(l.nUnidadesReais4 AS FLOAT) as nUnidadesReais4,
+    CONVERT(varchar, l.dPesado, 120) COLLATE Latin1_General_CI_AS as dPesado,
+    CONVERT(varchar, l.dEnvasado, 120) COLLATE Latin1_General_CI_AS as dEnvasado,
+    CONVERT(varchar, l.dEnvase1, 120) COLLATE Latin1_General_CI_AS as dEnvase1,
+    CONVERT(varchar, l.dEnvase2, 120) COLLATE Latin1_General_CI_AS as dEnvase2,
+    CONVERT(varchar, l.dEnvase3, 120) COLLATE Latin1_General_CI_AS as dEnvase3,
+    CONVERT(varchar, l.dEnvase4, 120) COLLATE Latin1_General_CI_AS as dEnvase4,
+    CONVERT(varchar, l.dConf1, 120) COLLATE Latin1_General_CI_AS as dConf1,
+    CAST(l.nPH AS FLOAT) as nPH,
+    CAST(l.nviscosidade AS FLOAT) as nviscosidade,
+    CAST(l.ndensidade AS FLOAT) as ndensidade,
+    CAST(l.nViscosidade24 AS FLOAT) as nViscosidade24,
+    l.cResponsavel1 COLLATE Latin1_General_CI_AS as cResponsavel1,
+    l.cResultado1 COLLATE Latin1_General_CI_AS as cResultado1,
+    CONVERT(varchar, l.dinspecao1, 120) COLLATE Latin1_General_CI_AS as dinspecao1,
+    CAST(l.mObservac AS VARCHAR(1000)) COLLATE Latin1_General_CI_AS as mObservac
+FROM Lotes l WITH (NOLOCK)
+WHERE (
+    l.dLote >= '{since_dt}' 
+    OR l.cStatus IN ('PG', 'PP', 'PR', 'EN', 'CF')
+    OR l.dEnvasado >= '{since_dt}'
+    OR l.dPesado >= '{since_dt}'
+    OR l.dConf1 >= '{since_dt}'
+    {open_lotes_condition}
+)
+  AND (
+    (l.cCodProd IS NOT NULL AND l.cCodProd <> '') OR
+    (l.cCodProd2 IS NOT NULL AND l.cCodProd2 <> '') OR
+    (l.cCodProd3 IS NOT NULL AND l.cCodProd3 <> '') OR
+    (l.cCodProd4 IS NOT NULL AND l.cCodProd4 <> '')
+  );
+"
+    );
+    println!("Step H: Querying Lotes (since {since_dt})");
+    let stream = client.query(query_lotes, &[]).await?;
+    let db_rows_lotes = stream.into_first_result().await?;
+    let mut lotes_list = Vec::new();
+    for row in db_rows_lotes {
+        let lote: i32 = row.get(0).unwrap_or(0);
+        let d_lote: Option<&str> = row.get(10);
+        if lote == 0 || d_lote.is_none() { continue; }
+        let date_str = d_lote.unwrap().to_string();
+
+        let status = row.get::<&str, _>(11).map(|s| s.trim().to_string());
+        let fab = row.get::<&str, _>(12).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let aut = row.get::<&str, _>(13).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let d_pesado = row.get::<&str, _>(23).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let d_envasado = row.get::<&str, _>(24).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let d_envase_arr = [
+            row.get::<&str, _>(25).map(|s| s.trim().to_string()),
+            row.get::<&str, _>(26).map(|s| s.trim().to_string()),
+            row.get::<&str, _>(27).map(|s| s.trim().to_string()),
+            row.get::<&str, _>(28).map(|s| s.trim().to_string()),
+        ];
+        let d_conf1 = row.get::<&str, _>(29).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+
+        let ph = row.get::<f64, _>(30).filter(|v| *v > 0.0);
+        let visc = row.get::<f64, _>(31).filter(|v| *v > 0.0);
+        let dens = row.get::<f64, _>(32).filter(|v| *v > 0.0);
+        let visc24 = row.get::<f64, _>(33).filter(|v| *v > 0.0);
+        let resp = row.get::<&str, _>(34).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let res = row.get::<&str, _>(35).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let dinsp = row.get::<&str, _>(36).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let obs = row.get::<&str, _>(37).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+
+        let prods = [
+            (row.get::<&str, _>(1), row.get::<f64, _>(6), row.get::<f64, _>(15), row.get::<f64, _>(19)),
+            (row.get::<&str, _>(2), row.get::<f64, _>(7), row.get::<f64, _>(16), row.get::<f64, _>(20)),
+            (row.get::<&str, _>(3), row.get::<f64, _>(8), row.get::<f64, _>(17), row.get::<f64, _>(21)),
+            (row.get::<&str, _>(4), row.get::<f64, _>(9), row.get::<f64, _>(18), row.get::<f64, _>(22)),
+        ];
+
+        let total_bulk_qty = row.get::<f64, _>(5).unwrap_or(0.0);
+        let total_units_field = row.get::<f64, _>(14).unwrap_or(0.0);
+
+        let mut present_count = 0;
+        for (code_opt, _, _, _) in &prods {
+            if let Some(code) = code_opt {
+                if !code.trim().is_empty() {
+                    present_count += 1;
+                }
+            }
+        }
+
+        for (idx, (code_opt, planned_kg_opt, planned_units_opt, real_units_opt)) in prods.iter().enumerate() {
+            if let Some(code) = code_opt {
+                let code_trimmed = code.trim().to_string();
+                if code_trimmed.is_empty() { continue; }
+
+                let mut qty = planned_kg_opt.unwrap_or(0.0);
+                if qty <= 0.0 {
+                    if present_count <= 1 || idx == 0 {
+                        qty = total_bulk_qty;
+                    }
+                }
+
+                let mut unidades = real_units_opt.unwrap_or(0.0);
+                if unidades <= 0.0 {
+                    unidades = planned_units_opt.unwrap_or(0.0);
+                }
+                if unidades <= 0.0 {
+                    if present_count <= 1 || idx == 0 {
+                        unidades = total_units_field;
+                    }
+                }
+
+                let item_envase = d_envase_arr[idx]
+                    .as_ref()
+                    .filter(|s| s.len() >= 8)
+                    .or(d_envasado.as_ref().filter(|s| s.len() >= 8))
+                    .or(d_pesado.as_ref().filter(|s| s.len() >= 8))
+                    .or(d_conf1.as_ref().filter(|s| s.len() >= 8))
+                    .cloned();
+
+                lotes_list.push(LoteRow {
+                    lote,
+                    product_code: code_trimmed,
+                    qty,
+                    date_str: date_str.clone(),
+                    status: status.clone(),
+                    fab: fab.clone(),
+                    aut: aut.clone(),
+                    unidades: Some(unidades),
+                    d_pesado: d_pesado.clone(),
+                    d_envase: item_envase,
+                    ph,
+                    viscosidade: visc,
+                    densidade: dens,
+                    viscosidade_24h: visc24,
+                    responsavel: resp.clone(),
+                    resultado: res.clone(),
+                    data_inspecao: dinsp.clone(),
+                    observacoes: obs.clone(),
+                });
+            }
+        }
+    }
+    Ok(lotes_list)
+}
+
+/// Cria (se faltar) e atualiza `erp_lotes_laudos` com os itens dos lotes lidos do ERP.
+async fn gravar_laudos_lotes(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    lotes_list: &[LoteRow],
+) -> anyhow::Result<()> {
+    // Criar e atualizar erp_lotes_laudos
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS erp_lotes_laudos (
+            lote TEXT NOT NULL,
+            product_code TEXT NOT NULL,
+            ph FLOAT8,
+            viscosidade FLOAT8,
+            densidade FLOAT8,
+            viscosidade_24h FLOAT8,
+            fabricado_por TEXT,
+            autorizado_por TEXT,
+            responsavel TEXT,
+            resultado TEXT,
+            data_inspecao TEXT,
+            data_lote TEXT,
+            data_pesado TEXT,
+            data_envase TEXT,
+            quantidade_kg FLOAT8,
+            unidades FLOAT8,
+            observacoes TEXT,
+            updated_at TIMESTAMPTZ DEFAULT NOW(),
+            PRIMARY KEY (lote, product_code)
+        )
+        "#
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_erp_lotes_laudos_lote ON erp_lotes_laudos(lote)")
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_erp_lotes_laudos_prod ON erp_lotes_laudos(product_code)")
+        .execute(&mut **tx)
+        .await?;
+
+    let mut laudos_dedup: HashMap<(String, String), &LoteRow> = HashMap::new();
+    for l in lotes_list {
+        laudos_dedup.insert((l.lote.to_string(), l.product_code.clone()), l);
+    }
+    let laudos_records: Vec<&LoteRow> = laudos_dedup.into_values().collect();
+    for chunk in laudos_records.chunks(3000) {
+        let lotes: Vec<String> = chunk.iter().map(|r| r.lote.to_string()).collect();
+        let prods: Vec<String> = chunk.iter().map(|r| r.product_code.clone()).collect();
+        let phs: Vec<Option<f64>> = chunk.iter().map(|r| r.ph).collect();
+        let viscs: Vec<Option<f64>> = chunk.iter().map(|r| r.viscosidade).collect();
+        let denss: Vec<Option<f64>> = chunk.iter().map(|r| r.densidade).collect();
+        let visc24s: Vec<Option<f64>> = chunk.iter().map(|r| r.viscosidade_24h).collect();
+        let fabs: Vec<Option<String>> = chunk.iter().map(|r| r.fab.clone()).collect();
+        let auts: Vec<Option<String>> = chunk.iter().map(|r| r.aut.clone()).collect();
+        let resps: Vec<Option<String>> = chunk.iter().map(|r| r.responsavel.clone()).collect();
+        let ress: Vec<Option<String>> = chunk.iter().map(|r| r.resultado.clone()).collect();
+        let dinsp_arr: Vec<Option<String>> = chunk.iter().map(|r| r.data_inspecao.clone()).collect();
+        let dlote_arr: Vec<Option<String>> = chunk.iter().map(|r| Some(r.date_str.clone())).collect();
+        let dpesado_arr: Vec<Option<String>> = chunk.iter().map(|r| r.d_pesado.clone()).collect();
+        let denvase_arr: Vec<Option<String>> = chunk.iter().map(|r| r.d_envase.clone()).collect();
+        let qtd_arr: Vec<f64> = chunk.iter().map(|r| r.qty).collect();
+        let un_arr: Vec<f64> = chunk.iter().map(|r| r.unidades.unwrap_or(0.0)).collect();
+        let obs_arr: Vec<Option<String>> = chunk.iter().map(|r| r.observacoes.clone()).collect();
+
+        sqlx::query(
+            r#"
+            INSERT INTO erp_lotes_laudos (
+                lote, product_code, ph, viscosidade, densidade, viscosidade_24h,
+                fabricado_por, autorizado_por, responsavel, resultado,
+                data_inspecao, data_lote, data_pesado, data_envase,
+                quantidade_kg, unidades, observacoes, updated_at
+            )
+            SELECT 
+                u.lote, u.product_code, u.ph, u.viscosidade, u.densidade, u.viscosidade_24h,
+                u.fabricado_por, u.autorizado_por, u.responsavel, u.resultado,
+                u.data_inspecao, u.data_lote, u.data_pesado, u.data_envase,
+                u.quantidade_kg, u.unidades, u.observacoes, NOW()
+            FROM UNNEST(
+                $1::text[], $2::text[], $3::float8[], $4::float8[], $5::float8[], $6::float8[],
+                $7::text[], $8::text[], $9::text[], $10::text[],
+                $11::text[], $12::text[], $13::text[], $14::text[],
+                $15::float8[], $16::float8[], $17::text[]
+            ) AS u(
+                lote, product_code, ph, viscosidade, densidade, viscosidade_24h,
+                fabricado_por, autorizado_por, responsavel, resultado,
+                data_inspecao, data_lote, data_pesado, data_envase,
+                quantidade_kg, unidades, observacoes
+            )
+            ON CONFLICT (lote, product_code) DO UPDATE SET
+                ph = EXCLUDED.ph,
+                viscosidade = EXCLUDED.viscosidade,
+                densidade = EXCLUDED.densidade,
+                viscosidade_24h = EXCLUDED.viscosidade_24h,
+                fabricado_por = EXCLUDED.fabricado_por,
+                autorizado_por = EXCLUDED.autorizado_por,
+                responsavel = EXCLUDED.responsavel,
+                resultado = EXCLUDED.resultado,
+                data_inspecao = EXCLUDED.data_inspecao,
+                data_lote = EXCLUDED.data_lote,
+                data_pesado = EXCLUDED.data_pesado,
+                data_envase = EXCLUDED.data_envase,
+                quantidade_kg = EXCLUDED.quantidade_kg,
+                unidades = EXCLUDED.unidades,
+                observacoes = EXCLUDED.observacoes,
+                updated_at = NOW();
+            "#,
+        )
+        .bind(&lotes)
+        .bind(&prods)
+        .bind(&phs)
+        .bind(&viscs)
+        .bind(&denss)
+        .bind(&visc24s)
+        .bind(&fabs)
+        .bind(&auts)
+        .bind(&resps)
+        .bind(&ress)
+        .bind(&dinsp_arr)
+        .bind(&dlote_arr)
+        .bind(&dpesado_arr)
+        .bind(&denvase_arr)
+        .bind(&qtd_arr)
+        .bind(&un_arr)
+        .bind(&obs_arr)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Regrava em `stock_movements` as entradas de produto dos lotes lidos: apaga as linhas dos lotes
+/// (e as dos que o Nexus tinha abertos e o ERP não devolveu mais) e insere uma por item. Devolve quantas gravou.
+async fn gravar_movimentos_lotes(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    mov_batch: &mut Vec<MovInsert>,
+    lotes_list: &[LoteRow],
+    hub_open_lotes: &[i32],
+) -> anyhow::Result<usize> {
+    let mut n_mov: usize = 0;
+    // Garante que lotes em stock_movements sejam limpos antes da reinserção/atualização
+    let lote_numbers: Vec<String> = lotes_list.iter().map(|l| l.lote.to_string()).collect();
+    for chunk in lote_numbers.chunks(2000) {
+        sqlx::query(
+            "DELETE FROM stock_movements
+             WHERE item_type = 'produto' AND movement_type = 'entrada'
+               AND document_number = ANY($1)"
+        )
+        .bind(chunk)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // Se havia lotes que o Hub considerava abertos mas que não vieram do ERP (foram cancelados/deletados), limpa-os
+    let returned_lote_set: std::collections::HashSet<i32> = lotes_list.iter().map(|l| l.lote).collect();
+    let orphan_lotes: Vec<String> = hub_open_lotes
+        .iter()
+        .filter(|id| !returned_lote_set.contains(id))
+        .map(|id| id.to_string())
+        .collect();
+    if !orphan_lotes.is_empty() {
+        eprintln!(
+            "[ERP Sync] Removendo {} lote(s) órfão(s) que não existem mais no ERP: {:?}",
+            orphan_lotes.len(),
+            orphan_lotes
+        );
+        for chunk in orphan_lotes.chunks(500) {
+            sqlx::query(
+                "DELETE FROM stock_movements
+                 WHERE item_type = 'produto' AND movement_type = 'entrada'
+                   AND document_number = ANY($1)"
+            )
+            .bind(chunk)
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
+    let mut seen_lote_prods = std::collections::HashSet::new();
+    for l in lotes_list {
+        if !seen_lote_prods.insert((l.lote, l.product_code.clone())) {
+            continue;
+        }
+        let details = format!(
+            "Status: {} | Fab: {} | Aut: {} | Unidades: {} | dPesado: {} | dEnvase: {}",
+            l.status.as_deref().unwrap_or(""),
+            l.fab.as_deref().unwrap_or(""),
+            l.aut.as_deref().unwrap_or(""),
+            l.unidades.unwrap_or(0.0),
+            l.d_pesado.as_deref().unwrap_or(""),
+            l.d_envase.as_deref().unwrap_or("")
+        );
+        mov_batch.push(MovInsert {
+            id: format!("lote_{}_{}", l.lote, l.product_code.trim()),
+            item_code: l.product_code.clone(),
+            item_type: "produto".to_string(),
+            movement_type: "entrada".to_string(),
+            quantity: l.qty,
+            date: l.date_str.clone(),
+            document_number: l.lote.to_string(),
+            details,
+        });
+        n_mov += 1;
+        if mov_batch.len() >= MOV_BATCH {
+            flush_stock_movements(tx, mov_batch).await?;
+        }
+    }
+    flush_stock_movements(tx, mov_batch).await?;
+    Ok(n_mov)
+}
+
+/// Chave em `settings` com o instante (UTC, RFC 3339) da última atualização de lotes vinda do ERP
+/// (sync completo ou leve).
+pub const LOTES_SYNC_LAST_KEY: &str = "erp_lotes_sync_last";
+/// Janela do sync leve: lotes dos últimos N dias, mais todos os que o ERP ou o Nexus ainda têm abertos.
+const LOTES_LEVE_JANELA_DIAS: i64 = 30;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LotesSyncResult {
+    /// Ordens (lotes) lidas do ERP.
+    pub lotes: usize,
+    /// Itens gravados (uma ordem pode ter até 4).
+    pub itens: usize,
+    pub duracao_ms: u64,
+    pub atualizado_em: String,
+}
+
+/// Sync leve de lotes: lê só os lotes recentes/abertos do ERP e regrava status, itens e laudos no Nexus.
+/// Leva segundos (o sync completo, minutos), então roda a cada poucos minutos e sob demanda. O chamador
+/// reserva o lock do sync (`execute_lotes_sync`), porque grava as mesmas tabelas do sync completo.
+pub async fn sync_lotes_leve(pool: &PgPool) -> anyhow::Result<LotesSyncResult> {
+    let inicio = std::time::Instant::now();
+    let since = (Local::now().date_naive() - Duration::days(LOTES_LEVE_JANELA_DIAS))
+        .format("%Y-%m-%d")
+        .to_string();
+    let since_dt = sql_datetime_since(&since);
+    let hub_open_lotes = load_hub_open_lote_numbers(pool).await;
+
+    let mut client = connect_sql_server(pool).await?;
+    let lotes_list = ler_lotes_erp(&mut client, &since_dt, &hub_open_lotes).await?;
+    // Trava de segurança: se o Nexus tem lotes abertos e o ERP não devolveu nenhum, a consulta ou a
+    // conexão veio errada. Apagar "órfãos" nesse caso esvaziaria as ordens abertas.
+    if lotes_list.is_empty() && !hub_open_lotes.is_empty() {
+        anyhow::bail!(
+            "O ERP não devolveu nenhum lote, mas o Nexus tem {} aberto(s): nada foi alterado.",
+            hub_open_lotes.len()
+        );
+    }
+
+    let lotes_distintos: HashSet<i32> = lotes_list.iter().map(|l| l.lote).collect();
+    let mut tx = pool.begin().await?;
+    gravar_laudos_lotes(&mut tx, &lotes_list).await?;
+    let mut mov_batch: Vec<MovInsert> = Vec::new();
+    let itens = gravar_movimentos_lotes(&mut tx, &mut mov_batch, &lotes_list, &hub_open_lotes).await?;
+    tx.commit().await?;
+
+    let atualizado_em = Utc::now().to_rfc3339();
+    if let Err(e) = save_setting_to_pool(pool, LOTES_SYNC_LAST_KEY, &atualizado_em).await {
+        eprintln!("[ERP Lotes] Aviso: falha ao gravar a hora da atualização: {e}");
+    }
+    let res = LotesSyncResult {
+        lotes: lotes_distintos.len(),
+        itens,
+        duracao_ms: inicio.elapsed().as_millis() as u64,
+        atualizado_em,
+    };
+    eprintln!(
+        "[ERP Lotes] {} lote(s), {} item(ns) em {} ms.",
+        res.lotes, res.itens, res.duracao_ms
+    );
+    Ok(res)
+}
+
+/// Instante (UTC, RFC 3339) da última atualização de lotes, ou `None` se nunca houve.
+pub async fn lotes_sync_ultima(pool: &PgPool) -> Option<String> {
+    get_setting_from_pool(pool, LOTES_SYNC_LAST_KEY).await
+}
+
 /// Lotes que o Hub ainda trata como abertos em stock_movements — reconsultar no ERP mesmo fora da janela incremental.
 async fn load_hub_open_lote_numbers(pool: &PgPool) -> Vec<i32> {
     let rows = sqlx::query_scalar::<_, String>(
@@ -1483,179 +1946,7 @@ GROUP BY LTRIM(RTRIM(k.cKit)), LTRIM(RTRIM(k.cCodProd));
     let kit_composicao_list: Vec<KitComposicaoErpRow> = kit_composicao_map.into_values().collect();
 
     // H. Query Lotes (Production logs for Finished Goods)
-    let open_lotes_condition = if hub_open_lotes.is_empty() {
-        String::new()
-    } else {
-        let in_list = hub_open_lotes
-            .iter()
-            .map(|n| n.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
-        format!("OR l.nLote IN ({in_list})")
-    };
-
-    let query_lotes = format!(
-        "
-SELECT 
-    l.nLote,
-    l.cCodProd COLLATE Latin1_General_CI_AS as cCodProd,
-    l.cCodProd2 COLLATE Latin1_General_CI_AS as cCodProd2,
-    l.cCodProd3 COLLATE Latin1_General_CI_AS as cCodProd3,
-    l.cCodProd4 COLLATE Latin1_General_CI_AS as cCodProd4,
-    CAST(l.nQtde AS FLOAT) as nQtde,
-    CAST(l.nQtde1 AS FLOAT) as nQtde1,
-    CAST(l.nQtde2 AS FLOAT) as nQtde2,
-    CAST(l.nQtde3 AS FLOAT) as nQtde3,
-    CAST(l.nQtde4 AS FLOAT) as nQtde4,
-    CONVERT(varchar, l.dLote, 120) COLLATE Latin1_General_CI_AS as dLote,
-    l.cStatus COLLATE Latin1_General_CI_AS as cStatus,
-    l.cFabricadopor COLLATE Latin1_General_CI_AS as cFabricadopor,
-    l.cAutorizadopor COLLATE Latin1_General_CI_AS as cAutorizadopor,
-    CAST(l.nUnidades AS FLOAT) as nUnidades,
-    CAST(l.nUnidades1 AS FLOAT) as nUnidades1,
-    CAST(l.nUnidades2 AS FLOAT) as nUnidades2,
-    CAST(l.nUnidades3 AS FLOAT) as nUnidades3,
-    CAST(l.nUnidades4 AS FLOAT) as nUnidades4,
-    CAST(l.nUnidadesReais1 AS FLOAT) as nUnidadesReais1,
-    CAST(l.nUnidadesReais2 AS FLOAT) as nUnidadesReais2,
-    CAST(l.nUnidadesReais3 AS FLOAT) as nUnidadesReais3,
-    CAST(l.nUnidadesReais4 AS FLOAT) as nUnidadesReais4,
-    CONVERT(varchar, l.dPesado, 120) COLLATE Latin1_General_CI_AS as dPesado,
-    CONVERT(varchar, l.dEnvasado, 120) COLLATE Latin1_General_CI_AS as dEnvasado,
-    CONVERT(varchar, l.dEnvase1, 120) COLLATE Latin1_General_CI_AS as dEnvase1,
-    CONVERT(varchar, l.dEnvase2, 120) COLLATE Latin1_General_CI_AS as dEnvase2,
-    CONVERT(varchar, l.dEnvase3, 120) COLLATE Latin1_General_CI_AS as dEnvase3,
-    CONVERT(varchar, l.dEnvase4, 120) COLLATE Latin1_General_CI_AS as dEnvase4,
-    CONVERT(varchar, l.dConf1, 120) COLLATE Latin1_General_CI_AS as dConf1,
-    CAST(l.nPH AS FLOAT) as nPH,
-    CAST(l.nviscosidade AS FLOAT) as nviscosidade,
-    CAST(l.ndensidade AS FLOAT) as ndensidade,
-    CAST(l.nViscosidade24 AS FLOAT) as nViscosidade24,
-    l.cResponsavel1 COLLATE Latin1_General_CI_AS as cResponsavel1,
-    l.cResultado1 COLLATE Latin1_General_CI_AS as cResultado1,
-    CONVERT(varchar, l.dinspecao1, 120) COLLATE Latin1_General_CI_AS as dinspecao1,
-    CAST(l.mObservac AS VARCHAR(1000)) COLLATE Latin1_General_CI_AS as mObservac
-FROM Lotes l WITH (NOLOCK)
-WHERE (
-    l.dLote >= '{since_dt}' 
-    OR l.cStatus IN ('PG', 'PP', 'PR', 'EN', 'CF')
-    OR l.dEnvasado >= '{since_dt}'
-    OR l.dPesado >= '{since_dt}'
-    OR l.dConf1 >= '{since_dt}'
-    {open_lotes_condition}
-)
-  AND (
-    (l.cCodProd IS NOT NULL AND l.cCodProd <> '') OR
-    (l.cCodProd2 IS NOT NULL AND l.cCodProd2 <> '') OR
-    (l.cCodProd3 IS NOT NULL AND l.cCodProd3 <> '') OR
-    (l.cCodProd4 IS NOT NULL AND l.cCodProd4 <> '')
-  );
-"
-    );
-    println!("Step H: Querying Lotes (since {since})");
-    let stream = client.query(query_lotes, &[]).await?;
-    let db_rows_lotes = stream.into_first_result().await?;
-    let mut lotes_list = Vec::new();
-    for row in db_rows_lotes {
-        let lote: i32 = row.get(0).unwrap_or(0);
-        let d_lote: Option<&str> = row.get(10);
-        if lote == 0 || d_lote.is_none() { continue; }
-        let date_str = d_lote.unwrap().to_string();
-
-        let status = row.get::<&str, _>(11).map(|s| s.trim().to_string());
-        let fab = row.get::<&str, _>(12).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-        let aut = row.get::<&str, _>(13).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-        let d_pesado = row.get::<&str, _>(23).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-        let d_envasado = row.get::<&str, _>(24).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-        let d_envase_arr = [
-            row.get::<&str, _>(25).map(|s| s.trim().to_string()),
-            row.get::<&str, _>(26).map(|s| s.trim().to_string()),
-            row.get::<&str, _>(27).map(|s| s.trim().to_string()),
-            row.get::<&str, _>(28).map(|s| s.trim().to_string()),
-        ];
-        let d_conf1 = row.get::<&str, _>(29).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-
-        let ph = row.get::<f64, _>(30).filter(|v| *v > 0.0);
-        let visc = row.get::<f64, _>(31).filter(|v| *v > 0.0);
-        let dens = row.get::<f64, _>(32).filter(|v| *v > 0.0);
-        let visc24 = row.get::<f64, _>(33).filter(|v| *v > 0.0);
-        let resp = row.get::<&str, _>(34).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-        let res = row.get::<&str, _>(35).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-        let dinsp = row.get::<&str, _>(36).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-        let obs = row.get::<&str, _>(37).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-
-        let prods = [
-            (row.get::<&str, _>(1), row.get::<f64, _>(6), row.get::<f64, _>(15), row.get::<f64, _>(19)),
-            (row.get::<&str, _>(2), row.get::<f64, _>(7), row.get::<f64, _>(16), row.get::<f64, _>(20)),
-            (row.get::<&str, _>(3), row.get::<f64, _>(8), row.get::<f64, _>(17), row.get::<f64, _>(21)),
-            (row.get::<&str, _>(4), row.get::<f64, _>(9), row.get::<f64, _>(18), row.get::<f64, _>(22)),
-        ];
-
-        let total_bulk_qty = row.get::<f64, _>(5).unwrap_or(0.0);
-        let total_units_field = row.get::<f64, _>(14).unwrap_or(0.0);
-
-        let mut present_count = 0;
-        for (code_opt, _, _, _) in &prods {
-            if let Some(code) = code_opt {
-                if !code.trim().is_empty() {
-                    present_count += 1;
-                }
-            }
-        }
-
-        for (idx, (code_opt, planned_kg_opt, planned_units_opt, real_units_opt)) in prods.iter().enumerate() {
-            if let Some(code) = code_opt {
-                let code_trimmed = code.trim().to_string();
-                if code_trimmed.is_empty() { continue; }
-
-                let mut qty = planned_kg_opt.unwrap_or(0.0);
-                if qty <= 0.0 {
-                    if present_count <= 1 || idx == 0 {
-                        qty = total_bulk_qty;
-                    }
-                }
-
-                let mut unidades = real_units_opt.unwrap_or(0.0);
-                if unidades <= 0.0 {
-                    unidades = planned_units_opt.unwrap_or(0.0);
-                }
-                if unidades <= 0.0 {
-                    if present_count <= 1 || idx == 0 {
-                        unidades = total_units_field;
-                    }
-                }
-
-                let item_envase = d_envase_arr[idx]
-                    .as_ref()
-                    .filter(|s| s.len() >= 8)
-                    .or(d_envasado.as_ref().filter(|s| s.len() >= 8))
-                    .or(d_pesado.as_ref().filter(|s| s.len() >= 8))
-                    .or(d_conf1.as_ref().filter(|s| s.len() >= 8))
-                    .cloned();
-
-                lotes_list.push(LoteRow {
-                    lote,
-                    product_code: code_trimmed,
-                    qty,
-                    date_str: date_str.clone(),
-                    status: status.clone(),
-                    fab: fab.clone(),
-                    aut: aut.clone(),
-                    unidades: Some(unidades),
-                    d_pesado: d_pesado.clone(),
-                    d_envase: item_envase,
-                    ph,
-                    viscosidade: visc,
-                    densidade: dens,
-                    viscosidade_24h: visc24,
-                    responsavel: resp.clone(),
-                    resultado: res.clone(),
-                    data_inspecao: dinsp.clone(),
-                    observacoes: obs.clone(),
-                });
-            }
-        }
-    }
+    let lotes_list = ler_lotes_erp(&mut client, &since_dt, &hub_open_lotes).await?;
 
 
     // I. Query Lotes_Baixas (Insumo exits logs)
@@ -2913,201 +3204,9 @@ WHERE {so2_date_filter};
         }
     }
 
-    // Criar e atualizar erp_lotes_laudos
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS erp_lotes_laudos (
-            lote TEXT NOT NULL,
-            product_code TEXT NOT NULL,
-            ph FLOAT8,
-            viscosidade FLOAT8,
-            densidade FLOAT8,
-            viscosidade_24h FLOAT8,
-            fabricado_por TEXT,
-            autorizado_por TEXT,
-            responsavel TEXT,
-            resultado TEXT,
-            data_inspecao TEXT,
-            data_lote TEXT,
-            data_pesado TEXT,
-            data_envase TEXT,
-            quantidade_kg FLOAT8,
-            unidades FLOAT8,
-            observacoes TEXT,
-            updated_at TIMESTAMPTZ DEFAULT NOW(),
-            PRIMARY KEY (lote, product_code)
-        )
-        "#
-    )
-    .execute(&mut *tx)
-    .await?;
+    gravar_laudos_lotes(&mut tx, &lotes_list).await?;
 
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_erp_lotes_laudos_lote ON erp_lotes_laudos(lote)")
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_erp_lotes_laudos_prod ON erp_lotes_laudos(product_code)")
-        .execute(&mut *tx)
-        .await?;
-
-    let mut laudos_dedup: HashMap<(String, String), &LoteRow> = HashMap::new();
-    for l in &lotes_list {
-        laudos_dedup.insert((l.lote.to_string(), l.product_code.clone()), l);
-    }
-    let laudos_records: Vec<&LoteRow> = laudos_dedup.into_values().collect();
-    for chunk in laudos_records.chunks(3000) {
-        let lotes: Vec<String> = chunk.iter().map(|r| r.lote.to_string()).collect();
-        let prods: Vec<String> = chunk.iter().map(|r| r.product_code.clone()).collect();
-        let phs: Vec<Option<f64>> = chunk.iter().map(|r| r.ph).collect();
-        let viscs: Vec<Option<f64>> = chunk.iter().map(|r| r.viscosidade).collect();
-        let denss: Vec<Option<f64>> = chunk.iter().map(|r| r.densidade).collect();
-        let visc24s: Vec<Option<f64>> = chunk.iter().map(|r| r.viscosidade_24h).collect();
-        let fabs: Vec<Option<String>> = chunk.iter().map(|r| r.fab.clone()).collect();
-        let auts: Vec<Option<String>> = chunk.iter().map(|r| r.aut.clone()).collect();
-        let resps: Vec<Option<String>> = chunk.iter().map(|r| r.responsavel.clone()).collect();
-        let ress: Vec<Option<String>> = chunk.iter().map(|r| r.resultado.clone()).collect();
-        let dinsp_arr: Vec<Option<String>> = chunk.iter().map(|r| r.data_inspecao.clone()).collect();
-        let dlote_arr: Vec<Option<String>> = chunk.iter().map(|r| Some(r.date_str.clone())).collect();
-        let dpesado_arr: Vec<Option<String>> = chunk.iter().map(|r| r.d_pesado.clone()).collect();
-        let denvase_arr: Vec<Option<String>> = chunk.iter().map(|r| r.d_envase.clone()).collect();
-        let qtd_arr: Vec<f64> = chunk.iter().map(|r| r.qty).collect();
-        let un_arr: Vec<f64> = chunk.iter().map(|r| r.unidades.unwrap_or(0.0)).collect();
-        let obs_arr: Vec<Option<String>> = chunk.iter().map(|r| r.observacoes.clone()).collect();
-
-        sqlx::query(
-            r#"
-            INSERT INTO erp_lotes_laudos (
-                lote, product_code, ph, viscosidade, densidade, viscosidade_24h,
-                fabricado_por, autorizado_por, responsavel, resultado,
-                data_inspecao, data_lote, data_pesado, data_envase,
-                quantidade_kg, unidades, observacoes, updated_at
-            )
-            SELECT 
-                u.lote, u.product_code, u.ph, u.viscosidade, u.densidade, u.viscosidade_24h,
-                u.fabricado_por, u.autorizado_por, u.responsavel, u.resultado,
-                u.data_inspecao, u.data_lote, u.data_pesado, u.data_envase,
-                u.quantidade_kg, u.unidades, u.observacoes, NOW()
-            FROM UNNEST(
-                $1::text[], $2::text[], $3::float8[], $4::float8[], $5::float8[], $6::float8[],
-                $7::text[], $8::text[], $9::text[], $10::text[],
-                $11::text[], $12::text[], $13::text[], $14::text[],
-                $15::float8[], $16::float8[], $17::text[]
-            ) AS u(
-                lote, product_code, ph, viscosidade, densidade, viscosidade_24h,
-                fabricado_por, autorizado_por, responsavel, resultado,
-                data_inspecao, data_lote, data_pesado, data_envase,
-                quantidade_kg, unidades, observacoes
-            )
-            ON CONFLICT (lote, product_code) DO UPDATE SET
-                ph = EXCLUDED.ph,
-                viscosidade = EXCLUDED.viscosidade,
-                densidade = EXCLUDED.densidade,
-                viscosidade_24h = EXCLUDED.viscosidade_24h,
-                fabricado_por = EXCLUDED.fabricado_por,
-                autorizado_por = EXCLUDED.autorizado_por,
-                responsavel = EXCLUDED.responsavel,
-                resultado = EXCLUDED.resultado,
-                data_inspecao = EXCLUDED.data_inspecao,
-                data_lote = EXCLUDED.data_lote,
-                data_pesado = EXCLUDED.data_pesado,
-                data_envase = EXCLUDED.data_envase,
-                quantidade_kg = EXCLUDED.quantidade_kg,
-                unidades = EXCLUDED.unidades,
-                observacoes = EXCLUDED.observacoes,
-                updated_at = NOW();
-            "#,
-        )
-        .bind(&lotes)
-        .bind(&prods)
-        .bind(&phs)
-        .bind(&viscs)
-        .bind(&denss)
-        .bind(&visc24s)
-        .bind(&fabs)
-        .bind(&auts)
-        .bind(&resps)
-        .bind(&ress)
-        .bind(&dinsp_arr)
-        .bind(&dlote_arr)
-        .bind(&dpesado_arr)
-        .bind(&denvase_arr)
-        .bind(&qtd_arr)
-        .bind(&un_arr)
-        .bind(&obs_arr)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    // Garante que lotes em stock_movements sejam limpos antes da reinserção/atualização
-    let lote_numbers: Vec<String> = lotes_list.iter().map(|l| l.lote.to_string()).collect();
-    for chunk in lote_numbers.chunks(2000) {
-        sqlx::query(
-            "DELETE FROM stock_movements
-             WHERE item_type = 'produto' AND movement_type = 'entrada'
-               AND document_number = ANY($1)"
-        )
-        .bind(chunk)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    // Se havia lotes que o Hub considerava abertos mas que não vieram do ERP (foram cancelados/deletados), limpa-os
-    let returned_lote_set: std::collections::HashSet<i32> = lotes_list.iter().map(|l| l.lote).collect();
-    let orphan_lotes: Vec<String> = hub_open_lotes
-        .iter()
-        .filter(|id| !returned_lote_set.contains(id))
-        .map(|id| id.to_string())
-        .collect();
-    if !orphan_lotes.is_empty() {
-        eprintln!(
-            "[ERP Sync] Removendo {} lote(s) órfão(s) que não existem mais no ERP: {:?}",
-            orphan_lotes.len(),
-            orphan_lotes
-        );
-        for chunk in orphan_lotes.chunks(500) {
-            sqlx::query(
-                "DELETE FROM stock_movements
-                 WHERE item_type = 'produto' AND movement_type = 'entrada'
-                   AND document_number = ANY($1)"
-            )
-            .bind(chunk)
-            .execute(&mut *tx)
-            .await?;
-        }
-    }
-
-    let mut seen_lote_prods = std::collections::HashSet::new();
-    for l in &lotes_list {
-        if !seen_lote_prods.insert((l.lote, l.product_code.clone())) {
-            continue;
-        }
-        let details = format!(
-            "Status: {} | Fab: {} | Aut: {} | Unidades: {} | dPesado: {} | dEnvase: {}",
-            l.status.as_deref().unwrap_or(""),
-            l.fab.as_deref().unwrap_or(""),
-            l.aut.as_deref().unwrap_or(""),
-            l.unidades.unwrap_or(0.0),
-            l.d_pesado.as_deref().unwrap_or(""),
-            l.d_envase.as_deref().unwrap_or("")
-        );
-        mov_batch.push(MovInsert {
-            id: format!("lote_{}_{}", l.lote, l.product_code.trim()),
-            item_code: l.product_code.clone(),
-            item_type: "produto".to_string(),
-            movement_type: "entrada".to_string(),
-            quantity: l.qty,
-            date: l.date_str.clone(),
-            document_number: l.lote.to_string(),
-            details,
-        });
-        count_movements += 1;
-        if mov_batch.len() >= MOV_BATCH {
-            flush_stock_movements(&mut tx, &mut mov_batch).await?;
-            if count_movements % 2000 == 0 {
-                eprintln!("[ERP Sync]   movimentos (lotes) {count_movements}/{mov_total_est}");
-            }
-        }
-    }
+    count_movements += gravar_movimentos_lotes(&mut tx, &mut mov_batch, &lotes_list, &hub_open_lotes).await?;
 
     for v in &vendas_list {
         let doc_str = v
@@ -3519,6 +3618,7 @@ WHERE {so2_date_filter};
     let mut next_wm = wm;
     next_wm.version = 1;
     next_wm.cursor = Some(today.clone());
+    let _ = save_setting_to_pool(pool, LOTES_SYNC_LAST_KEY, &now_iso).await;
     match mode {
         SyncMode::Full => next_wm.last_full_at = Some(now_iso),
         SyncMode::Incremental => next_wm.last_incremental_at = Some(now_iso),
@@ -4744,6 +4844,80 @@ mod baixas_lote_tests {
         let (outro,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM lotes_baixas WHERE nlote = 99902")
             .fetch_one(&mut *tx).await.unwrap();
         assert_eq!(outro, 1);
+        tx.rollback().await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod lotes_leve_tests {
+    use super::{gravar_laudos_lotes, gravar_movimentos_lotes, LoteRow, MovInsert};
+
+    fn lote(lote: i32, codigo: &str, status: &str, qty: f64) -> LoteRow {
+        LoteRow {
+            lote,
+            product_code: codigo.to_string(),
+            qty,
+            date_str: "2026-11-03 00:00:00".into(),
+            status: Some(status.into()),
+            fab: None,
+            aut: None,
+            unidades: Some(10.0),
+            d_pesado: None,
+            d_envase: None,
+            ph: None,
+            viscosidade: None,
+            densidade: None,
+            viscosidade_24h: None,
+            responsavel: None,
+            resultado: None,
+            data_inspecao: None,
+            observacoes: None,
+        }
+    }
+
+    async fn itens(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, doc: &str) -> Vec<(String, String)> {
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT item_code, substring(details from 'Status: ([A-Z]+)') FROM stock_movements
+             WHERE item_type = 'produto' AND movement_type = 'entrada' AND document_number = $1 ORDER BY item_code",
+        )
+        .bind(doc)
+        .fetch_all(&mut **tx)
+        .await
+        .unwrap()
+    }
+
+    /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.
+    /// Caso real da ordem 15908: a 1ª leitura do ERP trazia 1 item; depois o ERP ganhou o 2º item e fechou outra
+    /// ordem; uma ordem que o ERP apagou some. A regravação deixa exatamente o que o ERP tem hoje.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn regravar_lotes_segue_o_erp_item_novo_status_e_orfao() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = sqlx::PgPool::connect(&url).await.unwrap();
+        crate::modules::geral::postgres_bootstrap::commands::run_schema_migrations(&pool)
+            .await
+            .unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        let mut batch: Vec<MovInsert> = Vec::new();
+
+        // Antes: 99908 com 1 item em envase, 99909 em envase e 99910 em envase.
+        let antes = vec![lote(99908, "2.33.002", "EN", 80.0), lote(99909, "2.13.023", "EN", 150.0), lote(99910, "2.13.128", "EN", 100.0)];
+        gravar_laudos_lotes(&mut tx, &antes).await.unwrap();
+        gravar_movimentos_lotes(&mut tx, &mut batch, &antes, &[]).await.unwrap();
+        assert_eq!(itens(&mut tx, "99908").await, vec![("2.33.002".into(), "EN".into())]);
+
+        // Depois: 99908 ganhou o 2º item, 99909 fechou (FI), 99910 não vem mais do ERP (o Nexus a tinha aberta).
+        let depois = vec![lote(99908, "2.33.002", "EN", 80.0), lote(99908, "2.33.006", "EN", 79.0), lote(99909, "2.13.023", "FI", 150.0)];
+        gravar_laudos_lotes(&mut tx, &depois).await.unwrap();
+        let n = gravar_movimentos_lotes(&mut tx, &mut batch, &depois, &[99908, 99909, 99910]).await.unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(
+            itens(&mut tx, "99908").await,
+            vec![("2.33.002".into(), "EN".into()), ("2.33.006".into(), "EN".into())],
+            "o item novo da ordem aparece"
+        );
+        assert_eq!(itens(&mut tx, "99909").await, vec![("2.13.023".into(), "FI".into())], "o status fechado vale");
+        assert!(itens(&mut tx, "99910").await.is_empty(), "ordem que o ERP não tem mais some");
         tx.rollback().await.unwrap();
     }
 }

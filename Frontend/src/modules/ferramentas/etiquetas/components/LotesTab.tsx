@@ -3,6 +3,7 @@ import { Printer, RefreshCw, SearchX } from 'lucide-react';
 import '../etiquetas.css';
 import { BotaoAcao, FilterBar, ReportHeader, ReportTabs, StatusBadge, TabelaPainel, type AbaRelatorio } from '../../../geral/components/ui/ReportKit';
 import PrintModal from './PrintModal';
+import { apiJson } from '../../../geral/lib/http';
 import { labelsApi, type LoteEtiqueta } from '../lib/labelsApi';
 import type { LabelTemplate } from '../lib/types';
 
@@ -12,6 +13,18 @@ const muted = { color: 'hsl(var(--text-secondary-hsl))' } as const;
 function formatarData(v?: string | null): string {
   const m = (v || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : v || '—';
+}
+
+/** "há 3 min" / "há 2 h" / "03/11 14:30" a partir de um instante ISO; vazio se não houver. */
+function haQuanto(iso?: string | null): string {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '';
+  const min = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (min < 1) return 'agora há pouco';
+  if (min < 60) return `há ${min} min`;
+  if (min < 24 * 60) return `há ${Math.round(min / 60)} h`;
+  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 /** Preenche o modelo de lote com os dados do lote do ERP. */
@@ -56,6 +69,11 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
   const [imprimindo, setImprimindo] = useState<LoteEtiqueta | null>(null);
+  /** Só nos lotes do ERP: quando eles foram atualizados do ERP pela última vez e se há atualização em curso. */
+  const doErp = !kit && !sem;
+  const [erpEm, setErpEm] = useState<string | null>(null);
+  const [atualizandoErp, setAtualizandoErp] = useState(false);
+  const [avisoErp, setAvisoErp] = useState('');
   /** Coloração: códigos marcados para imprimir 1 etiqueta de cada de uma vez. */
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [emLote, setEmLote] = useState<LoteEtiqueta[] | null>(null);
@@ -79,6 +97,36 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
       .catch((e) => setErro(e instanceof Error ? e.message : 'Erro ao carregar lotes'))
       .finally(() => setCarregando(false));
   }, [busca, tipo]);
+
+  const carregarStatusErp = useCallback(() => {
+    if (!doErp) return;
+    apiJson<{ atualizadoEm?: string | null }>('/import/lotes/status')
+      .then((d) => setErpEm(d.atualizadoEm ?? null))
+      .catch(() => {});
+  }, [doErp]);
+
+  useEffect(() => {
+    carregarStatusErp();
+    const id = setInterval(carregarStatusErp, 60000);
+    return () => clearInterval(id);
+  }, [carregarStatusErp]);
+
+  /** Busca no ERP os lotes recentes e abertos (status, itens) e recarrega a lista. */
+  const atualizar = useCallback(async () => {
+    if (doErp) {
+      setAtualizandoErp(true);
+      setAvisoErp('');
+      try {
+        await apiJson('/import/lotes', { method: 'POST' });
+      } catch (e) {
+        setAvisoErp(e instanceof Error ? e.message : 'Não foi possível atualizar do ERP.');
+      } finally {
+        setAtualizandoErp(false);
+        carregarStatusErp();
+      }
+    }
+    carregar();
+  }, [doErp, carregar, carregarStatusErp]);
 
   useEffect(() => {
     const t = setTimeout(carregar, 250);
@@ -133,14 +181,19 @@ export default function LotesTab({ tipo = 'lotes', modelo, onImpresso }: LotesTa
                 Imprimir selecionadas{visiveisMarcados.length > 80 ? ' (máx. 80 por vez)' : visiveisMarcados.length > 0 ? ` (${visiveisMarcados.length})` : ''}
               </BotaoAcao>
             )}
-          <BotaoAcao onClick={carregar} disabled={carregando}>
-            <RefreshCw size={15} className={carregando ? 'animate-spin' : ''} /> Atualizar
+          <BotaoAcao onClick={atualizar} disabled={carregando || atualizandoErp} title={doErp ? 'Busca no ERP os lotes recentes e abertos e recarrega a lista' : undefined}>
+            <RefreshCw size={15} className={carregando || atualizandoErp ? 'animate-spin' : ''} /> {doErp ? 'Atualizar do ERP' : 'Atualizar'}
           </BotaoAcao>
           </>
         }
       />
       <ReportTabs abas={abas} ativa={aba} onChange={setAba} />
       <FilterBar busca={busca} onBusca={setBusca} placeholder={sem ? 'Buscar código ou produto...' : kit ? 'Buscar ordem, código ou kit...' : 'Buscar lote, código ou produto...'} />
+      {doErp && (erpEm || avisoErp) && (
+        <div className="lote-sub" style={{ margin: '0 0 0.5rem', ...(avisoErp ? { color: 'hsl(0 70% 40%)' } : muted) }}>
+          {avisoErp || `Lotes do ERP atualizados ${haQuanto(erpEm)}. A lista se atualiza sozinha a cada poucos minutos.`}
+        </div>
+      )}
       <div className="lote-wrap">
       <TabelaPainel>
         <thead>

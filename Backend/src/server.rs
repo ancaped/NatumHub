@@ -190,6 +190,8 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         .route("/api/import/kits", post(handlers::import_kits))
         .route("/api/import/sync", post(handlers::trigger_db_sync))
         .route("/api/import/sync-lock", get(handlers::get_sync_lock_status))
+        .route("/api/import/lotes", post(handlers::trigger_lotes_sync))
+        .route("/api/import/lotes/status", get(handlers::get_lotes_sync_status))
         .route(
             "/api/import/sync-lock/release",
             post(handlers::release_sync_lock),
@@ -392,6 +394,11 @@ where
     tokio::spawn(async move {
         modules::geral::configuracoes::erp_sync_scheduler::start_erp_sync_scheduler(scheduler_state)
             .await;
+    });
+
+    let lotes_state = state.clone();
+    tokio::spawn(async move {
+        modules::geral::configuracoes::erp_sync_scheduler::start_lotes_sync_scheduler(lotes_state).await;
     });
 
     let stock_audit_state = state.clone();

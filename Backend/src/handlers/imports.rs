@@ -434,6 +434,56 @@ pub async fn get_import_status(State(state): State<Arc<AppState>>) -> impl IntoR
     }
 }
 
+/// Sync leve de lotes sob o lock do sync: grava as mesmas tabelas do sync completo, então os dois nunca
+/// rodam juntos. Devolve `SYNC_ALREADY_RUNNING` quando há outro em andamento.
+pub async fn execute_lotes_sync(
+    state: &Arc<AppState>,
+) -> Result<crate::core::legacy_db::LotesSyncResult, String> {
+    let pool = state.db.pool();
+    match crate::core::pg_db::try_acquire_daily_sync(pool).await {
+        Ok(true) => {}
+        Ok(false) => return Err(crate::core::pg_db::SYNC_ALREADY_RUNNING.to_string()),
+        Err(e) => return Err(e),
+    }
+    let r = crate::core::legacy_db::sync_lotes_leve(pool)
+        .await
+        .map_err(|e| e.to_string());
+    match &r {
+        Ok(_) => {
+            if let Err(e) = crate::core::pg_db::mark_daily_sync_complete(pool).await {
+                eprintln!("[ERP Lotes] Falha ao marcar sync concluído: {e}");
+            }
+        }
+        Err(_) => {
+            let _ = crate::core::pg_db::release_daily_sync(pool).await;
+        }
+    }
+    r
+}
+
+/// POST /api/import/lotes — atualiza do ERP os lotes recentes e abertos (status, itens, laudos).
+pub async fn trigger_lotes_sync(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match execute_lotes_sync(&state).await {
+        Ok(res) => (StatusCode::OK, Json(json!({ "status": "success", "resultado": res }))).into_response(),
+        Err(e) if e == crate::core::pg_db::SYNC_ALREADY_RUNNING => (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": "Já há uma importação do ERP em andamento. Tente de novo em instantes." })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": format!("Não foi possível atualizar os lotes do ERP: {e}") })),
+        )
+            .into_response(),
+    }
+}
+
+/// GET /api/import/lotes/status — quando os lotes foram atualizados pela última vez.
+pub async fn get_lotes_sync_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let ultima = crate::core::legacy_db::lotes_sync_ultima(state.db.pool()).await;
+    (StatusCode::OK, Json(json!({ "atualizadoEm": ultima }))).into_response()
+}
+
 /// GET /api/import/sync-lock — se há sync ERP em andamento hoje.
 pub async fn get_sync_lock_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match crate::core::pg_db::daily_sync_lock_status(state.db.pool()).await {
