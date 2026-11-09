@@ -28,6 +28,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import Modal from '../../geral/components/ui/Modal';
+import { ReportTabs } from '../../geral/components/ui/ReportKit';
 import { DEFAULT_FISCO_TEMPLATE } from './lib/fiscoUtils';
 
 // Subcomponentes modulares
@@ -492,22 +493,11 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
 
         {activeTab === 'correctives' && (
           <motion.div key="correctives" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="space-y-4">
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setCorrectiveSection('baixas')}
-                className={`min-h-11 px-4 rounded-xl text-sm font-bold border ${correctiveSection === 'baixas' ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-800 border-zinc-200'}`}
-              >
-                Baixas
-              </button>
-              <button
-                type="button"
-                onClick={() => setCorrectiveSection('catalogo')}
-                className={`min-h-11 px-4 rounded-xl text-sm font-bold border ${correctiveSection === 'catalogo' ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-800 border-zinc-200'}`}
-              >
-                Catálogo
-              </button>
-            </div>
+            <ReportTabs
+              abas={[{ id: 'baixas', label: 'Baixas da semana' }, { id: 'catalogo', label: 'Catálogo de corretivos' }]}
+              ativa={correctiveSection}
+              onChange={(id) => setCorrectiveSection(id as 'baixas' | 'catalogo')}
+            />
             {correctiveSection === 'baixas' ? (
               <CorrectiveBatchesTab
                 agents={agents}
@@ -517,7 +507,6 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
               <AgentsTab
                 agents={agents}
                 items={items}
-                analyses={analyses}
                 onRefresh={fetchData}
               />
             )}
