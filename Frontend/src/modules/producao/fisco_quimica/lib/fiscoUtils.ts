@@ -274,16 +274,8 @@ export function parseInputNumber(raw: string | number | null | undefined, isVisc
   if (!str) return 0;
 
   if (isViscosityOrInteger) {
-    // Para viscosidade e números inteiros em cps:
-    // Se digitou com separador de milhar ex: "12,000" (ERP) ou "12.000" (BR):
-    if (/^\d{1,4}[.,]\d{3}$/.test(str)) {
-      const clean = str.replace(/[.,]/g, '');
-      const n = parseFloat(clean);
-      return isNaN(n) ? 0 : n;
-    }
-    // Caso com vírgula ou ponto genérico
-    const clean = str.replace(/[.,]/g, '');
-    const n = parseInt(clean, 10);
+    // Viscosidade: exatamente o que foi digitado (vírgula vira ponto decimal; sem regra de milhar).
+    const n = parseFloat(str.replace(',', '.'));
     return isNaN(n) ? 0 : n;
   }
 
@@ -298,30 +290,10 @@ export function parseInputNumber(raw: string | number | null | undefined, isVisc
   return isNaN(n) ? 0 : n;
 }
 
-/**
- * Formata o valor medido de viscosidade para centipoise (cps).
- * Utiliza o mesmo padrão do ERP com vírgula para separação de milhar (ex: 12,000 / 65,000 / 9,146 / 400).
- */
-export function formatViscosity(val: number | null | undefined, pattern?: FiscoQuimicaPattern | null): string {
+/** Viscosidade em cps exatamente como foi digitada/gravada (sem separador de milhar nem ajuste de escala). */
+export function formatViscosity(val: number | null | undefined, _pattern?: FiscoQuimicaPattern | null): string {
   if (val == null || isNaN(val) || val <= 0) return '-';
-
-  let num = val;
-  // 1. Se veio do ERP como float com decimais (ex: 9.146, 14.341, 10.434):
-  if (!Number.isInteger(num)) {
-    if (num < 300 && Math.abs(Math.round(num * 1000) - num * 1000) < 0.05) {
-      num = Math.round(num * 1000);
-    } else {
-      num = Math.round(num);
-    }
-  }
-
-  // 2. Se for menor que 300 e não for produto de baixa viscosidade como Fluido de Brilho (1.31.003):
-  const isFluidoBrilho = pattern?.productCode === '1.31.003' || (pattern && pattern.viscosityMin < 800 && pattern.viscosityMax <= 800);
-  if (!isFluidoBrilho && num < 300) {
-    num = num * 1000;
-  }
-
-  return Math.round(num).toLocaleString('en-US');
+  return String(Math.round(val * 100) / 100);
 }
 
 /** Texto do método de viscosidade para o laudo. Laudos antigos, sem spindle, continuam como viscosimetria. */
@@ -508,8 +480,7 @@ export function checkAnalysisCompliance(
   
   // Viscosidade: validação direta contra o padrão
   const v = analysis.viscosityMeasured;
-  const viscOk = (v >= pattern.viscosityMin && v <= pattern.viscosityMax) ||
-                 (pattern.viscosityMin >= 1000 && v < 500 && (v * 1000 >= pattern.viscosityMin && v * 1000 <= pattern.viscosityMax));
+  const viscOk = v >= pattern.viscosityMin && v <= pattern.viscosityMax;
 
   const densMin = pattern.densityTarget - pattern.densityTolerance;
   const densMax = pattern.densityTarget + pattern.densityTolerance;

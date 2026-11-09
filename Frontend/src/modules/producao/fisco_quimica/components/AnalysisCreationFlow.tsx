@@ -1885,7 +1885,7 @@ export function AnalysisCreationFlow({
             <div className="flex items-baseline gap-2">
               <input
                 type="text"
-                inputMode="numeric"
+                inputMode="decimal"
                 placeholder="Ex: 9500"
                 value={formViscosity}
                 onChange={(e) => setFormViscosity(e.target.value.replace(',', '.'))}
