@@ -1,0 +1,33 @@
+name: wol-pc
+services:
+  wol-pc:
+    container_name: wol-pc
+    image: python:3.12-alpine
+    command: ["python", "-u", "/app/server.py"]
+    network_mode: host
+    restart: unless-stopped
+    pull_policy: if_not_present
+    environment:
+      WOL_MAC: "74:56:3c:f2:1a:9f"
+      WOL_PORTA: "8099"
+      PC_IPS: "192.168.1.195,100.89.106.4"
+      PC_PORTA: "8098"
+    labels:
+      io.zimaos.app.id: zimaapp://v2app/wol-pc
+    volumes:
+      - type: bind
+        source: /DATA/AppData/wol/server.py
+        target: /app/server.py
+        read_only: true
+      - type: bind
+        source: /DATA/AppData/wol/segredos
+        target: /segredos
+        read_only: true
+x-casaos:
+  main: wol-pc
+  port_map: "8099"
+  index: /
+  scheme: http
+  title:
+    custom: Ligar PC
+    en_US: Ligar PC
