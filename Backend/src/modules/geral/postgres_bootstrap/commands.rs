@@ -926,15 +926,21 @@ fn is_benign_migration_error(err_msg: &str) -> bool {
 pub async fn run_schema_migrations(pool: &sqlx::PgPool) -> Result<(), String> {
     use sqlx::Executor;
 
+    // Lock de sessão: lock, migrações e unlock têm de usar a MESMA conexão. Com o pool, o unlock caía em outra
+    // conexão, o lock ficava preso na primeira e o próximo sync travava para sempre em pg_advisory_lock.
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|e| format!("Erro ao obter conexão para migração: {e}"))?;
     sqlx::query("SELECT pg_advisory_lock($1)")
         .bind(SCHEMA_MIGRATION_LOCK_KEY)
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(|e| format!("Erro ao obter lock de migração: {e}"))?;
 
     let result = async {
         for (name, body) in SCHEMA_FILES {
-            match pool.execute(*body).await {
+            match (&mut *conn).execute(*body).await {
                 Ok(_) => {
                     println!("[Database Migration] Aplicado {} com sucesso.", name);
                 }
@@ -955,7 +961,7 @@ pub async fn run_schema_migrations(pool: &sqlx::PgPool) -> Result<(), String> {
 
     let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
         .bind(SCHEMA_MIGRATION_LOCK_KEY)
-        .execute(pool)
+        .execute(&mut *conn)
         .await;
 
     result
