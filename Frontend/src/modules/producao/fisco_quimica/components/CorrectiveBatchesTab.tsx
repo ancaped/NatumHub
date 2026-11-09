@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { RefreshCw, Printer, CheckCircle2, Clock } from 'lucide-react';
-import { api, localAuth } from '../../../geral/lib/api';
+import { api } from '../../../geral/lib/api';
 import { CorrectiveWeekSummary, FiscoQuimicaAgent } from '../../../geral/lib/types';
 import Drawer from '../../../geral/components/ui/Drawer';
 import Modal from '../../../geral/components/ui/Modal';
@@ -27,7 +27,6 @@ export function CorrectiveBatchesTab({ onRefreshHistory }: CorrectiveBatchesTabP
   const [confirma, setConfirma] = useState<CorrectiveWeekSummary | null>(null);
   const [gravando, setGravando] = useState(false);
   const [erroGravar, setErroGravar] = useState<string | null>(null);
-  const currentUser = localAuth.getUser();
 
   const fetchWeeks = async () => {
     setLoading(true);
@@ -72,7 +71,6 @@ export function CorrectiveBatchesTab({ onRefreshHistory }: CorrectiveBatchesTabP
       await api.toggleFiscoCorrectiveBaixa({
         week_key: confirma.week_key,
         is_baixa: marcar,
-        usuario: currentUser?.displayName || 'Operador CQ',
         observacoes: marcar ? 'Baixa manual consolidada no ERP' : undefined,
       });
       setConfirma(null);

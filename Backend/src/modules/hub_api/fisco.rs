@@ -640,14 +640,19 @@ struct PushToErpRequest {
     analysis_ids: Option<Vec<String>>,
     #[allow(dead_code)]
     all_pending: Option<bool>,
+    /// Sem `confirmar=true` só devolve a prévia (nada é gravado no ERP).
+    #[serde(default)]
+    confirmar: bool,
 }
 
 #[derive(serde::Deserialize)]
 struct ToggleCorrectiveBaixaRequest {
     week_key: String,
     is_baixa: bool,
-    usuario: Option<String>,
     observacoes: Option<String>,
+    /// Sem `confirmar=true` só devolve a prévia (nada é gravado).
+    #[serde(default)]
+    confirmar: bool,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -680,13 +685,19 @@ struct CorrectiveWeekSummary {
     items: Vec<CorrectiveBatchItem>,
 }
 
-async fn push_to_erp_handler(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<PushToErpRequest>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
+/// Serviço "Lançar laudos no ERP": grava pH, viscosidade, densidade e responsáveis no cadastro do lote (SQL Server).
+/// Sem `confirmar` só devolve a prévia (quais lotes seriam atualizados) e não conecta no ERP; com `confirmar` grava e
+/// registra na auditoria quem lançou. `ids` vazio = todos os laudos ainda não lançados.
+pub async fn lancar_laudos_no_erp(
+    pool: &sqlx::PgPool,
+    ctx: &crate::modules::geral::auth::models::AuthContext,
+    ids: Option<Vec<String>>,
+    confirmar: bool,
+) -> Result<serde_json::Value, crate::core::acao::ErroApi> {
+    use crate::core::acao::ErroApi;
+    use sqlx::Row;
 
-    let rows = if let Some(ids) = payload.analysis_ids.filter(|ids| !ids.is_empty()) {
+    let rows = if let Some(ids) = ids.filter(|ids| !ids.is_empty()) {
         sqlx::query(
             "SELECT id, product_code, batch, ph_measured, viscosity_measured, density_measured, fabricated_by, authorized_by, technician
              FROM fisco_quimica_analyses
@@ -694,7 +705,7 @@ async fn push_to_erp_handler(
         )
         .bind(&ids)
         .fetch_all(pool)
-        .await
+        .await?
     } else {
         sqlx::query(
             "SELECT id, product_code, batch, ph_measured, viscosity_measured, density_measured, fabricated_by, authorized_by, technician
@@ -703,44 +714,27 @@ async fn push_to_erp_handler(
                AND batch IS NOT NULL AND batch <> ''"
         )
         .fetch_all(pool)
-        .await
+        .await?
     };
 
-    let rows = match rows {
-        Ok(r) => r,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("Erro ao buscar laudos: {}", e) })),
-            )
-                .into_response();
-        }
-    };
-
-    if rows.is_empty() {
-        return (
-            axum::http::StatusCode::OK,
-            Json(serde_json::json!({
-                "success": true,
-                "message": "Nenhum laudo pendente para envio ao ERP.",
-                "updated_count": 0
-            })),
-        )
-            .into_response();
+    let lotes: Vec<String> = rows.iter().map(|r| r.get::<String, _>(2)).collect();
+    if rows.is_empty() || !confirmar {
+        return Ok(serde_json::json!({
+            "success": true,
+            "previa": !confirmar,
+            "acao": "lancar_laudos_no_erp",
+            "qtd": rows.len(),
+            "lotes": lotes,
+            "updated_count": 0,
+            "message": if rows.is_empty() { "Nenhum laudo pendente para lançar no ERP." } else { "Prévia: nada foi gravado no ERP." },
+            "confirmar": if rows.is_empty() { serde_json::Value::Null } else { serde_json::json!("repita com confirmar=true para gravar") },
+        }));
     }
 
-    let mut client = match crate::core::legacy_db::connect_sql_server(pool).await {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("Falha ao conectar no SQL Server do ERP: {}", e) })),
-            )
-                .into_response();
-        }
-    };
+    let mut client = crate::core::legacy_db::connect_sql_server(pool)
+        .await
+        .map_err(|e| ErroApi::interno(format!("Falha ao conectar no SQL Server do ERP: {e}")))?;
 
-    use sqlx::Row;
     let mut updated_count = 0;
     let mut error_messages = Vec::new();
 
@@ -810,15 +804,36 @@ async fn push_to_erp_handler(
         }
     }
 
-    (
-        axum::http::StatusCode::OK,
-        Json(serde_json::json!({
-            "success": true,
-            "updated_count": updated_count,
-            "errors": error_messages
-        })),
+    crate::modules::geral::audit::record_domain(
+        pool,
+        Some(ctx),
+        "fisco_quimica",
+        "lancar_laudos_no_erp",
+        "fisco_quimica_analysis",
+        &format!("{} laudo(s)", updated_count),
+        &format!("{updated_count} laudo(s) fisco-químico(s) lançado(s) no ERP (lotes: {})", lotes.join(", ")),
+        None,
+        Some(serde_json::json!({ "lotes": lotes, "lancados": updated_count, "erros": error_messages })),
     )
-        .into_response()
+    .await;
+
+    Ok(serde_json::json!({
+        "success": true,
+        "previa": false,
+        "updated_count": updated_count,
+        "errors": error_messages,
+    }))
+}
+
+async fn push_to_erp_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Json(payload): Json<PushToErpRequest>,
+) -> impl IntoResponse {
+    match lancar_laudos_no_erp(state.db.pool(), &ctx, payload.analysis_ids, payload.confirmar).await {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
 }
 
 fn parse_ph_adjustment(notes: &str) -> Option<(String, f64)> {
@@ -1019,17 +1034,39 @@ async fn get_corrective_batches_handler(
     (axum::http::StatusCode::OK, Json(result)).into_response()
 }
 
-async fn toggle_corrective_baixa_handler(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<ToggleCorrectiveBaixaRequest>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
+/// Serviço "Baixa semanal dos corretivos": marca (ou reabre) a semana como baixada no ERP. O usuário é o da sessão.
+/// Sem `confirmar` só devolve a prévia; com `confirmar` grava e registra na auditoria.
+pub async fn alternar_baixa_corretivos(
+    pool: &sqlx::PgPool,
+    ctx: &crate::modules::geral::auth::models::AuthContext,
+    week_key: &str,
+    is_baixa: bool,
+    observacoes: Option<String>,
+    confirmar: bool,
+) -> Result<serde_json::Value, crate::core::acao::ErroApi> {
+    use crate::core::acao::ErroApi;
+    let parts: Vec<&str> = week_key.split("-W").collect();
+    let year: i32 = parts.first().and_then(|s| s.parse().ok()).ok_or_else(|| ErroApi::invalido("Semana inválida (use AAAA-Wnn)."))?;
+    let week_num: i32 = parts.get(1).and_then(|s| s.parse().ok()).ok_or_else(|| ErroApi::invalido("Semana inválida (use AAAA-Wnn)."))?;
 
-    let parts: Vec<&str> = payload.week_key.split("-W").collect();
-    let year: i32 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(2026);
-    let week_num: i32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+    let antes: Option<bool> = sqlx::query_scalar("SELECT is_baixa_realizada FROM fisco_quimica_corrective_weeks WHERE week_key = $1")
+        .bind(week_key)
+        .fetch_optional(pool)
+        .await?;
+    let antes = antes.unwrap_or(false);
+    if !confirmar {
+        return Ok(serde_json::json!({
+            "success": true,
+            "previa": true,
+            "acao": "alternar_baixa_corretivos",
+            "semana": week_key,
+            "de": if antes { "baixada" } else { "pendente" },
+            "para": if is_baixa { "baixada" } else { "pendente" },
+            "confirmar": "repita com confirmar=true para gravar",
+        }));
+    }
 
-    let res = sqlx::query(
+    sqlx::query(
         r#"
         INSERT INTO fisco_quimica_corrective_weeks (week_key, year, week_num, is_baixa_realizada, baixa_data, baixa_usuario, observacoes, updated_at)
         VALUES ($1, $2, $3, $4, CASE WHEN $4 THEN NOW() ELSE NULL END, $5, $6, NOW())
@@ -1041,135 +1078,40 @@ async fn toggle_corrective_baixa_handler(
             updated_at = NOW()
         "#
     )
-    .bind(&payload.week_key)
+    .bind(week_key)
     .bind(year)
     .bind(week_num)
-    .bind(payload.is_baixa)
-    .bind(payload.usuario)
-    .bind(payload.observacoes)
+    .bind(is_baixa)
+    .bind(&ctx.display_name)
+    .bind(observacoes)
     .execute(pool)
+    .await?;
+
+    crate::modules::geral::audit::record_domain(
+        pool,
+        Some(ctx),
+        "fisco_quimica",
+        "alternar_baixa_corretivos",
+        "fisco_quimica_corrective_week",
+        week_key,
+        &format!("Baixa dos corretivos da semana {week_key}: {}", if is_baixa { "marcada como feita no ERP" } else { "reaberta" }),
+        Some(serde_json::json!({ "baixada": antes })),
+        Some(serde_json::json!({ "baixada": is_baixa })),
+    )
     .await;
 
-    match res {
-        Ok(_) => ok_status().into_response(),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
-    }
+    Ok(serde_json::json!({ "success": true, "previa": false, "status": "success", "semana": week_key, "baixada": is_baixa }))
 }
 
-async fn migrate_erp_history_handler(
+async fn toggle_corrective_baixa_handler(
     State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
+    Json(payload): Json<ToggleCorrectiveBaixaRequest>,
 ) -> impl IntoResponse {
-    let pool = state.db.pool();
-
-    let rows = match sqlx::query(
-        r#"
-        SELECT 
-            el.lote,
-            el.product_code,
-            COALESCE(p.descricao, el.product_code) AS product_name,
-            el.ph,
-            el.viscosidade,
-            el.densidade,
-            COALESCE(NULLIF(el.fabricado_por, ''), '') AS fabricado_por,
-            COALESCE(NULLIF(el.autorizado_por, ''), '') AS autorizado_por,
-            COALESCE(NULLIF(el.responsavel, ''), 'ERP Migrado') AS responsavel,
-            COALESCE(NULLIF(el.data_inspecao, ''), NULLIF(el.data_lote, ''), NOW()::text) AS data_laudo,
-            COALESCE(el.quantidade_kg, 0) AS quantidade_kg,
-            'Migrado do histórico ERP' AS observacoes
-        FROM erp_lotes_laudos el
-        LEFT JOIN produtos p ON el.product_code = p.codigo
-        WHERE (el.ph IS NOT NULL AND el.ph > 0)
-           OR (el.viscosidade IS NOT NULL AND el.viscosidade > 0)
-           OR (el.densidade IS NOT NULL AND el.densidade > 0)
-        "#
-    )
-    .fetch_all(pool)
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
-
-    use sqlx::Row;
-    let mut migrated_count = 0;
-
-    for row in rows {
-        let lote: String = row.get(0);
-        let prod_code: String = row.get(1);
-        let prod_name: String = row.get(2);
-        let ph: Option<f64> = row.get(3);
-        let visc: Option<f64> = row.get(4);
-        let dens: Option<f64> = row.get(5);
-        let fab: String = row.get(6);
-        let aut: String = row.get(7);
-        let resp: String = row.get(8);
-        let data_laudo: String = row.get(9);
-        let qtd_kg: f64 = row.get(10);
-        let obs: String = row.get(11);
-
-        let id = format!("erp_{}_{}", lote, prod_code);
-        let ph_val = ph.unwrap_or(0.0);
-        let visc_val = visc.unwrap_or(0.0);
-        let dens_val = dens.unwrap_or(0.0);
-        let frac_wt = if dens_val > 0.0 { dens_val * 51.645 } else { 0.0 };
-
-        let _ = sqlx::query(
-            r#"
-            INSERT INTO fisco_quimica_analyses (
-                id, product_code, product_name, batch, analysis_date, technician,
-                ph_measured, viscosity_measured, density_measured, fraction_weight,
-                envase_target_weight, envase_target_unit, has_adjustment, batch_size,
-                notes, fabricated_by, authorized_by, synced_to_erp, erp_synced_at, created_at
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, 'g', 0, $11, $12, $13, $14, TRUE, NOW(), NOW())
-            ON CONFLICT (id) DO UPDATE SET
-                ph_measured = EXCLUDED.ph_measured,
-                viscosity_measured = EXCLUDED.viscosity_measured,
-                density_measured = EXCLUDED.density_measured,
-                fabricated_by = EXCLUDED.fabricated_by,
-                authorized_by = EXCLUDED.authorized_by,
-                technician = EXCLUDED.technician,
-                synced_to_erp = TRUE
-            "#
-        )
-        .bind(&id)
-        .bind(&prod_code)
-        .bind(&prod_name)
-        .bind(&lote)
-        .bind(&data_laudo)
-        .bind(&resp)
-        .bind(ph_val)
-        .bind(visc_val)
-        .bind(dens_val)
-        .bind(frac_wt)
-        .bind(qtd_kg)
-        .bind(&obs)
-        .bind(&fab)
-        .bind(&aut)
-        .execute(pool)
-        .await;
-
-        migrated_count += 1;
+    match alternar_baixa_corretivos(state.db.pool(), &ctx, &payload.week_key, payload.is_baixa, payload.observacoes, payload.confirmar).await {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => e.into_response(),
     }
-
-    (
-        axum::http::StatusCode::OK,
-        Json(serde_json::json!({
-            "success": true,
-            "migrated_count": migrated_count
-        })),
-    )
-        .into_response()
 }
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -1184,7 +1126,6 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/hub/fisco/push-to-erp", axum::routing::post(push_to_erp_handler))
         .route("/api/hub/fisco/corrective-batches", get(get_corrective_batches_handler))
         .route("/api/hub/fisco/corrective-batches/toggle-baixa", axum::routing::post(toggle_corrective_baixa_handler))
-        .route("/api/hub/fisco/migrate-erp-history", axum::routing::post(migrate_erp_history_handler))
         .route("/api/hub/fisco/erp-lotes", get(get_erp_lotes_handler))
         .route("/api/hub/fisco/erp-lotes/:lote/insumos", get(get_erp_lote_insumos_handler))
         .route("/api/hub/fisco/products", get(get_all_fisco_products_handler))
@@ -1238,6 +1179,32 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
             "Lotes que precisaram de agente corretivo (viscosidade ou pH), agrupados por semana: agente, dose por litro, tamanho do lote, total em kg, e se a baixa do agente no estoque já foi feita (quem e quando). Use para conferir as baixas pendentes.",
             "/api/hub/fisco/corrective-batches",
             vec![],
+        ),
+        Acao::gravacao(
+            "lancar_laudos_fisco_no_erp",
+            "fisco_quimica",
+            "Lança no ERP (cadastro do lote, SQL Server) o pH, a viscosidade, a densidade e os responsáveis de laudos já salvos. Sem `confirmar=true` devolve só a prévia (quais lotes seriam atualizados); com `confirmar=true` grava e registra quem lançou. Sem `analysis_ids`, vale para todos os laudos ainda não lançados.",
+            "POST",
+            "/api/hub/fisco/push-to-erp",
+            true,
+            vec![
+                param("analysis_ids", "corpo", "lista de textos", false, "Ids dos laudos; vazio = todos os pendentes."),
+                param("confirmar", "corpo", "booleano", false, "true para gravar; ausente = só prévia."),
+            ],
+        ),
+        Acao::gravacao(
+            "alternar_baixa_corretivos_fisco",
+            "fisco_quimica",
+            "Marca (ou reabre) a baixa semanal dos agentes corretivos no estoque do ERP. Sem `confirmar=true` devolve só a prévia (de/para); com `confirmar=true` grava e registra quem fez.",
+            "POST",
+            "/api/hub/fisco/corrective-batches/toggle-baixa",
+            true,
+            vec![
+                param("week_key", "corpo", "texto", true, "Semana, no formato AAAA-Wnn (ex.: 2026-W45)."),
+                param("is_baixa", "corpo", "booleano", true, "true = baixa feita; false = reabrir."),
+                param("observacoes", "corpo", "texto", false, "Observação."),
+                param("confirmar", "corpo", "booleano", false, "true para gravar; ausente = só prévia."),
+            ],
         ),
     ]
 }

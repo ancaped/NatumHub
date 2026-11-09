@@ -109,7 +109,7 @@ export function AnalysisHistory({
   const [aberto, setAberto] = useState<FiscoQuimicaAnalysis | null>(null);
   const [zoomMidia, setZoomMidia] = useState<FiscoQuimicaAnalysis | null>(null);
   // Lançamento no ERP: pede confirmação antes de gravar (ids vazio = todos os pendentes).
-  const [confirmaErp, setConfirmaErp] = useState<{ ids: string[]; qtd: number } | null>(null);
+  const [confirmaErp, setConfirmaErp] = useState<{ ids: string[]; qtd: number; lotes: string[] } | null>(null);
   const [lancando, setLancando] = useState(false);
   const [erroErp, setErroErp] = useState<string | null>(null);
 
@@ -207,7 +207,7 @@ export function AnalysisHistory({
     setLancando(true);
     setErroErp(null);
     try {
-      const res = await api.pushFiscoLaudosToErp(confirmaErp.ids.length ? confirmaErp.ids : undefined, confirmaErp.ids.length ? undefined : true);
+      const res = await api.pushFiscoLaudosToErp(confirmaErp.ids.length ? confirmaErp.ids : undefined, confirmaErp.ids.length ? undefined : true, true);
       if (!res.success) throw new Error('O ERP não aceitou o lançamento.');
       if (res.errors?.length) throw new Error(`${res.updated_count} lançado(s). Com erro: ${res.errors.join('; ')}`);
       setConfirmaErp(null);
@@ -220,9 +220,19 @@ export function AnalysisHistory({
     }
   };
 
-  const pedirLancamento = (ids: string[]) => {
+  // Passo 1: pede a prévia ao servidor (nada é gravado) e mostra o que seria lançado; o passo 2 é o botão do modal.
+  const pedirLancamento = async (ids: string[]) => {
     setErroErp(null);
-    setConfirmaErp({ ids, qtd: ids.length || contagem.pendente_erp });
+    try {
+      const previa = await api.pushFiscoLaudosToErp(ids.length ? ids : undefined, ids.length ? undefined : true, false);
+      if (!previa.qtd) {
+        alert('Nenhum laudo pendente para lançar no ERP.');
+        return;
+      }
+      setConfirmaErp({ ids, qtd: previa.qtd, lotes: previa.lotes || [] });
+    } catch (err) {
+      alert(`Não foi possível preparar o lançamento: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   const imprimirSelecionados = () => {
@@ -543,6 +553,11 @@ export function AnalysisHistory({
             <p className="text-sm text-zinc-800">
               Lançar <strong>{confirmaErp.qtd}</strong> {confirmaErp.qtd === 1 ? 'laudo' : 'laudos'} no ERP? O lote passa a constar como aprovado na inspeção.
             </p>
+            {confirmaErp.lotes.length > 0 && (
+              <p className="text-xs font-mono text-zinc-500 break-words">
+                Lotes: {confirmaErp.lotes.slice(0, 20).join(', ')}{confirmaErp.lotes.length > 20 ? ` e mais ${confirmaErp.lotes.length - 20}` : ''}
+              </p>
+            )}
             {erroErp && <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-800">{erroErp}</p>}
             <div className="flex justify-end gap-2">
               <BotaoAcao className="min-h-11 md:min-h-0" disabled={lancando} onClick={() => setConfirmaErp(null)}>

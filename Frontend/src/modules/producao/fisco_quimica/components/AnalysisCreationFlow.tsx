@@ -1453,7 +1453,7 @@ export function AnalysisCreationFlow({
       // Enviar medições e dados necessários para o ERP automaticamente
       if (!isEmCorrecao && createdAnalyses.length > 0) {
         try {
-          await api.pushFiscoLaudosToErp(createdAnalyses.map(a => a.id));
+          await api.pushFiscoLaudosToErp(createdAnalyses.map(a => a.id), undefined, true);
         } catch (erpErr) {
           console.warn('Sincronização automática com ERP falhou:', erpErr);
         }
