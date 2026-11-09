@@ -59,7 +59,6 @@ const SELO: Record<SituacaoLaudo, { variante: VarianteBadge; rotulo: string }> =
   ajustado: { variante: 'abundante', rotulo: 'Conforme (ajustado)' },
   em_correcao: { variante: 'ordem', rotulo: 'Em correção' },
   fora: { variante: 'critico', rotulo: 'Não conforme' },
-  sem_padrao: { variante: 'aguardando', rotulo: 'Sem padrão' },
 };
 
 type Filtro = 'todos' | SituacaoLaudo | 'pendente_erp';
@@ -159,7 +158,7 @@ export function AnalysisHistory({
   const doMes = useMemo(() => (mes === 'ALL' ? linhas : linhas.filter(({ a }) => mesDoLaudo(a.analysisDate) === mes)), [linhas, mes]);
 
   const contagem = useMemo(() => {
-    const c = { todos: doMes.length, conforme: 0, ajustado: 0, em_correcao: 0, fora: 0, sem_padrao: 0, pendente_erp: 0 };
+    const c = { todos: doMes.length, conforme: 0, ajustado: 0, em_correcao: 0, fora: 0, pendente_erp: 0 };
     for (const { a, sit } of doMes) {
       c[sit] += 1;
       if (!lancadoNoErp(a)) c.pendente_erp += 1;
@@ -353,9 +352,9 @@ export function AnalysisHistory({
                     <th>Data</th>
                     <th>Produto</th>
                     <th className="text-center">pH</th>
-                    <th className="text-center">Viscosidade (cps)</th>
-                    <th className="text-center">Densidade (g/mL)</th>
-                    <th className="text-center">Envase</th>
+                    <th className="text-center">Visc. (cps)</th>
+                    <th className="text-center">Dens. (g/mL)</th>
+                    <th className="text-center hidden xl:table-cell">Envase</th>
                     <th>ERP</th>
                     <th>Situação</th>
                   </tr>
@@ -387,7 +386,7 @@ export function AnalysisHistory({
                         <td className="text-center">{medida(ok.phOk, a.phMeasured > 0 ? a.phMeasured.toFixed(2) : '—')}</td>
                         <td className="text-center">{medida(ok.viscOk, formatViscosity(a.viscosityMeasured, pat))}</td>
                         <td className="text-center">{medida(ok.densityOk, a.densityMeasured > 0 ? a.densityMeasured.toFixed(3) : '—')}</td>
-                        <td className="text-center font-mono text-zinc-700 whitespace-nowrap">{envaseDe(a, pat)}</td>
+                        <td className="text-center font-mono text-zinc-700 whitespace-nowrap hidden xl:table-cell">{envaseDe(a, pat)}</td>
                         <td>
                           {lancadoNoErp(a) ? (
                             <StatusBadge variante="abundante" title={`Lançado no ERP em ${a.erpSyncedAt || ''}`}>Lançado</StatusBadge>

@@ -516,7 +516,7 @@ export function checkAnalysisCompliance(
 }
 
 /** Situação do laudo para listas e filtros — uma classificação só, derivada de checkAnalysisCompliance. */
-export type SituacaoLaudo = 'conforme' | 'ajustado' | 'em_correcao' | 'fora' | 'sem_padrao';
+export type SituacaoLaudo = 'conforme' | 'ajustado' | 'em_correcao' | 'fora';
 
 export function situacaoDoLaudo(
   analysis: Parameters<typeof checkAnalysisCompliance>[0],
@@ -526,7 +526,7 @@ export function situacaoDoLaudo(
     case 'EM_CORRECAO': return 'em_correcao';
     case 'FORA_PADRAO': return 'fora';
     case 'AJUSTADO': return 'ajustado';
-    case 'SEM_PADRAO': return 'sem_padrao';
+    case 'SEM_PADRAO': return analysis.hasAdjustment ? 'ajustado' : 'conforme'; // sem padrão cadastrado: vale só aspecto/cor/odor
     default: return 'conforme';
   }
 }
