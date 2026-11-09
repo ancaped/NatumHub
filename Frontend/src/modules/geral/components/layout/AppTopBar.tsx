@@ -134,15 +134,19 @@ export default function AppTopBar({
   }, [canQuickSync, quickSyncing]);
 
   const [appVersion, setAppVersion] = useState<string>(() => getAppVersion());
-  const appEnv = getAppEnvironment();
+  const [servidorTeste, setServidorTeste] = useState(false);
+  const [nomeServidor, setNomeServidor] = useState('');
+  const appEnv = servidorTeste ? 'dev' : getAppEnvironment();
+  const nomeSelo = nomeServidor.toUpperCase();
 
   useEffect(() => {
     let cancelled = false;
-    apiJson<{ version?: string }>('/health')
+    apiJson<{ version?: string; ambiente?: string; nomeServidor?: string }>('/health')
       .then((res) => {
-        if (!cancelled && res?.version) {
-          setAppVersion(res.version);
-        }
+        if (cancelled) return;
+        if (res?.version) setAppVersion(res.version);
+        setServidorTeste(res?.ambiente === 'teste');
+        setNomeServidor(typeof res?.nomeServidor === 'string' ? res.nomeServidor : '');
       })
       .catch(() => {
         apiJson<{ version?: string }>('/server-manager/status')
@@ -157,6 +161,15 @@ export default function AppTopBar({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!servidorTeste) return;
+    const antes = document.title;
+    if (!antes.startsWith('[TESTE] ')) document.title = `[TESTE] ${antes}`;
+    return () => {
+      document.title = antes;
+    };
+  }, [servidorTeste]);
 
   useEffect(() => {
     const mq = window.matchMedia('(hover: hover) and (pointer: fine)');
@@ -508,10 +521,27 @@ export default function AppTopBar({
                 ? 'bg-amber-500/10 text-amber-700 border border-amber-500/25 shadow-2xs'
                 : 'bg-zinc-100 text-zinc-600 border border-zinc-200'
             )}
-            title={appEnv === 'dev' ? 'Nexus em ambiente de teste' : 'Versão do Nexus'}
+            title={
+              servidorTeste
+                ? `Nexus em ambiente de teste${nomeServidor ? ` (${nomeServidor})` : ''}`
+                : appEnv === 'dev'
+                  ? 'Nexus em ambiente de teste'
+                  : nomeServidor
+                    ? `Nexus — ${nomeServidor}`
+                    : 'Versão do Nexus'
+            }
           >
-            v{appVersion}{appEnv === 'dev' && ' · DEV'}
+            v{appVersion}
+            {servidorTeste ? ` · ${nomeSelo || 'TESTE'}` : appEnv === 'dev' ? ' · DEV' : nomeSelo ? ` · ${nomeSelo}` : ''}
           </span>
+          {servidorTeste && (
+            <span
+              className="sm:hidden px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold bg-amber-500/10 text-amber-700 border border-amber-500/25 select-none"
+              title={`Nexus em ambiente de teste${nomeServidor ? ` (${nomeServidor})` : ''}`}
+            >
+              {nomeSelo || 'TESTE'}
+            </span>
+          )}
 
           {canQuickSync && (
             <div className="relative hidden sm:block">
