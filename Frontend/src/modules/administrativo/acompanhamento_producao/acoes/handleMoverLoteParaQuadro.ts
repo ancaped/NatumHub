@@ -3,7 +3,7 @@ import { STATUS_OPTIONS } from '../lib/constantes';
 import type { AcompanhamentoLote, TabType } from '../lib/tipos';
 import { apiJson } from '../../../geral/lib/http';
 import { formatDateOnly } from '../lib/datas';
-import type { AuthUser } from '/home/edson/Documentos/api/.claude/worktrees/producao-refator-acompanhamento-04ae88/Frontend/src/modules/geral/lib/auth';
+import type { AuthUser } from '../../../geral/lib/auth';
 
 export interface handleMoverLoteParaQuadroAcaoCtx {
   currentTab: TabType;

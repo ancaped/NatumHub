@@ -4,7 +4,7 @@ import type { StatusApagadoPrevia, AcompanhamentoLote, ProgramacaoEnvaseItem, Pr
 import { statusApagadoParaLinha } from '../lib/statusApagado';
 import { STATUS_OPTIONS } from '../lib/constantes';
 import { PreviaAcao } from '../../../producao/gerenciamento/components/PreviaAcaoDrawer';
-import type { AuthUser } from '/home/edson/Documentos/api/.claude/worktrees/producao-refator-acompanhamento-04ae88/Frontend/src/modules/geral/lib/auth';
+import type { AuthUser } from '../../../geral/lib/auth';
 
 export interface executeStatusUpdateAcaoCtx {
   currentUser: AuthUser;

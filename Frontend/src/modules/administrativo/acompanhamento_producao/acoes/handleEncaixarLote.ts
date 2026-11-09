@@ -3,7 +3,7 @@ import type { AcompanhamentoLote, ProgramacaoEnvaseItem } from '../lib/tipos';
 import { inferCategoriaEnvase, inferCorProduto, parseProductUnitWeightKg } from '../lib/lotes';
 import { ehBaseProduto } from '../../../producao/lib/unitConversion';
 import { apiJson } from '../../../geral/lib/http';
-import type { AuthUser } from '/home/edson/Documentos/api/.claude/worktrees/producao-refator-acompanhamento-04ae88/Frontend/src/modules/geral/lib/auth';
+import type { AuthUser } from '../../../geral/lib/auth';
 
 export interface handleEncaixarLoteAcaoCtx {
   currentUser: AuthUser;

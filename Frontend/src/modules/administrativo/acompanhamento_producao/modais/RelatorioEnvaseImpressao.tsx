@@ -1,7 +1,7 @@
 import React from 'react';
 import { formatDateOnly } from '../lib/datas';
 import { rotuloLote } from '../lib/lotes';
-import type { AuthUser } from '/home/edson/Documentos/api/.claude/worktrees/producao-refator-acompanhamento-04ae88/Frontend/src/modules/geral/lib/auth';
+import type { AuthUser } from '../../../geral/lib/auth';
 
 export interface RelatorioEnvaseImpressaoProps {
   currentUser: AuthUser;

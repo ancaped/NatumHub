@@ -3,7 +3,7 @@ import type { AcompanhamentoLote, LoteAdiadoRegistro, ProgramacaoEnvaseItem, Pro
 import { getLoteScheduleDateIso } from '../lib/lotes';
 import { parseLoteDateToIso, formatDateOnly } from '../lib/datas';
 import { apiJson } from '../../../geral/lib/http';
-import type { AuthUser } from '/home/edson/Documentos/api/.claude/worktrees/producao-refator-acompanhamento-04ae88/Frontend/src/modules/geral/lib/auth';
+import type { AuthUser } from '../../../geral/lib/auth';
 
 export interface handleMoveLoteNextDayAcaoCtx {
   currentTab: TabType;

@@ -5,7 +5,7 @@ import { getLoteEtapaStatus, loteRowKey, isLoteParcial, renderCardTimelineDates,
 import { formatDateOnly, parseLoteDateToIso } from '../lib/datas';
 import { apiJson } from '../../../geral/lib/http';
 import type { UnifiedQuadroHeaderProps, AcompanhamentoLote, ProgramacaoEnvaseItem, ProgramacaoRotulagemItem } from '../lib/tipos';
-import type { AuthUser } from '/home/edson/Documentos/api/.claude/worktrees/producao-refator-acompanhamento-04ae88/Frontend/src/modules/geral/lib/auth';
+import type { AuthUser } from '../../../geral/lib/auth';
 
 export interface QuadroProducaoProps {
   baseLotesFilaProducao: AcompanhamentoLote[];

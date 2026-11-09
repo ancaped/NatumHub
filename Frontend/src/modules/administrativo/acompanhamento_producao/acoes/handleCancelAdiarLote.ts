@@ -2,7 +2,7 @@ import React from 'react';
 import { apiJson } from '../../../geral/lib/http';
 import { formatDateOnly } from '../lib/datas';
 import type { AdiarModalItem, AcompanhamentoLote, LoteAdiadoRegistro, ProgramacaoEnvaseItem, ProgramacaoRotulagemItem } from '../lib/tipos';
-import type { AuthUser } from '/home/edson/Documentos/api/.claude/worktrees/producao-refator-acompanhamento-04ae88/Frontend/src/modules/geral/lib/auth';
+import type { AuthUser } from '../../../geral/lib/auth';
 
 export interface handleCancelAdiarLoteAcaoCtx {
   adiarModalItem: AdiarModalItem;
