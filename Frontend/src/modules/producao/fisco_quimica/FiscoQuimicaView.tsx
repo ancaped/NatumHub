@@ -256,31 +256,11 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
     fetchData();
   }, []);
 
-  // Seleção múltipla para histórico
-  const toggleReportSelection = (id: string, isShift: boolean = false, isCtrl: boolean = false) => {
+  // Seleção para impressão no histórico
+  const toggleReportSelection = (id: string) => {
     const next = new Set(selectedReportIds);
-    if (isCtrl) {
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-    } else if (isShift && analyses.length > 0) {
-      const lastId = Array.from(selectedReportIds).pop();
-      if (lastId) {
-        const lastIdx = analyses.findIndex((r) => r.id === lastId);
-        const currentIdx = analyses.findIndex((r) => r.id === id);
-        if (lastIdx !== -1 && currentIdx !== -1) {
-          const start = Math.min(lastIdx, currentIdx);
-          const end = Math.max(lastIdx, currentIdx);
-          for (let i = start; i <= end; i++) {
-            next.add(analyses[i].id);
-          }
-        }
-      } else {
-        next.add(id);
-      }
-    } else {
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-    }
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
     setSelectedReportIds(next);
   };
 

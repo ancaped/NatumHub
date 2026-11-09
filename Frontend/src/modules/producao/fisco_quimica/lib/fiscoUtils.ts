@@ -515,6 +515,22 @@ export function checkAnalysisCompliance(
   };
 }
 
+/** Situação do laudo para listas e filtros — uma classificação só, derivada de checkAnalysisCompliance. */
+export type SituacaoLaudo = 'conforme' | 'ajustado' | 'em_correcao' | 'fora' | 'sem_padrao';
+
+export function situacaoDoLaudo(
+  analysis: Parameters<typeof checkAnalysisCompliance>[0],
+  pattern: FiscoQuimicaPattern | null
+): SituacaoLaudo {
+  switch (checkAnalysisCompliance(analysis, pattern).overallStatus) {
+    case 'EM_CORRECAO': return 'em_correcao';
+    case 'FORA_PADRAO': return 'fora';
+    case 'AJUSTADO': return 'ajustado';
+    case 'SEM_PADRAO': return 'sem_padrao';
+    default: return 'conforme';
+  }
+}
+
 /**
  * Gera o HTML oficial de uma página A4 do Laudo de Análise Físico-Química
  */
