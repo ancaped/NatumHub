@@ -478,7 +478,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
         )}
 
         {activeTab === 'erp_lotes' && (
-          <motion.div key="erp_lotes" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <motion.div key="erp_lotes" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
             <ErpLotesTab
               onStartAnalysisWithLote={(code, batch) => {
                 setSelectedLoteForNew({ productCode: code, batch });

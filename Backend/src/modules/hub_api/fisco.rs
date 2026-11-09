@@ -345,7 +345,10 @@ async fn get_erp_lotes_handler(
         SELECT COUNT(*)
         FROM erp_lotes_laudos el
         LEFT JOIN produtos p ON el.product_code = p.codigo
-        LEFT JOIN fisco_quimica_analyses fqa ON fqa.batch = el.lote
+        -- no máximo um laudo (o mais recente) por lote: sem isso o lote repetia e a contagem inflava
+        LEFT JOIN LATERAL (
+            SELECT * FROM fisco_quimica_analyses WHERE batch = el.lote ORDER BY created_at DESC NULLS LAST LIMIT 1
+        ) fqa ON true
         WHERE 1=1
         "#
     );
@@ -431,7 +434,10 @@ async fn get_erp_lotes_handler(
             COALESCE(p.qtde_cx, 0) AS qtde_cx
         FROM erp_lotes_laudos el
         LEFT JOIN produtos p ON el.product_code = p.codigo
-        LEFT JOIN fisco_quimica_analyses fqa ON fqa.batch = el.lote
+        -- no máximo um laudo (o mais recente) por lote: sem isso o lote repetia e a contagem inflava
+        LEFT JOIN LATERAL (
+            SELECT * FROM fisco_quimica_analyses WHERE batch = el.lote ORDER BY created_at DESC NULLS LAST LIMIT 1
+        ) fqa ON true
         WHERE 1=1
         "#
     );
