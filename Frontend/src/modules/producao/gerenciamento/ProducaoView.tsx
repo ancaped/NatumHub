@@ -1338,14 +1338,29 @@ export default function ProducaoView({
       lancamento_estoque_maximo: overrideLancamentoMaximo.trim() === '' ? null : parseInt(overrideLancamentoMaximo, 10) || 0,
       lancamento_data_inicio: overrideDataFixo.trim() === '' ? null : overrideDataFixo.trim(),
       familia_produto: overrideFamilia.trim() === '' ? '-' : overrideFamilia.trim(),
+      producao_minima_kg: overrideProducaoMinimaKg.trim() === '' ? null : Math.max(0, parseFloat(overrideProducaoMinimaKg.replace(',', '.')) || 0),
+    };
+
+    // Regras de reator: dono é a Produção, ação própria (2 passos; salvar na tela é a confirmação) com auditoria.
+    const regrasReator = {
+      codigo: editingProduct.codigo,
       processo_termico: overrideProcessoTermico === '' ? null : overrideProcessoTermico,
       permite_bombona: overridePermiteBombona === '' ? null : overridePermiteBombona === 'sim',
       exclusivo_no_dia: overrideExclusivoNoDia === '' ? null : overrideExclusivoNoDia === 'sim',
       dias_ate_envase: overrideDiasEnvase.trim() === '' ? null : Math.max(0, parseInt(overrideDiasEnvase, 10) || 0),
-      producao_minima_kg: overrideProducaoMinimaKg.trim() === '' ? null : Math.max(0, parseFloat(overrideProducaoMinimaKg.replace(',', '.')) || 0),
     };
 
     try {
+      const resRegras = await apiFetch(`/producao/produtos/regras-reator?confirmar=true`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(regrasReator),
+      });
+      if (!resRegras.ok) {
+        const err = await resRegras.json().catch(() => ({}));
+        showToast(err?.error || 'Erro ao salvar as regras de reator', 'error');
+        return;
+      }
       const res = await apiFetch(`/overrides`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

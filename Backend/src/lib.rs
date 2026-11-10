@@ -46,6 +46,7 @@ pub mod modules {
         pub mod auditoria;
         pub mod insumos_classificacao;
         pub mod regras;
+        pub mod regras_reator;
         pub mod contexto;
         pub mod roteiro;
         pub mod processo;

@@ -149,6 +149,7 @@ pub fn todas() -> Vec<Acao> {
     v.extend(auditoria::acoes());
     v.extend(decisoes::acoes());
     v.extend(regras::acoes());
+    v.extend(crate::modules::producao::regras_reator::acoes());
     v.extend(contexto::acoes());
     v.extend(roteiro::acoes());
     v.extend(sequencia::acoes());
@@ -292,6 +293,7 @@ mod tests {
             include_str!("../modules/producao/auditoria.rs"),
             include_str!("../modules/producao/decisoes.rs"),
             include_str!("../modules/producao/regras.rs"),
+            include_str!("../modules/producao/regras_reator.rs"),
             include_str!("../modules/producao/contexto.rs"),
             include_str!("../modules/producao/roteiro.rs"),
             include_str!("../modules/producao/sequencia.rs"),

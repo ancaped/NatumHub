@@ -259,7 +259,7 @@ impl Db {
     }
 
     /// Apaga a linha de `overrides_produtos` somente se todas as colunas estão nulas/default.
-    async fn apagar_override_se_vazio(
+    pub(crate) async fn apagar_override_se_vazio(
         conn: &mut sqlx::PgConnection,
         codigo: &str,
     ) -> Result<(), String> {
