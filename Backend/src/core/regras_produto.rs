@@ -31,6 +31,11 @@ fn segmentos(codigo: &str) -> Vec<String> {
         .collect()
 }
 
+/// Dois prefixos são o mesmo se têm os mesmos segmentos sem zeros à esquerda ("09.15" = "9.15") ou só diferem em maiúsculas.
+pub fn prefixos_equivalentes(a: &str, b: &str) -> bool {
+    a.trim().eq_ignore_ascii_case(b.trim()) || segmentos(a) == segmentos(b)
+}
+
 /// Linha automática do produto. `prefixos` = `config_linhas.linha_prefix` (sem DEFAULT).
 /// O prefixo casa se for prefixo de segmentos do código (e o código tiver mais segmentos);
 /// vence o prefixo com mais segmentos; sem casar, "DEFAULT".

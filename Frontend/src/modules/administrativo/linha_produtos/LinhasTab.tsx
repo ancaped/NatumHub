@@ -4,6 +4,7 @@ import { apiFetch } from '../../geral/lib/http';
 import { cn } from '../../geral/lib/utils';
 import Drawer from '../../geral/components/ui/Drawer';
 import type { PreviaAcao } from '../../producao/gerenciamento/components/PreviaAcaoDrawer';
+import LinhaResumo from './LinhaResumo';
 import type { LineConfig, PedirBulkOpts, ProductResult } from './tipos';
 
 interface Props {
@@ -22,7 +23,7 @@ interface Props {
 export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, avisar, onReload }: Props) {
   const [editingLineConfig, setEditingLineConfig] = useState<LineConfig | null>(null);
   const [isLineModalOpen, setIsLineModalOpen] = useState(false);
-  const [abaLinha, setAbaLinha] = useState<'produtos' | 'parametros'>('produtos');
+  const [abaLinha, setAbaLinha] = useState<'produtos' | 'resumo' | 'parametros'>('produtos');
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [buscaProd, setBuscaProd] = useState('');
   const [linePrefixForm, setLinePrefixForm] = useState('');
@@ -172,7 +173,7 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
     setLineFormError(null);
     try {
       const cfg: LineConfig = {
-        linha_prefix: linePrefixForm.trim(),
+        linha_prefix: editingLineConfig ? editingLineConfig.linha_prefix : linePrefixForm.trim(),
         nome_linha: lineNameForm.trim(),
         estoque_ideal_mult: parseFloat(idealMultForm) || 3.0,
         abrir_ordem_mult: parseFloat(ordemMultForm) || 1.5,
@@ -198,6 +199,63 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
       setLineFormError("Falha de conexão ao salvar.");
     } finally {
       setLineSaving(false);
+    }
+  };
+
+  // Troca o prefixo (a chave da linha): a prévia vem do servidor e só grava no OK.
+  const handleTrocarPrefixo = async () => {
+    if (!editingLineConfig) return;
+    const atual = editingLineConfig.linha_prefix;
+    const novo = linePrefixForm.trim();
+    const corpo = JSON.stringify({ prefixoAtual: atual, prefixoNovo: novo });
+    const chamar = (confirmar: boolean) => apiFetch(`/admin/produtos-ativos/linhas/prefixo${confirmar ? '?confirmar=true' : ''}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: corpo,
+    });
+    try {
+      const res = await chamar(false);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLineFormError(data.error || 'Não foi possível calcular a troca.');
+        return;
+      }
+      setLineFormError(null);
+      const r = data.resultado || {};
+      type Item = { codigo: string; descricao: string; linhaAtual?: string; linhaNova?: string };
+      const entram: Item[] = r.entram || [];
+      const saem: Item[] = r.saem || [];
+      const nomeLinha = (p?: string) => (p === 'DEFAULT' ? 'DEFAULT (sem linha)' : configs.find(c => c.linha_prefix === p)?.nome_linha || p || '');
+      const avisos: string[] = [];
+      if (r.listaTruncada) avisos.push('Listas limitadas a 100 produtos; os totais acima são completos.');
+      avisos.push('Nome e parâmetros da linha continuam os mesmos. Depois de gravar, o painel fecha.');
+      pedirPrevia({
+        titulo: `Trocar o prefixo ${atual} por ${novo}`,
+        linhas: [
+          { titulo: 'Produtos que continuam na linha', detalhe: String(r.produtosContinuam ?? 0) },
+          { titulo: 'Produtos que passam a pertencer à linha', detalhe: String(r.produtosEntram ?? 0) },
+          ...entram.map(i => ({ titulo: `   ${i.codigo} · ${i.descricao}`, detalhe: `de ${nomeLinha(i.linhaAtual)}` })),
+          { titulo: 'Produtos que deixam a linha', detalhe: String(r.produtosSaem ?? 0) },
+          ...saem.map(i => ({ titulo: `   ${i.codigo} · ${i.descricao}`, detalhe: `para ${nomeLinha(i.linhaNova)}` })),
+          { titulo: 'Ajustes manuais de linha atualizados', detalhe: String(r.ajustesManuaisAtualizados ?? 0) },
+          { titulo: 'Regras de produção da linha atualizadas', detalhe: String(r.regrasDeProducaoAtualizadas ?? 0) },
+        ],
+        avisos,
+        confirmarRotulo: 'Trocar prefixo',
+        executar: async () => {
+          const r2 = await chamar(true);
+          if (!r2.ok) {
+            const e = await r2.json().catch(() => ({}));
+            throw new Error(e.error || 'Erro ao trocar o prefixo.');
+          }
+          setIsLineModalOpen(false);
+          await onReload();
+          avisar(`Prefixo trocado para ${novo}.`, 'sucesso');
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      setLineFormError('Falha de conexão ao preparar a troca.');
     }
   };
 
@@ -421,12 +479,13 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
           subtitle={editingLineConfig ? `Prefixo ${editingLineConfig.linha_prefix}` : undefined}
           tabs={editingLineConfig ? [
             { id: 'produtos', label: 'Produtos', badge: produtosDaLinha.length },
+            { id: 'resumo', label: 'Resumo' },
             { id: 'parametros', label: 'Parâmetros' },
           ] : undefined}
           activeTab={abaLinha}
-          onTabChange={(id) => setAbaLinha(id as 'produtos' | 'parametros')}
+          onTabChange={(id) => setAbaLinha(id as 'produtos' | 'resumo' | 'parametros')}
           footer={
-            abaLinha === 'produtos' ? (
+            abaLinha !== 'parametros' ? (
               <button
                 type="button"
                 onClick={() => setIsLineModalOpen(false)}
@@ -555,6 +614,8 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
             </div>
           )}
 
+          {abaLinha === 'resumo' && editingLineConfig && <LinhaResumo prefixo={editingLineConfig.linha_prefix} />}
+
           {abaLinha === 'parametros' && (
           <form id="form-config-linha" onSubmit={handleSaveLineConfig} className="space-y-4 text-left">
             {lineFormError && (
@@ -567,14 +628,25 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-bold text-zinc-700 block">Prefixo de Linha</label>
-                <input
-                  type="text"
-                  disabled={!!editingLineConfig}
-                  placeholder="Ex: 9.15."
-                  value={linePrefixForm}
-                  onChange={(e) => setLinePrefixForm(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium disabled:bg-zinc-100 disabled:text-zinc-400"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Ex: 9.15"
+                    value={linePrefixForm}
+                    onChange={(e) => setLinePrefixForm(e.target.value)}
+                    disabled={editingLineConfig?.linha_prefix === 'DEFAULT'}
+                    className="min-w-0 flex-1 px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium disabled:bg-zinc-100 disabled:text-zinc-400"
+                  />
+                  {editingLineConfig && editingLineConfig.linha_prefix !== 'DEFAULT' && linePrefixForm.trim() !== editingLineConfig.linha_prefix && (
+                    <button
+                      type="button"
+                      onClick={() => void handleTrocarPrefixo()}
+                      className="px-3 min-h-[44px] sm:min-h-0 bg-zinc-900 hover:bg-zinc-950 text-white rounded-xl font-bold text-xs cursor-pointer whitespace-nowrap"
+                    >
+                      Ver troca
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-bold text-zinc-700 block">Nome da Linha</label>
