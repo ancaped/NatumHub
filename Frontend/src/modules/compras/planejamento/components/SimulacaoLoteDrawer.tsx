@@ -16,17 +16,16 @@ function htmlRelatorio(d: SimulacaoLote, visao: Visao, logo: string): string {
   const cab = `<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">${logo ? `<img src="${logo}" style="height:34px" />` : ''}
     <div><div style="font-size:16px;font-weight:800">Produtos da simulação — ${escaparHtml(d.lote.numero)}${d.lote.titulo ? ` · ${escaparHtml(d.lote.titulo)}` : ''}</div>
     <div style="font-size:11px;color:#52525b">${d.totais.produtos} produtos · ${d.totais.itensComSimulacao} de ${d.totais.itens} itens do lote têm simulação · gerado em ${new Date().toLocaleDateString('pt-BR')}</div></div></div>
-    <div style="font-size:10px;color:#71717a;margin-bottom:10px">${escaparHtml(d.aviso)}</div>`;
+    ${visao === 'resumo' ? '' : `<div style="font-size:10px;color:#71717a;margin-bottom:10px">${escaparHtml(d.aviso)}</div>`}`;
   const th = 'style="text-align:left;border-bottom:1.5px solid #18181b;padding:4px 6px;font-size:10px;text-transform:uppercase"';
   const td = 'style="border-bottom:1px solid #e4e4e7;padding:4px 6px;font-size:11px;vertical-align:top"';
   let corpo: string;
   if (visao === 'resumo') {
-    const thr = 'style="text-align:right;border-bottom:1.5px solid #18181b;padding:4px 6px;font-size:10px;text-transform:uppercase"';
-    const tdc = 'style="border-bottom:1px solid #e4e4e7;padding:2px 6px;font-size:10.5px"';
-    corpo = `<table style="width:100%;border-collapse:collapse"><thead><tr><th ${th}>Produto</th><th ${th}>Descrição</th><th ${th}>Situação</th><th ${thr}>A produzir</th><th ${thr}>Insumos do lote</th></tr></thead><tbody>${[...d.produtos]
+    const curto = (x: string) => x.replace('Produzir Urgente', 'Urgente').replace('Abrir Ordem', 'Ordem');
+    corpo = `<div class="duas">${[...d.produtos]
       .sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true }))
-      .map((p) => `<tr><td ${tdc}><b>${escaparHtml(p.codigo)}</b></td><td ${tdc}>${escaparHtml(p.descricao)}</td><td ${tdc}>${escaparHtml(p.situacao)}</td><td ${tdc} align="right">${num(p.producaoQtd)}</td><td ${tdc} align="right">${p.insumos.length}</td></tr>`)
-      .join('')}</tbody></table>`;
+      .map((p) => `<div class="l"><span class="t"><b>${escaparHtml(p.codigo)}</b> ${escaparHtml(p.descricao)}</span><span class="n"><i>${escaparHtml(curto(p.situacao))}</i> <b>${num(p.producaoQtd)}</b></span></div>`)
+      .join('')}</div>`;
   } else if (visao === 'produto') {
     corpo = `<table style="width:100%;border-collapse:collapse"><thead><tr><th ${th}>Produto</th><th ${th}>Situação</th><th ${th} >A produzir</th><th ${th}>Insumos deste lote</th></tr></thead><tbody>${d.produtos
       .map(
@@ -47,7 +46,7 @@ function htmlRelatorio(d: SimulacaoLote, visao: Visao, logo: string): string {
       .join('')}</tbody></table>`;
   }
   return `<!doctype html><html><head><meta charset="utf-8"><title>Simulação — ${escaparHtml(d.lote.numero)}</title>
-    <style>@page{size:A4 landscape;margin:12mm}body{font-family:Inter,Arial,sans-serif;color:#18181b}tr{page-break-inside:avoid}</style></head><body>${cab}${corpo}</body></html>`;
+    <style>@page{size:A4 portrait;margin:8mm}body{font-family:Inter,Arial,sans-serif;color:#18181b}tr{page-break-inside:avoid}.duas{column-count:2;column-gap:8mm;font-size:8.5px;line-height:1.25}.l{display:flex;justify-content:space-between;gap:6px;border-bottom:1px solid #e4e4e7;padding:1px 0;break-inside:avoid}.t{flex:1;min-width:0}.n{white-space:nowrap;text-align:right}</style></head><body>${cab}${corpo}</body></html>`;
 }
 
 /** Produtos da simulação de produção (Produzir Urgente / Abrir Ordem) que puxam os itens de um lote de compra. */
