@@ -49,6 +49,7 @@ interface ItemSaude {
   em_transito: number;
   previsao_chegada: string | null;
   sugestao_compra: number;
+  falta_agora_coberta: boolean;
 }
 
 interface Retirado {
@@ -105,7 +106,7 @@ const num = (n: number) => n.toLocaleString('pt-BR');
 const dataBr = (iso: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
 const diasTxt = (d: number | null) => (d == null ? '—' : d >= 365 ? `${num(Math.round(d))} d (${(d / 365).toFixed(1).replace('.', ',')} a)` : `${num(Math.round(d))} d`);
 const mesesTxt = (d: number | null) => (d == null ? '—' : `${(d / 30).toFixed(1).replace('.', ',')} m`);
-/** Fabricados: em produção. Comprados prontos: pedido de compra em trânsito e a previsão de chegada. */
+/** A caminho = fabricados: em produção. Comprados prontos: pedido de compra em trânsito e a previsão de chegada. */
 const entrada = (i: ItemSaude) =>
   i.tipo === 'coloracao' || i.tipo === 'apoio'
     ? i.em_transito > 0 ? `+${num(i.em_transito)} un${i.previsao_chegada ? ` · chega ${dataBr(i.previsao_chegada)}` : ''}` : '—'
@@ -266,6 +267,11 @@ export function StockHealthTab({ setView }: Props) {
         {i.selo && <span style={{ fontWeight: 700 }}>{ROTULO_SELO[i.selo] ?? i.selo}</span>}
         {i.situacao_produto === 'saindo_de_linha' && <span style={{ fontWeight: 700 }}>Saindo de linha</span>}
       </div>
+      {i.falta_agora_coberta && (
+        <div style={{ fontSize: '0.66rem', color: 'hsl(var(--text-secondary-hsl))', fontStyle: 'italic' }}>
+          {i.estoque <= 0 ? 'Zerado agora' : 'Abaixo do gatilho agora'}, coberto {i.tipo === 'coloracao' || i.tipo === 'apoio' ? 'pelo pedido de compra' : 'pela produção'}
+        </div>
+      )}
       {i.papel_kit && (
         <div style={{ fontSize: '0.66rem', color: 'hsl(var(--text-secondary-hsl))' }}>
           Vendas 12 m: {num(i.vendas_diretas_12m)} direto + {num(i.vendas_por_kits_12m)} por kits
@@ -321,21 +327,22 @@ export function StockHealthTab({ setView }: Props) {
   /** Texto de cada célula da aba (usado nas linhas do celular e na impressão). */
   function colunasDaAba(a: Exclude<Aba, 'retirados'>): { campo: string; rotulo: string; direita?: boolean; valor: (i: ItemSaude) => React.ReactNode; texto: (i: ItemSaude) => string }[] {
     const sit = { campo: 'situacao', rotulo: 'Situação', valor: (i: ItemSaude) => <StatusBadge variante={VARIANTE[i.situacao]}>{ROTULO[i.situacao]}</StatusBadge>, texto: (i: ItemSaude) => ROTULO[i.situacao] };
-    const est = { campo: 'estoque', rotulo: 'Estoque', direita: true, valor: (i: ItemSaude) => num(i.estoque), texto: (i: ItemSaude) => num(i.estoque) };
+    const est = { campo: 'estoque', rotulo: 'Estoque atual', direita: true, valor: (i: ItemSaude) => num(i.estoque), texto: (i: ItemSaude) => num(i.estoque) };
+    const fut = { campo: 'estoque_demanda', rotulo: 'Atual → futuro', direita: true, valor: (i: ItemSaude) => `${num(i.estoque)} → ${num(i.estoque_demanda)}`, texto: (i: ItemSaude) => `${num(i.estoque)} → ${num(i.estoque_demanda)}` };
     const ideal = { campo: 'ideal', rotulo: 'Ideal', direita: true, valor: (i: ItemSaude) => num(i.ideal), texto: (i: ItemSaude) => num(i.ideal) };
     const cobDias = { campo: 'cobertura_dias', rotulo: 'Cobertura', direita: true, valor: (i: ItemSaude) => diasTxt(i.cobertura_dias), texto: (i: ItemSaude) => diasTxt(i.cobertura_dias) };
     const ultProd = { campo: 'ultima_producao', rotulo: 'Últ. produção', valor: (i: ItemSaude) => dataBr(i.ultima_producao), texto: (i: ItemSaude) => dataBr(i.ultima_producao) };
     const ultVenda = { campo: 'ultima_venda', rotulo: 'Últ. venda', valor: (i: ItemSaude) => dataBr(i.ultima_venda), texto: (i: ItemSaude) => dataBr(i.ultima_venda) };
     if (a === 'disponibilidade') {
       return [
-        sit, est, ideal, cobDias,
+        sit, fut, ideal, cobDias,
         { campo: 'faltas_venda', rotulo: 'Faltas', direita: true, valor: (i) => (i.faltas_venda > 0 ? num(i.faltas_venda) : '—'), texto: (i) => (i.faltas_venda > 0 ? num(i.faltas_venda) : '—') },
-        { campo: 'em_producao', rotulo: 'Em produção / trânsito', direita: true, valor: (i) => entrada(i), texto: (i) => entrada(i) },
+        { campo: 'em_producao', rotulo: 'A caminho', direita: true, valor: (i) => entrada(i), texto: (i) => entrada(i) },
       ];
     }
     if (a === 'excesso') {
       return [
-        est, ideal,
+        fut, ideal,
         { campo: 'excedente', rotulo: 'Excedente', direita: true, valor: (i) => num(i.excedente), texto: (i) => num(i.excedente) },
         { campo: 'cobertura_dias', rotulo: 'Cobertura', direita: true, valor: (i) => mesesTxt(i.cobertura_dias), texto: (i) => mesesTxt(i.cobertura_dias) },
         { campo: 'tendencia_pct', rotulo: 'Tendência', direita: true, valor: (i) => tendenciaTxt(i.tendencia_pct), texto: (i) => tendenciaTxt(i.tendencia_pct) },
@@ -349,7 +356,7 @@ export function StockHealthTab({ setView }: Props) {
         ultProd,
       ];
     }
-    return [sit, est, ideal, cobDias, ultVenda];
+    return [sit, fut, ideal, cobDias, ultVenda];
   }
 
   // Cartões: contagens do que o endpoint devolveu, respeitando busca, tipo e linha (e sem os retirados, que o servidor já tirou).
@@ -473,7 +480,7 @@ export function StockHealthTab({ setView }: Props) {
                   {lista.map((i) => (
                     <tr key={i.codigo} style={{ cursor: 'pointer' }} onClick={() => setDetalhe(i.codigo)}>
                       <td><Produto i={i} /></td>
-                      {colunas.map((c) => <td key={c.campo + c.rotulo} style={{ textAlign: c.direita ? 'right' : 'left', whiteSpace: 'nowrap' }}>{c.valor(i)}</td>)}
+                      {colunas.map((c) => <td key={c.campo + c.rotulo} style={{ textAlign: c.direita ? 'right' : 'left', whiteSpace: c.campo === 'em_producao' ? 'normal' : 'nowrap', maxWidth: c.campo === 'em_producao' ? 130 : undefined }}>{c.valor(i)}</td>)}
                       <td style={{ textAlign: 'right' }}>
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
                           {aba === 'disponibilidade' && <AcaoFila i={i} />}

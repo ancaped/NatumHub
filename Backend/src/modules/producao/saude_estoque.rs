@@ -122,12 +122,19 @@ pub struct Entrada {
     pub com_selo: bool,
 }
 
+/// Falta hoje (estoque atual zerado ou abaixo do gatilho) mas o estoque futuro cobre: a tela marca em vez de esconder a falta.
+pub fn falta_agora_coberta(estoque: f64, efp: f64, gatilho: f64) -> bool {
+    let atual_baixo = estoque <= 0.0 || estoque < gatilho;
+    let futuro_cobre = efp > 0.0 && efp >= gatilho;
+    atual_baixo && futuro_cobre
+}
+
 /// Quanto o pedido em aberto passa do estoque físico (venda que hoje não se atende).
 pub fn faltas_de_venda(estoque: f64, pedidos_aberto: f64) -> f64 {
     (pedidos_aberto - estoque.max(0.0)).max(0.0)
 }
 
-/// Ordem: selo, sem giro, ruptura, baixo, excesso, adequado.
+/// Ordem: selo, sem giro, ruptura, baixo, excesso, adequado. Ruptura, baixo e excesso olham o estoque futuro (`efp`).
 pub fn classificar(e: &Entrada) -> Situacao {
     if e.com_selo {
         return Situacao::Especial;
@@ -137,7 +144,8 @@ pub fn classificar(e: &Entrada) -> Situacao {
     if parado {
         return Situacao::SemGiro;
     }
-    if e.tem_venda && (e.estoque <= 0.0 || faltas_de_venda(e.estoque, e.pedidos_aberto) > 0.0) {
+    // Ruptura pelo estoque futuro (estoque + produção ou trânsito − pedidos): se o que está a caminho cobre, não é ruptura.
+    if e.tem_venda && e.efp <= 0.0 {
         return Situacao::Ruptura;
     }
     if e.abaixo_do_gatilho {
@@ -266,6 +274,8 @@ pub struct ItemSaude {
     pub em_transito: i64,
     pub previsao_chegada: Option<String>,
     pub sugestao_compra: i64,
+    /// Falta agora (atual zerado ou abaixo do gatilho), mas o estoque futuro cobre.
+    pub falta_agora_coberta: bool,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -538,6 +548,7 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
             em_transito: if comprado { em_transito } else { 0 },
             previsao_chegada: if comprado { mov.previsao_compra.get(&chave).cloned() } else { None },
             sugestao_compra: if comprado { sugestao_compra } else { 0 },
+            falta_agora_coberta: falta_agora_coberta(p.estoque as f64, efp, gatilho),
         });
     }
 
@@ -781,6 +792,40 @@ mod tests {
         e.dias_sem_venda = None;
         e.abaixo_do_gatilho = true;
         assert_eq!(classificar(&e), Situacao::Especial);
+    }
+
+    #[test]
+    fn atual_zero_com_producao_cobrindo_nao_e_ruptura() {
+        let mut e = base();
+        e.estoque = 0.0;
+        e.efp = 120.0; // 0 em estoque + 120 em produção
+        assert_eq!(classificar(&e), Situacao::Adequado);
+        assert!(falta_agora_coberta(0.0, 120.0, 80.0), "a falta de hoje fica marcada");
+        assert!(!falta_agora_coberta(100.0, 120.0, 80.0), "estoque de hoje já cobre");
+        assert!(!falta_agora_coberta(0.0, 0.0, 80.0), "nem o futuro cobre: é ruptura");
+    }
+
+    #[test]
+    fn atual_adequado_com_pedidos_derrubando_o_futuro_e_ruptura() {
+        let mut e = base();
+        e.estoque = 100.0;
+        e.pedidos_aberto = 130.0;
+        e.efp = -30.0; // 100 − 130
+        assert_eq!(classificar(&e), Situacao::Ruptura);
+        e.efp = 20.0; // 100 + 50 em produção − 130
+        e.abaixo_do_gatilho = true;
+        assert_eq!(classificar(&e), Situacao::Baixo);
+    }
+
+    #[test]
+    fn excesso_so_depois_de_somar_a_producao() {
+        let mut e = base(); // ideal 100
+        e.estoque = 150.0;
+        e.efp = 150.0;
+        assert_eq!(classificar(&e), Situacao::Adequado);
+        e.efp = 250.0; // 150 + 100 em produção
+        assert_eq!(classificar(&e), Situacao::Excesso);
+        assert_eq!(cobertura_dias(e.efp, 30.0), Some(250.0));
     }
 
     #[test]
