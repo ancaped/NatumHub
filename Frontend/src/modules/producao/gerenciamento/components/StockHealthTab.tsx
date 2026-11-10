@@ -206,6 +206,51 @@ export function StockHealthTab({ setView }: Props) {
     return sel;
   }, [base, aba, ordem, filtroSituacao]);
 
+  /**
+   * Imprime a lista em uso em A4 em pé, numa janela própria (sem o menu e a rolagem do app, que cortavam tudo
+   * depois da primeira página). O padrão global de impressão do Nexus é paisagem; este relatório é retrato.
+   */
+  const imprimir = () => {
+    const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const titulo = abas.find((x) => x.id === aba)?.label ?? 'Saúde do Estoque';
+    const cab = colunas.map((c) => `<th class="${c.direita ? 'd' : ''}">${esc(c.rotulo)}</th>`).join('');
+    const linhasHtml = lista
+      .map((i) => {
+        const marcas = [i.tipo === 'kit' ? 'Kit' : i.tipo === 'coloracao' ? 'Coloração' : i.tipo === 'apoio' ? 'Apoio' : '', i.papel_kit === 'so_kit' ? 'Só kit' : i.papel_kit === 'em_kit' ? 'Também em kit' : '', i.selo ? (ROTULO_SELO[i.selo] ?? i.selo) : '', i.falta_agora_coberta ? 'falta agora, coberto' : ''].filter(Boolean).join(' · ');
+        const cels = colunas.map((c) => `<td class="${c.direita ? 'd' : ''}">${esc(c.texto(i))}</td>`).join('');
+        return `<tr><td class="m">${esc(i.codigo)}</td><td>${esc(i.descricao)}${marcas ? `<div class="s">${esc(marcas)}</div>` : ''}</td>${cels}</tr>`;
+      })
+      .join('');
+    const regra = regras ? `Excesso: acima de ${regras.fator_excesso}× o ideal · Sem giro: ${regras.dias_sem_giro} dias sem venda · ` : '';
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Saúde do Estoque — ${esc(titulo)}</title>
+<style>
+@page { size: A4 portrait; margin: 10mm; }
+* { box-sizing: border-box; }
+body { font-family: Arial, Helvetica, sans-serif; color: #18181b; font-size: 9pt; margin: 0; }
+h1 { font-size: 12pt; margin: 0 0 2px; }
+.sub { font-size: 8pt; color: #52525b; margin-bottom: 8px; }
+table { width: 100%; border-collapse: collapse; table-layout: auto; }
+th { text-align: left; font-size: 7.5pt; text-transform: uppercase; color: #52525b; border-bottom: 1.5px solid #18181b; padding: 3px 4px; }
+td { padding: 3px 4px; border-bottom: 1px solid #e4e4e7; vertical-align: top; }
+thead { display: table-header-group; }
+tr { page-break-inside: avoid; }
+.d { text-align: right; white-space: nowrap; }
+.m { font-family: monospace; font-size: 8pt; white-space: nowrap; }
+.s { font-size: 7pt; color: #71717a; }
+</style></head><body>
+<h1>Natum Cosméticos — Saúde do Estoque: ${esc(titulo)}</h1>
+<div class="sub">${esc(regra)}Itens: <b>${lista.length}</b> · Emissão: ${esc(new Date().toLocaleString('pt-BR'))}</div>
+<table><thead><tr><th>Código</th><th>Produto</th>${cab}</tr></thead><tbody>${linhasHtml}</tbody></table>
+</body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) { setErro('O navegador bloqueou a janela de impressão. Libere pop-ups para o Nexus.'); return; }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 300);
+  };
+
   const alterarRetirado = async (codigo: string, retirar: boolean) => {
     setEnfileirando(codigo);
     try {
@@ -423,7 +468,7 @@ export function StockHealthTab({ setView }: Props) {
               <BotaoAcao onClick={carregar} disabled={carregando} title="Atualizar">
                 <RefreshCw size={13} className={carregando ? 'animate-spin' : ''} /> Atualizar
               </BotaoAcao>
-              <BotaoAcao primario onClick={() => setTimeout(() => window.print(), 100)} disabled={!lista.length}>
+              <BotaoAcao primario onClick={imprimir} disabled={!lista.length}>
                 <Printer size={13} /> Imprimir
               </BotaoAcao>
             </>
@@ -517,40 +562,6 @@ export function StockHealthTab({ setView }: Props) {
             </div>
           </>
         )}
-      </div>
-
-      {/* Impressão da lista em uso */}
-      <div className="print-report-container print-only">
-        <div className="print-header-block">
-          <div className="print-header-row">
-            <div>
-              <div className="print-company-title">Natum Cosméticos — Saúde do Estoque: {tituloAba}</div>
-              <div className="print-meta-sub">
-                {regras && <>Excesso: acima de {regras.fator_excesso}× o ideal · Sem giro: {regras.dias_sem_giro} dias sem venda · </>}
-                Itens listados: <strong>{lista.length}</strong>
-              </div>
-            </div>
-            <div className="print-date-block"><div>Emissão: <strong>{new Date().toLocaleString('pt-BR')}</strong></div></div>
-          </div>
-        </div>
-        <table className="print-data-table">
-          <thead>
-            <tr>
-              <th>Código</th>
-              <th>Produto</th>
-              {colunas.map((c) => <th key={c.campo + c.rotulo} style={{ textAlign: c.direita ? 'right' : 'left' }}>{c.rotulo}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {lista.map((i) => (
-              <tr key={i.codigo} className="print-tr">
-                <td className="print-td font-mono font-bold">{i.codigo}</td>
-                <td className="print-td">{i.descricao}{i.selo ? ` (${ROTULO_SELO[i.selo] ?? i.selo})` : ''}</td>
-                {colunas.map((c) => <td key={c.campo + c.rotulo} className="print-td" style={{ textAlign: c.direita ? 'right' : 'left' }}>{c.texto(i)}</td>)}
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
 
       <ProductDetailsDrawer productCode={detalhe} isOpen={!!detalhe} onClose={() => setDetalhe(null)} />
