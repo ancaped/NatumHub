@@ -23,7 +23,7 @@ use crate::core::db::Db;
 use crate::handlers::AppState;
 use crate::modules::producao::cobertura::calc::BaseFonte;
 use crate::modules::producao::cobertura::horizonte::SEMANAS_HORIZONTE;
-use crate::modules::producao::cobertura::store::{self, canon, Contribuicao, Formulas, Quantidade};
+use crate::modules::producao::cobertura::store::{self, canon, Contribuicao, Quantidade};
 use crate::modules::producao::fila_auto::{self, Excluidos};
 use crate::modules::producao::{calculo, decisoes, fila};
 
@@ -243,14 +243,16 @@ pub async fn consumo(pool: &PgPool, itens: &[ItemPrevisto]) -> Result<(Vec<Linha
 }
 
 // ---------------------------------------------------------------------------------------------
-// Comparação com o cálculo atual do Compras (conjunto: a sugestão automática)
+// Conjunto do MRP do Compras
 // ---------------------------------------------------------------------------------------------
 
 /// Produto da sugestão automática do Compras: crítico, ordem ou saindo de linha com produção recomendada > 0.
-/// Mesmo filtro de `collect_sim_producao_contributions` (Compras); sai daqui quando o Compras passar a usar o motor (A2).
+/// Usada pelo MRP do Compras (`collect_sim_producao_contributions`) como o conjunto de produtos que consomem insumo.
 pub struct SugestaoProduto {
     pub codigo: String,
     pub descricao: String,
+    pub status: String,
+    pub status_label: String,
     pub unidades: f64,
     pub e_base: bool,
 }
@@ -269,6 +271,8 @@ pub async fn sugestao_automatica(db: &Db) -> Result<Vec<SugestaoProduto>, ErroAp
         .map(|p| SugestaoProduto {
             codigo: p.codigo.trim().to_string(),
             descricao: p.descricao.clone(),
+            status: p.status.clone(),
+            status_label: p.status_label.clone(),
             unidades: p.producao_recomendada as f64,
             e_base: crate::core::regras_produto::e_base(
                 &p.codigo,
@@ -279,234 +283,6 @@ pub async fn sugestao_automatica(db: &Db) -> Result<Vec<SugestaoProduto>, ErroAp
         .collect())
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiferencaProduto {
-    pub produto: String,
-    pub compras: f64,
-    pub motor: f64,
-    pub causa: &'static str,
-    pub explicacao: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiferencaInsumo {
-    pub insumo: String,
-    pub descricao: String,
-    pub compras: f64,
-    pub motor: f64,
-    pub diferenca: f64,
-    pub produtos: Vec<DiferencaProduto>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ResumoCausa {
-    pub causa: &'static str,
-    pub explicacao: &'static str,
-    pub insumos: usize,
-    pub produtos: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ComparacaoCompras {
-    pub produtos_na_sugestao: usize,
-    /// Dos produtos da sugestão, quantos são kits com composição e quantos são bases (kg): as duas regras onde o motor
-    /// e o Compras podem divergir.
-    pub kits_na_sugestao: usize,
-    pub bases_na_sugestao: usize,
-    pub insumos_comparados: usize,
-    pub insumos_iguais: usize,
-    pub insumos_com_diferenca: usize,
-    pub sem_explicacao: usize,
-    pub causas: Vec<ResumoCausa>,
-    pub diferencas: Vec<DiferencaInsumo>,
-    pub avisos: Vec<String>,
-}
-
-/// Quantidade por (produto contribuinte, insumo).
-type PorProdutoInsumo = BTreeMap<(String, String), f64>;
-
-const TEXTO_CAUSAS: [(&str, &str); 7] = [
-    (
-        "base_por_lote_de_referencia",
-        "A fórmula da base está 'por lote de referência' (as linhas somam a massa do lote, não 1). O motor da Cobertura normaliza pela soma; o Compras multiplica sem normalizar e superestima o insumo na proporção da soma.",
-    ),
-    (
-        "base_na_sugestao_normalizada_pela_massa",
-        "O produto da sugestão é uma base em kg. O motor normaliza a fórmula pela massa química; o Compras usa as linhas como estão. Só diferem quando as linhas da base não somam 1.",
-    ),
-    (
-        "formula_so_no_compras",
-        "O Compras achou fórmula para o produto; o motor, não (a busca por código difere: o Compras também tenta o código sem pontos). Precisa alinhar o código ou o cadastro da fórmula.",
-    ),
-    (
-        "formula_so_no_motor",
-        "O motor achou fórmula para o produto; o Compras, não (o motor também tenta o código com zero à esquerda).",
-    ),
-    (
-        "kit_componente_ja_produzido",
-        "Regra do kit: o componente fabricado que já está na sugestão só conta por si. O Compras compara o código sem pontos; o motor compara o código canônico.",
-    ),
-    (
-        "kit_item_direto",
-        "Regra do kit: item direto (caixa, embalagem) que já está na fórmula de um componente não conta de novo. O Compras compara com e sem pontos; o motor, só o código canônico.",
-    ),
-    (
-        "sem_explicacao",
-        "Diferença ainda sem causa identificada: investigar produto a produto.",
-    ),
-];
-
-fn explicacao_da_causa(causa: &str) -> &'static str {
-    TEXTO_CAUSAS.iter().find(|(c, _)| *c == causa).map(|(_, t)| *t).unwrap_or("")
-}
-
-fn rotulo_causa(causa: &str) -> &'static str {
-    TEXTO_CAUSAS.iter().find(|(c, _)| *c == causa).map(|(c, _)| *c).unwrap_or("sem_explicacao")
-}
-
-fn quase_igual(a: f64, b: f64) -> bool {
-    (a - b).abs() <= 1e-6_f64.max(a.abs().max(b.abs()) * 1e-4)
-}
-
-/// Soma das linhas de uma base cuja fórmula não está "por unidade" (fora de 1 ± 5%), se houver.
-fn soma_de_base_fora_de_um(formulas: &Formulas, produto: &str, insumo: &str) -> Option<f64> {
-    let linhas = formulas.por_produto.get(&canon(produto))?;
-    linhas
-        .iter()
-        .filter_map(|l| formulas.bases.get(l.codigo.trim()))
-        .map(|sub| sub.iter().map(|s| s.quantidade).sum::<f64>())
-        .find(|soma| *soma > 0.0 && (soma - 1.0).abs() > 0.05)
-        .filter(|_| {
-            // só vale se o insumo realmente sai de uma base
-            linhas.iter().filter_map(|l| formulas.bases.get(l.codigo.trim())).any(|sub| sub.iter().any(|s| canon(&s.codigo) == insumo))
-        })
-}
-
-/// Classifica a diferença de um (produto, insumo) entre o Compras (`a`) e o motor (`b`).
-fn classificar(formulas: &Formulas, sugestao: &HashMap<String, &SugestaoProduto>, produto: &str, insumo: &str, a: f64, b: f64) -> &'static str {
-    let tem_formula = formulas.por_produto.contains_key(&canon(produto));
-    if b == 0.0 {
-        return if !tem_formula && !formulas.kits.contains_key(&canon(produto)) { "formula_so_no_compras" } else { "kit_item_direto" };
-    }
-    if a == 0.0 {
-        return if tem_formula && formulas.kits.values().flatten().any(|(c, _)| canon(c) == canon(produto)) {
-            "kit_componente_ja_produzido"
-        } else {
-            "formula_so_no_motor"
-        };
-    }
-    let razao = b / a;
-    if let Some(soma) = soma_de_base_fora_de_um(formulas, produto, insumo) {
-        if (razao - 1.0 / soma).abs() <= 0.01 / soma {
-            return "base_por_lote_de_referencia";
-        }
-    }
-    if sugestao.get(&canon(produto)).map_or(false, |s| s.e_base) {
-        if let Some(f) = formulas.por_produto.get(&canon(produto)) {
-            let massa = crate::modules::producao::cobertura::calc::massa_quimica(f);
-            if massa > 0.0001 && (razao - 1.0 / massa).abs() <= 0.01 / massa {
-                return "base_na_sugestao_normalizada_pela_massa";
-            }
-        }
-    }
-    "sem_explicacao"
-}
-
-/// Consumo da sugestão automática pelo `demands.rs` (Compras) e pelo motor da Cobertura, por insumo, com as diferenças
-/// explicadas por produto. Só leitura. O motor roda com a base explodida (como o Compras) para isolar as causas.
-pub async fn comparar_com_compras(db: &Db) -> Result<ComparacaoCompras, ErroApi> {
-    let pool = db.pool();
-    let sugestao = sugestao_automatica(db).await?;
-    let compras = crate::modules::compras::planejamento::commands::collect_sim_producao_contributions(pool).await;
-
-    let mut lado_compras: PorProdutoInsumo = BTreeMap::new();
-    for c in &compras {
-        *lado_compras.entry((canon(&c.product_code), canon(&c.ingredient_code))).or_default() += c.insumo_qty;
-    }
-
-    let codigos: Vec<String> = sugestao.iter().map(|s| s.codigo.clone()).collect();
-    let formulas = store::carregar_formulas_previstas(pool, &codigos).await.map_err(erro_texto)?;
-    let produzidos: HashSet<String> = codigos.iter().map(|c| canon(c)).collect();
-    let mut lado_motor: PorProdutoInsumo = BTreeMap::new();
-    let mut descricoes: HashMap<String, String> = HashMap::new();
-    let mut avisos = Vec::new();
-    for s in &sugestao {
-        let q = if s.e_base { Quantidade::Kg(s.unidades) } else { Quantidade::Unidades(s.unidades) };
-        match formulas.necessidades_previstas(&s.codigo, q, BaseFonte::Explodir, &produzidos) {
-            Some(cs) => {
-                for c in cs {
-                    for n in c.necessidades {
-                        descricoes.entry(n.codigo.clone()).or_insert(n.descricao.clone());
-                        *lado_motor.entry((c.produto.clone(), n.codigo)).or_default() += n.quantidade;
-                    }
-                }
-            }
-            None => avisos.push(format!("{} — {}: sem fórmula utilizável no motor.", s.codigo, s.descricao)),
-        }
-    }
-
-    let por_codigo: HashMap<String, &SugestaoProduto> = sugestao.iter().map(|s| (canon(&s.codigo), s)).collect();
-    let chaves: HashSet<&(String, String)> = lado_compras.keys().chain(lado_motor.keys()).collect();
-    let mut por_insumo: BTreeMap<String, (f64, f64, Vec<DiferencaProduto>)> = BTreeMap::new();
-    for k in chaves {
-        let a = lado_compras.get(k).copied().unwrap_or(0.0);
-        let b = lado_motor.get(k).copied().unwrap_or(0.0);
-        let e = por_insumo.entry(k.1.clone()).or_default();
-        e.0 += a;
-        e.1 += b;
-        if !quase_igual(a, b) {
-            let causa = classificar(&formulas, &por_codigo, &k.0, &k.1, a, b);
-            e.2.push(DiferencaProduto { produto: k.0.clone(), compras: a, motor: b, causa, explicacao: explicacao_da_causa(causa).to_string() });
-        }
-    }
-
-    let insumos_comparados = por_insumo.len();
-    let mut diferencas: Vec<DiferencaInsumo> = por_insumo
-        .into_iter()
-        .filter(|(_, (a, b, prods))| !quase_igual(*a, *b) || !prods.is_empty())
-        .map(|(insumo, (a, b, produtos))| DiferencaInsumo {
-            descricao: descricoes.get(&insumo).cloned().unwrap_or_default(),
-            insumo,
-            compras: a,
-            motor: b,
-            diferenca: b - a,
-            produtos,
-        })
-        .collect();
-    diferencas.sort_by(|x, y| y.diferenca.abs().partial_cmp(&x.diferenca.abs()).unwrap_or(std::cmp::Ordering::Equal));
-
-    let mut resumo: BTreeMap<&'static str, (HashSet<String>, HashSet<String>)> = BTreeMap::new();
-    for d in &diferencas {
-        for p in &d.produtos {
-            let e = resumo.entry(rotulo_causa(p.causa)).or_default();
-            e.0.insert(d.insumo.clone());
-            e.1.insert(p.produto.clone());
-        }
-    }
-    let sem_explicacao = resumo.get("sem_explicacao").map_or(0, |e| e.0.len());
-    let causas = resumo
-        .into_iter()
-        .map(|(causa, (insumos, produtos))| ResumoCausa { causa, explicacao: explicacao_da_causa(causa), insumos: insumos.len(), produtos: produtos.len() })
-        .collect();
-
-    Ok(ComparacaoCompras {
-        produtos_na_sugestao: sugestao.len(),
-        kits_na_sugestao: sugestao.iter().filter(|s| formulas.kits.contains_key(&canon(&s.codigo))).count(),
-        bases_na_sugestao: sugestao.iter().filter(|s| s.e_base).count(),
-        insumos_comparados,
-        insumos_iguais: insumos_comparados - diferencas.len(),
-        insumos_com_diferenca: diferencas.len(),
-        sem_explicacao,
-        causas,
-        diferencas,
-        avisos,
-    })
-}
-
 // ---------------------------------------------------------------------------------------------
 // Rotas
 // ---------------------------------------------------------------------------------------------
@@ -514,7 +290,6 @@ pub async fn comparar_com_compras(db: &Db) -> Result<ComparacaoCompras, ErroApi>
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/producao/prevista", get(get_prevista))
-        .route("/api/producao/prevista/comparar-compras", get(get_comparar_compras))
 }
 
 pub fn acoes() -> Vec<Acao> {
@@ -525,13 +300,6 @@ pub fn acoes() -> Vec<Acao> {
             M,
             "O que vai ser produzido da semana atual até a 4ª semana, em três camadas: `ordem` (planejada ou aprovada/firme, sem lote no ERP, com dia e kg), `fila_manual` e `fila_automatica` (sugestão da Demanda para o que não tem ordem no horizonte). Item sem como converter para kg vem com `aviso`. Devolve também o consumo de insumo por camada (`consumo`).",
             "/api/producao/prevista",
-            vec![],
-        ),
-        Acao::leitura(
-            "comparar_consumo_com_compras",
-            M,
-            "Compara, por insumo, o consumo da sugestão automática calculado pelo MRP do Compras e pelo motor da Cobertura, listando as diferenças com a causa por produto.",
-            "/api/producao/prevista/comparar-compras",
             vec![],
         ),
     ]
@@ -570,17 +338,11 @@ async fn get_prevista(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     }
 }
 
-async fn get_comparar_compras(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match comparar_com_compras(&state.db).await {
-        Ok(c) => (StatusCode::OK, Json(c)).into_response(),
-        Err(e) => e.into_response(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::modules::producao::cobertura::calc::LinhaFormula;
+    use crate::modules::producao::cobertura::store::Formulas;
 
     fn l(c: &str, q: f64) -> LinhaFormula {
         LinhaFormula { codigo: c.into(), descricao: String::new(), unidade: None, quantidade: q }
@@ -675,18 +437,17 @@ mod tests {
     }
 
     /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.
-    /// Com `PREVISTA_SAIDA=/caminho`, grava a lista e a comparação em JSON.
+    /// Com `PREVISTA_SAIDA=/caminho`, grava a lista em JSON.
     #[tokio::test]
     #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
-    async fn prevista_e_comparacao_rodam_no_banco() {
+    async fn prevista_roda_no_banco() {
         let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
         let db = Db::new(PgPool::connect(&url).await.unwrap());
         let p = listar(&db).await.map_err(|e| format!("{e:?}")).unwrap();
         let (linhas, avisos) = consumo(db.pool(), &p.itens).await.unwrap();
-        let c = comparar_com_compras(&db).await.map_err(|e| format!("{e:?}")).unwrap();
-        println!("itens={} consumo={} avisos_consumo={} diferencas={} sem_explicacao={}", p.itens.len(), linhas.len(), avisos.len(), c.insumos_com_diferenca, c.sem_explicacao);
+        println!("itens={} consumo={} avisos_consumo={}", p.itens.len(), linhas.len(), avisos.len());
         if let Ok(caminho) = std::env::var("PREVISTA_SAIDA") {
-            std::fs::write(caminho, serde_json::to_string_pretty(&json!({ "prevista": p, "avisosConsumo": avisos, "comparacao": c })).unwrap()).unwrap();
+            std::fs::write(caminho, serde_json::to_string_pretty(&json!({ "prevista": p, "avisosConsumo": avisos })).unwrap()).unwrap();
         }
     }
 }
