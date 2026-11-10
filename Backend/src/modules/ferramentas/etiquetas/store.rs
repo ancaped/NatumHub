@@ -363,13 +363,7 @@ pub async fn list_catalog_products(pool: &PgPool) -> Result<Vec<CatalogProductIn
         .into_iter()
         .map(|(codigo, descricao, linha, codigo_barras, categoria, qtde_cx)| {
             // Gerar DUN-14 derivado se EAN existir (prefixo 1 + 12 digitos + checksum)
-            let box_barcode = codigo_barras.as_ref().map(|ean| {
-                if ean.len() == 13 {
-                    format!("1{}", &ean[0..12])
-                } else {
-                    format!("DUN-{}", codigo)
-                }
-            });
+            let box_barcode = codigo_barras.as_deref().and_then(dun14);
 
             CatalogProductInfo {
                 codigo,
@@ -409,13 +403,7 @@ pub async fn list_production_lots(pool: &PgPool) -> Result<Vec<super::models::Pr
     let list = rows
         .into_iter()
         .map(|(id, codigo, descricao, lote, quantidade, data_producao, codigo_barras)| {
-            let dun = codigo_barras.as_ref().map(|ean| {
-                if ean.len() == 13 {
-                    format!("1{}", &ean[0..12])
-                } else {
-                    format!("DUN-{}", codigo)
-                }
-            });
+            let dun = codigo_barras.as_deref().and_then(dun14);
 
             super::models::ProductionLotItem {
                 id,
@@ -501,6 +489,21 @@ pub async fn list_lotes_etiqueta(
         .collect())
 }
 
+/// Código da caixa (DUN-14 GS1): indicador 1 + 12 primeiros dígitos do EAN-13 do produto + dígito verificador.
+pub(crate) fn dun14(ean: &str) -> Option<String> {
+    let ean = ean.trim();
+    if ean.len() != 13 || !ean.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let base = format!("1{}", &ean[0..12]);
+    let soma: u32 = base
+        .bytes()
+        .enumerate()
+        .map(|(i, b)| (b - b'0') as u32 * if i % 2 == 0 { 3 } else { 1 })
+        .sum();
+    Some(format!("{}{}", base, (10 - soma % 10) % 10))
+}
+
 /// Unidades do item de um lote e se foram estimadas (kg / peso da unidade) em vez de conferidas no envase.
 fn unidades_do_lote(kg: f64, detalhes: Option<&str>, descricao: Option<&str>) -> (i32, bool) {
     let conferidas = detalhes
@@ -541,6 +544,7 @@ fn item_etiqueta(
         quantidade,
         data_producao,
         quantidade_caixa: qtde_cx,
+        codigo_barras_caixa: ean.as_deref().and_then(dun14),
         codigo_barras: ean.filter(|e| e.len() == 13),
         quantidade_estimada: false,
         etiquetas_sugeridas: caixas.map(|n| n + 1),
@@ -650,6 +654,7 @@ pub async fn list_coloracoes_etiqueta(
             codigo,
             descricao,
             quantidade_caixa: qtde_cx,
+            codigo_barras_caixa: ean.as_deref().and_then(dun14),
             codigo_barras: ean.filter(|e| e.len() == 13),
             etiquetas_impressas: impressas,
             ultima_impressao: ultima,
@@ -659,7 +664,14 @@ pub async fn list_coloracoes_etiqueta(
 
 #[cfg(test)]
 mod testes_lotes {
-    use super::unidades_do_lote;
+    use super::{dun14, unidades_do_lote};
+
+    #[test]
+    fn dun14_usa_indicador_1_e_digito_verificador_gs1() {
+        assert_eq!(dun14("7891000100103").as_deref(), Some("17891000100100"));
+        assert_eq!(dun14("123"), None);
+        assert_eq!(dun14("78910001001AB"), None);
+    }
 
     #[test]
     fn unidades_conferidas_tem_prioridade_sobre_o_peso() {

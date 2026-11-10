@@ -34,6 +34,7 @@ function montarEtiqueta(modelo: LabelTemplate, l: LoteEtiqueta): LabelTemplate {
       .replace(/{product_name}/g, l.descricao)
       .replace(/{product_code}/g, l.codigo)
       .replace(/{barcode}/g, l.codigo_barras || '')
+      .replace(/{box_barcode}/g, l.codigo_barras_caixa || '')
       .replace(/{lot}/g, l.lote)
       .replace(/{manufacturing_date}/g, formatarData(l.data_producao))
       .replace(/{box_qty}/g, l.quantidade_caixa ? `${l.quantidade_caixa} unidades` : '');

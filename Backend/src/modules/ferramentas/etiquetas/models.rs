@@ -115,6 +115,8 @@ pub struct LoteEtiquetaItem {
     pub quantidade_caixa: Option<i32>,
     /// EAN-13 do produto (o coletor lê esse; o DUN-14 é longo demais para a etiqueta).
     pub codigo_barras: Option<String>,
+    /// Código da caixa (DUN-14) derivado do EAN-13.
+    pub codigo_barras_caixa: Option<String>,
     /// Caixas do lote: quantidade produzida / unidades por caixa, arredondado para cima.
     pub caixas: Option<i32>,
     /// Sugestão de etiquetas: caixas + 1.
@@ -135,6 +137,7 @@ pub struct ColoracaoEtiquetaItem {
     pub descricao: String,
     pub quantidade_caixa: Option<i32>,
     pub codigo_barras: Option<String>,
+    pub codigo_barras_caixa: Option<String>,
     pub etiquetas_impressas: i64,
     pub ultima_impressao: Option<String>,
 }

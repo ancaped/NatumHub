@@ -170,6 +170,7 @@ function renderElementHtml(
 
     case 'barcode': {
       const p = el.props;
+      if (typeof p.value === 'string' && !p.value.trim()) return '';
       const rawVal = replaceDynamicTokens(p.value || '123456', seqIndex, totalCount, startSeq, padding);
       const res = generateBarcodeBars(rawVal, p.format || 'code128');
       const barColor = '#000000';

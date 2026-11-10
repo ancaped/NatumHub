@@ -63,6 +63,8 @@ function paginaNativa(elementos: LabelElement[], i: number, total: number, inici
         multilinha: Boolean(p.multiline),
       });
     } else if (el.type === 'barcode') {
+      // Sem valor (ex.: produto sem código da caixa): deixa em branco, não imprime código de exemplo.
+      if (typeof p.value === 'string' && !p.value.trim()) continue;
       const valor = replaceDynamicTokens(p.value || '123456', i, total, inicio, padding);
       const formato = p.format || 'code128';
       const res = generateBarcodeBars(valor, formato);
