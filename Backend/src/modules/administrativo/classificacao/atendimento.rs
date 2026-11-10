@@ -67,7 +67,9 @@ pub async fn sincronizar_status(conn: &mut PgConnection, alvo: Alvo<'_>) -> Resu
         let situacao = sit.clone().unwrap_or(sit_legado);
         let efetivo = atendimento_efetivo(atd_produto.as_deref(), atd_linha.as_deref());
         let espelho = status_de_consumo(&situacao, efetivo);
-        if st_atual.as_deref() == Some(espelho.as_str()) {
+        // Status vazio (NULL) já é lido como "ativo" por todos os leitores (COALESCE(..., 'ativo') e unwrap_or("ativo")):
+        // não se grava "ativo" onde o padrão já vale. Assim "limpar" continua deixando NULL, como antes da L1.
+        if st_atual.as_deref() == Some(espelho.as_str()) || (st_atual.is_none() && espelho == "ativo") {
             continue;
         }
         mudou += 1;
