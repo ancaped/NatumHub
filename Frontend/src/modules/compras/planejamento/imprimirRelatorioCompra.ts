@@ -7,7 +7,7 @@ import type { DadosRelatorio } from './relatorioCompra';
  * carregada depois e o documento só é impresso com a imagem já decodificada. Falha na logo
  * imprime sem ela.
  */
-export async function imprimirRelatorioCompra(dados: Omit<DadosRelatorio, 'logo'>): Promise<void> {
+export async function imprimirDocumentoHtml(montar: (logo: string) => string): Promise<void> {
   const iframe = document.createElement('iframe');
   iframe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;border:none;opacity:0;pointer-events:none';
   document.body.appendChild(iframe);
@@ -30,7 +30,7 @@ export async function imprimirRelatorioCompra(dados: Omit<DadosRelatorio, 'logo'
   }
 
   doc.open();
-  doc.write(montarRelatorioCompra({ ...dados, logo }));
+  doc.write(montar(logo));
   doc.close();
 
   const imagens = Array.from(doc.images);
@@ -45,4 +45,9 @@ export async function imprimirRelatorioCompra(dados: Omit<DadosRelatorio, 'logo'
   setTimeout(() => {
     if (iframe.parentNode) document.body.removeChild(iframe);
   }, 1000);
+}
+
+/** Relatório de compra (lote, lista): monta com a logo e imprime. */
+export async function imprimirRelatorioCompra(dados: Omit<DadosRelatorio, 'logo'>): Promise<void> {
+  return imprimirDocumentoHtml((logo) => montarRelatorioCompra({ ...dados, logo }));
 }

@@ -352,6 +352,14 @@ async fn acuracia_duracao_handler(State(state): State<Arc<AppState>>, Query(q): 
     }
 }
 
+// GET /api/hub/compras/listas/:id/simulacao: produtos da simulação de produção que puxam os itens do lote.
+async fn simulacao_do_lote_handler(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> Response {
+    match simulacao_do_lote::simulacao_do_lote(state.db.pool(), &id).await {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
 async fn delete_category_handler(
     State(state): State<Arc<AppState>>,
     axum::Extension(ctx): axum::Extension<crate::modules::geral::auth::models::AuthContext>,
@@ -1401,6 +1409,7 @@ pub fn router() -> Router<Arc<AppState>> {
         // Purchase Request Lists (Lotes de Listas & Acompanhamento)
         .route("/api/hub/compras/listas", get(get_purchase_lists_handler).post(create_purchase_list_handler))
         .route("/api/hub/compras/listas/:id", get(get_purchase_list_detail_handler).patch(update_purchase_list_handler).delete(delete_purchase_list_handler))
+        .route("/api/hub/compras/listas/:id/simulacao", get(simulacao_do_lote_handler))
         .route("/api/hub/compras/listas/:id/itens/retirar", post(retirar_itens_lista_handler))
         .route("/api/hub/compras/listas/:id/itens", post(incluir_itens_lista_handler))
         .route("/api/hub/compras/itens-solicitados", get(get_active_requested_items_handler))
@@ -1519,6 +1528,13 @@ pub fn acoes() -> Vec<Acao> {
                 param("motivo", "corpo", "texto", true, "Por que a calibração está sendo removida."),
                 param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
             ],
+        ),
+        Acao::leitura(
+            "simulacao_do_lote_compras",
+            MP,
+            "Produtos da simulação de produção (Produzir Urgente e Abrir Ordem) que puxam o consumo dos itens de um lote de compra: `itens` (cada insumo do lote com `simulacaoGuardada` = total do dia em que o lote foi gerado, `simulacaoAgora` = recalculado agora e os `produtos` que o puxam, com quantidade a produzir e quanto do insumo) e `produtos` (o mesmo por produto, com os insumos do lote que ele consome). Só leitura; a simulação é recalculada na hora.",
+            "/api/hub/compras/listas/:id/simulacao",
+            vec![param("id", "caminho", "texto", true, "Id do lote (de `listar_listas_compra`).")],
         ),
         Acao::leitura(
             "acuracia_duracao_compras",

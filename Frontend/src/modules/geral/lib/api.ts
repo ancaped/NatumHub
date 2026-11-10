@@ -1,6 +1,6 @@
 import { hubJson, ApiError, apiJson } from './http';
 import type {
-  Category, Supplier, Item, Invoice, GrupoSugestaoFornecedor, PropostaSubcategoria, ResumoSubcategoria, AcuraciaDuracao,
+  Category, Supplier, Item, Invoice, GrupoSugestaoFornecedor, SimulacaoLote, PropostaSubcategoria, ResumoSubcategoria, AcuraciaDuracao,
   DemandResult, Quotation, QuotationItem, QuotationPrice,
   ImportResult, StockImport, PricePoint, SupplierSpend, CategorySpend,
   ComprasAppConfig, MicrobioAppConfig, FiscoAppConfig, Feedback, Product, Report,
@@ -196,6 +196,9 @@ export const api = {
   },
   getAcuraciaDuracao(horizonteDias = 30): Promise<AcuraciaDuracao> {
     return hubJson(`compras/duracao/acuracia?horizonte=${horizonteDias}`);
+  },
+  getSimulacaoDoLote(id: string): Promise<SimulacaoLote> {
+    return hubJson(`compras/listas/${encodeURIComponent(id)}/simulacao`);
   },
   getPropostasSubcategoria(status = 'pendente'): Promise<PropostaSubcategoria[]> {
     return hubJson(`compras/categories/propostas?status=${status}`);
