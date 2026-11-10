@@ -7,6 +7,7 @@ import { imprimirRelatorioCompra } from '../imprimirRelatorioCompra';
 import type { ItemRelatorio } from '../relatorioCompra';
 import { ReportHeader, BotaoAcao, ReportTabs, FilterBar, FiltroSelect, StatusBadge, TabelaPainel, type VarianteBadge } from '../../../geral/components/ui/ReportKit';
 import Drawer from '../../../geral/components/ui/Drawer';
+import { SimulacaoLoteDrawer } from './SimulacaoLoteDrawer';
 
 interface ListasAcompanhamentoTabProps {
   active?: boolean;
@@ -97,6 +98,7 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all', destaqueL
 
   // Lote aberto no Drawer
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+  const [simulacaoLoteId, setSimulacaoLoteId] = useState<string | null>(null);
   const [batchDetails, setBatchDetails] = useState<Record<string, PurchaseRequestBatchDetail>>({});
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
 
@@ -466,6 +468,9 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all', destaqueL
             {selectedBatch.status !== 'concluido' && selectedBatch.status !== 'cancelado' && (
               <BotaoAcao onClick={() => handleUpdateStatus(selectedBatch.id, 'concluido')}>Marcar concluído</BotaoAcao>
             )}
+            <BotaoAcao onClick={() => setSimulacaoLoteId(selectedBatch.id)} title="Produtos da simulação de produção que puxam os itens deste lote">
+              Produtos da simulação
+            </BotaoAcao>
             <BotaoAcao primario onClick={() => handlePrintBatch(selectedBatch)}>
               <Printer size={13} /> Imprimir
             </BotaoAcao>
@@ -556,6 +561,8 @@ export function ListasAcompanhamentoTab({ active = true, mode = 'all', destaqueL
           </div>
         )}
       </Drawer>
+
+      {simulacaoLoteId && <SimulacaoLoteDrawer loteId={simulacaoLoteId} onClose={() => setSimulacaoLoteId(null)} />}
     </div>
   );
 }

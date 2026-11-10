@@ -946,3 +946,34 @@ export interface Calibracao {
   diferenca: number;
   fixa: boolean;
 }
+
+export interface SimulacaoLoteProduto {
+  codigo: string;
+  descricao: string;
+  situacao: string;
+  producaoQtd: number;
+  insumoQtd: number;
+  trocadoDe?: string | null;
+}
+
+export interface SimulacaoLote {
+  lote: { id: string; numero: string; modulo: string; titulo: string; criadoEm: string };
+  aviso: string;
+  totais: { itens: number; itensComSimulacao: number; produtos: number };
+  itens: {
+    codigo: string;
+    descricao: string;
+    unidade: string;
+    quantidadeSolicitada: number;
+    simulacaoGuardada: number;
+    simulacaoAgora: number;
+    produtos: SimulacaoLoteProduto[];
+  }[];
+  produtos: {
+    codigo: string;
+    descricao: string;
+    situacao: string;
+    producaoQtd: number;
+    insumos: { codigo: string; descricao: string; unidade: string; qtd: number; trocadoDe?: string | null }[];
+  }[];
+}
