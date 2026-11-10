@@ -1,8 +1,8 @@
 //! Regras de reator/processo por produto (dono: Produção): processo térmico, exclusivo no dia, permite bombona
 //! e dias até o envase. Endpoint de ação com lista fechada de campos, 2 passos e auditoria (antes/depois).
 //! Os demais campos de `overrides_produtos` têm outros donos e não passam por aqui. `NULL` = sem regra
-//! (comportamento automático de sempre). A sugestão e a validação de alocação ainda não usam estes campos
-//! além do que já usavam (etapa C2 do plano de fluxo).
+//! (comportamento automático de sempre). A fila automática e a sequência do Planejamento leem estes campos
+//! por `carregar_regras` (etapa C2 do plano de fluxo), inclusive para produto que não está na Demanda.
 
 use axum::{
     extract::{Query, State},
@@ -113,6 +113,35 @@ async fn foto(conn: &mut sqlx::PgConnection, codigo: &str) -> Result<Option<(Str
         m.insert("dias_ate_envase".into(), json!(r.get::<Option<i32>, _>(4)));
         (r.get::<Option<String>, _>(0).unwrap_or_default(), m)
     }))
+}
+
+/// Regras de reator de um produto como estão no cadastro (`None` = sem regra, segue o automático).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RegrasProduto {
+    pub processo_termico: Option<String>,
+    pub exclusivo_no_dia: Option<bool>,
+    pub permite_bombona: Option<bool>,
+}
+
+/// Regras dos produtos que têm alguma definida, por código canônico (sem aspas e espaços). Quem não aparece não tem regra.
+/// É a leitura única para a sugestão: vale também para item da fila ou ordem do quadro de produto fora da Demanda.
+pub async fn carregar_regras(pool: &PgPool) -> Result<std::collections::HashMap<String, RegrasProduto>, ErroApi> {
+    let rows = sqlx::query(
+        "SELECT codigo, processo_termico, exclusivo_no_dia, permite_bombona FROM overrides_produtos \
+         WHERE processo_termico IS NOT NULL OR exclusivo_no_dia IS NOT NULL OR permite_bombona IS NOT NULL",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            let codigo: String = r.get(0);
+            (
+                codigo.trim().replace('"', ""),
+                RegrasProduto { processo_termico: r.get(1), exclusivo_no_dia: r.get(2), permite_bombona: r.get(3) },
+            )
+        })
+        .collect())
 }
 
 /// Serviço: define as regras de reator de um produto. 2 passos; só grava com `confirmar`.

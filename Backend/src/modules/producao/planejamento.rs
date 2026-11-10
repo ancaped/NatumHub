@@ -298,6 +298,20 @@ fn chave_grupo_planejamento(id: &str, batch_id: Option<&str>, lote_erp: Option<&
     format!("ITEM_{id}")
 }
 
+/// A regra de capacidade num lugar só no servidor: massa da batelada <= capacidade do reator (tolerância de 0,05 kg).
+/// Usada pela gravação (modal, arraste e sugestão passam por ela) e pela sugestão ao montar as bateladas.
+/// `validarAlocacao` no front é o espelho para avisar na hora, sem ida ao servidor.
+pub fn validar_capacidade(nome: &str, capacidade_kg: f64, e_bombona: bool, kg: f64) -> Option<String> {
+    if kg <= capacidade_kg + 0.05 {
+        return None;
+    }
+    Some(if e_bombona {
+        format!("{nome} comporta até {capacidade_kg} kg. Esta ordem tem {kg:.1} kg.")
+    } else {
+        format!("A massa de {kg:.1} kg passa da capacidade de {capacidade_kg} kg deste reator.")
+    })
+}
+
 /// Regras duras do chão de fábrica, as mesmas de `validarAlocacao` no front, aplicadas depois do upsert
 /// (dentro da transação) para enxergar a batelada inteira: massa do grupo <= capacidade do reator.
 /// A capacidade limita só o tamanho de cada batelada; não há limite de produções por dia no mesmo reator.
@@ -360,13 +374,10 @@ async fn validar_alocacoes_planejamento(
         }
 
         for (kg, tocado) in grupos.values() {
-            if *tocado && *kg > capacidade + 0.05 {
-                let msg = if ehbombona {
-                    format!("{nome} comporta até {capacidade} kg. Esta ordem tem {kg:.1} kg.")
-                } else {
-                    format!("A massa de {kg:.1} kg passa da capacidade de {capacidade} kg deste reator.")
-                };
-                return Err(ErroApi::regra(msg));
+            if *tocado {
+                if let Some(msg) = validar_capacidade(&nome, capacidade, ehbombona, *kg) {
+                    return Err(ErroApi::regra(msg));
+                }
             }
         }
     }
