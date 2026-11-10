@@ -232,6 +232,7 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         .merge(modules::producao::auditoria::router())
         .merge(modules::producao::insumos_classificacao::router())
         .merge(modules::producao::regras::router())
+        .merge(modules::producao::regras_reator::router())
         .merge(modules::producao::contexto::router())
         .merge(modules::producao::roteiro::router())
         .merge(modules::producao::sequencia::router())
