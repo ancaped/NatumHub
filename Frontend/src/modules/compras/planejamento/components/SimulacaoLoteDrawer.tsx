@@ -9,7 +9,8 @@ import { escaparHtml } from '../relatorioCompra';
 
 const num = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 const vazio: React.CSSProperties = { padding: '1.25rem', textAlign: 'center', color: 'hsl(var(--text-secondary-hsl))' };
-type Visao = 'produto' | 'insumo';
+type Visao = 'resumo' | 'produto' | 'insumo';
+const ROTULO: Record<Visao, string> = { resumo: 'só produtos', produto: 'produtos com insumos', insumo: 'por insumo' };
 
 function htmlRelatorio(d: SimulacaoLote, visao: Visao, logo: string): string {
   const cab = `<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">${logo ? `<img src="${logo}" style="height:34px" />` : ''}
@@ -19,7 +20,14 @@ function htmlRelatorio(d: SimulacaoLote, visao: Visao, logo: string): string {
   const th = 'style="text-align:left;border-bottom:1.5px solid #18181b;padding:4px 6px;font-size:10px;text-transform:uppercase"';
   const td = 'style="border-bottom:1px solid #e4e4e7;padding:4px 6px;font-size:11px;vertical-align:top"';
   let corpo: string;
-  if (visao === 'produto') {
+  if (visao === 'resumo') {
+    const thr = 'style="text-align:right;border-bottom:1.5px solid #18181b;padding:4px 6px;font-size:10px;text-transform:uppercase"';
+    const tdc = 'style="border-bottom:1px solid #e4e4e7;padding:2px 6px;font-size:10.5px"';
+    corpo = `<table style="width:100%;border-collapse:collapse"><thead><tr><th ${th}>Produto</th><th ${th}>Descrição</th><th ${th}>Situação</th><th ${thr}>A produzir</th><th ${thr}>Insumos do lote</th></tr></thead><tbody>${[...d.produtos]
+      .sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true }))
+      .map((p) => `<tr><td ${tdc}><b>${escaparHtml(p.codigo)}</b></td><td ${tdc}>${escaparHtml(p.descricao)}</td><td ${tdc}>${escaparHtml(p.situacao)}</td><td ${tdc} align="right">${num(p.producaoQtd)}</td><td ${tdc} align="right">${p.insumos.length}</td></tr>`)
+      .join('')}</tbody></table>`;
+  } else if (visao === 'produto') {
     corpo = `<table style="width:100%;border-collapse:collapse"><thead><tr><th ${th}>Produto</th><th ${th}>Situação</th><th ${th} >A produzir</th><th ${th}>Insumos deste lote</th></tr></thead><tbody>${d.produtos
       .map(
         (p) => `<tr><td ${td}><b>${escaparHtml(p.codigo)}</b><br/>${escaparHtml(p.descricao)}</td><td ${td}>${escaparHtml(p.situacao)}</td><td ${td}>${num(p.producaoQtd)}</td><td ${td}>${p.insumos
@@ -46,7 +54,7 @@ function htmlRelatorio(d: SimulacaoLote, visao: Visao, logo: string): string {
 export function SimulacaoLoteDrawer({ loteId, onClose }: { loteId: string; onClose: () => void }) {
   const [dados, setDados] = useState<SimulacaoLote | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const [visao, setVisao] = useState<Visao>('produto');
+  const [visao, setVisao] = useState<Visao>('resumo');
 
   useEffect(() => {
     setDados(null);
@@ -71,7 +79,7 @@ export function SimulacaoLoteDrawer({ loteId, onClose }: { loteId: string; onClo
             disabled={!dados}
             onClick={() => dados && void imprimirDocumentoHtml((logo) => htmlRelatorio(dados, visao, logo))}
           >
-            <Printer size={13} /> Imprimir ({visao === 'produto' ? 'por produto' : 'por insumo'})
+            <Printer size={13} /> Imprimir ({ROTULO[visao]})
           </BotaoAcao>
         </div>
       }
@@ -83,7 +91,7 @@ export function SimulacaoLoteDrawer({ loteId, onClose }: { loteId: string; onClo
           <>
             <p style={{ fontSize: '0.72rem', color: 'hsl(var(--text-secondary-hsl))' }}>{dados.aviso}</p>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {(['produto', 'insumo'] as const).map((v) => (
+              {(['resumo', 'produto', 'insumo'] as const).map((v) => (
                 <button
                   key={v}
                   type="button"
@@ -91,10 +99,37 @@ export function SimulacaoLoteDrawer({ loteId, onClose }: { loteId: string; onClo
                   className={visao === v ? 'bg-zinc-900 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'}
                   style={{ padding: '8px 14px', minHeight: 40, borderRadius: 8, fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', border: 'none' }}
                 >
-                  {v === 'produto' ? `Por produto (${dados.produtos.length})` : `Por insumo (${dados.itens.length})`}
+                  {v === 'resumo' ? `Só produtos (${dados.produtos.length})` : v === 'produto' ? 'Produtos com insumos' : `Por insumo (${dados.itens.length})`}
                 </button>
               ))}
             </div>
+
+            {visao === 'resumo' && (
+              <TabelaPainel>
+                <thead>
+                  <tr>
+                    <th>Produto</th>
+                    <th>Situação</th>
+                    <th className="numeric-col">A produzir</th>
+                    <th className="numeric-col" title="Quantos insumos deste lote o produto consome">Insumos do lote</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dados.produtos.length === 0 && <tr><td colSpan={4} style={vazio}>Nenhum produto da simulação usa os itens deste lote.</td></tr>}
+                  {[...dados.produtos].sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true })).map((p) => (
+                    <tr key={p.codigo}>
+                      <td style={{ minWidth: 200 }}>
+                        <div className="product-code" style={{ fontWeight: 700 }}>{p.codigo}</div>
+                        <div>{p.descricao}</div>
+                      </td>
+                      <td>{p.situacao}</td>
+                      <td className="numeric-col">{num(p.producaoQtd)}</td>
+                      <td className="numeric-col">{p.insumos.length}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </TabelaPainel>
+            )}
 
             {visao === 'produto' && (
               <TabelaPainel>
@@ -158,7 +193,7 @@ export function SimulacaoLoteDrawer({ loteId, onClose }: { loteId: string; onClo
                 </tbody>
               </TabelaPainel>
             )}
-            {visao === 'produto' && itensSemSim.length > 0 && (
+            {visao !== 'insumo' && itensSemSim.length > 0 && (
               <p style={{ fontSize: '0.72rem', color: 'hsl(var(--text-secondary-hsl))' }}>
                 {itensSemSim.length} item(ns) do lote não aparecem na simulação de hoje: {itensSemSim.map((i) => i.codigo).join(', ')}.
               </p>
