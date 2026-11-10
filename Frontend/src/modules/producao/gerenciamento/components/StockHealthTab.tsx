@@ -46,14 +46,23 @@ interface ItemSaude {
   base_codigo?: string | null;
 }
 
+interface Retirado {
+  codigo: string;
+  descricao: string | null;
+  motivo: string | null;
+  retirado_por: string;
+  retirado_em: string;
+}
+
 interface RespostaSaude {
+  retirados: Retirado[];
   gerado_em: string;
   regras: { fator_excesso: number; dias_sem_giro: number };
   contagens: Record<string, number>;
   itens: ItemSaude[];
 }
 
-type Aba = 'disponibilidade' | 'excesso' | 'sem_giro' | 'todos' | 'coloracao';
+type Aba = 'disponibilidade' | 'excesso' | 'sem_giro' | 'todos' | 'retirados' | 'coloracao';
 
 const ROTULO: Record<Situacao, string> = {
   ruptura: 'Ruptura',
@@ -73,14 +82,14 @@ const VARIANTE: Record<Situacao, VarianteBadge> = {
 };
 const ROTULO_SELO: Record<string, string> = { lancamento: 'Lançamento', encomenda: 'Encomenda', terceirizado: 'Terceirizado' };
 
-const ABAS_SITUACOES: Record<Exclude<Aba, 'coloracao'>, Situacao[] | null> = {
+const ABAS_SITUACOES: Record<Exclude<Aba, 'coloracao' | 'retirados'>, Situacao[] | null> = {
   disponibilidade: ['ruptura', 'baixo'],
   excesso: ['excesso'],
   sem_giro: ['sem_giro'],
   todos: null,
 };
 
-const ORDEM_PADRAO: Record<Exclude<Aba, 'coloracao'>, { campo: string; dir: 'asc' | 'desc' }> = {
+const ORDEM_PADRAO: Record<Exclude<Aba, 'coloracao' | 'retirados'>, { campo: string; dir: 'asc' | 'desc' }> = {
   disponibilidade: { campo: 'cobertura_dias', dir: 'asc' },
   excesso: { campo: 'excedente', dir: 'desc' },
   sem_giro: { campo: 'dias_sem_venda', dir: 'desc' },
@@ -142,7 +151,7 @@ export function StockHealthTab({ setView }: Props) {
 
   const trocarAba = (a: string) => {
     setAba(a as Aba);
-    if (a !== 'coloracao') setOrdem(ORDEM_PADRAO[a as Exclude<Aba, 'coloracao'>]);
+    if (a !== 'coloracao' && a !== 'retirados') setOrdem(ORDEM_PADRAO[a as Exclude<Aba, 'coloracao' | 'retirados'>]);
   };
 
   const ordenarPor = (campo: string) =>
@@ -165,13 +174,13 @@ export function StockHealthTab({ setView }: Props) {
     );
   }, [dados, busca, tipo, linha]);
 
-  const contar = (a: Exclude<Aba, 'coloracao'>) => {
+  const contar = (a: Exclude<Aba, 'coloracao' | 'retirados'>) => {
     const s = ABAS_SITUACOES[a];
     return s ? base.filter((i) => s.includes(i.situacao)).length : base.length;
   };
 
   const lista = useMemo(() => {
-    if (aba === 'coloracao') return [];
+    if (aba === 'coloracao' || aba === 'retirados') return [];
     const s = ABAS_SITUACOES[aba];
     const sel = s ? base.filter((i) => s.includes(i.situacao)) : [...base];
     const f = ordem.dir === 'asc' ? 1 : -1;
@@ -183,6 +192,23 @@ export function StockHealthTab({ setView }: Props) {
     });
     return sel;
   }, [base, aba, ordem]);
+
+  const alterarRetirado = async (codigo: string, retirar: boolean) => {
+    setEnfileirando(codigo);
+    try {
+      const res = await apiFetch(`/producao/saude-estoque/${retirar ? 'retirar' : 'restaurar'}?confirmar=true`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo }),
+      });
+      if (res.ok) await carregar();
+      else setErro((await res.json().catch(() => null))?.error ?? `Servidor respondeu ${res.status}`);
+    } catch (e: any) {
+      setErro(e?.message || 'Falha ao alterar a lista de retirados');
+    } finally {
+      setEnfileirando(null);
+    }
+  };
 
   const enfileirar = async (i: ItemSaude) => {
     const sugerido = i.producao_recomendada > 0 ? i.producao_recomendada : Math.max(Math.round(i.ideal - i.estoque_demanda), 1);
@@ -255,10 +281,23 @@ export function StockHealthTab({ setView }: Props) {
     </button>
   );
 
-  const colunas = aba === 'coloracao' ? [] : colunasDaAba(aba);
+  const AcaoTirar = ({ i }: { i: ItemSaude }) => (
+    <button
+      type="button"
+      className="tab-btn"
+      disabled={enfileirando === i.codigo}
+      title="Tirar do relatório (volta pela aba Retirados)"
+      onClick={(e) => { e.stopPropagation(); alterarRetirado(i.codigo, true); }}
+      style={{ padding: '4px 10px', fontSize: '0.72rem', minHeight: 44 }}
+    >
+      Tirar
+    </button>
+  );
+
+  const colunas = aba === 'coloracao' || aba === 'retirados' ? [] : colunasDaAba(aba);
 
   /** Texto de cada célula da aba (usado nas linhas do celular e na impressão). */
-  function colunasDaAba(a: Exclude<Aba, 'coloracao'>): { campo: string; rotulo: string; direita?: boolean; valor: (i: ItemSaude) => React.ReactNode; texto: (i: ItemSaude) => string }[] {
+  function colunasDaAba(a: Exclude<Aba, 'coloracao' | 'retirados'>): { campo: string; rotulo: string; direita?: boolean; valor: (i: ItemSaude) => React.ReactNode; texto: (i: ItemSaude) => string }[] {
     const sit = { campo: 'situacao', rotulo: 'Situação', valor: (i: ItemSaude) => <StatusBadge variante={VARIANTE[i.situacao]}>{ROTULO[i.situacao]}</StatusBadge>, texto: (i: ItemSaude) => ROTULO[i.situacao] };
     const est = { campo: 'estoque', rotulo: 'Estoque', direita: true, valor: (i: ItemSaude) => num(i.estoque), texto: (i: ItemSaude) => num(i.estoque) };
     const ideal = { campo: 'ideal', rotulo: 'Ideal', direita: true, valor: (i: ItemSaude) => num(i.ideal), texto: (i: ItemSaude) => num(i.ideal) };
@@ -296,10 +335,40 @@ export function StockHealthTab({ setView }: Props) {
     { id: 'excesso', label: 'Excesso', contagem: contar('excesso') },
     { id: 'sem_giro', label: 'Sem giro', contagem: contar('sem_giro') },
     { id: 'todos', label: 'Todos', contagem: contar('todos') },
+    { id: 'retirados', label: 'Retirados', contagem: dados?.retirados.length ?? 0 },
     { id: 'coloracao', label: 'Coloração e ocultos (versão anterior)' },
   ];
   const tituloAba = abas.find((a) => a.id === aba)?.label ?? '';
   const regras = dados?.regras;
+
+  if (aba === 'retirados') {
+    const rs = dados?.retirados ?? [];
+    return (
+      <div>
+        <ReportTabs abas={abas} ativa={aba} onChange={trocarAba} />
+        {erro && <div className="panel-card" style={{ padding: 12, fontSize: '0.8rem', marginBottom: 8 }}>{erro}</div>}
+        {rs.length === 0 ? (
+          <div className="panel-card" style={{ padding: 16, fontSize: '0.8rem' }}>Nenhum produto foi tirado do relatório.</div>
+        ) : (
+          <div className="panel-card" style={{ padding: 0 }}>
+            {rs.map((r) => (
+              <div key={r.codigo} style={{ padding: '10px 12px', borderBottom: '1px solid hsl(var(--border-hsl, 240 6% 90%))', display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.78rem' }}>{r.descricao ?? r.codigo}</div>
+                  <div style={{ fontSize: '0.68rem', color: 'hsl(var(--text-secondary-hsl))' }}>
+                    <span className="font-mono">{r.codigo}</span> · tirado por {r.retirado_por || '—'} em {dataBr(r.retirado_em)}{r.motivo ? ` · ${r.motivo}` : ''}
+                  </div>
+                </div>
+                <button type="button" className="tab-btn" disabled={enfileirando === r.codigo} onClick={() => alterarRetirado(r.codigo, false)} style={{ padding: '4px 12px', fontSize: '0.72rem', minHeight: 44 }}>
+                  Restaurar
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (aba === 'coloracao') {
     return (
@@ -346,7 +415,7 @@ export function StockHealthTab({ setView }: Props) {
                   <tr>
                     <Th campo="descricao">Produto</Th>
                     {colunas.map((c) => <Th key={c.campo + c.rotulo} campo={c.campo} dir={c.direita ? 'right' : undefined}>{c.rotulo}</Th>)}
-                    {(aba === 'disponibilidade' || aba === 'sem_giro') && <th style={{ textAlign: 'right' }}>Ação</th>}
+                    <th style={{ textAlign: 'right' }}>Ação</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -354,8 +423,13 @@ export function StockHealthTab({ setView }: Props) {
                     <tr key={i.codigo} style={{ cursor: 'pointer' }} onClick={() => setDetalhe(i.codigo)}>
                       <td><Produto i={i} /></td>
                       {colunas.map((c) => <td key={c.campo + c.rotulo} style={{ textAlign: c.direita ? 'right' : 'left', whiteSpace: 'nowrap' }}>{c.valor(i)}</td>)}
-                      {aba === 'disponibilidade' && <td style={{ textAlign: 'right' }}><AcaoFila i={i} /></td>}
-                      {aba === 'sem_giro' && <td style={{ textAlign: 'right' }}><AcaoLinha /></td>}
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                          {aba === 'disponibilidade' && <AcaoFila i={i} />}
+                          {aba === 'sem_giro' && <AcaoLinha />}
+                          <AcaoTirar i={i} />
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -375,8 +449,11 @@ export function StockHealthTab({ setView }: Props) {
                       <span key={c.campo + c.rotulo}>{c.rotulo}: <strong style={{ color: 'hsl(var(--text-primary-hsl))' }}>{c.texto(i)}</strong></span>
                     ))}
                   </div>
-                  {aba === 'disponibilidade' && <div style={{ marginTop: 8 }}><AcaoFila i={i} /></div>}
-                  {aba === 'sem_giro' && <div style={{ marginTop: 8 }}><AcaoLinha /></div>}
+                  <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {aba === 'disponibilidade' && <AcaoFila i={i} />}
+                    {aba === 'sem_giro' && <AcaoLinha />}
+                    <AcaoTirar i={i} />
+                  </div>
                 </div>
               ))}
             </div>

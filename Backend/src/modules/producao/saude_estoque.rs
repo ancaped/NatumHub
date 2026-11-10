@@ -10,8 +10,8 @@ use axum::{
     extract::{Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::get,
-    Json, Router,
+    routing::{get, post},
+    Extension, Json, Router,
 };
 use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
@@ -19,7 +19,10 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::core::acao::{corpo_acao, executar_em_2_passos, Confirmar, ErroApi};
 use crate::core::catalogo::{param, Acao};
+use crate::modules::geral::auth::models::AuthContext;
+use crate::modules::producao::{auditoria, permissao};
 use crate::core::db::Db;
 use crate::core::regras_produto::{atendimento_efetivo, carregar_pais_categorias, categoria_raiz, e_base, gera_demanda};
 use crate::handlers::imports::clean_product_code;
@@ -32,7 +35,10 @@ pub const FATOR_EXCESSO: f64 = 2.0;
 pub const DIAS_SEM_GIRO: i64 = 180;
 
 pub fn router() -> Router<Arc<AppState>> {
-    Router::new().route("/api/producao/saude-estoque", get(get_saude_estoque))
+    Router::new()
+        .route("/api/producao/saude-estoque", get(get_saude_estoque))
+        .route("/api/producao/saude-estoque/retirar", post(retirar_rota))
+        .route("/api/producao/saude-estoque/restaurar", post(restaurar_rota))
 }
 
 pub fn acoes() -> Vec<Acao> {
@@ -45,6 +51,27 @@ pub fn acoes() -> Vec<Acao> {
             param("situacao", "query", "texto", false, "ruptura, baixo, adequado, excesso, sem_giro ou especial (lançamento/encomenda/terceirizado)."),
             param("search", "query", "texto", false, "Busca por código ou descrição."),
         ],
+    ),
+    Acao::gravacao(
+        "retirar_item_saude_estoque",
+        "producao",
+        "Tira um produto do relatório Saúde do Estoque (some das listas e das contagens; não muda o produto nem a Demanda). Sem confirmar=true só mostra a prévia.",
+        "POST",
+        "/api/producao/saude-estoque/retirar",
+        true,
+        vec![
+            param("codigo", "corpo", "texto", true, "Código do produto."),
+            param("motivo", "corpo", "texto", false, "Por que sai do relatório."),
+        ],
+    ),
+    Acao::gravacao(
+        "restaurar_item_saude_estoque",
+        "producao",
+        "Devolve ao relatório Saúde do Estoque um produto que tinha sido retirado. Sem confirmar=true só mostra a prévia.",
+        "POST",
+        "/api/producao/saude-estoque/restaurar",
+        true,
+        vec![param("codigo", "corpo", "texto", true, "Código do produto.")],
     )]
 }
 
@@ -56,7 +83,7 @@ pub enum Situacao {
     Adequado,
     Excesso,
     SemGiro,
-    /// Lançamento, encomenda ou terceirizado: não geram demanda normal, aparecem só com o selo.
+    /// Lançamento: aparece só com o selo, fora de ruptura, baixo e sem giro.
     Especial,
 }
 
@@ -91,7 +118,7 @@ pub struct Entrada {
     pub dias_sem_venda: Option<i64>,
     /// Dias desde a última entrada de produção; vale só para quem nunca vendeu (produto novo ainda sem venda).
     pub dias_desde_producao: Option<i64>,
-    /// Lançamento, encomenda ou terceirizado.
+    /// Lançamento.
     pub com_selo: bool,
 }
 
@@ -164,7 +191,7 @@ pub struct ItemSaude {
     /// "produto" ou "kit".
     pub tipo: &'static str,
     pub situacao: Situacao,
-    /// "lancamento", "encomenda" ou "terceirizado" (quando aplicável).
+    /// "lancamento" (quando aplicável).
     pub selo: Option<&'static str>,
     /// Situação cadastrada do produto (ativo, saindo_de_linha...).
     pub situacao_produto: Option<String>,
@@ -313,6 +340,8 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
         serde_json::from_value(lista.get("items").cloned().unwrap_or_else(|| json!([]))).map_err(|e| format!("Lista da Demanda inesperada: {e}"))?;
 
     let mov = carregar_movimento(db).await?;
+    let retirados_lista = listar_retirados(db.pool()).await?;
+    let retirados: HashMap<String, ()> = retirados_lista.iter().map(|r| (clean_product_code(&r.codigo), ())).collect();
     let pais = carregar_pais_categorias(db.pool()).await.map_err(|e| format!("Erro ao ler categorias: {e}"))?;
 
     let termo = filtro.search.as_deref().map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
@@ -323,27 +352,24 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
         let categoria = categoria_raiz(p.categoria_produto.as_deref().unwrap_or(""), &pais);
         let status_produto = p.status_produto.as_deref().unwrap_or("ativo");
         // Fora do escopo: base, coloração, apoio (depois) e o que já saiu do catálogo ou está escondido.
-        if e_base(&p.codigo, &categoria, status_produto)
+        if retirados.contains_key(&clean_product_code(&p.codigo))
+            || e_base(&p.codigo, &categoria, status_produto)
             || categoria == "cat_coloracao"
             || categoria == "cat_apoio"
             || p.status == "descontinuado"
             || status_produto == "descontinuado"
-            || (p.visivel == Some(0) && status_produto != "terceirizado")
+            || p.visivel == Some(0)
         {
             continue;
         }
 
         let chave = clean_product_code(&p.codigo);
+        // Só entra quem gera demanda (atendimento "estoque"): terceirizado e por encomenda ficam fora (decisão do Edson).
         let atendimento = mov.atendimento.get(&chave).map(String::as_str).unwrap_or("estoque");
-        let selo = if p.is_lancamento {
-            Some("lancamento")
-        } else if !gera_demanda(atendimento) {
-            Some(if atendimento == "encomenda" { "encomenda" } else { "terceirizado" })
-        } else if status_produto == "terceirizado" {
-            Some("terceirizado")
-        } else {
-            None
-        };
+        if !gera_demanda(atendimento) {
+            continue;
+        }
+        let selo = if p.is_lancamento { Some("lancamento") } else { None };
 
         let meses = mov.vendas_mes.get(&chave).map(Vec::as_slice).unwrap_or(&[]);
         let (vendas_3m, vendas_12m) = vendas_3_e_12_meses(meses, hoje.month());
@@ -416,8 +442,86 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
         "gerado_em": hoje.to_string(),
         "regras": { "fator_excesso": FATOR_EXCESSO, "dias_sem_giro": DIAS_SEM_GIRO },
         "contagens": contagens,
+        "retirados": retirados_lista,
         "itens": itens,
     }))
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct Retirado {
+    pub codigo: String,
+    pub descricao: Option<String>,
+    pub motivo: Option<String>,
+    pub retirado_por: String,
+    pub retirado_em: String,
+}
+
+async fn listar_retirados(pool: &sqlx::PgPool) -> Result<Vec<Retirado>, String> {
+    sqlx::query_as(
+        "SELECT r.codigo, p.descricao, r.motivo, r.retirado_por, to_char(r.retirado_em, 'YYYY-MM-DD') AS retirado_em \
+         FROM saude_estoque_retirados r LEFT JOIN produtos p ON p.codigo = r.codigo ORDER BY r.retirado_em DESC",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Erro ao ler os itens retirados: {e}"))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CorpoRetirar {
+    pub codigo: String,
+    pub motivo: Option<String>,
+    #[serde(default)]
+    pub confirmar: bool,
+}
+
+/// Tira (`retirar = true`) ou devolve um produto ao relatório. 2 passos, com auditoria. Não mexe no produto.
+pub async fn alterar_retirado(pool: &sqlx::PgPool, codigo: &str, motivo: Option<&str>, retirar: bool, confirmar: bool, usuario: &str) -> Result<crate::core::acao::RespostaAcao<serde_json::Value>, ErroApi> {
+    let codigo = clean_product_code(codigo);
+    if codigo.is_empty() {
+        return Err(ErroApi::invalido("Informe o código do produto."));
+    }
+    let existe: Option<String> = sqlx::query_scalar("SELECT codigo FROM saude_estoque_retirados WHERE codigo = $1").bind(&codigo).fetch_optional(pool).await?;
+    if retirar && existe.is_some() {
+        return Err(ErroApi::regra("O produto já está fora do relatório."));
+    }
+    if !retirar && existe.is_none() {
+        return Err(ErroApi::regra("O produto não está na lista de retirados."));
+    }
+    let acao: &'static str = if retirar { "retirar_item_saude_estoque" } else { "restaurar_item_saude_estoque" };
+    let (cod, mot, por) = (codigo.clone(), motivo.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()), usuario.to_string());
+    let r = executar_em_2_passos(pool, acao, confirmar, |tx| {
+        Box::pin(async move {
+            if retirar {
+                sqlx::query("INSERT INTO saude_estoque_retirados (codigo, motivo, retirado_por) VALUES ($1, $2, $3)").bind(&cod).bind(&mot).bind(&por).execute(&mut **tx).await?;
+            } else {
+                sqlx::query("DELETE FROM saude_estoque_retirados WHERE codigo = $1").bind(&cod).execute(&mut **tx).await?;
+            }
+            Ok(json!({ "codigo": cod, "motivo": mot, "efeito": if retirar { "sai das listas e das contagens" } else { "volta às listas e às contagens" } }))
+        })
+    })
+    .await?;
+    if !r.previa {
+        auditoria::registrar(pool, usuario, acao, &codigo, json!({ "motivo": motivo })).await;
+    }
+    Ok(r)
+}
+
+async fn retirar_ou_restaurar(state: Arc<AppState>, ctx: AuthContext, q: Confirmar, b: CorpoRetirar, retirar: bool) -> axum::response::Response {
+    if let Err(r) = permissao::exigir_edicao_em(&ctx, &["producao"]) {
+        return r;
+    }
+    match alterar_retirado(state.db.pool(), &b.codigo, b.motivo.as_deref(), retirar, b.confirmar || q.confirmar, &ctx.display_name).await {
+        Ok(r) => (StatusCode::OK, Json(corpo_acao(&r))).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn retirar_rota(State(state): State<Arc<AppState>>, Extension(ctx): Extension<AuthContext>, Query(q): Query<Confirmar>, Json(b): Json<CorpoRetirar>) -> impl IntoResponse {
+    retirar_ou_restaurar(state, ctx, q, b, true).await
+}
+
+async fn restaurar_rota(State(state): State<Arc<AppState>>, Extension(ctx): Extension<AuthContext>, Query(q): Query<Confirmar>, Json(b): Json<CorpoRetirar>) -> impl IntoResponse {
+    retirar_ou_restaurar(state, ctx, q, b, false).await
 }
 
 async fn get_saude_estoque(State(state): State<Arc<AppState>>, Query(filtro): Query<Filtro>) -> impl IntoResponse {
