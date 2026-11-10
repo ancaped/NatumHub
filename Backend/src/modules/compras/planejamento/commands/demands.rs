@@ -283,285 +283,88 @@ pub struct SimProducaoContribution {
 }
 
 /// Contribuições por produto×insumo da simulação automática (Produzir Urgente / Abrir Ordem).
-/// Kits: explode `kit_composicao` → formulações dos componentes + itens diretos (ex. caixa).
+/// O consumo vem do motor da Cobertura (Produção): `Formulas::necessidades_previstas` sobre a sugestão automática
+/// (`prevista::sugestao_automatica`). Aqui só se adapta o resultado ao formato do MRP (produto × insumo, com a
+/// quantidade produzida e as trocas de insumo marcadas).
 pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProducaoContribution> {
+    use crate::modules::producao::cobertura::calc::BaseFonte;
+    use crate::modules::producao::cobertura::store::{canon, carregar_formulas_previstas, Quantidade};
     use std::collections::HashSet;
 
     let db = crate::core::db::Db::new(pool.clone());
-    let Ok((products, stocks, fat_map, configs, overrides, _)) =
-        crate::modules::producao::calculo::fetch_calculation_data(&db).await
-    else {
+    let Ok(sugestao) = crate::modules::producao::prevista::sugestao_automatica(&db).await else {
         return Vec::new();
     };
-
-    let mut computed =
-        crate::modules::producao::gerenciamento::calculations::calculate_products(
-            &products,
-            &stocks,
-            &fat_map,
-            &configs,
-            &overrides,
-        );
-    let kit_composition = db.get_kit_composition().await.unwrap_or_default();
-    crate::modules::producao::calculo::post_process_kit_only_production(&mut computed, &kit_composition);
-
-    let mut needed: Vec<(String, String, String, String, f64)> = Vec::new();
-    for p in &computed {
-        if p.producao_recomendada <= 0 {
-            continue;
-        }
-        if p.status == "critico" || p.status == "ordem" || p.status == "saindo_de_linha" {
-            needed.push((
-                p.codigo.trim().to_string(),
-                p.descricao.clone(),
-                p.status.clone(),
-                p.status_label.clone(),
-                p.producao_recomendada as f64,
-            ));
-        }
-    }
-    if needed.is_empty() {
+    if sugestao.is_empty() {
         return Vec::new();
     }
+    let codigos: Vec<String> = sugestao.iter().map(|s| s.codigo.clone()).collect();
+    let Ok(mut formulas) = carregar_formulas_previstas(pool, &codigos).await else {
+        return Vec::new();
+    };
+    // O motor devolve o insumo original; as trocas entram depois para marcar `trocado_de` (o consumo aparece no substituto).
+    let trocas = std::mem::take(&mut formulas.trocas);
+    let produzidos: HashSet<String> = codigos.iter().map(|c| canon(c)).collect();
 
-    let needed_codes: HashSet<String> = needed.iter().map(|(c, _, _, _, _)| c.clone()).collect();
-
-    // Formulações: códigos needed + todos os componentes dos kits urgentes.
-    let mut form_codes: HashSet<String> = needed_codes.clone();
-    for (kit_code, comps) in &kit_composition {
-        if !needed_codes.contains(kit_code.trim()) {
-            continue;
-        }
-        for (comp, _, _, _) in comps {
-            form_codes.insert(comp.trim().to_string());
-        }
-    }
-    let form_codes_vec: Vec<String> = form_codes.into_iter().collect();
-
-    let mut formulations: HashMap<String, Vec<(String, f64)>> = HashMap::new();
-    if let Ok(rows) = sqlx::query(
-        "SELECT product_code, ingredient_code, quantity FROM formulations WHERE product_code = ANY($1)",
-    )
-    .bind(&form_codes_vec)
-    .fetch_all(pool)
-    .await
-    {
-        for row in rows {
-            let p_code: String = row.get::<String, _>(0).trim().to_string();
-            let ing: String = row.get::<String, _>(1).trim().to_string();
-            let qty: f64 = row.get(2);
-            formulations.entry(p_code).or_default().push((ing, qty));
-        }
-    }
-
-    // Carrega formulações de bases/semi-acabados (sub-ingredientes de receitas)
-    let mut sub_codes: HashSet<String> = HashSet::new();
-    for list in formulations.values() {
-        for (ing, _) in list {
-            sub_codes.insert(ing.trim().to_string());
-        }
-    }
-    let sub_codes_vec: Vec<String> = sub_codes.into_iter().collect();
-    let mut base_formulations: HashMap<String, Vec<(String, f64)>> = HashMap::new();
-    if !sub_codes_vec.is_empty() {
-        if let Ok(rows) = sqlx::query(
-            "SELECT product_code, ingredient_code, quantity FROM formulations WHERE product_code = ANY($1)",
-        )
-        .bind(&sub_codes_vec)
-        .fetch_all(pool)
-        .await
-        {
-            for row in rows {
-                let p_code: String = row.get::<String, _>(0).trim().to_string();
-                let ing: String = row.get::<String, _>(1).trim().to_string();
-                let qty: f64 = row.get(2);
-                base_formulations.entry(p_code).or_default().push((ing, qty));
-            }
-        }
-    }
-
-    // Index kit_composicao by trimmed kit code.
-    let mut kits_by_code: HashMap<String, &Vec<(String, f64, Option<f64>, Option<i32>)>> =
-        HashMap::new();
-    for (kit_code, comps) in &kit_composition {
-        kits_by_code.insert(kit_code.trim().to_string(), comps);
-    }
-
-    // Descrições dos componentes (produto ou item) para breakdown auditável.
-    let mut comp_descs: HashMap<String, String> = HashMap::new();
-    for p in &computed {
-        comp_descs.insert(p.codigo.trim().to_string(), p.descricao.clone());
-    }
-    let mut missing_desc: Vec<String> = Vec::new();
-    for (kit_code, comps) in &kit_composition {
-        if !needed_codes.contains(kit_code.trim()) {
-            continue;
-        }
-        for (comp, _, _, _) in comps {
-            let k = comp.trim().to_string();
-            if !comp_descs.contains_key(&k) {
-                missing_desc.push(k);
-            }
-        }
-    }
-    if !missing_desc.is_empty() {
-        if let Ok(rows) = sqlx::query(
+    // Descrição dos componentes de kit (produto ou item).
+    let mut descs: HashMap<String, String> = sugestao.iter().map(|s| (canon(&s.codigo), s.descricao.clone())).collect();
+    let faltam: Vec<String> = formulas
+        .kits
+        .iter()
+        .filter(|(k, _)| produzidos.contains(*k))
+        .flat_map(|(_, comps)| comps.iter().map(|(c, _)| canon(c)))
+        .filter(|c| !descs.contains_key(c))
+        .collect();
+    if !faltam.is_empty() {
+        for sql in [
+            "SELECT TRIM(codigo), descricao FROM produtos WHERE TRIM(codigo) = ANY($1)",
             "SELECT TRIM(code), description FROM items WHERE TRIM(code) = ANY($1)",
-        )
-        .bind(&missing_desc)
-        .fetch_all(pool)
-        .await
-        {
-            for row in rows {
-                let code: String = row.get(0);
-                let desc: String = row.get(1);
-                comp_descs.entry(code).or_insert(desc);
+        ] {
+            if let Ok(rows) = sqlx::query(sql).bind(&faltam).fetch_all(pool).await {
+                for row in rows {
+                    descs.entry(row.get::<String, _>(0)).or_insert(row.get::<String, _>(1));
+                }
             }
         }
     }
 
     let mut out = Vec::new();
-
-    let push_item_demand = |
-        out_vec: &mut Vec<SimProducaoContribution>,
-        ing_code: &str,
-        unit_qty: f64,
-        comp_prod_qty: f64,
-        product_code: &str,
-        product_desc: &str,
-        status: &str,
-        status_label: &str,
-        bases_map: &HashMap<String, Vec<(String, f64)>>,
-    | {
-        let ing_key = ing_code.trim();
-        if let Some(sub_ings) = bases_map.get(ing_key) {
-            // Explode base em matérias-primas reais
-            for (sub_ing, sub_unit_qty) in sub_ings {
-                let effective_unit_qty = unit_qty * sub_unit_qty;
-                out_vec.push(SimProducaoContribution {
-                    ingredient_code: sub_ing.clone(),
-                    product_code: product_code.to_string(),
-                    product_desc: product_desc.to_string(),
-                    status: status.to_string(),
-                    status_label: status_label.to_string(),
-                    production_qty: comp_prod_qty,
-                    qty_per_unit: effective_unit_qty,
-                    insumo_qty: comp_prod_qty * effective_unit_qty,
+    for s in &sugestao {
+        let chave = canon(&s.codigo);
+        let q = if s.e_base { Quantidade::Kg(s.unidades) } else { Quantidade::Unidades(s.unidades) };
+        let Some(contribuicoes) = formulas.necessidades_previstas(&s.codigo, q, BaseFonte::Explodir, &produzidos) else {
+            continue;
+        };
+        let e_kit = formulas.kits.contains_key(&chave);
+        let via_label = format!("via {chave} · {}", s.status_label);
+        for c in contribuicoes {
+            let direto = c.produto == chave;
+            let (product_desc, status_label, production_qty) = if !e_kit {
+                (s.descricao.clone(), s.status_label.clone(), s.unidades)
+            } else if direto {
+                // item direto do kit (caixa, embalagem sem fórmula)
+                (format!("{} (kit)", s.descricao), via_label.clone(), s.unidades)
+            } else {
+                let por_kit = formulas.kits.get(&chave).and_then(|cs| cs.iter().find(|(k, _)| canon(k) == c.produto)).map_or(1.0, |(_, q)| *q);
+                (descs.get(&c.produto).cloned().unwrap_or_else(|| c.produto.clone()), via_label.clone(), s.unidades * por_kit)
+            };
+            for n in c.necessidades {
+                out.push(SimProducaoContribution {
+                    ingredient_code: n.codigo,
+                    product_code: c.produto.clone(),
+                    product_desc: product_desc.clone(),
+                    status: s.status.clone(),
+                    status_label: status_label.clone(),
+                    production_qty,
+                    qty_per_unit: if production_qty > 0.0 { n.quantidade / production_qty } else { 0.0 },
+                    insumo_qty: n.quantidade,
                     trocado_de: None,
                 });
-            }
-        } else {
-            // Item direto de embalagem ou matéria-prima direta
-            out_vec.push(SimProducaoContribution {
-                ingredient_code: ing_key.to_string(),
-                product_code: product_code.to_string(),
-                product_desc: product_desc.to_string(),
-                status: status.to_string(),
-                status_label: status_label.to_string(),
-                production_qty: comp_prod_qty,
-                qty_per_unit: unit_qty,
-                insumo_qty: comp_prod_qty * unit_qty,
-                trocado_de: None,
-            });
-        }
-    };
-
-    for (p_code, p_desc, status, status_label, prod_qty) in needed {
-        if let Some(comps) = kits_by_code.get(&p_code) {
-            // Explode BOM do Kit: atribui aos componentes e suas bases
-            let via_label = format!("via {p_code} · {status_label}");
-            for (comp, qty_comp, _, _) in *comps {
-                let comp_key = comp.trim().to_string();
-                let comp_norm = comp_key.replace('.', "");
-                let is_comp_in_needed = needed_codes.contains(&comp_key) || needed_codes.contains(&comp_norm);
-                let has_own_formulation = formulations.contains_key(&comp_key) || formulations.contains_key(&comp_norm);
-
-                // Se o componente é um produto fabricado e já está na lista de produtos a produzir,
-                // não duplicar a necessidade de insumos através do kit.
-                if has_own_formulation && is_comp_in_needed {
-                    continue;
-                }
-
-                let qty_comp = *qty_comp;
-                if qty_comp <= 0.0 {
-                    continue;
-                }
-                let comp_desc = comp_descs
-                    .get(&comp_key)
-                    .cloned()
-                    .unwrap_or_else(|| comp_key.clone());
-                let comp_prod_qty = prod_qty * qty_comp;
-                if let Some(ings) = formulations.get(&comp_key) {
-                    for (ing, unit_qty) in ings {
-                        push_item_demand(
-                            &mut out,
-                            ing,
-                            *unit_qty,
-                            comp_prod_qty,
-                            &comp_key,
-                            &comp_desc,
-                            &status,
-                            &via_label,
-                            &base_formulations,
-                        );
-                    }
-                } else {
-                    // Item direto na composição (caixa / embalagem sem fórmula).
-                    // Se o item já faz parte da fórmula de algum componente deste kit (ex: fração da caixa
-                    // já alocada no frasco/shampoo/condicionador), não adicionar pelo kit para não duplicar/triplicar.
-                    let is_in_comp_form = comps.iter().any(|(c, _, _, _)| {
-                        let k = c.trim();
-                        let kn = k.replace('.', "");
-                        let check_form = |list: &Vec<(String, f64)>| {
-                            list.iter().any(|(ing, _)| {
-                                let ing_trim = ing.trim();
-                                ing_trim == comp_key || ing_trim.replace('.', "") == comp_norm
-                            })
-                        };
-                        formulations.get(k).map_or(false, check_form)
-                            || formulations.get(&kn).map_or(false, check_form)
-                    });
-
-                    if is_in_comp_form {
-                        continue;
-                    }
-
-                    out.push(SimProducaoContribution {
-                        ingredient_code: comp_key.clone(),
-                        product_code: p_code.clone(),
-                        product_desc: format!("{p_desc} (kit)"),
-                        status: status.clone(),
-                        status_label: via_label.clone(),
-                        production_qty: prod_qty,
-                        qty_per_unit: qty_comp,
-                        insumo_qty: comp_prod_qty,
-                        trocado_de: None,
-                    });
-                }
-            }
-            continue;
-        }
-
-        if let Some(ings) = formulations.get(&p_code) {
-            for (ing, unit_qty) in ings {
-                push_item_demand(
-                    &mut out,
-                    ing,
-                    *unit_qty,
-                    prod_qty,
-                    &p_code,
-                    &p_desc,
-                    &status,
-                    &status_label,
-                    &base_formulations,
-                );
             }
         }
     }
     // Trocas de insumo decididas pelo Edson (não alteram o ERP nem a fórmula): a previsão passa a pedir o substituto.
-    if let Ok(trocas) = crate::modules::producao::trocas::carregar(pool).await {
-        aplicar_trocas_contribuicoes(&mut out, &trocas);
-    }
+    aplicar_trocas_contribuicoes(&mut out, &trocas);
     out
 }
 
