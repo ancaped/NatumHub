@@ -357,7 +357,18 @@ pub async fn trigger_db_sync(
     axum::extract::Query(q): axum::extract::Query<SyncQuery>,
 ) -> impl IntoResponse {
     let mode = crate::core::legacy_db::SyncMode::parse(q.mode.as_deref());
-    match execute_erp_sync(state, "Banco SQL Server NATUM", mode).await {
+    // Roda destacado do pedido HTTP: se o navegador desconectar (aba fechada, timeout, rede), o sync segue até o fim
+    // em vez de ser descartado no meio e deixar o lock do dia em "em_andamento".
+    let pool = state.db.pool().clone();
+    let tarefa = tokio::spawn(execute_erp_sync(state, "Banco SQL Server NATUM", mode));
+    let resultado = match tarefa.await {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = crate::core::pg_db::release_daily_sync(&pool).await;
+            Err(format!("Sync interrompido de forma inesperada: {e}"))
+        }
+    };
+    match resultado {
         Ok(res) => (
             StatusCode::OK,
             Json(json!({
@@ -432,6 +443,67 @@ pub async fn get_import_status(State(state): State<Arc<AppState>>) -> impl IntoR
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("Erro ao buscar status: {}", e) }))).into_response(),
     }
+}
+
+/// Sync leve de lotes sob o lock do sync: grava as mesmas tabelas do sync completo, então os dois nunca
+/// rodam juntos. Devolve `SYNC_ALREADY_RUNNING` quando há outro em andamento.
+pub async fn execute_lotes_sync(
+    state: &Arc<AppState>,
+) -> Result<crate::core::legacy_db::LotesSyncResult, String> {
+    let pool = state.db.pool();
+    match crate::core::pg_db::try_acquire_daily_sync(pool).await {
+        Ok(true) => {}
+        Ok(false) => return Err(crate::core::pg_db::SYNC_ALREADY_RUNNING.to_string()),
+        Err(e) => return Err(e),
+    }
+    let r = crate::core::legacy_db::sync_lotes_leve(pool)
+        .await
+        .map_err(|e| e.to_string());
+    match &r {
+        Ok(_) => {
+            if let Err(e) = crate::core::pg_db::mark_daily_sync_complete(pool).await {
+                eprintln!("[ERP Lotes] Falha ao marcar sync concluído: {e}");
+            }
+        }
+        Err(_) => {
+            let _ = crate::core::pg_db::release_daily_sync(pool).await;
+        }
+    }
+    r
+}
+
+/// POST /api/import/lotes — atualiza do ERP os lotes recentes e abertos (status, itens, laudos).
+pub async fn trigger_lotes_sync(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    // Destacado do pedido HTTP (ver trigger_db_sync): desconexão do navegador não cancela o sync.
+    let pool = state.db.pool().clone();
+    let st = state.clone();
+    let tarefa = tokio::spawn(async move { execute_lotes_sync(&st).await });
+    let resultado = match tarefa.await {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = crate::core::pg_db::release_daily_sync(&pool).await;
+            Err(format!("Sync interrompido de forma inesperada: {e}"))
+        }
+    };
+    match resultado {
+        Ok(res) => (StatusCode::OK, Json(json!({ "status": "success", "resultado": res }))).into_response(),
+        Err(e) if e == crate::core::pg_db::SYNC_ALREADY_RUNNING => (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": "Já há uma importação do ERP em andamento. Tente de novo em instantes." })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": format!("Não foi possível atualizar os lotes do ERP: {e}") })),
+        )
+            .into_response(),
+    }
+}
+
+/// GET /api/import/lotes/status — quando os lotes foram atualizados pela última vez.
+pub async fn get_lotes_sync_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let ultima = crate::core::legacy_db::lotes_sync_ultima(state.db.pool()).await;
+    (StatusCode::OK, Json(json!({ "atualizadoEm": ultima }))).into_response()
 }
 
 /// GET /api/import/sync-lock — se há sync ERP em andamento hoje.

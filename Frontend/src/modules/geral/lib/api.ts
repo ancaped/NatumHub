@@ -403,25 +403,20 @@ export const api = {
   getFiscoErpLoteInsumos(lote: string): Promise<FiscoErpLoteInsumo[]> {
     return hubJson(`fisco/erp-lotes/${encodeURIComponent(lote)}/insumos`);
   },
-  pushFiscoLaudosToErp(analysisIds?: string[], allPending?: boolean): Promise<{ success: boolean; updated_count: number; errors?: string[] }> {
+  /** Lança laudos no ERP. Sem `confirmar` só devolve a prévia (`previa: true`, `qtd`, `lotes`); com `confirmar` grava. */
+  pushFiscoLaudosToErp(analysisIds: string[] | undefined, allPending: boolean | undefined, confirmar: boolean): Promise<{ success: boolean; previa?: boolean; qtd?: number; lotes?: string[]; updated_count: number; errors?: string[] }> {
     return hubJson('fisco/push-to-erp', {
       method: 'POST',
-      body: JSON.stringify({ analysis_ids: analysisIds, all_pending: allPending }),
+      body: JSON.stringify({ analysis_ids: analysisIds, all_pending: allPending, confirmar }),
     });
   },
   getFiscoCorrectiveBatches(): Promise<import('./types').CorrectiveWeekSummary[]> {
     return hubJson('fisco/corrective-batches');
   },
-  toggleFiscoCorrectiveBaixa(data: { week_key: string; is_baixa: boolean; usuario?: string; observacoes?: string }): Promise<void> {
+  toggleFiscoCorrectiveBaixa(data: { week_key: string; is_baixa: boolean; observacoes?: string }): Promise<void> {
     return hubJson('fisco/corrective-batches/toggle-baixa', {
       method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-  migrateErpHistoricalAnalyses(): Promise<{ success: boolean; migrated_count: number }> {
-    return hubJson('fisco/migrate-erp-history', {
-      method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify({ ...data, confirmar: true }),
     });
   },
 

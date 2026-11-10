@@ -5,54 +5,63 @@ import {
   FiscoQuimicaAgent,
   Product,
   FiscoTemplateConfig,
-  ProcItem,
 } from '../../../geral/lib/types';
 import { api } from '../../../geral/lib/api';
-import {
-  Search,
-  Printer,
-  Pencil,
-  CheckCircle2,
-  AlertTriangle,
-  Activity,
-  Calendar,
-  FileText,
-  Clock,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  Sparkles,
-  Image as ImageIcon,
-  Video,
-} from 'lucide-react';
+import { Printer, Pencil, FileText, Calendar, Trash2, Send, Image as ImageIcon } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
-import { checkAnalysisCompliance, printFiscoReports, printFiscoSummaryReport, printCorrectiveOrder, formatViscosity, calculateFillingTargets, isAnalysisInCorrection } from '../lib/fiscoUtils';
+import {
+  printFiscoReports,
+  printFiscoSummaryReport,
+  printCorrectiveOrder,
+  formatViscosity,
+  calculateFillingTargets,
+  situacaoDoLaudo,
+  checkAnalysisCompliance,
+  type SituacaoLaudo,
+} from '../lib/fiscoUtils';
+import Drawer from '../../../geral/components/ui/Drawer';
 import Modal from '../../../geral/components/ui/Modal';
+import {
+  BotaoAcao,
+  FilterBar,
+  FiltroSelect,
+  ReportTabs,
+  StatusBadge,
+  type VarianteBadge,
+} from '../../../geral/components/ui/ReportKit';
 
-const MONTH_NAMES_PT = [
-  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-];
+const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+const POR_PAGINA = 50;
 
-function parseAnalysisMonthYear(dateStr: string): { year: number; month: number } {
-  if (!dateStr) return { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
-  const clean = dateStr.trim().split(' ')[0].split('T')[0];
-  const parts = clean.split(/[-/]/);
-  if (parts.length === 3) {
-    if (parts[0].length === 4) {
-      return { year: parseInt(parts[0], 10), month: parseInt(parts[1], 10) };
-    }
-    if (parts[2].length === 4) {
-      return { year: parseInt(parts[2], 10), month: parseInt(parts[1], 10) };
-    }
-  }
-  return { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
+const normalizeCode = (code?: string | null) => (code ? String(code).replace(/\./g, '').trim().toLowerCase() : '');
+
+/** Mês do laudo como AAAA-MM ('' quando a data não é entendida). */
+function mesDoLaudo(dateStr: string): string {
+  const clean = (dateStr || '').trim().split(' ')[0].split('T')[0];
+  const p = clean.split(/[-/]/);
+  if (p.length !== 3) return '';
+  if (p[0].length === 4) return `${p[0]}-${p[1].padStart(2, '0')}`;
+  if (p[2].length === 4) return `${p[2]}-${p[1].padStart(2, '0')}`;
+  return '';
 }
 
-function isSyncedToErp(a: FiscoQuimicaAnalysis): boolean {
-  return Boolean(a.syncedToErp === true || (a as any).synced_to_erp === true);
+function dataBr(dateStr: string): string {
+  const clean = (dateStr || '').trim().split(' ')[0].split('T')[0];
+  return clean.includes('-') ? clean.split('-').reverse().join('/') : clean;
 }
+
+function lancadoNoErp(a: FiscoQuimicaAnalysis): boolean {
+  return a.syncedToErp === true;
+}
+
+const SELO: Record<SituacaoLaudo, { variante: VarianteBadge; rotulo: string }> = {
+  conforme: { variante: 'saudavel', rotulo: 'Conforme' },
+  ajustado: { variante: 'abundante', rotulo: 'Conforme (ajustado)' },
+  em_correcao: { variante: 'ordem', rotulo: 'Em correção' },
+  fora: { variante: 'critico', rotulo: 'Não conforme' },
+};
+
+type Filtro = 'todos' | SituacaoLaudo | 'pendente_erp';
 
 interface AnalysisHistoryProps {
   analyses: FiscoQuimicaAnalysis[];
@@ -61,7 +70,7 @@ interface AnalysisHistoryProps {
   agents: FiscoQuimicaAgent[];
   config?: FiscoTemplateConfig;
   selectedIds: Set<string>;
-  onToggleSelection: (id: string, isShift?: boolean, isCtrl?: boolean) => void;
+  onToggleSelection: (id: string) => void;
   onSelectAll: (ids: string[]) => void;
   onClearSelection: () => void;
   onDeleteAnalysis: (id: string, batch: string) => void;
@@ -91,839 +100,476 @@ export function AnalysisHistory({
   onCarregarMaisAntigos,
   onBuscarServidor,
 }: AnalysisHistoryProps) {
-  const [selectedMonthYear, setSelectedMonthYear] = useState<string>('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'conforme' | 'em_correcao' | 'ajustado' | 'fora' | 'pendente_erp'>('all');
-  const [pushingErp, setPushingErp] = useState(false);
+  const [mes, setMes] = useState('ALL');
+  const [busca, setBusca] = useState('');
+  const [filtro, setFiltro] = useState<Filtro>('todos');
+  const [pagina, setPagina] = useState(1);
   const [carregandoAntigos, setCarregandoAntigos] = useState(false);
   const [buscandoServidor, setBuscandoServidor] = useState(false);
-  const [zoomMedia, setZoomMedia] = useState<{ url: string; title: string; isVideo?: boolean } | null>(null);
+  const [aberto, setAberto] = useState<FiscoQuimicaAnalysis | null>(null);
+  const [zoomMidia, setZoomMidia] = useState<FiscoQuimicaAnalysis | null>(null);
+  // Lançamento no ERP: pede confirmação antes de gravar (ids vazio = todos os pendentes).
+  const [confirmaErp, setConfirmaErp] = useState<{ ids: string[]; qtd: number; lotes: string[] } | null>(null);
+  const [lancando, setLancando] = useState(false);
+  const [erroErp, setErroErp] = useState<string | null>(null);
 
-  // Paginação
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
-
-  // PROCs & Modal Etiqueta Zebra 100x50mm
-  const [procMapByCode, setProcMapByCode] = useState<Record<string, ProcItem>>({});
-  const [procMapByDesc, setProcMapByDesc] = useState<Record<string, ProcItem>>({});
-  const [selectedLoteForLabel, setSelectedLoteForLabel] = useState<FiscoQuimicaAnalysis | null>(null);
-  const [labelModalOpen, setLabelModalOpen] = useState(false);
-
-  useEffect(() => {
-    api.getProcMap().then((res) => {
-      if (res?.byCode) setProcMapByCode(res.byCode);
-      if (res?.byDescription) setProcMapByDesc(res.byDescription);
-    }).catch((err) => console.error('Erro ao carregar PROCs no histórico:', err));
-  }, []);
-
-  const normalizeCode = (code?: string | null) => (code ? String(code).replace(/\./g, '').trim().toLowerCase() : '');
-
-  const getProcForAnalysis = (a?: FiscoQuimicaAnalysis | null): ProcItem | null => {
-    if (!a) return null;
-    const code = normalizeCode(a.productCode);
-    if (code && procMapByCode[code]) return procMapByCode[code];
-    const name = (a.productName || '').trim().toLowerCase();
-    if (name && procMapByDesc[name]) return procMapByDesc[name];
-    return null;
-  };
-
-  // Maps para lookup O(1) instantâneo
   const patternMap = useMemo(() => {
     const map = new Map<string, FiscoQuimicaPattern>();
-    for (const p of patterns) {
-      map.set(normalizeCode(p.productCode), p);
-    }
+    for (const p of patterns) map.set(normalizeCode(p.productCode), p);
     return map;
   }, [patterns]);
 
-  const productMap = useMemo(() => {
-    const map = new Map<string, Product>();
-    for (const p of products) {
-      map.set(normalizeCode(p.code), p);
+  const agentMap = useMemo(() => new Map(agents.map((a) => [a.id, a] as const)), [agents]);
+
+  // Situação de cada laudo calculada uma vez (uma regra só: situacaoDoLaudo).
+  const linhas = useMemo(
+    () =>
+      analyses.map((a) => {
+        const pat = patternMap.get(normalizeCode(a.productCode)) || null;
+        return { a, pat, sit: situacaoDoLaudo(a, pat) };
+      }),
+    [analyses, patternMap],
+  );
+
+  const meses = useMemo(() => {
+    const cont = new Map<string, number>();
+    for (const { a } of linhas) {
+      const k = mesDoLaudo(a.analysisDate);
+      if (k) cont.set(k, (cont.get(k) || 0) + 1);
     }
-    return map;
-  }, [products]);
-
-  const agentMap = useMemo(() => {
-    const map = new Map<string, FiscoQuimicaAgent>();
-    for (const a of agents) {
-      map.set(a.id, a);
-    }
-    return map;
-  }, [agents]);
-
-  const handlePushToErp = async (ids?: string[]) => {
-    setPushingErp(true);
-    try {
-      const res = await api.pushFiscoLaudosToErp(ids, ids ? undefined : true);
-      if (res.success) {
-        alert(`Sucesso! ${res.updated_count} laudo(s) sincronizado(s) e lançado(s) no ERP com sucesso.`);
-        onRefresh();
-      } else {
-        alert('Não foi possível sincronizar com o ERP.');
-      }
-    } catch (err: any) {
-      console.error('Erro ao enviar laudos para o ERP:', err);
-      alert(`Erro ao lançar no ERP: ${err.message || err}`);
-    } finally {
-      setPushingErp(false);
-    }
-  };
-
-  // Agrupamento por Mês/Ano com lookup O(1)
-  const monthGroups = useMemo(() => {
-    const map = new Map<
-      string,
-      { key: string; label: string; year: number; month: number; total: number; conformes: number; ajustados: number; fora: number }
-    >();
-
-    for (const a of analyses) {
-      const my = parseAnalysisMonthYear(a.analysisDate);
-      const key = `${my.year}-${my.month.toString().padStart(2, '0')}`;
-      const monthName = MONTH_NAMES_PT[my.month - 1] || `Mês ${my.month}`;
-      const label = `${monthName} / ${my.year}`;
-
-      if (!map.has(key)) {
-        map.set(key, {
-          key,
-          label,
-          year: my.year,
-          month: my.month,
-          total: 0,
-          conformes: 0,
-          ajustados: 0,
-          fora: 0,
-        });
-      }
-
-      const grp = map.get(key)!;
-      grp.total += 1;
-
-      const pat = patternMap.get(normalizeCode(a.productCode)) || null;
-      const comp = checkAnalysisCompliance(a, pat);
-      if (comp.overallStatus === 'CONFORME') grp.conformes += 1;
-      else if (a.hasAdjustment) grp.ajustados += 1;
-      else if (comp.overallStatus === 'FORA_PADRAO') grp.fora += 1;
-    }
-
-    return Array.from(map.values()).sort((a, b) => b.key.localeCompare(a.key));
-  }, [analyses, patternMap]);
-
-  // Mantém 'ALL' ou o mês selecionado
-  useEffect(() => {
-    if (!selectedMonthYear) {
-      setSelectedMonthYear('ALL');
-    }
-  }, [selectedMonthYear]);
+    return Array.from(cont.entries())
+      .sort((x, y) => y[0].localeCompare(x[0]))
+      .map(([k, n]) => ({ valor: k, rotulo: `${MESES[Number(k.slice(5)) - 1] || k.slice(5)} / ${k.slice(0, 4)} (${n})` }));
+  }, [linhas]);
 
   // A lista só tem os laudos recentes: a busca também procura no servidor.
   useEffect(() => {
-    const q = searchQuery.trim();
+    const q = busca.trim();
     if (q.length < 3 || !onBuscarServidor) return;
     const t = setTimeout(() => {
       setBuscandoServidor(true);
       onBuscarServidor(q).catch(() => {}).finally(() => setBuscandoServidor(false));
     }, 500);
     return () => clearTimeout(t);
-  }, [searchQuery]);
+  }, [busca]);
 
-  const handleCarregarAntigos = async () => {
+  useEffect(() => setPagina(1), [mes, busca, filtro]);
+
+  const doMes = useMemo(() => (mes === 'ALL' ? linhas : linhas.filter(({ a }) => mesDoLaudo(a.analysisDate) === mes)), [linhas, mes]);
+
+  const contagem = useMemo(() => {
+    const c = { todos: doMes.length, conforme: 0, ajustado: 0, em_correcao: 0, fora: 0, pendente_erp: 0 };
+    for (const { a, sit } of doMes) {
+      c[sit] += 1;
+      if (!lancadoNoErp(a)) c.pendente_erp += 1;
+    }
+    return c;
+  }, [doMes]);
+
+  const filtradas = useMemo(() => {
+    let lista = doMes;
+    const q = busca.toLowerCase().trim();
+    if (q) {
+      const qNorm = q.replace(/\./g, '');
+      lista = lista.filter(({ a }) =>
+        (a.productCode || '').toLowerCase().replace(/\./g, '').includes(qNorm) ||
+        (a.productName || '').toLowerCase().includes(q) ||
+        (a.batch || '').toLowerCase().includes(q) ||
+        (a.technician || '').toLowerCase().includes(q) ||
+        (a.fabricatedBy || '').toLowerCase().includes(q) ||
+        (a.authorizedBy || '').toLowerCase().includes(q) ||
+        (a.notes || '').toLowerCase().includes(q),
+      );
+    }
+    if (filtro === 'pendente_erp') lista = lista.filter(({ a }) => !lancadoNoErp(a));
+    else if (filtro !== 'todos') lista = lista.filter(({ sit }) => sit === filtro);
+    return lista;
+  }, [doMes, busca, filtro]);
+
+  const totalPaginas = Math.max(1, Math.ceil(filtradas.length / POR_PAGINA));
+  const visiveis = filtradas.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA);
+  const todosMarcados = visiveis.length > 0 && visiveis.every(({ a }) => selectedIds.has(a.id));
+
+  const carregarAntigos = async () => {
     if (!onCarregarMaisAntigos) return;
     setCarregandoAntigos(true);
     try {
       await onCarregarMaisAntigos();
     } catch (err) {
-      alert(`Erro ao carregar laudos anteriores: ${err instanceof Error ? err.message : String(err)}`);
+      alert(`Não foi possível carregar os laudos anteriores: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setCarregandoAntigos(false);
     }
   };
 
-  // Reset de página ao alterar filtros
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [selectedMonthYear, searchQuery, statusFilter, pageSize]);
-
-  // Filtragem e busca com Map O(1)
-  const filteredAnalyses = useMemo(() => {
-    let list = analyses;
-
-    // 1. Filtro por Mês/Ano
-    if (selectedMonthYear && selectedMonthYear !== 'ALL') {
-      list = list.filter((a) => {
-        const my = parseAnalysisMonthYear(a.analysisDate);
-        const key = `${my.year}-${my.month.toString().padStart(2, '0')}`;
-        return key === selectedMonthYear;
-      });
+  const lancarNoErp = async () => {
+    if (!confirmaErp) return;
+    setLancando(true);
+    setErroErp(null);
+    try {
+      const res = await api.pushFiscoLaudosToErp(confirmaErp.ids.length ? confirmaErp.ids : undefined, confirmaErp.ids.length ? undefined : true, true);
+      if (!res.success) throw new Error('O ERP não aceitou o lançamento.');
+      if (res.errors?.length) throw new Error(`${res.updated_count} lançado(s). Com erro: ${res.errors.join('; ')}`);
+      setConfirmaErp(null);
+      setAberto(null);
+      onRefresh();
+    } catch (err) {
+      setErroErp(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLancando(false);
     }
-
-    // 2. Filtro por Texto / Busca
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      const qNorm = q.replace(/\./g, '');
-      list = list.filter((a) => {
-        const codeNorm = (a.productCode || '').toLowerCase().replace(/\./g, '');
-        return (
-          codeNorm.includes(qNorm) ||
-          (a.productName || '').toLowerCase().includes(q) ||
-          (a.batch || '').toLowerCase().includes(q) ||
-          (a.technician || '').toLowerCase().includes(q) ||
-          (a.fabricatedBy || '').toLowerCase().includes(q) ||
-          (a.authorizedBy || '').toLowerCase().includes(q) ||
-          (a.notes || '').toLowerCase().includes(q)
-        );
-      });
-    }
-
-    // 3. Filtro por Status
-    if (statusFilter !== 'all') {
-      list = list.filter((a) => {
-        const pat = patternMap.get(normalizeCode(a.productCode)) || null;
-        const comp = checkAnalysisCompliance(a, pat);
-        if (statusFilter === 'conforme') return comp.overallStatus === 'CONFORME';
-        if (statusFilter === 'em_correcao') return comp.overallStatus === 'EM_CORRECAO';
-        if (statusFilter === 'ajustado') return a.hasAdjustment && comp.overallStatus !== 'EM_CORRECAO';
-        if (statusFilter === 'fora') return comp.overallStatus === 'FORA_PADRAO';
-        if (statusFilter === 'pendente_erp') return !isSyncedToErp(a);
-        return true;
-      });
-    }
-
-    return list;
-  }, [analyses, patternMap, selectedMonthYear, searchQuery, statusFilter]);
-
-  // Contagens para os botões de status dentro do mês selecionado
-  const statusCounts = useMemo(() => {
-    let baseList = analyses;
-    if (selectedMonthYear && selectedMonthYear !== 'ALL') {
-      baseList = baseList.filter((a) => {
-        const my = parseAnalysisMonthYear(a.analysisDate);
-        const key = `${my.year}-${my.month.toString().padStart(2, '0')}`;
-        return key === selectedMonthYear;
-      });
-    }
-
-    let conformes = 0;
-    let emCorrecao = 0;
-    let ajustados = 0;
-    let fora = 0;
-    let pendentesErp = 0;
-
-    for (const a of baseList) {
-      const pat = patternMap.get(normalizeCode(a.productCode)) || null;
-      const comp = checkAnalysisCompliance(a, pat);
-      if (comp.overallStatus === 'EM_CORRECAO') emCorrecao += 1;
-      else if (comp.overallStatus === 'CONFORME') conformes += 1;
-      else if (a.hasAdjustment) ajustados += 1;
-      else if (comp.overallStatus === 'FORA_PADRAO') fora += 1;
-
-      if (!isSyncedToErp(a)) pendentesErp += 1;
-    }
-
-    return {
-      total: baseList.length,
-      conformes,
-      emCorrecao,
-      ajustados,
-      fora,
-      pendentesErp,
-    };
-  }, [analyses, patternMap, selectedMonthYear]);
-
-  // Lista paginada para renderização ultrarrápida do DOM
-  const totalPages = Math.max(1, Math.ceil(filteredAnalyses.length / pageSize));
-  const paginatedAnalyses = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filteredAnalyses.slice(start, start + pageSize);
-  }, [filteredAnalyses, currentPage, pageSize]);
-
-  // Impressão individual de uma linha
-  const handlePrintSingle = (analysis: FiscoQuimicaAnalysis) => {
-    printFiscoReports(analysis, patterns, products, agents, config);
   };
 
-  // Impressão em lote dos laudos completos individuais
-  const handlePrintBatch = () => {
-    const selectedList = analyses.filter((a) => selectedIds.has(a.id));
-    if (selectedList.length === 0) return;
-    printFiscoReports(selectedList, patterns, products, agents, config);
-  };
-
-  // Impressão do Relatório Resumido A4 (Folha única / resumida de lote a lote)
-  const handlePrintSummaryReport = () => {
-    const itemsToPrint = selectedIds.size > 0
-      ? analyses.filter((a) => selectedIds.has(a.id))
-      : filteredAnalyses;
-    if (itemsToPrint.length === 0) return;
-    printFiscoSummaryReport(itemsToPrint, patterns, config);
-  };
-
-  // Toggle selecionar todos os visíveis na página atual
-  const allVisibleSelected =
-    paginatedAnalyses.length > 0 && paginatedAnalyses.every((a) => selectedIds.has(a.id));
-  const handleToggleSelectAllVisible = () => {
-    if (allVisibleSelected) {
-      onClearSelection();
-    } else {
-      onSelectAll(paginatedAnalyses.map((a) => a.id));
+  // Passo 1: pede a prévia ao servidor (nada é gravado) e mostra o que seria lançado; o passo 2 é o botão do modal.
+  const pedirLancamento = async (ids: string[]) => {
+    setErroErp(null);
+    try {
+      const previa = await api.pushFiscoLaudosToErp(ids.length ? ids : undefined, ids.length ? undefined : true, false);
+      if (!previa.qtd) {
+        alert('Nenhum laudo pendente para lançar no ERP.');
+        return;
+      }
+      setConfirmaErp({ ids, qtd: previa.qtd, lotes: previa.lotes || [] });
+    } catch (err) {
+      alert(`Não foi possível preparar o lançamento: ${err instanceof Error ? err.message : String(err)}`);
     }
+  };
+
+  const imprimirSelecionados = () => {
+    const lista = analyses.filter((a) => selectedIds.has(a.id));
+    if (lista.length) printFiscoReports(lista, patterns, products, agents, config);
+  };
+
+  const imprimirResumo = () => {
+    const lista = selectedIds.size > 0 ? analyses.filter((a) => selectedIds.has(a.id)) : filtradas.map(({ a }) => a);
+    if (lista.length) printFiscoSummaryReport(lista, patterns, config);
+  };
+
+  const abas = [
+    { id: 'todos', label: 'Todos', contagem: contagem.todos },
+    { id: 'conforme', label: 'Conformes', contagem: contagem.conforme },
+    { id: 'em_correcao', label: 'Em correção', contagem: contagem.em_correcao },
+    { id: 'ajustado', label: 'Ajustados', contagem: contagem.ajustado },
+    { id: 'fora', label: 'Não conformes', contagem: contagem.fora },
+    { id: 'pendente_erp', label: 'Sem lançar no ERP', contagem: contagem.pendente_erp },
+  ];
+
+  const medida = (ok: boolean, texto: string) => (
+    <span className={cn('font-mono font-bold', !ok && 'rounded bg-red-100 px-1.5 py-0.5 text-red-800')}>{texto}</span>
+  );
+
+  const selo = (sit: SituacaoLaudo) => <StatusBadge variante={SELO[sit].variante}>{SELO[sit].rotulo}</StatusBadge>;
+
+  const envaseDe = (a: FiscoQuimicaAnalysis, pat: FiscoQuimicaPattern | null): string => {
+    if (a.envaseTargetWeight > 0) return `${a.envaseTargetWeight} ${a.envaseTargetUnit || 'g'}`;
+    const f = calculateFillingTargets(pat, a.densityMeasured, a.productName);
+    return f.weight.value > 0 ? `${f.weight.value} ${f.weight.unit}` : '—';
   };
 
   return (
-    <div className="view-container animate-in fade-in duration-200">
-      
-      {/* 1. Barra de Seleção de Mês/Ano (Pills horizontais) */}
-      {monthGroups.length > 0 && (
-        <div className="flex items-center gap-2 overflow-x-auto pb-1.5 scrollbar-thin">
-          <button
-            type="button"
-            onClick={() => setSelectedMonthYear('ALL')}
-            className={cn(
-              "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 border",
-              selectedMonthYear === 'ALL'
-                ? "bg-zinc-950 text-white border-zinc-950 shadow-sm"
-                : "bg-white text-zinc-600 border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50"
-            )}
-          >
-            <Calendar size={13} />
-            Todos os carregados ({analyses.length})
-          </button>
+    <div className="space-y-3 animate-in fade-in duration-200">
+      <ReportTabs abas={abas} ativa={filtro} onChange={(id) => setFiltro(id as Filtro)} />
 
-          {monthGroups.map((g) => (
-            <button
-              key={g.key}
-              type="button"
-              onClick={() => setSelectedMonthYear(g.key)}
-              className={cn(
-                "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 border",
-                selectedMonthYear === g.key
-                  ? "bg-zinc-950 text-white border-zinc-950 shadow-sm"
-                  : "bg-white text-zinc-600 border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50"
-              )}
-            >
-              <span>{g.label}</span>
-              <span className={cn(
-                "px-1.5 py-0.2 rounded-md text-[10px] font-mono",
-                selectedMonthYear === g.key ? "bg-zinc-800 text-zinc-200" : "bg-zinc-100 text-zinc-500"
-              )}>
-                {g.total}
-              </span>
-            </button>
-          ))}
+      <FilterBar busca={busca} onBusca={setBusca} placeholder="Buscar por lote, produto, código, operador ou observação...">
+        <FiltroSelect value={mes} onChange={setMes} opcoes={[{ valor: 'ALL', rotulo: 'Todos os meses' }, ...meses]} icone={<Calendar size={14} />} />
+        {buscandoServidor && <span className="text-[11px] font-bold text-zinc-400">Buscando...</span>}
+        {(contagem.pendente_erp > 0 || selectedIds.size > 0) && (
+          <BotaoAcao className="min-h-11 md:min-h-0" disabled={lancando} onClick={() => pedirLancamento(Array.from(selectedIds))}>
+            <Send size={14} />
+            {selectedIds.size > 0 ? `Lançar ${selectedIds.size} no ERP` : `Lançar pendentes no ERP (${contagem.pendente_erp})`}
+          </BotaoAcao>
+        )}
+        <BotaoAcao className="min-h-11 md:min-h-0" onClick={imprimirResumo} title="Resumo dos laudos em uma folha A4 (os selecionados, ou os que estão na lista)">
+          <FileText size={14} /> Resumo A4
+        </BotaoAcao>
+        {selectedIds.size > 0 && (
+          <>
+            <BotaoAcao primario className="min-h-11 md:min-h-0" onClick={imprimirSelecionados}>
+              <Printer size={14} /> Imprimir laudos ({selectedIds.size})
+            </BotaoAcao>
+            <BotaoAcao className="min-h-11 md:min-h-0" onClick={onClearSelection}>
+              Limpar
+            </BotaoAcao>
+          </>
+        )}
+      </FilterBar>
 
+      <div className="panel-card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="px-4 py-2.5 border-b border-zinc-200 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
+          <span className="font-bold text-zinc-700">
+            {filtradas.length} {filtradas.length === 1 ? 'laudo' : 'laudos'}
+          </span>
           {onCarregarMaisAntigos && desdeCarregado && (
             <button
               type="button"
-              onClick={handleCarregarAntigos}
+              onClick={carregarAntigos}
               disabled={carregandoAntigos}
-              title="Carrega mais 12 meses de laudos do servidor"
-              className="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 border border-dashed border-zinc-300 text-zinc-600 hover:bg-zinc-50 disabled:opacity-60"
+              className="min-h-11 md:min-h-0 text-[11px] font-bold text-zinc-600 underline underline-offset-2 disabled:opacity-60 cursor-pointer"
             >
-              {carregandoAntigos ? 'Carregando...' : `Carregar anteriores a ${desdeCarregado.split('-').reverse().join('/')}`}
+              {carregandoAntigos ? 'Carregando...' : `Mostrando desde ${dataBr(desdeCarregado)} — carregar mais antigos`}
             </button>
           )}
         </div>
-      )}
 
-      {/* 2. Barra de Filtros e Ações em Lote */}
-      <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
-        {/* Campo de Busca Rápida */}
-        <div className="relative flex-1">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-          <input
-            type="text"
-            placeholder="Buscar por lote, nome do produto, código, operador ou notas..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-zinc-300 rounded-xl text-sm bg-white text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900"
-          />
-          {buscandoServidor && (
-            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-zinc-400">Buscando...</span>
-          )}
-        </div>
-
-        {/* Filtros de Status */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
-          <button
-            type="button"
-            onClick={() => setStatusFilter('all')}
-            className={cn(
-              "px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
-              statusFilter === 'all'
-                ? "bg-zinc-950 text-white shadow-xs"
-                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-            )}
-          >
-            Todos ({statusCounts.total})
-          </button>
-          <button
-            type="button"
-            onClick={() => setStatusFilter('conforme')}
-            className={cn(
-              "px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
-              statusFilter === 'conforme'
-                ? "bg-emerald-700 text-white shadow-xs"
-                : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-            )}
-          >
-            Conformes ({statusCounts.conformes})
-          </button>
-          <button
-            type="button"
-            onClick={() => setStatusFilter('em_correcao')}
-            className={cn(
-              "px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1",
-              statusFilter === 'em_correcao'
-                ? "bg-amber-600 text-white shadow-xs"
-                : "bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-200/80"
-            )}
-          >
-            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-            Em Correção ({statusCounts.emCorrecao})
-          </button>
-          <button
-            type="button"
-            onClick={() => setStatusFilter('ajustado')}
-            className={cn(
-              "px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
-              statusFilter === 'ajustado'
-                ? "bg-blue-700 text-white shadow-xs"
-                : "bg-blue-50 text-blue-800 hover:bg-blue-100"
-            )}
-          >
-            Ajustados ({statusCounts.ajustados})
-          </button>
-          <button
-            type="button"
-            onClick={() => setStatusFilter('fora')}
-            className={cn(
-              "px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
-              statusFilter === 'fora'
-                ? "bg-rose-700 text-white shadow-xs"
-                : "bg-rose-50 text-rose-800 hover:bg-rose-100"
-            )}
-          >
-            Fora do Padrão ({statusCounts.fora})
-          </button>
-          <button
-            type="button"
-            onClick={() => setStatusFilter('pendente_erp')}
-            className={cn(
-              "px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
-              statusFilter === 'pendente_erp'
-                ? "bg-purple-700 text-white shadow-xs"
-                : "bg-purple-50 text-purple-800 hover:bg-purple-100"
-            )}
-          >
-            Pendente ERP ({statusCounts.pendentesErp})
-          </button>
-        </div>
-
-        {/* Botões de Ação em Lote */}
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Botão de Gravação Direta no ERP */}
-          {(statusCounts.pendentesErp > 0 || selectedIds.size > 0) && (
-            <button
-              type="button"
-              onClick={() => handlePushToErp(selectedIds.size > 0 ? Array.from(selectedIds) : undefined)}
-              disabled={pushingErp}
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              <Clock className={cn("w-3.5 h-3.5", pushingErp && "animate-spin")} />
-              <span>
-                {pushingErp
-                  ? 'Lançando no ERP...'
-                  : selectedIds.size > 0
-                  ? `Lançar (${selectedIds.size}) no ERP`
-                  : `Lançar Pendentes no ERP (${statusCounts.pendentesErp})`}
-              </span>
-            </button>
-          )}
-
-          {/* Botão de Relatório Resumido A4 */}
-          <button
-            type="button"
-            onClick={handlePrintSummaryReport}
-            className="flex items-center gap-1.5 px-3.5 py-2 border border-zinc-300 hover:border-zinc-400 bg-white hover:bg-zinc-50 text-zinc-900 text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer"
-          >
-            <FileText className="w-3.5 h-3.5 text-zinc-600" />
-            Relatório Resumido A4
-          </button>
-
-          {/* Botão de Impressão de Laudos Completos Selecionados */}
-          {selectedIds.size > 0 && (
-            <>
-              <button
-                type="button"
-                onClick={handlePrintBatch}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-zinc-950 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                Laudos Oficiais ({selectedIds.size})
-              </button>
-              <button
-                type="button"
-                onClick={onClearSelection}
-                className="px-2.5 py-2 border border-zinc-200 hover:bg-zinc-50 text-zinc-500 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-              >
-                Limpar
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* 3. Tabela de Histórico de Laudos */}
-      <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto min-h-[350px]">
-          {filteredAnalyses.length === 0 ? (
-            <div className="py-20 text-center text-zinc-400 text-xs flex flex-col items-center gap-2">
-              <Activity className="w-8 h-8 text-zinc-300" />
-              <span>Nenhum laudo físico-químico localizado para o filtro selecionado.</span>
-            </div>
-          ) : (
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-zinc-50/80 border-b border-zinc-200 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                  <th className="px-4 py-3 w-10 text-center">
+        {filtradas.length === 0 ? (
+          <p className="p-10 text-center text-zinc-500 font-bold text-xs">Nenhum laudo encontrado para este filtro.</p>
+        ) : (
+          <>
+            {/* Celular: linhas de 44 px; o quadrado seleciona, o resto abre o laudo */}
+            <div className="md:hidden divide-y divide-zinc-100">
+              {visiveis.map(({ a, sit }) => (
+                <div key={a.id} className="flex items-stretch">
+                  <label className="flex w-11 shrink-0 items-center justify-center cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={allVisibleSelected}
-                      onChange={handleToggleSelectAllVisible}
-                      className="w-4 h-4 text-zinc-950 focus:ring-zinc-900 accent-zinc-950 rounded cursor-pointer"
+                      checked={selectedIds.has(a.id)}
+                      onChange={() => onToggleSelection(a.id)}
+                      aria-label={`Selecionar lote ${a.batch}`}
+                      className="h-5 w-5 accent-zinc-950"
                     />
-                  </th>
-                  <th className="px-4 py-3">Lote / Data</th>
-                  <th className="px-4 py-3">Produto Acabado</th>
-                  <th className="px-4 py-3">Fabricação</th>
-                  <th className="px-4 py-3 text-center">pH (25°C)</th>
-                  <th className="px-4 py-3 text-center">Viscosidade</th>
-                  <th className="px-4 py-3 text-center">Densidade</th>
-                  <th className="px-4 py-3 text-center">Envase Alvo</th>
-                  <th className="px-4 py-3 text-center">Status ERP</th>
-                  <th className="px-4 py-3 text-center">Conformidade</th>
-                  <th className="px-4 py-3 text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200">
-                {paginatedAnalyses.map((a) => {
-                  const isSelected = selectedIds.has(a.id);
-                  const pat = patternMap.get(normalizeCode(a.productCode)) || null;
-                  const compliance = checkAnalysisCompliance(a, pat);
-                  const isEmCorrecaoItem = compliance.overallStatus === 'EM_CORRECAO';
-                  const agent = a.correctiveAgentId ? agentMap.get(a.correctiveAgentId) : null;
-                  const synced = isSyncedToErp(a);
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setAberto(a)}
+                    className="min-h-11 min-w-0 flex-1 py-2.5 pr-4 flex items-center justify-between gap-3 text-left cursor-pointer active:bg-zinc-50"
+                  >
+                    <span className="min-w-0">
+                      <span className="block font-mono text-[11px] font-bold text-zinc-500">
+                        {a.batch} · {dataBr(a.analysisDate)}
+                      </span>
+                      <span className="block text-xs font-bold text-zinc-900 break-words">{a.productName}</span>
+                    </span>
+                    <span className="shrink-0">{selo(sit)}</span>
+                  </button>
+                </div>
+              ))}
+            </div>
 
-                  const cleanDate = (a.analysisDate || '').trim().split(' ')[0].split('T')[0];
-                  const dateStr = cleanDate.includes('-')
-                    ? cleanDate.split('-').reverse().join('/')
-                    : cleanDate;
-
-                  return (
-                    <tr
-                      key={a.id}
-                      className={cn(
-                        "transition-colors hover:bg-zinc-50/70",
-                        isSelected && "bg-zinc-100/60"
-                      )}
-                    >
-                      {/* Checkbox */}
-                      <td className="px-4 py-3.5 text-center">
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={(e) => onToggleSelection(a.id, (e.nativeEvent as any).shiftKey, (e.nativeEvent as any).ctrlKey)}
-                          className="w-4 h-4 text-zinc-950 focus:ring-zinc-900 accent-zinc-950 rounded cursor-pointer"
-                        />
-                      </td>
-
-                      {/* Lote e Data */}
-                      <td className="px-4 py-3.5 whitespace-nowrap">
-                        <div className="font-bold text-zinc-900 font-mono text-sm">{a.batch}</div>
-                        <div className="text-[10px] text-zinc-500 font-mono">{dateStr}</div>
-                      </td>
-
-                      {/* Produto + Mídia */}
-                      <td className="px-4 py-3.5 max-w-[280px]">
-                        <div className="flex items-center gap-2">
-                          {a.mediaUrl && (
-                            <button
-                              type="button"
-                              onClick={() => setZoomMedia({ url: a.mediaUrl!, title: `Amostra Lote ${a.batch} - ${a.productName}`, isVideo: a.mediaUrl!.startsWith('data:video') })}
-                              className="p-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700 transition-colors cursor-pointer shrink-0"
-                              title="Ver foto/vídeo da amostra do lote"
-                            >
-                              {a.mediaUrl.startsWith('data:video') ? (
-                                <Video className="w-3.5 h-3.5 text-indigo-600" />
-                              ) : (
-                                <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
-                              )}
-                            </button>
-                          )}
-                          <div className="min-w-0">
-                            <div className="font-bold text-zinc-900 truncate" title={a.productName}>
-                              {a.productName}
-                            </div>
-                            <div className="text-[10px] text-zinc-400 font-mono">Cód: {a.productCode}</div>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Fabricação */}
-                      <td className="px-4 py-3.5 whitespace-nowrap">
-                        <div className="text-[11px] font-semibold text-zinc-800 truncate max-w-[140px]" title={a.fabricatedBy || a.technician}>
-                          FAB: {a.fabricatedBy || '—'}
-                        </div>
-                        <div className="text-[10px] text-zinc-500 truncate max-w-[140px]" title={a.authorizedBy}>
-                          AUT: {a.authorizedBy || '—'}
-                        </div>
-                      </td>
-
-                      {/* pH */}
-                      <td className="px-4 py-3.5 text-center font-mono font-bold">
-                        <span className={cn(
-                          "px-1.5 py-0.5 rounded",
-                          compliance.phOk ? "text-zinc-900" : "bg-rose-100 text-rose-800"
-                        )}>
-                          {a.phMeasured > 0 ? a.phMeasured.toFixed(2) : '—'}
-                        </span>
-                      </td>
-
-                      {/* Viscosidade */}
-                      <td className="px-4 py-3.5 text-center font-mono font-bold">
-                        <span className={cn(
-                          "px-1.5 py-0.5 rounded",
-                          compliance.viscOk ? "text-zinc-900" : "bg-rose-100 text-rose-800"
-                        )}>
-                          {formatViscosity(a.viscosityMeasured, pat)}{' '}
-                          <span className="text-[9px] font-normal text-zinc-400">cps</span>
-                        </span>
-                      </td>
-
-                      {/* Densidade */}
-                      <td className="px-4 py-3.5 text-center font-mono font-bold">
-                        <span className={cn(
-                          "px-1.5 py-0.5 rounded",
-                          compliance.densityOk ? "text-zinc-900" : "bg-rose-100 text-rose-800"
-                        )}>
-                          {a.densityMeasured > 0 ? a.densityMeasured.toFixed(3) : '—'}{' '}
-                          <span className="text-[9px] font-normal text-zinc-400">g/mL</span>
-                        </span>
-                      </td>
-
-                      {/* Envase Alvo */}
-                      <td className="px-4 py-3.5 text-center whitespace-nowrap">
-                        {(() => {
-                          const filling = calculateFillingTargets(pat, a.densityMeasured, a.productName);
-                          const envaseDisplay = a.envaseTargetWeight > 0
-                            ? `${a.envaseTargetWeight} ${a.envaseTargetUnit || 'g'}`
-                            : (filling.weight.value > 0 ? `${filling.weight.value} ${filling.weight.unit}` : null);
-
-                          return envaseDisplay ? (
-                            <span className="px-2 py-0.5 bg-zinc-900 text-white rounded font-mono font-bold text-[10px]">
-                              {envaseDisplay}
-                            </span>
+            <div className="hidden md:block overflow-x-auto">
+              <table className="data-table compacta w-full text-left">
+                <thead>
+                  <tr>
+                    <th style={{ width: 36 }}>
+                      <input
+                        type="checkbox"
+                        checked={todosMarcados}
+                        onChange={() => (todosMarcados ? onClearSelection() : onSelectAll(visiveis.map(({ a }) => a.id)))}
+                        aria-label="Selecionar todos desta página"
+                        className="h-4 w-4 accent-zinc-950 cursor-pointer"
+                      />
+                    </th>
+                    <th>Lote</th>
+                    <th>Data</th>
+                    <th>Produto</th>
+                    <th className="text-center">pH</th>
+                    <th className="text-center">Visc. (cps)</th>
+                    <th className="text-center">Dens. (g/mL)</th>
+                    <th className="text-center hidden xl:table-cell">Envase</th>
+                    <th>ERP</th>
+                    <th>Situação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visiveis.map(({ a, pat, sit }) => {
+                    const ok = checkAnalysisCompliance(a, pat);
+                    return (
+                      <tr
+                        key={a.id}
+                        onClick={() => setAberto(a)}
+                        className={cn('border-b border-zinc-150 hover:bg-zinc-50 cursor-pointer', selectedIds.has(a.id) && 'bg-zinc-100/60')}
+                      >
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(a.id)}
+                            onChange={() => onToggleSelection(a.id)}
+                            aria-label={`Selecionar lote ${a.batch}`}
+                            className="h-4 w-4 accent-zinc-950 cursor-pointer"
+                          />
+                        </td>
+                        <td className="font-mono font-bold text-zinc-900">{a.batch}</td>
+                        <td className="font-mono text-zinc-600 whitespace-nowrap">{dataBr(a.analysisDate)}</td>
+                        <td className="max-w-[300px]">
+                          <span className="block font-bold text-zinc-900 truncate" title={a.productName}>{a.productName}</span>
+                          <span className="block font-mono text-[10px] text-zinc-400">{a.productCode}</span>
+                        </td>
+                        <td className="text-center">{medida(ok.phOk, a.phMeasured > 0 ? a.phMeasured.toFixed(2) : '—')}</td>
+                        <td className="text-center">{medida(ok.viscOk, formatViscosity(a.viscosityMeasured, pat))}</td>
+                        <td className="text-center">{medida(ok.densityOk, a.densityMeasured > 0 ? a.densityMeasured.toFixed(3) : '—')}</td>
+                        <td className="text-center font-mono text-zinc-700 whitespace-nowrap hidden xl:table-cell">{envaseDe(a, pat)}</td>
+                        <td>
+                          {lancadoNoErp(a) ? (
+                            <StatusBadge variante="abundante" title={`Lançado no ERP em ${a.erpSyncedAt || ''}`}>Lançado</StatusBadge>
                           ) : (
-                            <span className="text-zinc-400 text-[10px]">—</span>
-                          );
-                        })()}
-                      </td>
-
-                      {/* Status ERP */}
-                      <td className="px-4 py-3.5 text-center whitespace-nowrap">
-                        {synced ? (
-                          <span
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200"
-                            title={`Lançado no ERP em: ${a.erpSyncedAt || 'OK'}`}
-                          >
-                            <CheckCircle2 size={11} className="text-blue-600" />
-                            Lançado
-                          </span>
-                        ) : (
-                          <span
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-zinc-100 text-zinc-600 border border-zinc-200"
-                            title="Não gravado no ERP ainda"
-                          >
-                            <Clock size={11} className="text-zinc-400" />
-                            Pendente
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Conformidade */}
-                      <td className="px-4 py-3.5 text-center whitespace-nowrap">
-                        {isEmCorrecaoItem ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 shadow-xs">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse" />
-                            Em Correção
-                          </span>
-                        ) : compliance.isCompliant ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            <CheckCircle2 size={11} className="text-emerald-600" />
-                            {a.hasAdjustment ? 'Conforme (Ajustado)' : 'Conforme'}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-800 border border-rose-200">
-                            <AlertTriangle size={11} className="text-rose-600" />
-                            Fora do Padrão
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Ações */}
-                      <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {/* Botão de Edição */}
-                          {onEditAnalysis && (
-                            <button
-                              type="button"
-                              onClick={() => onEditAnalysis(a)}
-                              className={cn(
-                                "flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs",
-                                isEmCorrecaoItem
-                                  ? "bg-amber-400 hover:bg-amber-500 text-amber-950 font-black"
-                                  : "bg-zinc-100 hover:bg-zinc-200 text-zinc-800 hover:text-zinc-950"
-                              )}
-                              title="Editar medições e dados do laudo"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                              <span>{isEmCorrecaoItem ? 'Concluir / Editar' : 'Editar'}</span>
-                            </button>
+                            <StatusBadge variante="aguardando">Pendente</StatusBadge>
                           )}
+                        </td>
+                        <td>{selo(sit)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
 
-                          {isEmCorrecaoItem && (
-                            <button
-                              type="button"
-                              onClick={() => printCorrectiveOrder(a, pat, agent, config ? { template: config } as any : null)}
-                              className="p-1.5 text-amber-700 hover:text-amber-950 hover:bg-amber-100 rounded-lg transition-colors cursor-pointer"
-                              title="Reimprimir Ordem de Ajuste Corretivo"
-                            >
-                              <Printer className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-
-                          {/* Botão de Impressão do Laudo Oficial Individual */}
-                          <button
-                            type="button"
-                            onClick={() => handlePrintSingle(a)}
-                            className="p-1.5 text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 rounded-lg transition-colors cursor-pointer"
-                            title="Imprimir Laudo Oficial Individual"
-                          >
-                            <Printer className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        {/* 4. Paginação do Histórico */}
-        {filteredAnalyses.length > 0 && (
-          <div className="bg-zinc-50 px-4 py-3 border-t border-zinc-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-zinc-600">
-            <div className="flex items-center gap-2">
-              <span>
-                Mostrando <strong>{(currentPage - 1) * pageSize + 1}</strong> a{' '}
-                <strong>{Math.min(currentPage * pageSize, filteredAnalyses.length)}</strong> de{' '}
-                <strong>{filteredAnalyses.length}</strong> laudos
-              </span>
-              <span className="text-zinc-300">|</span>
-              <div className="flex items-center gap-1.5">
-                <span>Por página:</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => setPageSize(Number(e.target.value))}
-                  className="bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs font-semibold text-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-900"
+            {totalPaginas > 1 && (
+              <div className="px-4 py-2.5 border-t border-zinc-200 flex items-center justify-between gap-3 text-xs text-zinc-600">
+                <button
+                  type="button"
+                  disabled={pagina === 1}
+                  onClick={() => setPagina((p) => p - 1)}
+                  className="tab-btn min-h-11 md:min-h-0 px-4 disabled:opacity-40"
                 >
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                  <option value={250}>250</option>
-                </select>
+                  Anterior
+                </button>
+                <span className="font-bold">
+                  Página {pagina} de {totalPaginas}
+                </span>
+                <button
+                  type="button"
+                  disabled={pagina === totalPaginas}
+                  onClick={() => setPagina((p) => p + 1)}
+                  className="tab-btn min-h-11 md:min-h-0 px-4 disabled:opacity-40"
+                >
+                  Próxima
+                </button>
               </div>
-            </div>
-
-            {/* Controles de Navegação */}
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setCurrentPage(1)}
-                disabled={currentPage === 1}
-                className="p-1.5 border border-zinc-200 bg-white hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-zinc-700 transition-colors cursor-pointer"
-                title="Primeira Página"
-              >
-                <ChevronsLeft className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="p-1.5 border border-zinc-200 bg-white hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-zinc-700 transition-colors cursor-pointer"
-                title="Página Anterior"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-
-              <span className="px-3 py-1 font-bold text-zinc-800">
-                {currentPage} / {totalPages}
-              </span>
-
-              <button
-                type="button"
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="p-1.5 border border-zinc-200 bg-white hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-zinc-700 transition-colors cursor-pointer"
-                title="Próxima Página"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setCurrentPage(totalPages)}
-                disabled={currentPage === totalPages}
-                className="p-1.5 border border-zinc-200 bg-white hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-zinc-700 transition-colors cursor-pointer"
-                title="Última Página"
-              >
-                <ChevronsRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
+            )}
+          </>
         )}
       </div>
 
-      {/* Modal de Zoom da Mídia */}
-      <Modal
-        isOpen={!!zoomMedia}
-        onClose={() => setZoomMedia(null)}
-        title={zoomMedia?.title || 'Mídia da Amostra'}
-        subtitle="Registro de bancada"
-        size="lg"
-      >
-        {zoomMedia && (
-          <div className="space-y-4">
-            <div className="rounded-2xl overflow-hidden border border-zinc-200 bg-black flex items-center justify-center max-h-[70vh]">
-              {zoomMedia.isVideo ? (
-                <video src={zoomMedia.url} controls autoPlay className="max-w-full max-h-[70vh]" />
-              ) : (
-                <img src={zoomMedia.url} alt={zoomMedia.title} className="max-w-full max-h-[70vh] object-contain" />
+      {aberto && (() => {
+        const a = analyses.find((x) => x.id === aberto.id) || aberto;
+        const pat = patternMap.get(normalizeCode(a.productCode)) || null;
+        const sit = situacaoDoLaudo(a, pat);
+        const ok = checkAnalysisCompliance(a, pat);
+        const agente = a.correctiveAgentId ? agentMap.get(a.correctiveAgentId) : null;
+        const faixa = (txt: string) => <span className="block text-[10px] font-normal text-zinc-400">{txt}</span>;
+        const campo = (rotulo: string, valor: React.ReactNode, extra?: React.ReactNode) => (
+          <div className="min-w-0">
+            <span className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400">{rotulo}</span>
+            <div className="text-sm text-zinc-900 break-words">{valor}</div>
+            {extra}
+          </div>
+        );
+        return (
+          <Drawer
+            onClose={() => setAberto(null)}
+            title={`Lote ${a.batch}`}
+            subtitle={`${a.productName} · ${a.productCode}`}
+            badge={selo(sit)}
+            size="md"
+            footer={
+              <div className="flex flex-wrap justify-end gap-2">
+                <BotaoAcao className="min-h-11 md:min-h-0" onClick={() => { onDeleteAnalysis(a.id, a.batch); setAberto(null); }}>
+                  <Trash2 size={14} /> Excluir
+                </BotaoAcao>
+                {sit === 'em_correcao' && (
+                  <BotaoAcao className="min-h-11 md:min-h-0" onClick={() => printCorrectiveOrder(a, pat, agente, config ? ({ template: config } as any) : null)}>
+                    <Printer size={14} /> Ordem de ajuste
+                  </BotaoAcao>
+                )}
+                {!lancadoNoErp(a) && (
+                  <BotaoAcao className="min-h-11 md:min-h-0" onClick={() => pedirLancamento([a.id])}>
+                    <Send size={14} /> Lançar no ERP
+                  </BotaoAcao>
+                )}
+                <BotaoAcao className="min-h-11 md:min-h-0" onClick={() => printFiscoReports(a, patterns, products, agents, config)}>
+                  <Printer size={14} /> Imprimir laudo
+                </BotaoAcao>
+                {onEditAnalysis && (
+                  <BotaoAcao primario className="min-h-11 md:min-h-0" onClick={() => onEditAnalysis(a)}>
+                    <Pencil size={14} /> {sit === 'em_correcao' ? 'Concluir análise' : 'Editar'}
+                  </BotaoAcao>
+                )}
+              </div>
+            }
+          >
+            <div className="space-y-5 p-4">
+              <div className="grid grid-cols-2 gap-4">
+                {campo('pH (25 °C)', medida(ok.phOk, a.phMeasured > 0 ? a.phMeasured.toFixed(2) : '—'), pat && faixa(`padrão ${pat.phMin} a ${pat.phMax}`))}
+                {campo(
+                  'Viscosidade',
+                  <>{medida(ok.viscOk, formatViscosity(a.viscosityMeasured, pat))} <span className="text-[10px] text-zinc-400">cps</span></>,
+                  pat && faixa(`padrão ${formatViscosity(pat.viscosityMin, pat)} a ${formatViscosity(pat.viscosityMax, pat)}`),
+                )}
+                {campo(
+                  'Densidade',
+                  <>{medida(ok.densityOk, a.densityMeasured > 0 ? a.densityMeasured.toFixed(3) : '—')} <span className="text-[10px] text-zinc-400">g/mL</span></>,
+                  pat && faixa(`padrão ${pat.densityTarget.toFixed(3)} ± ${pat.densityTolerance.toFixed(3)}`),
+                )}
+                {campo('Envase', <span className="font-mono font-bold">{envaseDe(a, pat)}</span>)}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 border-t border-zinc-200 pt-4">
+                {campo('Data da análise', dataBr(a.analysisDate))}
+                {campo('Analista', a.technician || '—')}
+                {campo('Fabricado por', a.fabricatedBy || '—')}
+                {campo('Autorizado por', a.authorizedBy || '—')}
+                {campo(
+                  'ERP',
+                  lancadoNoErp(a) ? <StatusBadge variante="abundante">Lançado</StatusBadge> : <StatusBadge variante="aguardando">Pendente</StatusBadge>,
+                  lancadoNoErp(a) && a.erpSyncedAt ? faixa(String(a.erpSyncedAt).slice(0, 16).replace('T', ' ')) : undefined,
+                )}
+                {a.aspectResult && campo('Aspecto', a.aspectResult)}
+                {a.colorResult && campo('Cor', a.colorResult)}
+                {a.odorResult && campo('Odor', a.odorResult)}
+              </div>
+
+              {a.notes && (
+                <div className="border-t border-zinc-200 pt-4">
+                  {campo('Observações', <span className="whitespace-pre-wrap">{a.notes}</span>)}
+                </div>
+              )}
+
+              {a.mediaUrl && (
+                <div className="border-t border-zinc-200 pt-4">
+                  <BotaoAcao className="min-h-11 md:min-h-0" onClick={() => setZoomMidia(a)}>
+                    <ImageIcon size={14} /> Ver {a.mediaUrl.startsWith('data:video') ? 'vídeo' : 'foto'} da amostra
+                  </BotaoAcao>
+                </div>
               )}
             </div>
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={() => setZoomMedia(null)}
-                className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold cursor-pointer"
-              >
-                Fechar
-              </button>
-            </div>
+          </Drawer>
+        );
+      })()}
+
+      <Modal isOpen={!!zoomMidia} onClose={() => setZoomMidia(null)} title={zoomMidia ? `Amostra do lote ${zoomMidia.batch}` : ''} subtitle="Registro de bancada" size="lg">
+        {zoomMidia?.mediaUrl && (
+          <div className="rounded-2xl overflow-hidden border border-zinc-200 bg-black flex items-center justify-center max-h-[70dvh]">
+            {zoomMidia.mediaUrl.startsWith('data:video') ? (
+              <video src={zoomMidia.mediaUrl} controls autoPlay className="max-w-full max-h-[70dvh]" />
+            ) : (
+              <img src={zoomMidia.mediaUrl} alt={`Amostra do lote ${zoomMidia.batch}`} className="max-w-full max-h-[70dvh] object-contain" />
+            )}
           </div>
         )}
       </Modal>
 
+      <Modal isOpen={!!confirmaErp} onClose={() => !lancando && setConfirmaErp(null)} title="Lançar laudos no ERP" subtitle="Grava pH, viscosidade, densidade e responsáveis no cadastro do lote do ERP" size="sm">
+        {confirmaErp && (
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-800">
+              Lançar <strong>{confirmaErp.qtd}</strong> {confirmaErp.qtd === 1 ? 'laudo' : 'laudos'} no ERP? O lote passa a constar como aprovado na inspeção.
+            </p>
+            {confirmaErp.lotes.length > 0 && (
+              <p className="text-xs font-mono text-zinc-500 break-words">
+                Lotes: {confirmaErp.lotes.slice(0, 20).join(', ')}{confirmaErp.lotes.length > 20 ? ` e mais ${confirmaErp.lotes.length - 20}` : ''}
+              </p>
+            )}
+            {erroErp && <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-800">{erroErp}</p>}
+            <div className="flex justify-end gap-2">
+              <BotaoAcao className="min-h-11 md:min-h-0" disabled={lancando} onClick={() => setConfirmaErp(null)}>
+                Cancelar
+              </BotaoAcao>
+              <BotaoAcao primario className="min-h-11 md:min-h-0" disabled={lancando} onClick={lancarNoErp}>
+                {lancando ? 'Lançando...' : 'Lançar no ERP'}
+              </BotaoAcao>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

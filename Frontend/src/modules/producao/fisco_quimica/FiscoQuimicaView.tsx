@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import AppLayout from '../../geral/components/layout/AppLayout';
-import Modal from '../../geral/components/ui/Modal';
+import { ReportTabs } from '../../geral/components/ui/ReportKit';
 import { DEFAULT_FISCO_TEMPLATE } from './lib/fiscoUtils';
 
 // Subcomponentes modulares
@@ -36,6 +36,7 @@ import { CalendarTab } from './components/CalendarTab';
 import { AnalysisHistory } from './components/AnalysisHistory';
 import { CorrectiveBatchesTab } from './components/CorrectiveBatchesTab';
 import { PatternsTab } from './components/PatternsTab';
+import { PatternEditor } from './components/PatternEditor';
 import { AgentsTab } from './components/AgentsTab';
 import { SettingsTab } from './components/SettingsTab';
 import { ErpLotesTab } from './components/ErpLotesTab';
@@ -154,18 +155,8 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
     } catch (_) {}
   };
 
-  // Modal de cadastro rápido de padrão a partir do fluxo de análise
-  const [quickAddPatternProd, setQuickAddPatternProd] = useState<{ code: string; name: string } | null>(null);
-  const [quickPatPhMin, setQuickPatPhMin] = useState('5.50');
-  const [quickPatPhMax, setQuickPatPhMax] = useState('7.00');
-  const [quickPatViscMin, setQuickPatViscMin] = useState('8000');
-  const [quickPatViscMax, setQuickPatViscMax] = useState('12000');
-  const [quickPatDensityTarget, setQuickPatDensityTarget] = useState('1.000');
-  const [quickPatDensityTol, setQuickPatDensityTol] = useState('0.020');
-  const [quickPatVol, setQuickPatVol] = useState('1000');
-  const [quickPatUnit, setQuickPatUnit] = useState<'mL' | 'L' | 'g' | 'kg'>('mL');
-  const [quickPatAllowedAgents, setQuickPatAllowedAgents] = useState<string[]>([]);
-  const [quickSaving, setQuickSaving] = useState(false);
+  // Definir padrão do produto a partir do fluxo de análise (mesmo editor da aba Padrões)
+  const [padraoDoProduto, setPadraoDoProduto] = useState<{ code: string; name: string } | null>(null);
 
   // Rótulos de página
   useEffect(() => {
@@ -256,31 +247,11 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
     fetchData();
   }, []);
 
-  // Seleção múltipla para histórico
-  const toggleReportSelection = (id: string, isShift: boolean = false, isCtrl: boolean = false) => {
+  // Seleção para impressão no histórico
+  const toggleReportSelection = (id: string) => {
     const next = new Set(selectedReportIds);
-    if (isCtrl) {
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-    } else if (isShift && analyses.length > 0) {
-      const lastId = Array.from(selectedReportIds).pop();
-      if (lastId) {
-        const lastIdx = analyses.findIndex((r) => r.id === lastId);
-        const currentIdx = analyses.findIndex((r) => r.id === id);
-        if (lastIdx !== -1 && currentIdx !== -1) {
-          const start = Math.min(lastIdx, currentIdx);
-          const end = Math.max(lastIdx, currentIdx);
-          for (let i = start; i <= end; i++) {
-            next.add(analyses[i].id);
-          }
-        }
-      } else {
-        next.add(id);
-      }
-    } else {
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-    }
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
     setSelectedReportIds(next);
   };
 
@@ -311,80 +282,9 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
     });
   };
 
-  const handleOpenAddPatternQuick = (productCode: string, productName: string) => {
-    setQuickAddPatternProd({ code: productCode, name: productName });
-    setQuickPatPhMin('5.50');
-    setQuickPatPhMax('7.00');
-    setQuickPatViscMin('8000');
-    setQuickPatViscMax('12000');
-    setQuickPatDensityTarget('1.000');
-    setQuickPatDensityTol('0.020');
-
-    const match = productName.match(/(\d+(?:[.,]\d+)?)\s*(ML|L|G|KG)\b/i);
-    if (match) {
-      setQuickPatVol(match[1].replace(',', '.'));
-      const u = match[2].toUpperCase();
-      if (u === 'ML') setQuickPatUnit('mL');
-      else if (u === 'L') setQuickPatUnit('L');
-      else if (u === 'G') setQuickPatUnit('g');
-      else if (u === 'KG') setQuickPatUnit('kg');
-    } else {
-      setQuickPatVol('1000');
-      setQuickPatUnit('mL');
-    }
-
-    setQuickPatAllowedAgents([]);
-  };
-
-  const handleSaveQuickPattern = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!quickAddPatternProd) return;
-
-    const phMin = parseFloat(quickPatPhMin.toString().replace(',', '.'));
-    const phMax = parseFloat(quickPatPhMax.toString().replace(',', '.'));
-    const viscMin = parseFloat(quickPatViscMin.toString().replace(',', '.'));
-    const viscMax = parseFloat(quickPatViscMax.toString().replace(',', '.'));
-    const densTarget = parseFloat(quickPatDensityTarget.toString().replace(',', '.'));
-    const densTol = parseFloat(quickPatDensityTol.toString().replace(',', '.'));
-    const vol = parseFloat(quickPatVol.toString().replace(',', '.'));
-
-    if (
-      isNaN(phMin) || isNaN(phMax) ||
-      isNaN(viscMin) || isNaN(viscMax) ||
-      isNaN(densTarget) || isNaN(densTol) ||
-      isNaN(vol)
-    ) {
-      alert('Preencha os valores numéricos corretamente.');
-      return;
-    }
-
-    setQuickSaving(true);
-    try {
-      await api.saveFiscoQuimicaPattern({
-        productCode: quickAddPatternProd.code,
-        phMin,
-        phMax,
-        viscosityMin: viscMin,
-        viscosityMax: viscMax,
-        densityTarget: densTarget,
-        densityTolerance: densTol,
-        packageVolume: vol,
-        packageUnit: quickPatUnit,
-        allowedAgents: quickPatAllowedAgents,
-      });
-      setQuickAddPatternProd(null);
-      await fetchData();
-    } catch (err) {
-      console.error(err);
-      alert('Erro ao salvar especificações.');
-    } finally {
-      setQuickSaving(false);
-    }
-  };
-
   if (loading && !products.length && !analyses.length) {
     return (
-      <div className="flex h-screen items-center justify-center bg-zinc-50">
+      <div className="flex h-dvh items-center justify-center bg-zinc-50">
         <Loader2 className="h-8 w-8 animate-spin text-zinc-800" />
       </div>
     );
@@ -453,7 +353,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                 setActiveTab('history');
               }}
               onAgentsChanged={fetchData}
-              onOpenAddPattern={handleOpenAddPatternQuick}
+              onOpenAddPattern={(code, name) => setPadraoDoProduto({ code, name })}
             />
           </motion.div>
         )}
@@ -498,7 +398,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
         )}
 
         {activeTab === 'erp_lotes' && (
-          <motion.div key="erp_lotes" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <motion.div key="erp_lotes" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
             <ErpLotesTab
               onStartAnalysisWithLote={(code, batch) => {
                 setSelectedLoteForNew({ productCode: code, batch });
@@ -512,22 +412,11 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
 
         {activeTab === 'correctives' && (
           <motion.div key="correctives" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="space-y-4">
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setCorrectiveSection('baixas')}
-                className={`min-h-11 px-4 rounded-xl text-sm font-bold border ${correctiveSection === 'baixas' ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-800 border-zinc-200'}`}
-              >
-                Baixas
-              </button>
-              <button
-                type="button"
-                onClick={() => setCorrectiveSection('catalogo')}
-                className={`min-h-11 px-4 rounded-xl text-sm font-bold border ${correctiveSection === 'catalogo' ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-800 border-zinc-200'}`}
-              >
-                Catálogo
-              </button>
-            </div>
+            <ReportTabs
+              abas={[{ id: 'baixas', label: 'Baixas da semana' }, { id: 'catalogo', label: 'Catálogo de corretivos' }]}
+              ativa={correctiveSection}
+              onChange={(id) => setCorrectiveSection(id as 'baixas' | 'catalogo')}
+            />
             {correctiveSection === 'baixas' ? (
               <CorrectiveBatchesTab
                 agents={agents}
@@ -537,7 +426,6 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
               <AgentsTab
                 agents={agents}
                 items={items}
-                analyses={analyses}
                 onRefresh={fetchData}
               />
             )}
@@ -565,144 +453,16 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
         )}
       </AnimatePresence>
 
-      {/* Modal de cadastro rápido de padrão disparado pela aba 'new' */}
-      <Modal
-        isOpen={Boolean(quickAddPatternProd)}
-        onClose={() => setQuickAddPatternProd(null)}
-        title="Cadastrar Especificações do Produto"
-        subtitle="Defina os limites aceitáveis para pH, viscosidade e densidade"
-        size="md"
-      >
-        {quickAddPatternProd && (
-          <form onSubmit={handleSaveQuickPattern} className="space-y-4">
-            <div className="bg-zinc-50 p-3.5 rounded-xl border border-zinc-200 space-y-1">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Produto</span>
-              <strong className="text-sm text-zinc-900 block truncate">{quickAddPatternProd.name}</strong>
-              <span className="font-mono text-xs text-zinc-500 font-bold block">{quickAddPatternProd.code}</span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">pH Mínimo *</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  required
-                  value={quickPatPhMin}
-                  onChange={(e) => setQuickPatPhMin(e.target.value.replace(',', '.'))}
-                  className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">pH Máximo *</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  required
-                  value={quickPatPhMax}
-                  onChange={(e) => setQuickPatPhMax(e.target.value.replace(',', '.'))}
-                  className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">Viscosidade Mín. (cps) *</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  required
-                  value={quickPatViscMin}
-                  onChange={(e) => setQuickPatViscMin(e.target.value.replace(',', '.'))}
-                  className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">Viscosidade Máx. (cps) *</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  required
-                  value={quickPatViscMax}
-                  onChange={(e) => setQuickPatViscMax(e.target.value.replace(',', '.'))}
-                  className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">Densidade Alvo (g/mL) *</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  required
-                  value={quickPatDensityTarget}
-                  onChange={(e) => setQuickPatDensityTarget(e.target.value.replace(',', '.'))}
-                  className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">Tolerância (± g/mL) *</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  required
-                  value={quickPatDensityTol}
-                  onChange={(e) => setQuickPatDensityTol(e.target.value.replace(',', '.'))}
-                  className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">Capacidade Embalagem *</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  required
-                  value={quickPatVol}
-                  onChange={(e) => setQuickPatVol(e.target.value.replace(',', '.'))}
-                  className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">Unidade da Embalagem *</label>
-                <select
-                  value={quickPatUnit}
-                  onChange={(e) => setQuickPatUnit(e.target.value as any)}
-                  className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                >
-                  <option value="mL">mL</option>
-                  <option value="L">L</option>
-                  <option value="g">g</option>
-                  <option value="kg">kg</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-zinc-200 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setQuickAddPatternProd(null)}
-                className="px-4 py-2 border border-zinc-300 text-zinc-600 text-xs font-bold rounded-xl hover:bg-zinc-50 cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={quickSaving}
-                className="px-5 py-2 bg-zinc-950 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl shadow cursor-pointer transition-all"
-              >
-                {quickSaving ? 'Salvando...' : 'Gravar Especificações'}
-              </button>
-            </div>
-          </form>
-        )}
-      </Modal>
-
+      {padraoDoProduto && (
+        <PatternEditor
+          key={padraoDoProduto.code}
+          produto={padraoDoProduto}
+          padrao={null}
+          agents={agents}
+          onClose={() => setPadraoDoProduto(null)}
+          onSaved={() => { setPadraoDoProduto(null); fetchData(); }}
+        />
+      )}
     </AppLayout>
   );
 }

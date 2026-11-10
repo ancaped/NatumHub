@@ -1,51 +1,40 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { RefreshCw, Printer, CheckCircle2, Clock } from 'lucide-react';
 import { api } from '../../../geral/lib/api';
 import { CorrectiveWeekSummary, FiscoQuimicaAgent } from '../../../geral/lib/types';
-import {
-  Sliders,
-  CheckCircle2,
-  Clock,
-  Search,
-  RefreshCw,
-  Printer,
-  ChevronDown,
-  ChevronRight,
-  AlertCircle,
-  FlaskConical,
-  Scale
-} from 'lucide-react';
-import { cn } from '../../../geral/lib/utils';
-import { localAuth } from '../../../geral/lib/api';
+import Drawer from '../../../geral/components/ui/Drawer';
+import Modal from '../../../geral/components/ui/Modal';
+import { BotaoAcao, FilterBar, ReportTabs, StatusBadge } from '../../../geral/components/ui/ReportKit';
+import { imprimirBaixaSemanal } from '../lib/baixaSemanal';
 
 interface CorrectiveBatchesTabProps {
-  agents: FiscoQuimicaAgent[];
+  agents?: FiscoQuimicaAgent[];
   onRefreshHistory?: () => void;
 }
 
-export function CorrectiveBatchesTab({ agents, onRefreshHistory }: CorrectiveBatchesTabProps) {
+type Filtro = 'ALL' | 'PENDENTE' | 'BAIXADO';
+
+const kg = (v: number) => `${v.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} kg`;
+
+/** Baixa semanal dos agentes corretivos: o que foi gasto nos ajustes da bancada, para dar baixa única no ERP. */
+export function CorrectiveBatchesTab({ onRefreshHistory }: CorrectiveBatchesTabProps) {
   const [weeks, setWeeks] = useState<CorrectiveWeekSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDENTE' | 'BAIXADO'>('ALL');
-  const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set());
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-
-  const currentUser = localAuth.getUser();
+  const [filtro, setFiltro] = useState<Filtro>('ALL');
+  const [aberta, setAberta] = useState<string | null>(null);
+  const [confirma, setConfirma] = useState<CorrectiveWeekSummary | null>(null);
+  const [gravando, setGravando] = useState(false);
+  const [erroGravar, setErroGravar] = useState<string | null>(null);
 
   const fetchWeeks = async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.getFiscoCorrectiveBatches();
-      setWeeks(data || []);
-      // Expandir a primeira semana por padrão se houver
-      if (data && data.length > 0) {
-        setExpandedWeeks(new Set([data[0].week_key]));
-      }
-    } catch (err: any) {
-      console.error('Erro ao buscar baixas de corretivos:', err);
-      setError(err.message || 'Erro ao carregar dados de corretivos.');
+      setWeeks((await api.getFiscoCorrectiveBatches()) || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao carregar as baixas.');
     } finally {
       setLoading(false);
     }
@@ -55,514 +44,214 @@ export function CorrectiveBatchesTab({ agents, onRefreshHistory }: CorrectiveBat
     fetchWeeks();
   }, []);
 
-  const toggleExpand = (weekKey: string) => {
-    setExpandedWeeks((prev) => {
-      const next = new Set(prev);
-      if (next.has(weekKey)) {
-        next.delete(weekKey);
-      } else {
-        next.add(weekKey);
-      }
-      return next;
+  const pendentes = weeks.filter((w) => !w.is_baixa_realizada).length;
+
+  const filtradas = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return weeks.filter((w) => {
+      if (filtro === 'PENDENTE' && w.is_baixa_realizada) return false;
+      if (filtro === 'BAIXADO' && !w.is_baixa_realizada) return false;
+      if (!q) return true;
+      return (
+        w.label.toLowerCase().includes(q) ||
+        w.week_key.toLowerCase().includes(q) ||
+        w.items.some((it) => [it.batch, it.product_code, it.product_name, it.agent_name].some((t) => t.toLowerCase().includes(q)))
+      );
     });
-  };
+  }, [weeks, filtro, search]);
 
-  const handleToggleBaixa = async (week: CorrectiveWeekSummary) => {
-    const nextStatus = !week.is_baixa_realizada;
-    const confirmMsg = nextStatus
-      ? `Confirmar que as baixas manuais dos agentes corretivos da semana "${week.label}" foram realizadas no ERP?`
-      : `Deseja desfazer e reabrir a baixa da semana "${week.label}"?`;
+  const semana = aberta ? weeks.find((w) => w.week_key === aberta) || null : null;
 
-    if (!confirm(confirmMsg)) return;
-
-    setActionLoading(week.week_key);
+  const gravar = async () => {
+    if (!confirma) return;
+    setGravando(true);
+    setErroGravar(null);
+    const marcar = !confirma.is_baixa_realizada;
     try {
       await api.toggleFiscoCorrectiveBaixa({
-        week_key: week.week_key,
-        is_baixa: nextStatus,
-        usuario: currentUser?.displayName || 'Operador CQ',
-        observacoes: nextStatus ? 'Baixa manual consolidada no ERP' : undefined,
+        week_key: confirma.week_key,
+        is_baixa: marcar,
+        observacoes: marcar ? 'Baixa manual consolidada no ERP' : undefined,
       });
+      setConfirma(null);
       await fetchWeeks();
-      if (onRefreshHistory) onRefreshHistory();
-    } catch (err: any) {
-      console.error('Erro ao alternar status de baixa:', err);
-      alert(`Erro: ${err.message || err}`);
+      onRefreshHistory?.();
+    } catch (err) {
+      setErroGravar(err instanceof Error ? err.message : String(err));
     } finally {
-      setActionLoading(null);
+      setGravando(false);
     }
   };
 
-  const printWeeklyReport = (week: CorrectiveWeekSummary) => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Permita popups para imprimir o relatório de baixas.');
-      return;
-    }
+  const selo = (w: CorrectiveWeekSummary) =>
+    w.is_baixa_realizada ? <StatusBadge variante="saudavel">Baixada no ERP</StatusBadge> : <StatusBadge variante="ordem">Baixa pendente</StatusBadge>;
 
-    const rowsHtml = week.items
-      .map(
-        (it) => `
-      <tr>
-        <td style="padding: 6px 8px; border-bottom: 1px solid #e4e4e7; font-family: monospace; font-weight: bold;">${it.batch}</td>
-        <td style="padding: 6px 8px; border-bottom: 1px solid #e4e4e7;">${it.analysis_date}</td>
-        <td style="padding: 6px 8px; border-bottom: 1px solid #e4e4e7;"><strong>${it.product_code}</strong> - ${it.product_name}</td>
-        <td style="padding: 6px 8px; border-bottom: 1px solid #e4e4e7;">${it.agent_name}</td>
-        <td style="padding: 6px 8px; border-bottom: 1px solid #e4e4e7; text-align: right;">${it.trial_qty_g_per_l ? `${it.trial_qty_g_per_l} g/L` : '—'}</td>
-        <td style="padding: 6px 8px; border-bottom: 1px solid #e4e4e7; text-align: right;">${it.batch_size_kg ? `${it.batch_size_kg.toLocaleString('pt-BR')} kg` : '—'}</td>
-        <td style="padding: 6px 8px; border-bottom: 1px solid #e4e4e7; text-align: right; font-weight: bold; font-family: monospace;">${it.total_agent_kg.toFixed(3)} kg</td>
-      </tr>
-    `
-      )
-      .join('');
-
-    const totalsHtml = Object.entries(week.agent_totals)
-      .map(
-        ([name, kg]) => `
-      <div style="display: flex; justify-content: space-between; padding: 6px 12px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; margin-bottom: 6px;">
-        <span style="font-weight: 600; color: #0f172a;">${name}</span>
-        <span style="font-weight: 700; font-family: monospace; color: #0284c7;">${kg.toFixed(3)} kg</span>
-      </div>
-    `
-      )
-      .join('');
-
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Baixa Semanal de Corretivos - ${week.label}</title>
-        <style>
-          @page { size: A4 portrait; margin: 15mm; }
-          body { font-family: Arial, sans-serif; font-size: 11px; color: #1e293b; line-height: 1.4; margin: 0; padding: 20px; }
-          h1 { font-size: 16px; margin: 0 0 4px 0; color: #0f172a; text-transform: uppercase; }
-          .header { border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: flex-end; }
-          .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 10px; text-transform: uppercase; }
-          .badge-ok { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
-          .badge-pending { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          th { background: #f1f5f9; padding: 8px; text-align: left; font-size: 10px; text-transform: uppercase; border-bottom: 2px solid #cbd5e1; color: #475569; }
-          .totals-box { margin-top: 20px; padding: 15px; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; }
-          .signature-box { margin-top: 40px; display: flex; justify-content: space-between; gap: 30px; }
-          .sign-line { flex: 1; border-top: 1px solid #475569; text-align: center; padding-top: 5px; font-size: 10px; color: #475569; }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <div>
-            <h1>Controle de Baixa Semanal de Insumos Corretivos</h1>
-            <div style="font-size: 12px; color: #64748b; font-weight: bold; margin-top: 3px;">
-              ${week.label} · NatumHub Físico-Químico
-            </div>
-          </div>
-          <div>
-            <span class="badge ${week.is_baixa_realizada ? 'badge-ok' : 'badge-pending'}">
-              ${week.is_baixa_realizada ? 'Baixa Realizada no ERP' : 'Baixa Pendente no ERP'}
-            </span>
-          </div>
-        </div>
-
-        <div style="margin-bottom: 15px;">
-          <h2 style="font-size: 12px; text-transform: uppercase; margin-bottom: 8px; color: #334155;">1. Resumo Total de Insumos para Baixa Manual no ERP</h2>
-          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px;">
-            ${totalsHtml}
-          </div>
-        </div>
-
-        <h2 style="font-size: 12px; text-transform: uppercase; margin-top: 20px; margin-bottom: 8px; color: #334155;">2. Relação de Lotes Corrigidos na Semana</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Lote</th>
-              <th>Data</th>
-              <th>Produto</th>
-              <th>Agente Corretivo</th>
-              <th style="text-align: right;">Dose (g/L)</th>
-              <th style="text-align: right;">Tanque (kg)</th>
-              <th style="text-align: right;">Consumo (kg)</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
-
-        <div class="signature-box">
-          <div class="sign-line">
-            <strong>Responsável CQ / Laboratório</strong><br/>
-            Data: ____/____/________
-          </div>
-          <div class="sign-line">
-            <strong>Operador Almoxarifado / ERP</strong><br/>
-            ${week.baixa_usuario ? `Baixado por: ${week.baixa_usuario}` : 'Data da Baixa: ____/____/________'}
-          </div>
-        </div>
-
-        <script>
-          window.onload = function() { window.print(); }
-        </script>
-      </body>
-      </html>
-    `;
-
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
-  };
-
-  // Filtragem
-  const filteredWeeks = useMemo(() => {
-    return weeks.filter((w) => {
-      if (filterStatus === 'PENDENTE' && w.is_baixa_realizada) return false;
-      if (filterStatus === 'BAIXADO' && !w.is_baixa_realizada) return false;
-
-      if (search.trim()) {
-        const q = search.toLowerCase();
-        const matchesWeek = w.label.toLowerCase().includes(q) || w.week_key.toLowerCase().includes(q);
-        const matchesItems = w.items.some(
-          (it) =>
-            it.batch.toLowerCase().includes(q) ||
-            it.product_code.toLowerCase().includes(q) ||
-            it.product_name.toLowerCase().includes(q) ||
-            it.agent_name.toLowerCase().includes(q)
-        );
-        return matchesWeek || matchesItems;
-      }
-      return true;
-    });
-  }, [weeks, filterStatus, search]);
-
-  const totalKgGeral = useMemo(() => {
-    return weeks.reduce((sum, w) => sum + w.total_agents_kg, 0);
-  }, [weeks]);
-
-  const totalSemanasPendentes = useMemo(() => {
-    return weeks.filter((w) => !w.is_baixa_realizada).length;
-  }, [weeks]);
+  const abas = [
+    { id: 'ALL', label: 'Todas', contagem: weeks.length },
+    { id: 'PENDENTE', label: 'Pendentes', contagem: pendentes },
+    { id: 'BAIXADO', label: 'Baixadas', contagem: weeks.length - pendentes },
+  ];
 
   return (
-    <div className="view-container animate-in fade-in duration-150 pb-12">
-      {/* Banner Superior */}
-      <div className="bg-gradient-to-r from-amber-900 via-amber-800 to-zinc-900 text-white rounded-2xl p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="p-2 rounded-xl bg-white/10 backdrop-blur-md">
-              <Sliders size={22} className="text-amber-300" />
-            </span>
-            <h2 className="text-lg font-bold tracking-tight">
-              Baixas Semanais de Agentes Corretivos
-            </h2>
-          </div>
-          <p className="text-xs text-amber-150/90 max-w-2xl mt-1.5 text-zinc-300">
-            Consolidação semanal dos insumos usados em ajustes de viscosidade e pH (cloreto de sódio, lauril, ácido cítrico, etc.) para realização de baixa manual única no ERP.
-          </p>
+    <div className="space-y-3 animate-in fade-in duration-200">
+      <ReportTabs abas={abas} ativa={filtro} onChange={(id) => setFiltro(id as Filtro)} />
+
+      <FilterBar busca={search} onBusca={setSearch} placeholder="Buscar por semana, lote, produto ou corretivo...">
+        <BotaoAcao className="min-h-11 md:min-h-0" onClick={fetchWeeks} disabled={loading}>
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Atualizar
+        </BotaoAcao>
+      </FilterBar>
+
+      <div className="panel-card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="px-4 py-2.5 border-b border-zinc-200 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-xs">
+          <span className="font-bold text-zinc-700">{filtradas.length} {filtradas.length === 1 ? 'semana' : 'semanas'}</span>
+          <span className="text-[11px] text-zinc-500">Corretivos gastos nos ajustes de viscosidade e pH, para uma baixa manual por semana no ERP. Toque numa semana para ver.</span>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={fetchWeeks}
-            disabled={loading}
-            className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold flex items-center gap-1.5 cursor-pointer backdrop-blur-sm transition-all"
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            <span>Atualizar</span>
-          </button>
-        </div>
-      </div>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="bg-white rounded-2xl border border-zinc-200 p-4 shadow-sm flex items-center gap-3.5">
-          <div className="p-3 rounded-xl bg-amber-50 text-amber-700">
-            <Scale size={22} />
-          </div>
-          <div>
-            <div className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">Total Consumido</div>
-            <div className="text-xl font-bold text-zinc-900 font-mono">
-              {totalKgGeral.toFixed(2)} <span className="text-xs font-normal text-zinc-500">kg</span>
+        {error ? (
+          <p className="p-10 text-center text-red-700 font-bold text-xs">{error}</p>
+        ) : loading && weeks.length === 0 ? (
+          <p className="p-10 text-center text-zinc-500 font-bold text-xs">Carregando...</p>
+        ) : filtradas.length === 0 ? (
+          <p className="p-10 text-center text-zinc-500 font-bold text-xs">Nenhum ajuste de bancada encontrado.</p>
+        ) : (
+          <>
+            <div className="md:hidden divide-y divide-zinc-100">
+              {filtradas.map((w) => (
+                <button key={w.week_key} type="button" onClick={() => setAberta(w.week_key)} className="w-full min-h-11 px-4 py-2.5 flex items-center justify-between gap-3 text-left cursor-pointer active:bg-zinc-50">
+                  <span className="min-w-0">
+                    <span className="block text-xs font-bold text-zinc-900 break-words">{w.label}</span>
+                    <span className="block font-mono text-[11px] text-zinc-500">
+                      {w.items.length} {w.items.length === 1 ? 'lote' : 'lotes'} · {kg(w.total_agents_kg)}
+                    </span>
+                  </span>
+                  <span className="shrink-0">{selo(w)}</span>
+                </button>
+              ))}
             </div>
-          </div>
-        </div>
 
-        <div className="bg-white rounded-2xl border border-zinc-200 p-4 shadow-sm flex items-center gap-3.5">
-          <div className="p-3 rounded-xl bg-rose-50 text-rose-700">
-            <Clock size={22} />
-          </div>
-          <div>
-            <div className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">Semanas Pendentes</div>
-            <div className="text-xl font-bold text-rose-600 font-mono">
-              {totalSemanasPendentes} <span className="text-xs font-normal text-zinc-500">semanas</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-zinc-200 p-4 shadow-sm flex items-center gap-3.5">
-          <div className="p-3 rounded-xl bg-emerald-50 text-emerald-700">
-            <CheckCircle2 size={22} />
-          </div>
-          <div>
-            <div className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">Semanas Baixadas</div>
-            <div className="text-xl font-bold text-emerald-600 font-mono">
-              {weeks.length - totalSemanasPendentes} <span className="text-xs font-normal text-zinc-500">semanas</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Barra de Filtros e Busca */}
-      <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        <div className="relative flex-1 min-w-[240px]">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-          <input
-            type="text"
-            placeholder="Buscar por semana, lote, produto ou insumo..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-zinc-300 rounded-xl text-xs bg-white text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900"
-          />
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setFilterStatus('ALL')}
-            className={cn(
-              "px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer",
-              filterStatus === 'ALL'
-                ? "bg-zinc-950 text-white shadow-sm"
-                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-            )}
-          >
-            Todas ({weeks.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterStatus('PENDENTE')}
-            className={cn(
-              "px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer",
-              filterStatus === 'PENDENTE'
-                ? "bg-rose-700 text-white shadow-sm"
-                : "bg-rose-50 text-rose-800 hover:bg-rose-100"
-            )}
-          >
-            Pendentes ({totalSemanasPendentes})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterStatus('BAIXADO')}
-            className={cn(
-              "px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer",
-              filterStatus === 'BAIXADO'
-                ? "bg-emerald-700 text-white shadow-sm"
-                : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-            )}
-          >
-            Baixadas ({weeks.length - totalSemanasPendentes})
-          </button>
-        </div>
-      </div>
-
-      {/* Lista de Semanas */}
-      {loading ? (
-        <div className="py-20 text-center text-zinc-400 text-xs flex flex-col items-center gap-3">
-          <RefreshCw className="w-8 h-8 animate-spin text-zinc-400" />
-          <span>Carregando dados de correções e consumos...</span>
-        </div>
-      ) : error ? (
-        <div className="p-6 bg-rose-50 border border-rose-200 rounded-2xl text-rose-800 text-xs flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
-          <span>{error}</span>
-        </div>
-      ) : filteredWeeks.length === 0 ? (
-        <div className="py-20 text-center text-zinc-400 text-xs bg-white rounded-2xl border border-zinc-200 flex flex-col items-center gap-2">
-          <FlaskConical className="w-8 h-8 text-zinc-300" />
-          <span>Nenhum ajuste de bancada registrado ou correspondente aos filtros.</span>
-        </div>
-      ) : (
-        <div className="space-y-3.5">
-          {filteredWeeks.map((w) => {
-            const isExpanded = expandedWeeks.has(w.week_key);
-            const isBusy = actionLoading === w.week_key;
-
-            return (
-              <div
-                key={w.week_key}
-                className={cn(
-                  "bg-white rounded-2xl border transition-all shadow-sm overflow-hidden",
-                  w.is_baixa_realizada ? "border-zinc-200" : "border-amber-300 ring-1 ring-amber-200"
-                )}
-              >
-                {/* Cabeçalho da Semana */}
-                <div className="p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-zinc-50/50">
-                  <div className="flex items-start sm:items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => toggleExpand(w.week_key)}
-                      className="p-1.5 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/60 rounded-lg transition-colors cursor-pointer shrink-0 mt-0.5 sm:mt-0"
-                    >
-                      {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                    </button>
-
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-sm text-zinc-900">{w.label}</span>
-                        <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-zinc-200/70 text-zinc-700 font-semibold">
-                          {w.week_key}
-                        </span>
-                        <span
-                          className={cn(
-                            "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border",
-                            w.is_baixa_realizada
-                              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                              : "bg-amber-50 text-amber-800 border-amber-200"
-                          )}
-                        >
-                          {w.is_baixa_realizada ? (
-                            <>
-                              <CheckCircle2 size={12} className="text-emerald-600" />
-                              Baixa Realizada no ERP
-                            </>
-                          ) : (
-                            <>
-                              <Clock size={12} className="text-amber-600" />
-                              Pendente de Baixa Manual
-                            </>
-                          )}
-                        </span>
-                      </div>
-
-                      <div className="text-[11px] text-zinc-500 mt-1 flex items-center gap-3 flex-wrap">
-                        <span>
-                          <strong>{w.items.length}</strong> lote(s) corrigido(s)
-                        </span>
-                        <span>•</span>
-                        <span>
-                          Consumo total:{' '}
-                          <strong className="font-mono text-zinc-900 font-bold">{w.total_agents_kg.toFixed(3)} kg</strong>
-                        </span>
+            <div className="hidden md:block overflow-x-auto">
+              <table className="data-table compacta w-full text-left">
+                <thead>
+                  <tr>
+                    <th>Semana</th>
+                    <th className="text-right">Lotes</th>
+                    <th className="text-right">Consumo total</th>
+                    <th>Baixa</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtradas.map((w) => (
+                    <tr key={w.week_key} onClick={() => setAberta(w.week_key)} className="border-b border-zinc-150 hover:bg-zinc-50 cursor-pointer">
+                      <td>
+                        <span className="font-bold text-zinc-900">{w.label}</span>
+                        <span className="ml-2 font-mono text-[10px] text-zinc-400">{w.week_key}</span>
+                      </td>
+                      <td className="text-right font-mono">{w.items.length}</td>
+                      <td className="text-right font-mono font-bold">{kg(w.total_agents_kg)}</td>
+                      <td>
+                        {selo(w)}
                         {w.is_baixa_realizada && w.baixa_data && (
-                          <>
-                            <span>•</span>
-                            <span className="text-emerald-700">
-                              Baixado por <strong>{w.baixa_usuario || 'Operador'}</strong> em{' '}
-                              {new Date(w.baixa_data).toLocaleDateString('pt-BR')}
-                            </span>
-                          </>
+                          <span className="ml-2 text-[11px] text-zinc-500">
+                            {w.baixa_usuario || 'Operador'} · {new Date(w.baixa_data).toLocaleDateString('pt-BR')}
+                          </span>
                         )}
-                      </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+
+      {semana && (
+        <Drawer
+          onClose={() => setAberta(null)}
+          title={semana.label}
+          subtitle={`${semana.week_key} · ${semana.items.length} ${semana.items.length === 1 ? 'lote corrigido' : 'lotes corrigidos'}`}
+          badge={selo(semana)}
+          size="lg"
+          footer={
+            <div className="flex flex-wrap justify-end gap-2">
+              <BotaoAcao className="min-h-11 md:min-h-0" onClick={() => imprimirBaixaSemanal(semana)}>
+                <Printer size={14} /> Imprimir folha
+              </BotaoAcao>
+              <BotaoAcao primario={!semana.is_baixa_realizada} className="min-h-11 md:min-h-0" onClick={() => { setErroGravar(null); setConfirma(semana); }}>
+                {semana.is_baixa_realizada ? <><Clock size={14} /> Reabrir baixa</> : <><CheckCircle2 size={14} /> Marcar baixa feita</>}
+              </BotaoAcao>
+            </div>
+          }
+        >
+          <div className="space-y-5 p-4">
+            {semana.is_baixa_realizada && semana.baixa_data && (
+              <p className="text-xs text-emerald-800">
+                Baixada por <strong>{semana.baixa_usuario || 'Operador'}</strong> em {new Date(semana.baixa_data).toLocaleDateString('pt-BR')}.
+              </p>
+            )}
+
+            <div>
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">Total a dar baixa no ERP</span>
+              <div className="divide-y divide-zinc-100 rounded-xl border border-zinc-200">
+                {Object.entries(semana.agent_totals).map(([nome, total]) => (
+                  <div key={nome} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                    <span className="min-w-0 break-words font-bold text-zinc-900">{nome}</span>
+                    <span className="shrink-0 font-mono font-bold text-zinc-900">{kg(total)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-2">Lotes corrigidos</span>
+              <div className="divide-y divide-zinc-100 rounded-xl border border-zinc-200">
+                {semana.items.map((it) => (
+                  <div key={it.analysis_id} className="px-3 py-2 text-xs">
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="min-w-0">
+                        <span className="block font-mono font-bold text-zinc-500">{it.batch} · {it.analysis_date}</span>
+                        <span className="block font-bold text-zinc-900 break-words">{it.product_name}</span>
+                      </span>
+                      <span className="shrink-0 font-mono font-bold text-zinc-900">{kg(it.total_agent_kg)}</span>
+                    </div>
+                    <div className="mt-0.5 text-zinc-500">
+                      {it.agent_name}
+                      {it.trial_qty_g_per_l ? ` · dose ${it.trial_qty_g_per_l} g/L` : ''}
+                      {it.batch_size_kg ? ` · lote de ${it.batch_size_kg.toLocaleString('pt-BR')} kg` : ''}
                     </div>
                   </div>
-
-                  {/* Ações da Semana */}
-                  <div className="flex items-center gap-2 shrink-0 self-end lg:self-center">
-                    <button
-                      type="button"
-                      onClick={() => printWeeklyReport(w)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 border border-zinc-300 hover:border-zinc-400 bg-white hover:bg-zinc-50 text-zinc-800 text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer"
-                      title="Imprimir relatório para anexar ao controle de estoque"
-                    >
-                      <Printer size={13} className="text-zinc-600" />
-                      <span>Imprimir</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleToggleBaixa(w)}
-                      disabled={isBusy}
-                      className={cn(
-                        "flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer",
-                        w.is_baixa_realizada
-                          ? "bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-200"
-                          : "bg-amber-600 hover:bg-amber-700 text-white"
-                      )}
-                    >
-                      {w.is_baixa_realizada ? (
-                        <>
-                          <Clock size={13} />
-                          <span>Reabrir Baixa</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 size={13} />
-                          <span>Marcar Baixa Realizada</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Bloco de Totais de Insumos da Semana */}
-                <div className="px-5 py-3.5 bg-zinc-100/50 border-t border-b border-zinc-200/80">
-                  <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">
-                    Totais Consolidados para Baixa no Estoque (ERP)
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-                    {Object.entries(w.agent_totals).map(([agentName, totalKg]) => (
-                      <div
-                        key={agentName}
-                        className="bg-white rounded-xl border border-zinc-200 p-2.5 flex items-center justify-between shadow-2xs"
-                      >
-                        <span className="text-xs font-semibold text-zinc-800 truncate" title={agentName}>
-                          {agentName}
-                        </span>
-                        <span className="text-xs font-bold font-mono text-blue-700 shrink-0 ml-2">
-                          {totalKg.toFixed(3)} kg
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Detalhes dos Lotes (Expansível) */}
-                {isExpanded && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="bg-zinc-50 border-b border-zinc-200 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                          <th className="px-4 py-2.5">Lote / Data</th>
-                          <th className="px-4 py-2.5">Produto Acabado</th>
-                          <th className="px-4 py-2.5">Agente Corretivo</th>
-                          <th className="px-4 py-2.5 text-right">Dose Bancada</th>
-                          <th className="px-4 py-2.5 text-right">Volume Tanque</th>
-                          <th className="px-4 py-2.5 text-right">Total Aplicado</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-100 text-zinc-700">
-                        {w.items.map((it) => (
-                          <tr key={it.analysis_id} className="hover:bg-zinc-50/60 transition-colors">
-                            <td className="px-4 py-2.5 font-mono">
-                              <span className="font-bold text-zinc-900">{it.batch}</span>
-                              <span className="text-[10px] text-zinc-400 ml-2">{it.analysis_date}</span>
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <div className="max-w-[280px] truncate">
-                                <span className="font-semibold text-zinc-900 block truncate">{it.product_name}</span>
-                                <span className="text-[10px] font-mono text-zinc-400">{it.product_code}</span>
-                              </div>
-                            </td>
-                            <td className="px-4 py-2.5 font-medium text-zinc-800">
-                              {it.agent_name}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-mono text-zinc-600">
-                              {it.trial_qty_g_per_l ? `${it.trial_qty_g_per_l} g/L` : '—'}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-mono text-zinc-600">
-                              {it.batch_size_kg ? `${it.batch_size_kg.toLocaleString('pt-BR')} kg` : '—'}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-mono font-bold text-blue-700">
-                              {it.total_agent_kg.toFixed(3)} kg
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                ))}
               </div>
-            );
-          })}
-        </div>
+            </div>
+          </div>
+        </Drawer>
       )}
+
+      <Modal
+        isOpen={!!confirma}
+        onClose={() => !gravando && setConfirma(null)}
+        title={confirma?.is_baixa_realizada ? 'Reabrir baixa da semana' : 'Confirmar baixa da semana'}
+        subtitle={confirma?.label}
+        size="sm"
+      >
+        {confirma && (
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-800">
+              {confirma.is_baixa_realizada
+                ? 'A semana volta a constar como pendente de baixa no ERP.'
+                : 'Confirma que a baixa manual dos corretivos desta semana já foi feita no ERP?'}
+            </p>
+            {erroGravar && <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-800">{erroGravar}</p>}
+            <div className="flex justify-end gap-2">
+              <BotaoAcao className="min-h-11 md:min-h-0" disabled={gravando} onClick={() => setConfirma(null)}>Cancelar</BotaoAcao>
+              <BotaoAcao primario className="min-h-11 md:min-h-0" disabled={gravando} onClick={gravar}>
+                {gravando ? 'Gravando...' : confirma.is_baixa_realizada ? 'Reabrir' : 'Confirmar'}
+              </BotaoAcao>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -1453,7 +1453,7 @@ export function AnalysisCreationFlow({
       // Enviar medições e dados necessários para o ERP automaticamente
       if (!isEmCorrecao && createdAnalyses.length > 0) {
         try {
-          await api.pushFiscoLaudosToErp(createdAnalyses.map(a => a.id));
+          await api.pushFiscoLaudosToErp(createdAnalyses.map(a => a.id), undefined, true);
         } catch (erpErr) {
           console.warn('Sincronização automática com ERP falhou:', erpErr);
         }
@@ -1556,25 +1556,25 @@ export function AnalysisCreationFlow({
               <button
                 type="button"
                 onClick={handleClearDraft}
-                className="text-[11px] font-medium text-zinc-500 hover:text-red-600 flex items-center gap-1 px-2 py-1 rounded hover:bg-zinc-100 transition-colors cursor-pointer"
+                className="text-[11px] font-medium text-zinc-500 hover:text-red-600 flex items-center gap-1 px-2 min-h-11 rounded hover:bg-zinc-100 transition-colors cursor-pointer"
                 title="Limpar campos preenchidos e reiniciar rascunho"
               >
                 <Trash2 size={13} />
-                <span>Limpar Rascunho</span>
+                <span>Limpar rascunho</span>
               </button>
             )}
 
             {activePattern ? (
               <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
-                <CheckCircle className="w-3.5 h-3.5 text-emerald-600" /> Padrão Ativo
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-600" /> Padrão ativo
               </span>
             ) : formProductCode && formProductCode !== '__ALL__' ? (
               <button
                 type="button"
                 onClick={() => onOpenAddPattern(formProductCode, formProductName)}
-                className="flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200 transition-colors cursor-pointer"
+                className="flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 min-h-11 rounded-lg border border-amber-200 transition-colors cursor-pointer"
               >
-                <PlusCircle className="w-3.5 h-3.5 text-amber-700" /> Definir Padrão
+                <PlusCircle className="w-3.5 h-3.5 text-amber-700" /> Definir padrão
               </button>
             ) : null}
           </div>
@@ -1870,7 +1870,7 @@ export function AnalysisCreationFlow({
                   setTimerLeft(viscSeconds > 0 ? viscSeconds : 60);
                 }}
                 className={cn(
-                  'shrink-0 min-h-8 px-2.5 rounded-lg text-xs font-bold border',
+                  'shrink-0 min-h-11 px-2.5 rounded-lg text-xs font-bold border',
                   timerLeft === 0
                     ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                     : timerLeft != null
@@ -1885,7 +1885,7 @@ export function AnalysisCreationFlow({
             <div className="flex items-baseline gap-2">
               <input
                 type="text"
-                inputMode="numeric"
+                inputMode="decimal"
                 placeholder="Ex: 9500"
                 value={formViscosity}
                 onChange={(e) => setFormViscosity(e.target.value.replace(',', '.'))}
@@ -2307,9 +2307,9 @@ export function AnalysisCreationFlow({
               <button
                 type="button"
                 onClick={() => setFormMediaUrl('')}
-                className="text-[10px] font-bold text-rose-600 hover:text-rose-700 cursor-pointer"
+                className="text-xs font-bold text-rose-600 hover:text-rose-700 cursor-pointer min-h-11 px-2"
               >
-                Remover Mídia
+                Remover mídia
               </button>
             )}
           </div>
@@ -2356,7 +2356,7 @@ export function AnalysisCreationFlow({
                 </div>
               )}
               <div className="min-w-0 flex-1 space-y-1">
-                <span className="text-xs font-bold text-zinc-900 block">Mídia Anexada ao Laudo</span>
+                <span className="text-xs font-bold text-zinc-900 block">Mídia anexada ao laudo</span>
                 <p className="text-[11px] text-zinc-500">
                   Foto/vídeo da amostra pronta para ser arquivada no laudo do lote {formBatch || 'atual'}.
                 </p>
@@ -2364,9 +2364,9 @@ export function AnalysisCreationFlow({
                   <button
                     type="button"
                     onClick={() => mediaInputRef.current?.click()}
-                    className="px-2.5 py-1 bg-white border border-zinc-300 text-zinc-700 rounded-lg text-[11px] font-bold hover:bg-zinc-50 cursor-pointer shadow-xs"
+                    className="px-3 min-h-11 bg-white border border-zinc-300 text-zinc-700 rounded-lg text-xs font-bold hover:bg-zinc-50 cursor-pointer shadow-xs"
                   >
-                    Trocar Mídia
+                    Trocar mídia
                   </button>
                 </div>
               </div>

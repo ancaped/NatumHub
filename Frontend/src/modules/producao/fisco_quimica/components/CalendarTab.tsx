@@ -455,24 +455,24 @@ export function CalendarTab({
       <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
         
         {/* Mês, Ano e Botões Anterior / Próximo */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           <div className="flex items-center gap-1 bg-zinc-100 p-1 rounded-xl">
             <button
               type="button"
               onClick={handlePrevMonth}
-              className="p-1.5 hover:bg-white hover:text-zinc-950 text-zinc-600 rounded-lg transition-colors cursor-pointer"
-              title="Mês Anterior"
+              className="min-h-11 min-w-11 flex items-center justify-center hover:bg-white hover:text-zinc-950 text-zinc-600 rounded-lg transition-colors cursor-pointer"
+              title="Mês anterior"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="font-black text-sm text-zinc-900 px-3 min-w-[130px] text-center">
+            <span className="font-black text-sm text-zinc-900 px-2 sm:px-3 min-w-[110px] sm:min-w-[130px] text-center whitespace-nowrap">
               {MONTH_NAMES[currentMonth]} {currentYear}
             </span>
             <button
               type="button"
               onClick={handleNextMonth}
-              className="p-1.5 hover:bg-white hover:text-zinc-950 text-zinc-600 rounded-lg transition-colors cursor-pointer"
-              title="Próximo Mês"
+              className="min-h-11 min-w-11 flex items-center justify-center hover:bg-white hover:text-zinc-950 text-zinc-600 rounded-lg transition-colors cursor-pointer"
+              title="Próximo mês"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -482,7 +482,7 @@ export function CalendarTab({
           <select
             value={currentYear}
             onChange={(e) => setCurrentYear(Number(e.target.value))}
-            className="bg-zinc-100 hover:bg-zinc-200 text-zinc-900 font-bold text-xs px-3 py-2 rounded-xl border border-transparent focus:outline-none focus:ring-2 focus:ring-zinc-900 cursor-pointer"
+            className="bg-zinc-100 hover:bg-zinc-200 text-zinc-900 font-bold text-xs px-3 min-h-11 rounded-xl border border-transparent focus:outline-none focus:ring-2 focus:ring-zinc-900 cursor-pointer"
           >
             {availableYears.map((yr) => (
               <option key={yr} value={yr}>
@@ -494,7 +494,7 @@ export function CalendarTab({
           <button
             type="button"
             onClick={handleGoToToday}
-            className="px-3 py-1.5 border border-zinc-300 hover:bg-zinc-50 text-zinc-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+            className="px-3 min-h-11 border border-zinc-300 hover:bg-zinc-50 text-zinc-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
           >
             Hoje
           </button>
@@ -509,10 +509,10 @@ export function CalendarTab({
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
           <input
             type="text"
-            placeholder="Localizar lote no calendário..."
+            placeholder="Localizar lote..."
             value={loteSearch}
             onChange={(e) => setLoteSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 border border-zinc-300 rounded-xl text-xs bg-white text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900"
+            className="w-full pl-9 pr-3 min-h-11 border border-zinc-300 rounded-xl text-base sm:text-xs bg-white text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900"
           />
 
           {/* Dropdown de resultados de busca */}
@@ -550,7 +550,7 @@ export function CalendarTab({
         <div className="bg-white rounded-2xl p-5 border border-zinc-200 shadow-sm lg:col-span-2 space-y-4">
           
           {/* Cabeçalho dos Dias da Semana */}
-          <div className="grid grid-cols-7 gap-2 text-center text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+          <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
             {WEEKDAY_NAMES.map((name, i) => (
               <div key={name} className={cn(i === 0 || i === 6 ? "text-zinc-400" : "text-zinc-600")}>
                 {name}
@@ -559,7 +559,7 @@ export function CalendarTab({
           </div>
 
           {/* Células de Dias */}
-          <div className="grid grid-cols-7 gap-2">
+          <div className="grid grid-cols-7 gap-1 sm:gap-2">
             {calendarDays.map((day) => {
               const isSelected = day.dateIso === selectedDateIso;
               const hasSearchMatch = searchMatchingDates.has(day.dateIso);
@@ -570,7 +570,7 @@ export function CalendarTab({
                   type="button"
                   onClick={() => setSelectedDateIso(day.dateIso)}
                   className={cn(
-                    "min-h-[84px] p-2 rounded-xl border text-left flex flex-col justify-between transition-all cursor-pointer relative",
+                    "min-h-[84px] min-w-0 overflow-hidden p-1 sm:p-2 rounded-xl border text-left flex flex-col justify-between transition-all cursor-pointer relative",
                     day.isCurrentMonth ? "bg-white" : "bg-zinc-50/50 opacity-60",
                     day.isWeekend && day.isCurrentMonth && "bg-zinc-50/70",
                     day.holiday && "bg-rose-50/30 border-rose-200",
@@ -599,8 +599,11 @@ export function CalendarTab({
                     </span>
 
                     {day.holiday && (
+                      <span className="sm:hidden w-1.5 h-1.5 rounded-full bg-rose-500" title={day.holiday.name} />
+                    )}
+                    {day.holiday && (
                       <span
-                        className="text-[9px] font-bold text-rose-700 bg-rose-100 px-1 py-0.2 rounded truncate max-w-[55px]"
+                        className="text-[9px] font-bold text-rose-700 bg-rose-100 px-1 py-0.2 rounded truncate max-w-[55px] hidden sm:inline"
                         title={day.holiday.name}
                       >
                         {day.holiday.name}
@@ -611,9 +614,9 @@ export function CalendarTab({
                   {/* Badges de contagem de laudos e PROCs a anotar */}
                   <div className="space-y-1 mt-1">
                     {day.count > 0 && (
-                      <div className="flex items-center gap-1 bg-zinc-900 text-white px-1.5 py-0.5 rounded-md text-[10px] font-bold shadow-xs">
+                      <div className="flex items-center justify-center sm:justify-start gap-1 bg-zinc-900 text-white px-1 sm:px-1.5 py-0.5 rounded-md text-[10px] font-bold shadow-xs">
                         <Activity className="w-2.5 h-2.5 text-emerald-400" />
-                        <span>{day.count} {day.count === 1 ? 'laudo' : 'laudos'}</span>
+                        <span>{day.count}<span className="hidden sm:inline"> {day.count === 1 ? 'laudo' : 'laudos'}</span></span>
                       </div>
                     )}
                     {(() => {
@@ -624,11 +627,11 @@ export function CalendarTab({
                       if (foraDoRotuloCount > 0) {
                         return (
                           <div
-                            className="flex items-center gap-1 bg-amber-100 text-amber-950 border border-amber-300 px-1.5 py-0.5 rounded-md text-[9px] font-bold"
+                            className="flex items-center justify-center sm:justify-start gap-1 bg-amber-100 text-amber-950 border border-amber-300 px-1 sm:px-1.5 py-0.5 rounded-md text-[9px] font-bold"
                             title={`${foraDoRotuloCount} lote(s) requer anotação manual de PROC (não consta no rótulo gráfico)`}
                           >
                             <FileText className="w-2.5 h-2.5 text-amber-700 shrink-0" />
-                            <span>{foraDoRotuloCount} Anotar PROC</span>
+                            <span>{foraDoRotuloCount}<span className="hidden sm:inline"> Anotar PROC</span></span>
                           </div>
                         );
                       }
@@ -695,7 +698,7 @@ export function CalendarTab({
                   if (allDaySelected) setSelectedIds(new Set());
                   else setSelectedIds(new Set(selectedDayInfo.analyses.map((item) => item.id)));
                 }}
-                className="text-[11px] font-bold text-zinc-600 hover:text-zinc-950 cursor-pointer"
+                className="text-xs font-bold text-zinc-600 hover:text-zinc-950 cursor-pointer min-h-11 px-2"
               >
                 {allDaySelected ? 'Limpar seleção' : `Selecionar todos (${selectedDayInfo.count})`}
               </button>
@@ -787,7 +790,7 @@ export function CalendarTab({
                 type="button"
                 disabled={selectedAnalyses.length === 0}
                 onClick={handlePrintDay}
-                className="w-full flex items-center justify-center gap-2 bg-zinc-950 hover:bg-zinc-800 text-white py-3 rounded-xl text-xs font-bold transition-all shadow cursor-pointer disabled:opacity-40"
+                className="w-full flex items-center justify-center gap-2 bg-zinc-950 hover:bg-zinc-800 text-white min-h-11 rounded-xl text-xs font-bold transition-all shadow cursor-pointer disabled:opacity-40"
               >
                 <Printer className="w-4 h-4" />
                 Imprimir laudos ({selectedAnalyses.length})
@@ -796,7 +799,7 @@ export function CalendarTab({
                 type="button"
                 disabled={labelBusy || selectedAnalyses.length === 0}
                 onClick={() => void openLoteLabels(selectedAnalyses)}
-                className="w-full flex items-center justify-center gap-2 bg-white border border-zinc-200 text-zinc-800 hover:bg-zinc-100 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
+                className="w-full flex items-center justify-center gap-2 bg-white border border-zinc-200 text-zinc-800 hover:bg-zinc-100 min-h-11 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
               >
                 <Tag className="w-4 h-4" />
                 Imprimir etiquetas ({selectedAnalyses.length})

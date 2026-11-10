@@ -338,6 +338,8 @@ function drawElement(
     }
 
     case 'barcode': {
+      // Sem valor (ex.: produto sem código da caixa): deixa em branco, não imprime código de exemplo.
+      if (typeof p.value === 'string' && !p.value.trim()) break;
       const rawVal = replaceDynamicTokens(p.value || '123456', seqIndex, totalCount, startSeq, padding);
       const res = generateBarcodeBars(rawVal, p.format || 'code128');
       const showText = p.showText !== false;

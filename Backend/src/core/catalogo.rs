@@ -166,6 +166,7 @@ pub fn todas() -> Vec<Acao> {
     v.extend(crate::handlers::kits::acoes_kits_composicao());
     v.extend(crate::modules::administrativo::produtos_ativos_relatorios::acoes());
     v.extend(crate::modules::administrativo::linhas_kits::acoes());
+    v.extend(crate::modules::administrativo::classificacao::acoes());
     v.extend(crate::modules::estoque::almoxarifado::acoes());
     v.extend(crate::modules::estoque::ordens_manuais::acoes());
     v.extend(crate::modules::qualidade::avarias::acoes());
@@ -304,6 +305,7 @@ mod tests {
             include_str!("../modules/hub_api/compras.rs"),
             include_str!("../modules/administrativo/produtos_ativos_relatorios/mod.rs"),
             include_str!("../modules/administrativo/linhas_kits/mod.rs"),
+            include_str!("../modules/administrativo/classificacao/mod.rs"),
             include_str!("../modules/estoque/almoxarifado/mod.rs"),
             include_str!("../modules/estoque/ordens_manuais/mod.rs"),
             include_str!("../modules/qualidade/avarias/mod.rs"),

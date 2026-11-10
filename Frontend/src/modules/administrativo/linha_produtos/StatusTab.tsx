@@ -271,14 +271,28 @@ export default function StatusTab({ products, categories, configs, kitComposicao
         is_lancamento_manual: isLaunchOverride === 'YES' ? 1 : isLaunchOverride === 'NO' ? 0 : null,
         visivel: visibleOverride === '0' ? 0 : null, // 0 = hidden, null/1 = visible
         observacao: obsForm.trim() || null,
-        linha_prefix_manual: lineOverride === 'AUTO' ? null : lineOverride,
-        status_produto: statusForm || 'ativo',
-        categoria_produto: categoryForm.trim() || null,
-        base_codigo: baseCodigoForm.trim() || null,
         lancamento_meta_meses: statusForm === 'lancamento' ? parseInt(lancamentoMetaForm, 10) || 6 : null,
         lancamento_data_inicio: statusForm === 'lancamento' ? (lancamentoDataInicioForm.trim() || new Date().toISOString().split('T')[0]) : null,
         produzir_apenas_kit: produzirApenasKitForm,
       };
+
+      // Classificação (status, categoria, base, linha) tem endpoint próprio: 2 passos + auditoria.
+      const classif = await apiFetch(`/admin/produtos-ativos/classificacao?confirmar=true`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          codigo: selectedProduct.codigo,
+          status_produto: statusForm || 'ativo',
+          categoria_produto: categoryForm.trim() || null,
+          base_codigo: baseCodigoForm.trim() || null,
+          linha_prefix_manual: lineOverride === 'AUTO' ? null : lineOverride,
+        }),
+      });
+      if (!classif.ok) {
+        const corpo = await classif.json().catch(() => null);
+        avisar(corpo?.error || 'Erro ao salvar a classificação do produto.', 'erro');
+        return;
+      }
 
       const res = await apiFetch(`/overrides`, {
         method: 'POST',

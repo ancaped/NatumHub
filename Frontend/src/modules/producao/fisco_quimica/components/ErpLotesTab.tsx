@@ -1,74 +1,54 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Search,
-  RefreshCw,
-  Database,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  Package,
-  Layers,
-  FlaskConical,
-  ChevronLeft,
-  ChevronRight,
-  Eye,
-  FileText,
-  User,
-  Calendar,
-  Sparkles,
-  Info,
-  Scale,
-  X,
-  ShieldCheck,
-  CheckCircle,
-  XCircle,
-  SlidersHorizontal,
-  FileCheck
-} from 'lucide-react';
+import { RefreshCw, FlaskConical, Calendar } from 'lucide-react';
 import { api } from '../../../geral/lib/api';
-import { apiJson } from '../../../geral/lib/http';
 import { FiscoErpLoteItem, FiscoErpLoteInsumo, FiscoQuimicaPattern, Product } from '../../../geral/lib/types';
-import Modal from '../../../geral/components/ui/Modal';
+import Drawer from '../../../geral/components/ui/Drawer';
+import { BotaoAcao, FilterBar, ReportTabs, StatusBadge } from '../../../geral/components/ui/ReportKit';
 
 interface ErpLotesTabProps {
   onStartAnalysisWithLote?: (productCode: string, batchNumber: string, batchSizeKg?: number) => void;
-  patterns: FiscoQuimicaPattern[];
-  products: Product[];
+  patterns?: FiscoQuimicaPattern[];
+  products?: Product[];
 }
 
-export function ErpLotesTab({
-  onStartAnalysisWithLote,
-  patterns = [],
-  products = []
-}: ErpLotesTabProps) {
+type FiltroLaudo = 'ALL' | 'com_laudo_erp' | 'sem_laudo_erp' | 'com_laudo_hub';
+
+const formatDate = (dStr?: string | null) => {
+  if (!dStr) return '—';
+  const [yyyy, mm, dd] = dStr.split(' ')[0].split('T')[0].split('-');
+  return yyyy && mm && dd ? `${dd}/${mm}/${yyyy}` : dStr;
+};
+
+const positivo = (v?: number | null) => v !== null && v !== undefined && v > 0;
+
+/** Situação do laudo do lote no ERP: com medições, aprovado sem medições ou pendente. */
+function laudoErp(item: FiscoErpLoteItem): 'completo' | 'sem_medicao' | 'pendente' {
+  if (positivo(item.ph_erp) || positivo(item.viscosidade_erp) || positivo(item.densidade_erp)) return 'completo';
+  return item.resultado_cq_erp === 'AP' || item.status_erp === 'AP' ? 'sem_medicao' : 'pendente';
+}
+
+/** Lotes que vieram do ERP e a situação do laudo de cada um (no ERP e no Nexus). Só leitura. */
+export function ErpLotesTab({ onStartAnalysisWithLote }: ErpLotesTabProps) {
   const [items, setItems] = useState<FiscoErpLoteItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncingErp, setSyncingErp] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(25);
   const [totalPages, setTotalPages] = useState(1);
-  const [stats, setStats] = useState({
-    total_lotes: 0,
-    com_laudo_erp: 0,
-    sem_laudo_erp: 0,
-    com_laudo_hub: 0,
-    total_kg: 0
-  });
+  const [stats, setStats] = useState({ com_laudo_erp: 0, sem_laudo_erp: 0, com_laudo_hub: 0, total_lotes: 0 });
 
-  // Filtros
   const [search, setSearch] = useState('');
-  const [statusLaudo, setStatusLaudo] = useState<'ALL' | 'com_laudo_erp' | 'sem_laudo_erp' | 'com_laudo_hub' | 'sem_laudo_hub'>('ALL');
+  const [statusLaudo, setStatusLaudo] = useState<FiltroLaudo>('ALL');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
-  // Drawer / Modal de Detalhes do Lote
   const [selectedLote, setSelectedLote] = useState<FiscoErpLoteItem | null>(null);
   const [loteInsumos, setLoteInsumos] = useState<FiscoErpLoteInsumo[]>([]);
   const [loadingInsumos, setLoadingInsumos] = useState(false);
 
   const fetchLotes = useCallback(async () => {
     setLoading(true);
+    setErro(null);
     try {
       const res = await api.getFiscoErpLotes({
         search: search.trim() || undefined,
@@ -76,9 +56,8 @@ export function ErpLotesTab({
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
         page,
-        limit
+        limit: 25,
       });
-
       setItems(res.items || []);
       setTotal(res.total || 0);
       setTotalPages(res.total_pages || 1);
@@ -88,690 +67,255 @@ export function ErpLotesTab({
           com_laudo_erp: (res.stats as any).com_laudo_erp ?? res.stats.com_laudo ?? 0,
           sem_laudo_erp: (res.stats as any).sem_laudo_erp ?? res.stats.sem_laudo ?? 0,
           com_laudo_hub: (res.stats as any).com_laudo_hub ?? 0,
-          total_kg: res.stats.total_kg || 0
         });
       }
     } catch (err) {
-      console.error('Erro ao carregar lotes do ERP:', err);
+      setErro(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, [search, statusLaudo, dateFrom, dateTo, page, limit]);
+  }, [search, statusLaudo, dateFrom, dateTo, page]);
 
   useEffect(() => {
     fetchLotes();
   }, [fetchLotes]);
 
-  const handleSyncErpDatabase = async () => {
-    setSyncingErp(true);
-    try {
-      try {
-        await apiJson('/import/sync-lock/release', { method: 'POST' });
-      } catch {
-        // ignora se não for necessário liberar
-      }
-
-      const data = await apiJson<{ message?: string; error?: string }>('/import/sync?mode=incremental', {
-        method: 'POST',
-      });
-
-      if (data?.error) {
-        alert(`Aviso do Sync: ${data.error}`);
-      } else {
-        alert(data?.message || 'Sincronização com o ERP concluída com sucesso!');
-      }
-      await fetchLotes();
-    } catch (err: any) {
-      console.error('Erro ao sincronizar com ERP:', err);
-      alert(`Falha ao sincronizar com ERP: ${err.message || err}`);
-    } finally {
-      setSyncingErp(false);
-    }
-  };
-
-  // Carrega insumos ao abrir o modal de detalhes do lote
-  const handleOpenLoteDetails = async (item: FiscoErpLoteItem) => {
+  const abrir = async (item: FiscoErpLoteItem) => {
     setSelectedLote(item);
     setLoadingInsumos(true);
     try {
-      const ins = await api.getFiscoErpLoteInsumos(item.lote);
-      setLoteInsumos(ins || []);
-    } catch (e) {
-      console.error('Erro ao carregar insumos do lote:', e);
+      setLoteInsumos((await api.getFiscoErpLoteInsumos(item.lote)) || []);
+    } catch {
       setLoteInsumos([]);
     } finally {
       setLoadingInsumos(false);
     }
   };
 
-  const formatDate = (dStr?: string | null) => {
-    if (!dStr) return '-';
-    try {
-      const clean = dStr.split(' ')[0].split('T')[0];
-      const [yyyy, mm, dd] = clean.split('-');
-      if (yyyy && mm && dd) return `${dd}/${mm}/${yyyy}`;
-      return dStr;
-    } catch {
-      return dStr;
-    }
+  const mudar = (fn: () => void) => {
+    fn();
+    setPage(1);
   };
 
+  const selos = (item: FiscoErpLoteItem) => {
+    const l = laudoErp(item);
+    return (
+      <span className="flex flex-wrap gap-1">
+        {l === 'completo' && <StatusBadge variante="saudavel">Laudo no ERP</StatusBadge>}
+        {l === 'sem_medicao' && <StatusBadge variante="abundante">Sem medições</StatusBadge>}
+        {l === 'pendente' && <StatusBadge variante="ordem">Sem laudo no ERP</StatusBadge>}
+        {item.has_laudo_hub ? <StatusBadge variante="apoio">Laudo no Nexus</StatusBadge> : <StatusBadge variante="aguardando">Sem laudo no Nexus</StatusBadge>}
+      </span>
+    );
+  };
+
+  const medidas = (item: FiscoErpLoteItem) =>
+    [item.ph_erp ? `pH ${item.ph_erp}` : '', item.viscosidade_erp ? `visc. ${item.viscosidade_erp}` : '', item.densidade_erp ? `dens. ${item.densidade_erp}` : '']
+      .filter(Boolean)
+      .join(' · ') || '—';
+
+  const abas = [
+    { id: 'ALL', label: 'Todos', contagem: stats.total_lotes },
+    { id: 'sem_laudo_erp', label: 'Sem laudo no ERP', contagem: stats.sem_laudo_erp },
+    { id: 'com_laudo_erp', label: 'Com laudo no ERP', contagem: stats.com_laudo_erp },
+    { id: 'com_laudo_hub', label: 'Com laudo no Nexus', contagem: stats.com_laudo_hub },
+  ];
+
+  const campo = (rotulo: string, valor: React.ReactNode) => (
+    <div className="min-w-0">
+      <span className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400">{rotulo}</span>
+      <div className="text-sm text-zinc-900 break-words">{valor}</div>
+    </div>
+  );
+
   return (
-    <div className="view-container animate-in fade-in duration-200">
-      {/* Banner Informativo */}
-      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl p-4 sm:p-5 mb-4 shadow-sm border border-blue-800/40 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-blue-300 text-xs font-bold uppercase tracking-wider mb-1">
-            <Database size={15} />
-            <span>Integração de Qualidade & Produção ERP</span>
-          </div>
-          <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-            Histórico Completo de Lotes & Laudos do ERP
-          </h2>
-          <p className="text-xs text-blue-200/90 max-w-2xl mt-0.5">
-            Visualize os parâmetros físico-químicos (pH, viscosidade, densidade), responsáveis e autorizadores registrados diretamente no seu sistema ERP, além de acompanhar o status de laudos no NatumHub.
-          </p>
-        </div>
+    <div className="space-y-3 animate-in fade-in duration-200">
+      <ReportTabs abas={abas} ativa={statusLaudo} onChange={(id) => mudar(() => setStatusLaudo(id as FiltroLaudo))} />
 
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => handleSyncErpDatabase()}
-            disabled={syncingErp || loading}
-            className="btn-secondary !bg-blue-500 hover:!bg-blue-400 !text-white !border-blue-400 text-xs flex items-center gap-1.5 cursor-pointer shadow-sm"
-            title="Importar novos lotes e laudos diretamente do banco SQL Server do ERP"
-          >
-            <Database size={14} className={syncingErp ? 'animate-spin' : ''} />
-            <span>{syncingErp ? 'Puxando do ERP...' : 'Sincronizar com ERP'}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => fetchLotes()}
-            disabled={loading || syncingErp}
-            className="btn-secondary !bg-white/10 hover:!bg-white/20 !text-white !border-white/20 text-xs flex items-center gap-1.5 cursor-pointer backdrop-blur-sm"
-            title="Atualizar exibição dos dados"
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            <span>Recarregar</span>
-          </button>
-        </div>
-      </div>
-
-      {/* KPI Cards Superiores */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <div
-          className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-blue-300 hover:shadow-md ${
-            statusLaudo === 'ALL' ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50/20' : 'border-zinc-200'
-          }`}
-          onClick={() => {
-            setStatusLaudo('ALL');
-            setPage(1);
-          }}
-          title="Clique para ver todos os lotes"
-        >
-          <div className="p-2.5 rounded-lg bg-blue-50 text-blue-600 shrink-0">
-            <Database size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Total Lotes ERP</div>
-            <div className="text-xl font-bold text-zinc-900">{stats.total_lotes.toLocaleString('pt-BR')}</div>
-          </div>
-        </div>
-
-        <div
-          className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-emerald-300 hover:shadow-md ${
-            statusLaudo === 'com_laudo_erp' ? 'ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50/20' : 'border-zinc-200'
-          }`}
-          onClick={() => {
-            setStatusLaudo(statusLaudo === 'com_laudo_erp' ? 'ALL' : 'com_laudo_erp');
-            setPage(1);
-          }}
-          title="Clique para filtrar por lotes com laudo/CQ no ERP"
-        >
-          <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-600 shrink-0">
-            <ShieldCheck size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Com Laudo CQ (ERP)</div>
-            <div className="text-xl font-bold text-emerald-600">{stats.com_laudo_erp.toLocaleString('pt-BR')}</div>
-          </div>
-        </div>
-
-        <div
-          className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-amber-300 hover:shadow-md ${
-            statusLaudo === 'sem_laudo_erp' ? 'ring-2 ring-amber-500 border-amber-500 bg-amber-50/20' : 'border-zinc-200'
-          }`}
-          onClick={() => {
-            setStatusLaudo(statusLaudo === 'sem_laudo_erp' ? 'ALL' : 'sem_laudo_erp');
-            setPage(1);
-          }}
-          title="Clique para filtrar por lotes sem laudo no ERP"
-        >
-          <div className="p-2.5 rounded-lg bg-amber-50 text-amber-600 shrink-0">
-            <Clock size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Sem Laudo no ERP</div>
-            <div className="text-xl font-bold text-amber-600">{stats.sem_laudo_erp.toLocaleString('pt-BR')}</div>
-          </div>
-        </div>
-
-        <div
-          className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-indigo-300 hover:shadow-md ${
-            statusLaudo === 'com_laudo_hub' ? 'ring-2 ring-indigo-500 border-indigo-500 bg-indigo-50/20' : 'border-zinc-200'
-          }`}
-          onClick={() => {
-            setStatusLaudo(statusLaudo === 'com_laudo_hub' ? 'ALL' : 'com_laudo_hub');
-            setPage(1);
-          }}
-          title="Clique para filtrar por lotes com laudo registrado no NatumHub"
-        >
-          <div className="p-2.5 rounded-lg bg-indigo-50 text-indigo-600 shrink-0">
-            <FlaskConical size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Laudos NatumHub</div>
-            <div className="text-xl font-bold text-indigo-600">{stats.com_laudo_hub.toLocaleString('pt-BR')}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Toolbar e Filtros */}
-      <div className="toolbar-section flex-wrap gap-2.5">
-        <div className="search-input-wrapper min-w-[280px] flex-1">
-          <Search size={18} />
-          <input
-            type="text"
-            placeholder="Buscar por lote, produto, fabricante, autorizador, responsável CQ..."
-            className="search-input"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-          />
-        </div>
-
-        <div className="filters-wrapper flex-wrap gap-2">
-          <select
-            className="select-filter"
-            value={statusLaudo}
-            onChange={(e) => {
-              setStatusLaudo(e.target.value as any);
-              setPage(1);
-            }}
-          >
-            <option value="ALL">Filtro de Laudos: Todos</option>
-            <option value="com_laudo_erp">Com Laudo CQ no ERP ({stats.com_laudo_erp})</option>
-            <option value="sem_laudo_erp">Sem Laudo no ERP ({stats.sem_laudo_erp})</option>
-            <option value="com_laudo_hub">Lançados no NatumHub ({stats.com_laudo_hub})</option>
-          </select>
-
-          <div className="flex items-center gap-1 bg-white border border-zinc-200 rounded-lg px-2 py-1 text-xs text-zinc-600">
+      <FilterBar busca={search} onBusca={(v) => mudar(() => setSearch(v))} placeholder="Buscar por lote, produto, fabricante ou responsável...">
+        <div className="flex w-full md:w-auto flex-col md:flex-row gap-2 md:items-center">
+          <label className="flex items-center gap-1.5 text-xs text-zinc-600">
             <Calendar size={14} className="text-zinc-400" />
-            <input
-              type="date"
-              className="border-none text-xs bg-transparent focus:outline-none"
-              value={dateFrom}
-              onChange={(e) => {
-                setDateFrom(e.target.value);
-                setPage(1);
-              }}
-              title="Data inicial ERP"
-            />
-            <span className="text-zinc-400">até</span>
-            <input
-              type="date"
-              className="border-none text-xs bg-transparent focus:outline-none"
-              value={dateTo}
-              onChange={(e) => {
-                setDateTo(e.target.value);
-                setPage(1);
-              }}
-              title="Data final ERP"
-            />
-          </div>
-
-          <button
-            className="btn-secondary cursor-pointer"
-            onClick={() => fetchLotes()}
-            title="Recarregar lista de lotes do ERP"
-          >
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-          </button>
+            <span className="w-8 md:w-auto">De</span>
+            <input type="date" className="select-filter min-h-11 md:min-h-0 flex-1" value={dateFrom} onChange={(e) => mudar(() => setDateFrom(e.target.value))} />
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-zinc-600">
+            <Calendar size={14} className="text-transparent md:hidden" />
+            <span className="w-8 md:w-auto">Até</span>
+            <input type="date" className="select-filter min-h-11 md:min-h-0 flex-1" value={dateTo} onChange={(e) => mudar(() => setDateTo(e.target.value))} />
+          </label>
         </div>
-      </div>
+        <BotaoAcao className="min-h-11 md:min-h-0" onClick={fetchLotes} disabled={loading}>
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Atualizar
+        </BotaoAcao>
+      </FilterBar>
 
-      {/* Tabela de Lotes e Laudos ERP */}
-      <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col w-full text-xs">
-        {loading ? (
-          <div className="p-16 text-center text-zinc-500 flex flex-col items-center gap-3">
-            <RefreshCw className="animate-spin text-blue-600" size={32} />
-            <span className="font-medium">Carregando histórico de lotes e laudos do ERP...</span>
-          </div>
+      <div className="panel-card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="px-4 py-2.5 border-b border-zinc-200 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-xs">
+          <span className="font-bold text-zinc-700">{total.toLocaleString('pt-BR')} {total === 1 ? 'lote' : 'lotes'}</span>
+          <span className="text-[11px] text-zinc-500">Os lotes e laudos vêm do ERP; para trazer dados novos use a Gestão de importações.</span>
+        </div>
+
+        {erro ? (
+          <p className="p-10 text-center text-red-700 font-bold text-xs">Não foi possível carregar os lotes: {erro}</p>
+        ) : loading && items.length === 0 ? (
+          <p className="p-10 text-center text-zinc-500 font-bold text-xs">Carregando lotes...</p>
         ) : items.length === 0 ? (
-          <div className="p-16 text-center text-zinc-400 flex flex-col items-center gap-3">
-            <AlertCircle size={48} className="opacity-40" />
-            <span className="text-sm font-medium">Nenhum lote do ERP encontrado com os filtros selecionados.</span>
-          </div>
+          <p className="p-10 text-center text-zinc-500 font-bold text-xs">Nenhum lote encontrado para este filtro.</p>
         ) : (
-          <div className="overflow-x-auto w-full">
-            <table className="w-full text-left text-xs whitespace-nowrap border-collapse">
-              <thead className="bg-zinc-50 sticky top-0 z-10 border-b border-zinc-200 text-zinc-600 font-bold uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="px-4 py-3">Lote / Data</th>
-                  <th className="px-4 py-3">Produto</th>
-                  <th className="px-4 py-3 text-right">Volume (kg)</th>
-                  <th className="px-4 py-3">Fabricado / Autorizado</th>
-                  <th className="px-4 py-3 text-center">Laudo ERP (CQ)</th>
-                  <th className="px-4 py-3">Parâmetros Medidos (ERP)</th>
-                  <th className="px-4 py-3 text-center">Status Hub</th>
-                  <th className="px-4 py-3 text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 text-zinc-700">
-                {items.map((item) => {
-                  const hasCompleteFq = (item.ph_erp !== null && item.ph_erp !== undefined && item.ph_erp > 0) ||
-                    (item.viscosidade_erp !== null && item.viscosidade_erp !== undefined && item.viscosidade_erp > 0) ||
-                    (item.densidade_erp !== null && item.densidade_erp !== undefined && item.densidade_erp > 0);
-                  const isApprovedAdminOnly = !hasCompleteFq && (item.resultado_cq_erp === 'AP' || item.status_erp === 'AP');
-                  const hasErpQc = hasCompleteFq || isApprovedAdminOnly;
-
-                  return (
-                    <tr key={`${item.lote}-${item.product_code}`} className="hover:bg-zinc-50/80 transition-colors">
-                      {/* Lote / Data */}
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col">
-                          <span className="font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200/60 px-2 py-0.5 rounded-md w-fit text-xs">
-                            {item.lote}
-                          </span>
-                          <span className="text-[11px] text-zinc-500 mt-1 font-medium">
-                            {formatDate(item.date_erp)}
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* Produto */}
-                      <td className="px-4 py-3 max-w-[300px] truncate" title={`${item.product_code} - ${item.product_name}`}>
-                        <div className="flex flex-col">
-                          <span className="font-mono text-xs font-bold text-zinc-900">{item.product_code}</span>
-                          <span className="text-zinc-600 text-xs truncate">{item.product_name || 'Sem descrição'}</span>
-                        </div>
-                      </td>
-
-                      {/* Volume kg / Unidades */}
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex flex-col items-end">
-                          <span className="font-bold text-zinc-900">{item.qty_kg.toLocaleString('pt-BR')} kg</span>
-                          {item.unidades > 0 && (
-                            <span className="text-[10px] text-zinc-400">{item.unidades.toLocaleString('pt-BR')} un</span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Fabricado / Autorizado */}
-                      <td className="px-4 py-3 max-w-[220px]">
-                        <div className="flex flex-col text-xs">
-                          <div className="truncate text-zinc-800 font-medium" title={`Fabricado por: ${item.fabricated_by || 'Não informado'}`}>
-                            <span className="text-[10px] text-zinc-400 font-semibold mr-1">FAB:</span>
-                            {item.fabricated_by || '-'}
-                          </div>
-                          {item.authorized_by && (
-                            <div className="truncate text-zinc-500 text-[11px]" title={`Autorizado por: ${item.authorized_by}`}>
-                              <span className="text-[10px] text-zinc-400 font-semibold mr-1">AUT:</span>
-                              {item.authorized_by}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Laudo ERP (CQ) */}
-                      <td className="px-4 py-3 text-center">
-                        {hasCompleteFq ? (
-                          <div className="flex flex-col items-center">
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border bg-emerald-50 text-emerald-700 border-emerald-200">
-                              <ShieldCheck size={12} />
-                              Laudo ERP Completo
-                            </span>
-                            {item.responsavel_cq_erp && (
-                              <span className="text-[10px] text-zinc-400 mt-0.5 truncate max-w-[120px]" title={item.responsavel_cq_erp}>
-                                {item.responsavel_cq_erp}
-                              </span>
-                            )}
-                          </div>
-                        ) : isApprovedAdminOnly ? (
-                          <div className="flex flex-col items-center">
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border bg-blue-50 text-blue-700 border-blue-200">
-                              <CheckCircle size={11} />
-                              Aprovado sem FQ
-                            </span>
-                            <span className="text-[9px] text-zinc-400 mt-0.5">Sem medições FQ</span>
-                          </div>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full text-[10px] font-medium">
-                            <Clock size={11} />
-                            Pendente ERP
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Parâmetros Medidos (ERP) */}
-                      <td className="px-4 py-3">
-                        {hasErpQc ? (
-                          <div className="flex items-center gap-2 text-xs">
-                            {item.ph_erp ? (
-                              <span className="bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded text-[11px] font-mono text-zinc-800 font-medium">
-                                pH <b>{item.ph_erp}</b>
-                              </span>
-                            ) : null}
-                            {item.viscosidade_erp ? (
-                              <span className="bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded text-[11px] font-mono text-zinc-800 font-medium">
-                                Visc <b>{item.viscosidade_erp}</b>
-                              </span>
-                            ) : null}
-                            {item.densidade_erp ? (
-                              <span className="bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded text-[11px] font-mono text-zinc-800 font-medium">
-                                Dens <b>{item.densidade_erp}</b>
-                              </span>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <span className="text-zinc-400 text-xs italic">-</span>
-                        )}
-                      </td>
-
-                      {/* Status NatumHub */}
-                      <td className="px-4 py-3 text-center">
-                        {item.has_laudo_hub ? (
-                          <span className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-full text-[10px] font-bold">
-                            <CheckCircle2 size={12} />
-                            Laudo no Hub
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 bg-zinc-50 text-zinc-400 border border-zinc-200 px-2 py-0.5 rounded-full text-[10px]">
-                            Pendente Hub
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Ações */}
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            className="btn-secondary !py-1 !px-2 text-xs flex items-center gap-1 cursor-pointer"
-                            onClick={() => handleOpenLoteDetails(item)}
-                            title="Ver detalhes completos do lote, laudo ERP e matérias-primas"
-                          >
-                            <Eye size={13} />
-                            <span>Ver Laudo ERP</span>
-                          </button>
-
-                          {onStartAnalysisWithLote && (
-                            <button
-                              className="btn-primary !py-1 !px-2.5 text-xs flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white font-medium cursor-pointer shadow-sm"
-                              onClick={() => {
-                                onStartAnalysisWithLote(item.product_code, item.lote, item.qty_kg);
-                              }}
-                              title="Lançar ou atualizar laudo no módulo Físico-Químico"
-                            >
-                              <FlaskConical size={13} />
-                              <span>{item.has_laudo_hub ? 'Editar no Hub' : 'Lançar Laudo'}</span>
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Rodapé de Paginação */}
-        <div className="p-3 bg-zinc-50 border-t border-zinc-200 flex items-center justify-between flex-wrap gap-2 text-xs text-zinc-600">
-          <div>
-            Mostrando <span className="font-semibold">{items.length}</span> de{' '}
-            <span className="font-semibold">{total.toLocaleString('pt-BR')}</span> lotes
-          </div>
-
-          <div className="flex items-center gap-2">
-            <select
-              className="select-filter !py-1 !px-2 text-xs"
-              value={limit}
-              onChange={(e) => {
-                setLimit(Number(e.target.value));
-                setPage(1);
-              }}
-            >
-              <option value={15}>15 por página</option>
-              <option value={25}>25 por página</option>
-              <option value={50}>50 por página</option>
-              <option value={100}>100 por página</option>
-            </select>
-
-            <div className="flex items-center gap-1">
-              <button
-                className="btn-secondary !p-1.5 cursor-pointer"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                title="Página anterior"
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <span className="px-2 font-medium">
-                {page} de {totalPages}
-              </span>
-              <button
-                className="btn-secondary !p-1.5 cursor-pointer"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                title="Próxima página"
-              >
-                <ChevronRight size={16} />
-              </button>
+          <>
+            <div className="md:hidden divide-y divide-zinc-100">
+              {items.map((item) => (
+                <button
+                  key={`${item.lote}-${item.product_code}`}
+                  type="button"
+                  onClick={() => abrir(item)}
+                  className="w-full min-h-11 px-4 py-2.5 flex flex-col gap-1 text-left cursor-pointer active:bg-zinc-50"
+                >
+                  <span className="font-mono text-[11px] font-bold text-zinc-500">
+                    {item.lote} · {formatDate(item.date_erp)}
+                  </span>
+                  <span className="text-xs font-bold text-zinc-900 break-words">{item.product_name || item.product_code}</span>
+                  {selos(item)}
+                </button>
+              ))}
             </div>
-          </div>
-        </div>
+
+            <div className="hidden md:block overflow-x-auto">
+              <table className="data-table compacta w-full text-left">
+                <thead>
+                  <tr>
+                    <th>Lote</th>
+                    <th>Data</th>
+                    <th>Produto</th>
+                    <th className="text-right hidden xl:table-cell">Volume</th>
+                    <th className="hidden xl:table-cell">Medições no ERP</th>
+                    <th>Laudo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item) => (
+                    <tr key={`${item.lote}-${item.product_code}`} onClick={() => abrir(item)} className="border-b border-zinc-150 hover:bg-zinc-50 cursor-pointer">
+                      <td className="font-mono font-bold text-zinc-900">{item.lote}</td>
+                      <td className="font-mono text-zinc-600 whitespace-nowrap">{formatDate(item.date_erp)}</td>
+                      <td className="max-w-[300px]">
+                        <span className="block font-bold text-zinc-900 truncate" title={item.product_name}>{item.product_name || 'Sem descrição'}</span>
+                        <span className="block font-mono text-[10px] text-zinc-400">{item.product_code}</span>
+                      </td>
+                      <td className="text-right font-bold whitespace-nowrap hidden xl:table-cell">{item.qty_kg.toLocaleString('pt-BR')} kg</td>
+                      <td className="hidden xl:table-cell font-mono text-zinc-700 whitespace-nowrap">{medidas(item)}</td>
+                      <td>{selos(item)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="px-4 py-2.5 border-t border-zinc-200 flex items-center justify-between gap-3 text-xs text-zinc-600">
+                <button type="button" disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="tab-btn min-h-11 md:min-h-0 px-4 disabled:opacity-40">
+                  Anterior
+                </button>
+                <span className="font-bold">Página {page} de {totalPages}</span>
+                <button type="button" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} className="tab-btn min-h-11 md:min-h-0 px-4 disabled:opacity-40">
+                  Próxima
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      {/* Modal Completo de Detalhes do Lote e Laudo ERP */}
       {selectedLote && (
-        <Modal
-          isOpen={true}
+        <Drawer
           onClose={() => setSelectedLote(null)}
-          title={`Ficha do Lote ERP: ${selectedLote.lote} — ${selectedLote.product_name}`}
-        >
-          <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
-            {/* Header info de Produção */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-zinc-50 p-3.5 rounded-xl border border-zinc-200 text-xs">
-              <div>
-                <div className="text-zinc-400 text-[10px] font-bold uppercase">Código Produto</div>
-                <div className="font-mono font-bold text-zinc-900">{selectedLote.product_code}</div>
-              </div>
-              <div>
-                <div className="text-zinc-400 text-[10px] font-bold uppercase">Volume Total</div>
-                <div className="font-bold text-zinc-900">{selectedLote.qty_kg} kg {selectedLote.unidades > 0 ? `(${selectedLote.unidades} un)` : ''}</div>
-              </div>
-              <div>
-                <div className="text-zinc-400 text-[10px] font-bold uppercase">Data do Lote</div>
-                <div className="font-medium text-zinc-900">{formatDate(selectedLote.date_erp)}</div>
-              </div>
-              <div>
-                <div className="text-zinc-400 text-[10px] font-bold uppercase">Status Produção</div>
-                <div className="font-bold text-zinc-900">{selectedLote.status_erp || 'OK'}</div>
-              </div>
-            </div>
-
-            {/* Informações de Fabricação e Rastreabilidade */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-zinc-50/50 p-3 rounded-xl border border-zinc-200 text-xs">
-              <div>
-                <span className="text-zinc-400 text-[10px] font-bold uppercase block">Fabricado Por:</span>
-                <span className="font-semibold text-zinc-900">{selectedLote.fabricated_by || 'Não informado'}</span>
-              </div>
-              <div>
-                <span className="text-zinc-400 text-[10px] font-bold uppercase block">Autorizado Por:</span>
-                <span className="font-semibold text-zinc-900">{selectedLote.authorized_by || 'Não informado'}</span>
-              </div>
-              {selectedLote.d_pesado && (
-                <div>
-                  <span className="text-zinc-400 text-[10px] font-bold uppercase block">Data Pesagem:</span>
-                  <span className="text-zinc-800">{formatDate(selectedLote.d_pesado)}</span>
-                </div>
-              )}
-              {selectedLote.d_envase && (
-                <div>
-                  <span className="text-zinc-400 text-[10px] font-bold uppercase block">Data Envase:</span>
-                  <span className="text-zinc-800">{formatDate(selectedLote.d_envase)}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Ficha de Controle de Qualidade / Laudo do ERP */}
-            {(selectedLote.has_laudo_erp || selectedLote.ph_erp || selectedLote.viscosidade_erp) ? (
-              <div className="bg-emerald-50/70 border border-emerald-200 p-3.5 rounded-xl text-xs">
-                <div className="flex items-center justify-between mb-2.5">
-                  <div className="flex items-center gap-2 text-emerald-900 font-bold">
-                    <ShieldCheck size={16} className="text-emerald-700" />
-                    <span>Laudo / Controle de Qualidade do ERP</span>
-                  </div>
-                  <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full text-[10px] font-bold border border-emerald-200">
-                    {selectedLote.resultado_cq_erp === 'AP' ? 'Aprovado no ERP' : `Resultado: ${selectedLote.resultado_cq_erp || 'OK'}`}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-emerald-950 mb-2">
-                  <div className="bg-white/80 p-2 rounded-lg border border-emerald-200/60">
-                    <span className="text-emerald-700 text-[10px] block font-semibold">pH Medido (ERP):</span>
-                    <span className="font-mono font-bold text-sm">{selectedLote.ph_erp ?? '-'}</span>
-                  </div>
-                  <div className="bg-white/80 p-2 rounded-lg border border-emerald-200/60">
-                    <span className="text-emerald-700 text-[10px] block font-semibold">Viscosidade (ERP):</span>
-                    <span className="font-mono font-bold text-sm">{selectedLote.viscosidade_erp ? `${selectedLote.viscosidade_erp} cP` : '-'}</span>
-                  </div>
-                  <div className="bg-white/80 p-2 rounded-lg border border-emerald-200/60">
-                    <span className="text-emerald-700 text-[10px] block font-semibold">Densidade (ERP):</span>
-                    <span className="font-mono font-bold text-sm">{selectedLote.densidade_erp ? `${selectedLote.densidade_erp} g/cm³` : '-'}</span>
-                  </div>
-                  <div className="bg-white/80 p-2 rounded-lg border border-emerald-200/60">
-                    <span className="text-emerald-700 text-[10px] block font-semibold">Responsável CQ:</span>
-                    <span className="font-semibold text-xs truncate block" title={selectedLote.responsavel_cq_erp || ''}>
-                      {selectedLote.responsavel_cq_erp || '-'}
-                    </span>
-                  </div>
-                </div>
-
-                {selectedLote.data_inspecao_erp && (
-                  <div className="text-[11px] text-emerald-800">
-                    Data da Inspeção / Laudo: <b>{formatDate(selectedLote.data_inspecao_erp)}</b>
-                  </div>
-                )}
-                {selectedLote.observacoes_erp && (
-                  <div className="mt-2 p-2 bg-white/60 rounded border border-emerald-200/50 text-[11px] text-emerald-900">
-                    <b>Observações:</b> {selectedLote.observacoes_erp}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="bg-amber-50/70 border border-amber-200 p-3 rounded-xl flex items-center gap-2.5 text-amber-900 text-xs">
-                <Clock size={16} className="text-amber-600 shrink-0" />
-                <span>Nenhum laudo ou medição de controle de qualidade registrado no ERP para este lote.</span>
-              </div>
-            )}
-
-            {/* Laudo no NatumHub se houver */}
-            {selectedLote.has_laudo_hub && (
-              <div className="bg-indigo-50/70 border border-indigo-200 p-3 rounded-xl text-xs text-indigo-950">
-                <div className="flex items-center gap-2 text-indigo-900 font-bold mb-1.5">
-                  <FlaskConical size={15} className="text-indigo-700" />
-                  <span>Laudo Registrado no NatumHub</span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                  <div>
-                    <span className="text-indigo-700 text-[10px] block">pH:</span>
-                    <span className="font-bold">{selectedLote.ph_measured ?? '-'}</span>
-                  </div>
-                  <div>
-                    <span className="text-indigo-700 text-[10px] block">Viscosidade:</span>
-                    <span className="font-bold">{selectedLote.viscosity_measured ?? '-'}</span>
-                  </div>
-                  <div>
-                    <span className="text-indigo-700 text-[10px] block">Densidade:</span>
-                    <span className="font-bold">{selectedLote.density_measured ?? '-'}</span>
-                  </div>
-                  <div>
-                    <span className="text-indigo-700 text-[10px] block">Técnico:</span>
-                    <span className="font-medium">{selectedLote.technician ?? '-'}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Insumos e matérias-primas baixadas no ERP */}
-            <div>
-              <h4 className="font-bold text-xs text-zinc-900 mb-2 flex items-center gap-1.5">
-                <Layers size={14} className="text-zinc-500" />
-                <span>Matérias-Primas e Insumos Baixados no Lote ({loteInsumos.length})</span>
-              </h4>
-
-              {loadingInsumos ? (
-                <div className="p-8 text-center text-zinc-400 text-xs">
-                  <RefreshCw className="animate-spin mx-auto mb-2" size={20} />
-                  <span>Buscando insumos do lote...</span>
-                </div>
-              ) : loteInsumos.length === 0 ? (
-                <div className="p-6 bg-zinc-50 rounded-xl border border-zinc-200 text-center text-zinc-500 text-xs">
-                  Nenhum registro individual de insumo baixado encontrado para este lote.
-                </div>
-              ) : (
-                <div className="border border-zinc-200 rounded-xl overflow-hidden text-xs">
-                  <table className="w-full text-left">
-                    <thead className="bg-zinc-50 border-b border-zinc-200 font-semibold text-zinc-600 text-[10px] uppercase">
-                      <tr>
-                        <th className="px-3 py-2">Código</th>
-                        <th className="px-3 py-2">Descrição do Insumo</th>
-                        <th className="px-3 py-2 text-right">Quantidade</th>
-                        <th className="px-3 py-2">Data Baixa</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-200">
-                      {loteInsumos.map((ins, idx) => (
-                        <tr key={`${ins.item_code}-${idx}`} className="hover:bg-zinc-50">
-                          <td className="px-3 py-2 font-mono font-semibold text-zinc-800">{ins.item_code}</td>
-                          <td className="px-3 py-2 text-zinc-700">{ins.item_description}</td>
-                          <td className="px-3 py-2 text-right font-bold text-zinc-900">
-                            {ins.quantity.toLocaleString('pt-BR')} {ins.unit || ''}
-                          </td>
-                          <td className="px-3 py-2 text-zinc-500">{formatDate(ins.date)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between pt-2 border-t border-zinc-200">
-              <button className="btn-secondary text-xs cursor-pointer" onClick={() => setSelectedLote(null)}>
-                Fechar
-              </button>
-
-              {onStartAnalysisWithLote && (
-                <button
-                  className="btn-primary text-xs flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-medium cursor-pointer"
+          title={`Lote ${selectedLote.lote}`}
+          subtitle={`${selectedLote.product_name || ''} · ${selectedLote.product_code}`}
+          size="md"
+          footer={
+            onStartAnalysisWithLote && (
+              <div className="flex justify-end">
+                <BotaoAcao
+                  primario
+                  className="min-h-11 md:min-h-0"
                   onClick={() => {
-                    const lote = selectedLote;
+                    const l = selectedLote;
                     setSelectedLote(null);
-                    onStartAnalysisWithLote(lote.product_code, lote.lote, lote.qty_kg);
+                    onStartAnalysisWithLote(l.product_code, l.lote, l.qty_kg);
                   }}
                 >
-                  <FlaskConical size={14} />
-                  <span>{selectedLote.has_laudo_hub ? 'Abrir no Físico-Químico' : 'Lançar Laudo no Hub com este Lote'}</span>
-                </button>
+                  <FlaskConical size={14} /> {selectedLote.has_laudo_hub ? 'Abrir laudo no Nexus' : 'Registrar laudo deste lote'}
+                </BotaoAcao>
+              </div>
+            )
+          }
+        >
+          <div className="space-y-5 p-4">
+            <div className="grid grid-cols-2 gap-4">
+              {campo('Volume', `${selectedLote.qty_kg.toLocaleString('pt-BR')} kg${selectedLote.unidades > 0 ? ` (${selectedLote.unidades.toLocaleString('pt-BR')} un)` : ''}`)}
+              {campo('Data do lote', formatDate(selectedLote.date_erp))}
+              {campo('Fabricado por', selectedLote.fabricated_by || '—')}
+              {campo('Autorizado por', selectedLote.authorized_by || '—')}
+              {selectedLote.d_pesado && campo('Pesagem', formatDate(selectedLote.d_pesado))}
+              {selectedLote.d_envase && campo('Envase', formatDate(selectedLote.d_envase))}
+            </div>
+
+            <div className="border-t border-zinc-200 pt-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-zinc-700">Laudo no ERP</span>
+                {selos(selectedLote)}
+              </div>
+              {laudoErp(selectedLote) === 'pendente' ? (
+                <p className="text-xs text-zinc-500">Nenhuma medição de qualidade registrada no ERP para este lote.</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  {laudoErp(selectedLote) === 'completo' && campo('pH', selectedLote.ph_erp ?? '—')}
+                  {laudoErp(selectedLote) === 'completo' && campo('Viscosidade', selectedLote.viscosidade_erp ? `${selectedLote.viscosidade_erp} cps` : '—')}
+                  {laudoErp(selectedLote) === 'completo' && campo('Densidade', selectedLote.densidade_erp ? `${selectedLote.densidade_erp} g/mL` : '—')}
+                  {campo('Responsável', selectedLote.responsavel_cq_erp || '—')}
+                  {selectedLote.data_inspecao_erp && campo('Inspeção', formatDate(selectedLote.data_inspecao_erp))}
+                  {selectedLote.observacoes_erp && campo('Observações', selectedLote.observacoes_erp)}
+                </div>
+              )}
+            </div>
+
+            {selectedLote.has_laudo_hub && (
+              <div className="border-t border-zinc-200 pt-4 space-y-3">
+                <span className="text-xs font-bold text-zinc-700">Laudo no Nexus</span>
+                <div className="grid grid-cols-2 gap-4">
+                  {campo('pH', selectedLote.ph_measured ?? '—')}
+                  {campo('Viscosidade', selectedLote.viscosity_measured ?? '—')}
+                  {campo('Densidade', selectedLote.density_measured ?? '—')}
+                  {campo('Analista', selectedLote.technician ?? '—')}
+                </div>
+              </div>
+            )}
+
+            <div className="border-t border-zinc-200 pt-4">
+              <span className="block text-xs font-bold text-zinc-700 mb-2">Insumos baixados no lote ({loteInsumos.length})</span>
+              {loadingInsumos ? (
+                <p className="text-xs text-zinc-500">Buscando insumos...</p>
+              ) : loteInsumos.length === 0 ? (
+                <p className="text-xs text-zinc-500">Nenhum insumo baixado para este lote.</p>
+              ) : (
+                <div className="divide-y divide-zinc-100 rounded-xl border border-zinc-200">
+                  {loteInsumos.map((ins, idx) => (
+                    <div key={`${ins.item_code}-${idx}`} className="flex items-start justify-between gap-3 px-3 py-2 text-xs">
+                      <span className="min-w-0">
+                        <span className="block font-mono font-bold text-zinc-500">{ins.item_code}</span>
+                        <span className="block text-zinc-800 break-words">{ins.item_description}</span>
+                      </span>
+                      <span className="shrink-0 text-right">
+                        <span className="block font-bold text-zinc-900">{ins.quantity.toLocaleString('pt-BR')} {ins.unit || ''}</span>
+                        <span className="block text-[10px] text-zinc-400">{formatDate(ins.date)}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           </div>
-        </Modal>
+        </Drawer>
       )}
     </div>
   );

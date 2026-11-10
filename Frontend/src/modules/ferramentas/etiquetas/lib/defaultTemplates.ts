@@ -927,7 +927,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
     id: 'template_lote_erp',
     chave: 'lote_erp',
     name: 'Etiqueta de Lote (ERP)',
-    description: 'Desenho da etiqueta de lote do ERP, sem borda: nome do produto, código de barras (EAN-13) do produto, data, código, nº do lote e quantidade por caixa.',
+    description: 'Desenho da etiqueta de lote do ERP, sem borda: nome do produto, código de barras da caixa (DUN-14), data, código, nº do lote e quantidade por caixa.',
     category: 'producao',
     width_mm: 100,
     height_mm: 50,
@@ -962,8 +962,8 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         height_mm: 9,
         zIndex: 2,
         props: {
-          value: '{barcode}',
-          format: 'ean13',
+          value: '{box_barcode}',
+          format: 'code128',
           showText: false,
         },
       },
@@ -976,7 +976,7 @@ export const DEFAULT_LABEL_TEMPLATES: LabelTemplate[] = [
         height_mm: 4,
         zIndex: 2,
         props: {
-          text: '{barcode}',
+          text: '{box_barcode}',
           fontSize: 9,
           fontWeight: '600',
           fontFamily: 'Inter',
@@ -1197,14 +1197,13 @@ if (modeloLote) {
     id: 'template_kit_erp',
     chave: 'kit_erp',
     name: 'Etiqueta de Kit (ERP)',
-    description: 'Mesmo desenho da etiqueta de lote, para kits. O lote é o número da ordem de montagem.',
+    description: 'Mesmo desenho da etiqueta de lote (código da caixa), para kits. O lote é o número da ordem de montagem.',
   });
 }
 
 // Coloração não tem lote: mesmo desenho, sem lote e sem data; código e quantidade por caixa ganham o espaço.
 if (modeloLote) {
-  const sem = ['lbl_data', 'txt_data', 'barcode_lote', 'txt_lote'];
-  DEFAULT_LABEL_TEMPLATES.push({
+  const sem = ['lbl_data', 'txt_data', 'barcode_lote', 'txt_lote'];  DEFAULT_LABEL_TEMPLATES.push({
     ...modeloLote,
     id: 'template_coloracao_erp',
     chave: 'coloracao_erp',

@@ -44,6 +44,8 @@ export interface LoteEtiqueta {
   data_producao?: string | null;
   quantidade_caixa?: number | null;
   codigo_barras?: string | null;
+  /** Código da caixa (DUN-14), derivado do EAN-13 do produto. */
+  codigo_barras_caixa?: string | null;
   /** true quando as unidades foram calculadas (kg / peso da unidade), não conferidas no envase. */
   quantidade_estimada?: boolean;
   caixas?: number | null;
