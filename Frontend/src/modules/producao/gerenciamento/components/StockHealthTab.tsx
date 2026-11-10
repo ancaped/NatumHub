@@ -130,6 +130,7 @@ export function StockHealthTab({ setView }: Props) {
   const [tipo, setTipo] = useState('todos');
   const [linha, setLinha] = useState('todas');
   const [ordem, setOrdem] = useState(ORDEM_PADRAO.disponibilidade);
+  const [filtroSituacao, setFiltroSituacao] = useState<Situacao | null>(null);
   const [detalhe, setDetalhe] = useState<string | null>(null);
   const [enfileirando, setEnfileirando] = useState<string | null>(null);
 
@@ -151,6 +152,7 @@ export function StockHealthTab({ setView }: Props) {
 
   const trocarAba = (a: string) => {
     setAba(a as Aba);
+    setFiltroSituacao(null);
     if (a !== 'coloracao' && a !== 'retirados') setOrdem(ORDEM_PADRAO[a as Exclude<Aba, 'coloracao' | 'retirados'>]);
   };
 
@@ -182,7 +184,7 @@ export function StockHealthTab({ setView }: Props) {
   const lista = useMemo(() => {
     if (aba === 'coloracao' || aba === 'retirados') return [];
     const s = ABAS_SITUACOES[aba];
-    const sel = s ? base.filter((i) => s.includes(i.situacao)) : [...base];
+    const sel = (s ? base.filter((i) => s.includes(i.situacao)) : [...base]).filter((i) => !filtroSituacao || i.situacao === filtroSituacao);
     const f = ordem.dir === 'asc' ? 1 : -1;
     sel.sort((a, b) => {
       const va = valorOrdem(a, ordem.campo);
@@ -191,7 +193,7 @@ export function StockHealthTab({ setView }: Props) {
       return (Number.isNaN(r) ? 0 : r) * f || a.codigo.localeCompare(b.codigo);
     });
     return sel;
-  }, [base, aba, ordem]);
+  }, [base, aba, ordem, filtroSituacao]);
 
   const alterarRetirado = async (codigo: string, retirar: boolean) => {
     setEnfileirando(codigo);
@@ -330,6 +332,20 @@ export function StockHealthTab({ setView }: Props) {
     return [sit, est, ideal, cobDias, ultVenda];
   }
 
+  // Cartões: contagens do que o endpoint devolveu, respeitando busca, tipo e linha (e sem os retirados, que o servidor já tirou).
+  const porSituacao = (s: Situacao) => base.filter((i) => i.situacao === s).length;
+  const escolherSituacao = (s: Situacao | null) => {
+    if (s === null) { setAba('todos'); setFiltroSituacao(null); setOrdem(ORDEM_PADRAO.todos); return; }
+    if (aba !== 'todos' && !(aba === 'disponibilidade' && (s === 'ruptura' || s === 'baixo'))) {
+      setAba(s === 'ruptura' || s === 'baixo' ? 'disponibilidade' : s === 'excesso' ? 'excesso' : s === 'sem_giro' ? 'sem_giro' : 'todos');
+    }
+    setFiltroSituacao((atual) => (atual === s ? null : s));
+    setOrdem(ORDEM_PADRAO[s === 'ruptura' || s === 'baixo' ? 'disponibilidade' : s === 'excesso' ? 'excesso' : s === 'sem_giro' ? 'sem_giro' : 'todos']);
+  };
+  const totalCartoes = base.length;
+  const adequados = porSituacao('adequado');
+  const pctAdequado = totalCartoes ? Math.round((adequados / totalCartoes) * 100) : 0;
+
   const abas = [
     { id: 'disponibilidade', label: 'Disponibilidade', contagem: contar('disponibilidade') },
     { id: 'excesso', label: 'Excesso', contagem: contar('excesso') },
@@ -396,6 +412,31 @@ export function StockHealthTab({ setView }: Props) {
             </>
           }
         />
+        {/* Cartões do estado do estoque (exceção do Edson à regra "sem cards de KPI": só nesta tela; ver ai-memory) */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+          <button
+            type="button"
+            className="panel-card"
+            onClick={() => escolherSituacao(null)}
+            title="Parcela dos produtos em situação adequada; clique para ver todos"
+            style={{ flex: '1 1 150px', minHeight: 44, padding: '8px 12px', textAlign: 'left', cursor: 'pointer', outline: aba === 'todos' && !filtroSituacao ? '2px solid hsl(var(--primary-hsl))' : 'none' }}
+          >
+            <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', color: 'hsl(var(--text-secondary-hsl))' }}>Visão geral</div>
+            <div style={{ fontSize: '1.2rem', fontWeight: 800 }}>{pctAdequado}% <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'hsl(var(--text-secondary-hsl))' }}>adequados · {num(totalCartoes)} itens</span></div>
+          </button>
+          {(['ruptura', 'baixo', 'adequado', 'excesso', 'sem_giro'] as Situacao[]).map((s) => (
+            <button
+              key={s}
+              type="button"
+              className="panel-card"
+              onClick={() => escolherSituacao(s)}
+              style={{ flex: '1 1 96px', minHeight: 44, padding: '8px 12px', textAlign: 'left', cursor: 'pointer', outline: filtroSituacao === s ? '2px solid hsl(var(--primary-hsl))' : 'none' }}
+            >
+              <div style={{ marginBottom: 2 }}><StatusBadge variante={VARIANTE[s]}>{ROTULO[s]}</StatusBadge></div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 800 }}>{num(porSituacao(s))}</div>
+            </button>
+          ))}
+        </div>
         <ReportTabs abas={abas} ativa={aba} onChange={trocarAba} />
         <FilterBar busca={busca} onBusca={setBusca} placeholder="Buscar por código ou descrição...">
           <FiltroSelect value={tipo} onChange={setTipo} opcoes={[{ valor: 'todos', rotulo: 'Produtos e kits' }, { valor: 'produto', rotulo: 'Só produtos' }, { valor: 'kit', rotulo: 'Só kits' }]} />
