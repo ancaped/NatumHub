@@ -121,8 +121,8 @@ pub async fn renomear_prefixo_linha(
 
             // A linha nova nasce como cópia da antiga (nome e parâmetros); a antiga some no fim, depois de soltar os produtos.
             sqlx::query(
-                "INSERT INTO config_linhas (linha_prefix, nome_linha, estoque_ideal_mult, abrir_ordem_mult, abrir_prod_mult, fator_seguranca_z, visivel) \
-                 SELECT $2, nome_linha, estoque_ideal_mult, abrir_ordem_mult, abrir_prod_mult, fator_seguranca_z, visivel \
+                "INSERT INTO config_linhas (linha_prefix, nome_linha, estoque_ideal_mult, abrir_ordem_mult, abrir_prod_mult, fator_seguranca_z, visivel, atendimento) \
+                 SELECT $2, nome_linha, estoque_ideal_mult, abrir_ordem_mult, abrir_prod_mult, fator_seguranca_z, visivel, atendimento \
                  FROM config_linhas WHERE linha_prefix = $1",
             )
             .bind(&a)
@@ -154,6 +154,13 @@ pub async fn renomear_prefixo_linha(
                 .await?
                 .rows_affected();
             sqlx::query("DELETE FROM config_linhas WHERE linha_prefix = $1").bind(&a).execute(&mut *conn).await?;
+            // Quem entrou ou saiu pode ter outro atendimento de linha: o status que Produção e Compras leem acompanha.
+            let movidos: Vec<String> = troca.atualizar.iter().map(|x| x.0.clone()).collect();
+            crate::modules::administrativo::classificacao::atendimento::sincronizar_status(
+                conn,
+                crate::modules::administrativo::classificacao::atendimento::Alvo::Codigos(&movidos),
+            )
+            .await?;
 
             Ok(json!({
                 "prefixoAtual": a,

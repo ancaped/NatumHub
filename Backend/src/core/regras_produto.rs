@@ -67,6 +67,48 @@ where
         .await
 }
 
+// --- Situação × atendimento (L1 do plano da Linha de Produtos, decisão do Edson 2026-11-10) ---
+// Situação: o produto está no catálogo? ativo, lançamento, saindo de linha, inativo (guardado como "descontinuado").
+// Atendimento: o produto gera demanda automática? estoque (sim), encomenda e terceirizado (não).
+// O atendimento tem padrão na linha (`config_linhas.atendimento`) e exceção no produto (`overrides_produtos.atendimento`).
+// Produção e Compras ainda leem `overrides_produtos.status_produto`; ele é mantido como espelho da regra abaixo
+// (`status_de_consumo`), por isso nada muda para eles: quem era "terceirizado" continua lendo "terceirizado".
+
+pub const ATENDIMENTOS: [&str; 3] = ["estoque", "encomenda", "terceirizado"];
+pub const SITUACOES: [&str; 4] = ["ativo", "lancamento", "saindo_de_linha", "descontinuado"];
+
+/// Atendimento efetivo: exceção do produto, senão o da linha, senão "estoque". Valor desconhecido vale "estoque".
+pub fn atendimento_efetivo(produto: Option<&str>, linha: Option<&str>) -> &'static str {
+    let valido = |v: Option<&str>| ATENDIMENTOS.iter().copied().find(|a| Some(*a) == v.map(str::trim));
+    valido(produto).or_else(|| valido(linha)).unwrap_or("estoque")
+}
+
+/// Só "estoque" gera demanda automática de produção e de insumo.
+pub fn gera_demanda(atendimento_efetivo: &str) -> bool {
+    atendimento_efetivo == "estoque"
+}
+
+/// Situação e atendimento a partir de um status guardado antes da L1 (o antigo "terceirizado" era uma situação).
+pub fn situacao_do_status_legado(status: Option<&str>) -> (String, Option<&'static str>) {
+    match status.map(str::trim).filter(|s| !s.is_empty()) {
+        None => ("ativo".into(), None),
+        Some("terceirizado") => ("ativo".into(), Some("terceirizado")),
+        Some(s) => (s.into(), None),
+    }
+}
+
+/// O que Produção e Compras devem ler em `status_produto`: inativo continua "descontinuado"; quem não gera demanda
+/// (encomenda, terceirizado) lê "terceirizado", como o antigo status; o resto lê a própria situação.
+pub fn status_de_consumo(situacao: &str, atendimento_efetivo: &str) -> String {
+    if situacao == "descontinuado" {
+        "descontinuado".into()
+    } else if !gera_demanda(atendimento_efetivo) {
+        "terceirizado".into()
+    } else {
+        situacao.into()
+    }
+}
+
 /// Produto ativo = status efetivo fora de "status ignorados" e produto visível.
 pub fn produto_ativo(status_efetivo: &str, visivel: Option<i32>, status_ignorados: &[String]) -> bool {
     !status_ignorados.iter().any(|s| s == status_efetivo) && visivel.unwrap_or(1) != 0
@@ -200,5 +242,32 @@ mod tests {
         pais.insert("sub".to_string(), "cat_base".to_string());
         assert_eq!(categoria_raiz("sub", &pais), "cat_base");
         assert_eq!(categoria_raiz("cat_base", &pais), "cat_base");
+    }
+
+    #[test]
+    fn atendimento_efetivo_produto_manda_sobre_a_linha() {
+        assert_eq!(atendimento_efetivo(None, None), "estoque");
+        assert_eq!(atendimento_efetivo(None, Some("terceirizado")), "terceirizado");
+        assert_eq!(atendimento_efetivo(Some("estoque"), Some("terceirizado")), "estoque");
+        assert_eq!(atendimento_efetivo(Some("encomenda"), Some("estoque")), "encomenda");
+        assert_eq!(atendimento_efetivo(Some("lixo"), Some("encomenda")), "encomenda");
+        assert!(gera_demanda("estoque") && !gera_demanda("encomenda") && !gera_demanda("terceirizado"));
+    }
+
+    #[test]
+    fn terceirizado_antigo_e_ativo_mais_atendimento_terceirizado_leem_o_mesmo_status() {
+        // Antes da L1: status "terceirizado". Depois: situação ativo + atendimento terceirizado. Consumidores leem igual.
+        let (sit, atend) = situacao_do_status_legado(Some("terceirizado"));
+        assert_eq!((sit.as_str(), atend), ("ativo", Some("terceirizado")));
+        assert_eq!(status_de_consumo(&sit, atendimento_efetivo(atend, None)), "terceirizado");
+        // quem não era terceirizado lê o mesmo de antes
+        for st in ["ativo", "lancamento", "saindo_de_linha", "descontinuado", "bases"] {
+            let (s2, a2) = situacao_do_status_legado(Some(st));
+            assert_eq!(status_de_consumo(&s2, atendimento_efetivo(a2, None)), st);
+        }
+        assert_eq!(status_de_consumo("ativo", "estoque"), "ativo");
+        assert_eq!(status_de_consumo("descontinuado", "terceirizado"), "descontinuado");
+        assert_eq!(status_de_consumo("lancamento", "encomenda"), "terceirizado");
+        assert_eq!(situacao_do_status_legado(None).0, "ativo");
     }
 }

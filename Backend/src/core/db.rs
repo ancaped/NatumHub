@@ -96,6 +96,13 @@ impl Db {
             .execute(&mut **tx)
             .await
             .map_err(|e| e.to_string())?;
+        // Quem voltou para DEFAULT passa a seguir o atendimento da linha DEFAULT: refaz o status que Produção e Compras leem.
+        crate::modules::administrativo::classificacao::atendimento::sincronizar_status(
+            &mut **tx,
+            crate::modules::administrativo::classificacao::atendimento::Alvo::Todos,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
         Ok((produtos, overrides))
     }
 
@@ -243,6 +250,28 @@ impl Db {
 
         // Linha que ficou toda nula/default não tem razão de existir.
         let mut conn = self.pool.acquire().await.map_err(|e| e.to_string())?;
+        // Escrita direta de status (nome antigo da situação) ou de linha: refaz situação e o status espelho.
+        let status_enviado = ovr.campos_enviados.contains("status_produto");
+        if status_enviado || ovr.campos_enviados.contains("linha_prefix_manual") {
+            if status_enviado {
+                let terc = ovr.status_produto.as_deref().map(str::trim) == Some("terceirizado");
+                sqlx::query(
+                    "UPDATE overrides_produtos SET situacao = NULL, \
+                     atendimento = CASE WHEN $2 THEN 'terceirizado' ELSE atendimento END WHERE codigo = $1",
+                )
+                .bind(&ovr.codigo)
+                .bind(terc)
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| e.to_string())?;
+            }
+            crate::modules::administrativo::classificacao::atendimento::sincronizar_status(
+                &mut conn,
+                crate::modules::administrativo::classificacao::atendimento::Alvo::Codigos(&[ovr.codigo.clone()]),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        }
         Self::apagar_override_se_vazio(&mut conn, &ovr.codigo).await?;
 
         // base_codigo mora em produtos: chave presente com null ou "" limpa; ausente não mexe.
@@ -274,6 +303,8 @@ impl Db {
                AND observacao IS NULL
                AND linha_prefix_manual IS NULL
                AND (status_produto IS NULL OR status_produto = 'ativo')
+               AND (situacao IS NULL OR situacao = 'ativo')
+               AND atendimento IS NULL
                AND categoria_produto IS NULL
                AND (produzir_apenas_kit IS NULL OR produzir_apenas_kit = 0)
                AND (lancamento_meta_meses IS NULL OR lancamento_meta_meses = 6)
@@ -299,7 +330,7 @@ impl Db {
     }
 
     /// Ações aceitas por `save_override_bulk`.
-    pub const ACOES_BULK: [&'static str; 12] = [
+    pub const ACOES_BULK: [&'static str; 13] = [
         "hide",
         "show",
         "set_launch_auto",
@@ -310,6 +341,7 @@ impl Db {
         "set_obs",
         "set_line",
         "set_status",
+        "set_atendimento",
         "set_category",
         "clear",
     ];
@@ -394,7 +426,7 @@ impl Db {
                     // Graduar = status ativo e sem marca manual de lançamento.
                     sqlx::query(
                         "UPDATE overrides_produtos
-                         SET status_produto = 'ativo', is_lancamento_manual = NULL
+                         SET status_produto = 'ativo', situacao = NULL, is_lancamento_manual = NULL
                          WHERE codigo = $1",
                     )
                     .bind(codigo)
@@ -421,10 +453,27 @@ impl Db {
                         .map_err(|e| e.to_string())?;
                 }
                 "set_status" => {
+                    // Nome antigo da situação: "terceirizado" vira atendimento; a situação é refeita a partir do valor novo
+                    // e o status espelho (o que Produção e Compras leem) é recalculado no fim.
                     let status = req.value_str.as_ref().filter(|s| !s.trim().is_empty());
-                    sqlx::query("UPDATE overrides_produtos SET status_produto = $2 WHERE codigo = $1")
+                    let terceirizado = status.map(|s| s.trim() == "terceirizado").unwrap_or(false);
+                    sqlx::query(
+                        "UPDATE overrides_produtos SET status_produto = $2, situacao = NULL, \
+                         atendimento = CASE WHEN $3 THEN 'terceirizado' ELSE atendimento END WHERE codigo = $1",
+                    )
+                    .bind(codigo)
+                    .bind(status)
+                    .bind(terceirizado)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                }
+                "set_atendimento" => {
+                    // Exceção de atendimento do produto; vazio ou AUTO volta a herdar o da linha.
+                    let atd = req.value_str.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty() && *s != "AUTO");
+                    sqlx::query("UPDATE overrides_produtos SET atendimento = $2 WHERE codigo = $1")
                         .bind(codigo)
-                        .bind(status)
+                        .bind(atd)
                         .execute(&mut *tx)
                         .await
                         .map_err(|e| e.to_string())?;
@@ -454,6 +503,8 @@ impl Db {
                              observacao = NULL,
                              linha_prefix_manual = NULL,
                              status_produto = NULL,
+                             situacao = NULL,
+                             atendimento = NULL,
                              categoria_produto = NULL
                          WHERE codigo = $1",
                     )
@@ -467,6 +518,13 @@ impl Db {
 
             Self::apagar_override_se_vazio(tx, codigo).await?;
         }
+        // O status que Produção e Compras leem acompanha situação, atendimento e linha (ver `core::regras_produto`).
+        crate::modules::administrativo::classificacao::atendimento::sincronizar_status(
+            tx,
+            crate::modules::administrativo::classificacao::atendimento::Alvo::Codigos(&req.codigos),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
 
         Ok(())
     }

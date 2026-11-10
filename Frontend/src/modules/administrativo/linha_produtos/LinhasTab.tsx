@@ -5,6 +5,8 @@ import { cn } from '../../geral/lib/utils';
 import Drawer from '../../geral/components/ui/Drawer';
 import type { PreviaAcao } from '../../producao/gerenciamento/components/PreviaAcaoDrawer';
 import LinhaResumo from './LinhaResumo';
+import { useAtendimentos } from './useAtendimentos';
+import { ATENDIMENTOS_UI, SITUACOES_UI } from './tipos';
 import type { LineConfig, PedirBulkOpts, ProductResult } from './tipos';
 
 interface Props {
@@ -34,6 +36,12 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
   const [fatorZForm, setFatorZForm] = useState('1.65');
   const [visibleLineForm, setVisibleLineForm] = useState('1');
   const [semLinhaVersao, setSemLinhaVersao] = useState(0);
+  const [soAtivas, setSoAtivas] = useState(true);
+  const [atendimentoForm, setAtendimentoForm] = useState('estoque');
+  const atend = useAtendimentos(configs);
+  const atendimentoDaLinha = (prefixo: string) => atend.linhas[prefixo]?.atendimento || 'estoque';
+  const situacaoDe = (codigo: string, status: string | null) =>
+    atend.produtos[codigo]?.situacao || (status === 'terceirizado' || !status ? 'ativo' : status);
 
   const [lineFormError, setLineFormError] = useState<string | null>(null);
   const [lineSaving, setLineSaving] = useState(false);
@@ -59,9 +67,10 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
 
   const configsFiltradas = useMemo(() => {
     const q = linhaSearch.trim().toLowerCase();
+    const base = soAtivas ? configs.filter(c => c.visivel !== 0) : configs;
     const lista = q
-      ? configs.filter(c => c.linha_prefix.toLowerCase().includes(q) || (c.nome_linha || '').toLowerCase().includes(q))
-      : configs;
+      ? base.filter(c => c.linha_prefix.toLowerCase().includes(q) || (c.nome_linha || '').toLowerCase().includes(q))
+      : base;
     // Prefixo em ordem numérica (9.15 depois de 9, antes de 10); DEFAULT por último.
     const chave = (prefixo: string) => (prefixo === 'DEFAULT' ? Infinity : parseFloat(prefixo));
     return [...lista].sort((a, b) => {
@@ -69,7 +78,8 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
       const kb = chave(b.linha_prefix);
       return ka === kb ? a.linha_prefix.localeCompare(b.linha_prefix) : (Number.isNaN(ka) ? Infinity : ka) - (Number.isNaN(kb) ? Infinity : kb);
     });
-  }, [configs, linhaSearch]);
+  }, [configs, linhaSearch, soAtivas]);
+  const inativas = useMemo(() => configs.filter(c => c.visivel === 0).length, [configs]);
 
   const produtosPorLinha = useMemo(() => {
     const mapa = new Map<string, number>();
@@ -112,11 +122,11 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
   };
 
   // Mover produtos de linha ou mudar o status dos selecionados: prévia do servidor e só grava no OK.
-  const pedirMudancaEmLote = async (action: 'set_line' | 'set_status', value: string) => {
+  const pedirMudancaEmLote = async (action: 'set_line' | 'set_status' | 'set_atendimento', value: string) => {
     if (!value || marcados.size === 0) return;
     const rotuloLinha = value === 'AUTO' ? 'a linha do prefixo' : configs.find(c => c.linha_prefix === value)?.nome_linha || value;
     await pedirBulk({
-      titulo: action === 'set_line' ? `Mover ${marcados.size} produto(s) para ${rotuloLinha}` : `Mudar o status de ${marcados.size} produto(s)`,
+      titulo: action === 'set_line' ? `Mover ${marcados.size} produto(s) para ${rotuloLinha}` : action === 'set_atendimento' ? `Mudar o atendimento de ${marcados.size} produto(s)` : `Mudar a situação de ${marcados.size} produto(s)`,
       codigos: Array.from(marcados),
       action,
       value,
@@ -133,9 +143,8 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
     lancamento: 'bg-zinc-900 text-white border-zinc-900',
     saindo_de_linha: 'bg-amber-50 text-amber-700 border-amber-200',
     descontinuado: 'bg-red-50 text-red-700 border-red-200',
-    terceirizado: 'bg-white text-zinc-600 border-zinc-300',
   };
-  const STATUS_ROTULO: Record<string, string> = { ativo: 'Ativa', lancamento: 'Lançamento', saindo_de_linha: 'Saindo de Linha', descontinuado: 'Saiu de Linha', terceirizado: 'Terceirizado' };
+  const STATUS_ROTULO: Record<string, string> = { ativo: 'Ativo', lancamento: 'Lançamento', saindo_de_linha: 'Saindo de linha', descontinuado: 'Inativo' };
 
   const handleOpenLineModal = (cfg: LineConfig | null = null) => {
     setEditingLineConfig(cfg);
@@ -151,6 +160,7 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
       setProdMultForm(cfg.abrir_prod_mult.toString());
       setFatorZForm(cfg.fator_seguranca_z.toString());
       setVisibleLineForm(cfg.visivel === 0 ? '0' : '1');
+      setAtendimentoForm(atendimentoDaLinha(cfg.linha_prefix));
     } else {
       setLinePrefixForm('');
       setLineNameForm('');
@@ -259,6 +269,52 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
     }
   };
 
+  // Atendimento padrão da linha: prévia do servidor (quantos produtos mudam de efeito) e só grava no OK.
+  const handleAtendimentoLinha = async () => {
+    if (!editingLineConfig) return;
+    const prefixo = editingLineConfig.linha_prefix;
+    const corpo = JSON.stringify({ prefixo, atendimento: atendimentoForm });
+    const chamar = (confirmar: boolean) => apiFetch(`/admin/produtos-ativos/linhas/classificacao${confirmar ? '?confirmar=true' : ''}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: corpo,
+    });
+    try {
+      const res = await chamar(false);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLineFormError(data.error || 'Não foi possível calcular a mudança.');
+        return;
+      }
+      setLineFormError(null);
+      const r = data.resultado || {};
+      const rotulo = (v: string) => ATENDIMENTOS_UI.find(a => a.value === v)?.label || v;
+      pedirPrevia({
+        titulo: `Atendimento da linha ${editingLineConfig.nome_linha}`,
+        linhas: [
+          { titulo: 'Atendimento padrão', detalhe: `${rotulo(r.antes?.atendimento)} → ${rotulo(r.depois?.atendimento)}` },
+          { titulo: 'Produtos na linha', detalhe: String(r.produtosNaLinha ?? 0) },
+          { titulo: 'Produtos que mudam de efeito', detalhe: String(r.produtosQueMudamDeEfeito ?? 0) },
+          { titulo: 'Produtos com exceção própria (não mudam)', detalhe: String(r.produtosComExcecaoDeAtendimento ?? 0) },
+        ],
+        avisos: r.avisos || [],
+        confirmarRotulo: 'Mudar atendimento',
+        executar: async () => {
+          const r2 = await chamar(true);
+          if (!r2.ok) {
+            const e = await r2.json().catch(() => ({}));
+            throw new Error(e.error || 'Erro ao mudar o atendimento.');
+          }
+          await onReload();
+          avisar('Atendimento da linha atualizado.', 'sucesso');
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      setLineFormError('Falha de conexão ao preparar a mudança.');
+    }
+  };
+
   const handleDeleteLineConfig = async (prefix: string) => {
     if (prefix === 'DEFAULT') {
       avisar("A linha DEFAULT não pode ser excluída.", 'erro');
@@ -333,7 +389,7 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
   return (
     <>
             <div className="flex-1 flex flex-col space-y-4">
-              <div className="flex justify-between items-center shrink-0">
+              <div className="flex flex-wrap justify-between items-center gap-2 shrink-0">
                 <div className="relative w-full max-w-sm">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                   <input
@@ -344,7 +400,16 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                     className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm font-medium"
                   />
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    aria-pressed={soAtivas}
+                    onClick={() => setSoAtivas(v => !v)}
+                    title={soAtivas ? `${inativas} linha(s) inativa(s) escondida(s)` : 'Mostrando todas as linhas'}
+                    className={cn('text-xs font-bold px-3 py-2 min-h-[44px] sm:min-h-0 rounded-xl border transition-all cursor-pointer', soAtivas ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50')}
+                  >
+                    Só ativas{inativas > 0 ? ` (${inativas} inativas)` : ''}
+                  </button>
                   <button
                     onClick={handleRecalcularLinhas}
                     className="bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 border border-zinc-200 transition-all cursor-pointer"
@@ -414,7 +479,7 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                       <th className="px-6 py-3 text-right text-[10px] uppercase tracking-wider">Abrir ordem</th>
                       <th className="px-6 py-3 text-right text-[10px] uppercase tracking-wider">Abrir produção</th>
                       <th className="px-6 py-3 text-right text-[10px] uppercase tracking-wider">Fator Z</th>
-                      <th className="px-6 py-3 text-center text-[10px] uppercase tracking-wider">Painel</th>
+                      <th className="px-6 py-3 text-center text-[10px] uppercase tracking-wider">Situação</th>
                       <th className="px-6 py-3 w-24"></th>
                     </tr>
                   </thead>
@@ -431,7 +496,14 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                           className="hover:bg-zinc-50/70 transition-colors cursor-pointer"
                         >
                           <td className="px-6 py-2.5 font-mono font-bold text-zinc-500">{cfg.linha_prefix}</td>
-                          <td className="px-6 py-2.5 font-bold text-zinc-800">{cfg.nome_linha}</td>
+                          <td className="px-6 py-2.5 font-bold text-zinc-800">
+                            {cfg.nome_linha}
+                            {atendimentoDaLinha(cfg.linha_prefix) !== 'estoque' && (
+                              <span className="ml-2 align-middle inline-flex items-center px-2 py-0.5 border border-zinc-300 bg-white text-zinc-600 text-[10px] font-bold rounded-full whitespace-nowrap">
+                                {atendimentoDaLinha(cfg.linha_prefix) === 'terceirizado' ? 'Terceirizada' : 'Por encomenda'}
+                              </span>
+                            )}
+                          </td>
                           <td className="px-6 py-2.5 text-right tabular-nums text-zinc-700">{produtosPorLinha.get(cfg.linha_prefix) || 0}</td>
                           <td className="px-6 py-2.5 text-right tabular-nums text-zinc-700">{cfg.estoque_ideal_mult.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} meses</td>
                           <td className="px-6 py-2.5 text-right tabular-nums text-zinc-600">{cfg.abrir_ordem_mult.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}x</td>
@@ -440,7 +512,7 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                           <td className="px-6 py-2.5 text-center">
                             <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-zinc-600">
                               <span className={cn("h-1.5 w-1.5 rounded-full", cfg.visivel === 0 ? "bg-zinc-300" : "bg-zinc-900")} />
-                              {cfg.visivel === 0 ? "Oculta" : "Visível"}
+                              {cfg.visivel === 0 ? "Inativa" : "Ativa"}
                             </span>
                           </td>
                           <td className="px-6 py-2.5 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
@@ -564,12 +636,18 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                     onChange={(e) => void pedirMudancaEmLote('set_status', e.target.value)}
                     className="h-8 rounded-xl border border-zinc-700 bg-zinc-800 text-white text-xs font-bold px-2 cursor-pointer"
                   >
-                    <option value="">Mudar status…</option>
-                    <option value="ativo">Ativa</option>
-                    <option value="lancamento">Lançamento</option>
-                    <option value="saindo_de_linha">Saindo de Linha</option>
-                    <option value="descontinuado">Saiu de Linha</option>
-                    <option value="terceirizado">Terceirizado</option>
+                    <option value="">Mudar situação…</option>
+                    {SITUACOES_UI.map(sit => <option key={sit.value} value={sit.value}>{sit.label}</option>)}
+                  </select>
+                  <select
+                    aria-label="Mudar atendimento"
+                    value=""
+                    onChange={(e) => void pedirMudancaEmLote('set_atendimento', e.target.value)}
+                    className="h-8 rounded-xl border border-zinc-700 bg-zinc-800 text-white text-xs font-bold px-2 cursor-pointer"
+                  >
+                    <option value="">Mudar atendimento…</option>
+                    <option value="AUTO">Herdar da linha</option>
+                    {ATENDIMENTOS_UI.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
                   </select>
                   <button type="button" onClick={() => setMarcados(new Set())} className="text-xs text-zinc-400 hover:text-white px-2 cursor-pointer">Limpar</button>
                 </div>
@@ -593,7 +671,8 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                   <div className="p-8 text-center text-xs text-zinc-400">Nenhum produto nesta linha.</div>
                 ) : (
                   produtosDaLinha.slice(0, LIMITE_LISTA).map(p => {
-                    const st = p.status_produto || 'ativo';
+                    const st = situacaoDe(p.codigo, p.status_produto);
+                    const atdEf = atend.produtos[p.codigo]?.atendimentoEfetivo || (p.status_produto === 'terceirizado' ? 'terceirizado' : 'estoque');
                     return (
                       <div key={p.codigo} className="grid grid-cols-[36px_minmax(0,1fr)_130px] gap-3 items-center px-4 py-2.5 border-b border-zinc-100 last:border-0 hover:bg-zinc-50/70">
                         <span className="flex justify-center">
@@ -605,6 +684,9 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                         </span>
                         <span>
                           <span className={cn('px-2.5 py-1 border text-[11px] font-bold rounded-full whitespace-nowrap', STATUS_BADGE[st] || STATUS_BADGE.ativo)}>{STATUS_ROTULO[st] || st}</span>
+                          {atdEf !== 'estoque' && st !== 'descontinuado' && (
+                            <span className="ml-1 px-2 py-1 border border-zinc-300 bg-white text-zinc-600 text-[11px] font-bold rounded-full whitespace-nowrap">{ATENDIMENTOS_UI.find(a => a.value === atdEf)?.selo || atdEf}</span>
+                          )}
                         </span>
                       </div>
                     );
@@ -714,16 +796,43 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
               </div>
 
               <div className="space-y-1.5 mt-3">
-                <label className="text-[11px] font-bold text-zinc-650 block">Visibilidade no Painel de Planejamento</label>
+                <label className="text-[11px] font-bold text-zinc-650 block">Situação da linha</label>
                 <select
                   value={visibleLineForm}
                   onChange={(e) => setVisibleLineForm(e.target.value)}
                   className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
                 >
-                  <option value="1">Exibir Linha e seus Produtos</option>
-                  <option value="0">Ocultar de Linha (Desativar)</option>
+                  <option value="1">Ativa</option>
+                  <option value="0">Inativa: esconde a linha e os produtos dela em todos os módulos</option>
                 </select>
               </div>
+
+              {editingLineConfig && (
+                <div className="space-y-1.5 mt-3">
+                  <label className="text-[11px] font-bold text-zinc-650 block">Atendimento padrão dos produtos</label>
+                  <div className="flex gap-2">
+                    <select
+                      value={atendimentoForm}
+                      onChange={(e) => setAtendimentoForm(e.target.value)}
+                      className="min-w-0 flex-1 px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
+                    >
+                      {ATENDIMENTOS_UI.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
+                    </select>
+                    {atendimentoForm !== atendimentoDaLinha(editingLineConfig.linha_prefix) && (
+                      <button
+                        type="button"
+                        onClick={() => void handleAtendimentoLinha()}
+                        className="px-3 min-h-[44px] sm:min-h-0 bg-zinc-900 hover:bg-zinc-950 text-white rounded-xl font-bold text-xs cursor-pointer whitespace-nowrap"
+                      >
+                        Ver mudança
+                      </button>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-zinc-400 font-semibold block leading-tight">
+                    {ATENDIMENTOS_UI.find(a => a.value === atendimentoForm)?.description} Cada produto pode ter exceção própria.
+                  </span>
+                </div>
+              )}
             </div>
           </form>
           )}

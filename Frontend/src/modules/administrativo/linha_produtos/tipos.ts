@@ -71,3 +71,23 @@ export interface ProductResult {
   estoque_ideal_qtd?: number;
   estoque_ideal_meses?: number;
 }
+
+/** Situação do produto no catálogo (L1): "descontinuado" é guardado como valor, mas aparece como Inativo. */
+export const SITUACOES_UI: { value: string; label: string; description: string }[] = [
+  { value: 'ativo', label: 'Ativo', description: 'Produto normal do catálogo.' },
+  { value: 'lancamento', label: 'Lançamento', description: 'Em lançamento: gatilho e meta de giro próprios até graduar.' },
+  { value: 'saindo_de_linha', label: 'Saindo de linha', description: 'Produção reduzida até acabar o estoque.' },
+  { value: 'descontinuado', label: 'Inativo', description: 'Some das telas e do "onde é usado" dos insumos; o histórico fica guardado.' },
+];
+
+/** Atendimento: só "estoque" gera demanda automática de produção e de insumo. */
+export const ATENDIMENTOS_UI: { value: string; label: string; selo: string; description: string }[] = [
+  { value: 'estoque', label: 'Fabricado para estoque', selo: 'Estoque', description: 'Gera demanda de produção e de insumo.' },
+  { value: 'encomenda', label: 'Por encomenda', selo: 'Por encomenda', description: 'Fabricado aqui só com pedido; sem demanda automática de produção nem de insumo.' },
+  { value: 'terceirizado', label: 'Terceirizado', selo: 'Terceirizado', description: 'Fabricado por terceiro; ativo, sem demanda de insumo.' },
+];
+
+export interface AtendimentosInfo {
+  linhas: Record<string, { atendimento: string; ativa: boolean }>;
+  produtos: Record<string, { situacao: string; atendimento: string | null; atendimentoEfetivo: string }>;
+}

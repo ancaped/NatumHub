@@ -6,6 +6,7 @@ import { canAccessView } from '../../geral/lib/modules/permissions';
 import { getAuthUser } from '../../geral/lib/auth';
 import { MODULE_KEYS } from '../../geral/lib/modules/registry';
 import { Category, PRODUCT_LINE_STATUSES, GraduationCandidate } from '../../geral/lib/types';
+import { ATENDIMENTOS_UI } from './tipos';
 import { api } from '../../geral/lib/api';
 import { useAviso } from '../../geral/components/ui/Aviso';
 import PreviaAcaoDrawer, { PreviaAcao } from '../../producao/gerenciamento/components/PreviaAcaoDrawer';
@@ -108,23 +109,26 @@ export default function ActiveProductsView({ onBackToHub, standalone = false, on
     lancamento_estoque_maximo: 'Estoque máximo',
     observacao: 'Observação',
     linha_prefix_manual: 'Linha',
-    status_produto: 'Status',
+    status_produto: 'Situação',
     categoria_produto: 'Categoria',
     estoque_ideal_manual: 'Estoque ideal',
     pedidos_manual: 'Pedidos',
     media_manual: 'Média de vendas',
+    atendimento: 'Atendimento',
   };
 
   const formatarValorPrevia = (campo: string, v: string | null) => {
     if (v === null || v === undefined || v === '') {
-      if (campo === 'status_produto') return 'Ativa (padrão)';
+      if (campo === 'status_produto') return 'Ativo (padrão)';
+      if (campo === 'atendimento') return 'Herda da linha';
       if (campo === 'linha_prefix_manual') return 'Automática (pelo prefixo)';
       if (campo === 'categoria_produto') return 'Nenhuma';
       return '(vazio)';
     }
     if (campo === 'visivel') return v === '0' ? 'oculto' : 'visível';
     if (campo === 'is_lancamento_manual') return v === '1' ? 'sim' : 'não';
-    if (campo === 'status_produto') return PRODUCT_LINE_STATUSES.find(s => s.value === v)?.label || v;
+    if (campo === 'status_produto') return v === 'descontinuado' ? 'Inativo' : PRODUCT_LINE_STATUSES.find(s => s.value === v)?.label || v;
+    if (campo === 'atendimento') return ATENDIMENTOS_UI.find(a => a.value === v)?.label || v;
     if (campo === 'categoria_produto') return categories.find(c => c.id === v)?.name || v;
     if (campo === 'linha_prefix_manual') return configs.find(c => c.linha_prefix === v)?.nome_linha || v;
     return v;

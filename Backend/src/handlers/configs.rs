@@ -49,14 +49,14 @@ pub fn acoes_linha_produtos() -> Vec<Acao> {
         Acao::gravacao(
             "alterar_overrides_em_lote",
             M,
-            "Aplica uma ação do painel de Linha de Produtos a vários produtos (ocultar, status, linha, categoria, lançamento, observação, limpar). Sem `confirmar=true` devolve só a prévia (valor atual e novo por produto).",
+            "Aplica uma ação do painel de Linha de Produtos a vários produtos (ocultar, status, atendimento, linha, categoria, lançamento, observação, limpar). Sem `confirmar=true` devolve só a prévia (valor atual e novo por produto).",
             "POST",
             "/api/overrides/bulk",
             true,
             vec![
                 param("confirmar", "query", "booleano", false, "true grava; ausente só mostra a prévia."),
                 param("codigos", "corpo", "lista de texto", true, "Códigos dos produtos."),
-                param("action", "corpo", "texto", true, "hide, show, set_launch_auto, set_launch_yes, set_launch_no, sair_producao_fixa, graduar_lancamento, set_obs, set_line, set_status, set_category ou clear."),
+                param("action", "corpo", "texto", true, "hide, show, set_launch_auto, set_launch_yes, set_launch_no, sair_producao_fixa, graduar_lancamento, set_obs, set_line, set_status, set_atendimento (estoque, encomenda, terceirizado ou AUTO para herdar da linha), set_category ou clear."),
                 param("value_str", "corpo", "texto", false, "Valor da ação (status, linha, categoria ou observação)."),
             ],
         ),
@@ -260,6 +260,11 @@ pub async fn recalcular_linhas_produtos(
                 .execute(&mut **tx)
                 .await?;
             }
+            crate::modules::administrativo::classificacao::atendimento::sincronizar_status(
+                &mut **tx,
+                crate::modules::administrativo::classificacao::atendimento::Alvo::Codigos(&codigos),
+            )
+            .await?;
             let lista: Vec<Value> = mudancas
                 .iter()
                 .take(LIMITE_PREVIA_RECALCULO)
@@ -390,6 +395,7 @@ pub fn campos_da_acao(action: &str) -> &'static [&'static str] {
         "set_obs" => &["observacao"],
         "set_line" => &["linha_prefix_manual"],
         "set_status" => &["status_produto"],
+        "set_atendimento" => &["atendimento"],
         "set_category" => &["categoria_produto"],
         "clear" => &[
             "estoque_ideal_manual",
@@ -413,6 +419,16 @@ pub fn validar_bulk(req: &BulkOverrideRequest) -> Result<(), ErroApi> {
     }
     if req.codigos.is_empty() {
         return Err(ErroApi::invalido("Nenhum produto informado."));
+    }
+    if req.action == "set_atendimento" {
+        if let Some(v) = req.value_str.as_deref().map(str::trim).filter(|s| !s.is_empty() && *s != "AUTO") {
+            if !crate::core::regras_produto::ATENDIMENTOS.contains(&v) {
+                return Err(ErroApi::regra(format!(
+                    "Atendimento desconhecido: {v}. Use um de: {}.",
+                    crate::core::regras_produto::ATENDIMENTOS.join(", ")
+                )));
+            }
+        }
     }
     if req.action == "set_status" {
         if let Some(v) = req.value_str.as_deref().map(str::trim).filter(|s| !s.is_empty()) {

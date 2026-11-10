@@ -1,0 +1,14 @@
+-- 113_ficha_administrativo_situacao_atendimento.sql
+-- Ficha da Linha de Produtos: situação × atendimento (L1) e linha ativa/inativa (L2). Aditiva e idempotente.
+
+UPDATE mapa_modules SET
+    detail = jsonb_set(detail, '{attention}', COALESCE(detail->'attention', '[]'::jsonb) || to_jsonb('Situação × atendimento (migração 112): situação = ativo, lançamento, saindo de linha ou inativo (guardado como descontinuado, rótulo Inativo); atendimento = estoque, encomenda ou terceirizado, padrão na linha (config_linhas.atendimento) e exceção no produto (overrides_produtos.atendimento). Só estoque gera demanda de produção e de insumo. Regra efetiva em core/regras_produto.rs. Produção e Compras ainda leem overrides_produtos.status_produto, mantido como espelho da regra (status_de_consumo: encomenda e terceirizado leem terceirizado) por sincronizar_status; por isso o antigo terceirizado continua idêntico para eles. Não grave status_produto direto: use classificar_produto ou classificar_linha'::text)),
+    updated_at = NOW()
+WHERE module_key = 'admin_linha_produtos'
+  AND NOT (COALESCE(detail->'attention', '[]'::jsonb) @> to_jsonb('Situação × atendimento (migração 112): situação = ativo, lançamento, saindo de linha ou inativo (guardado como descontinuado, rótulo Inativo); atendimento = estoque, encomenda ou terceirizado, padrão na linha (config_linhas.atendimento) e exceção no produto (overrides_produtos.atendimento). Só estoque gera demanda de produção e de insumo. Regra efetiva em core/regras_produto.rs. Produção e Compras ainda leem overrides_produtos.status_produto, mantido como espelho da regra (status_de_consumo: encomenda e terceirizado leem terceirizado) por sincronizar_status; por isso o antigo terceirizado continua idêntico para eles. Não grave status_produto direto: use classificar_produto ou classificar_linha'::text));
+
+UPDATE mapa_modules SET
+    detail = jsonb_set(detail, '{attention}', COALESCE(detail->'attention', '[]'::jsonb) || to_jsonb('Linha ativa/inativa usa config_linhas.visivel (0 = inativa), que já esconde a linha e seus produtos em Produção, Compras, onde é usado dos insumos e relatórios. Ação classificar_linha (POST /api/admin/produtos-ativos/linhas/classificacao, 2 passos, auditoria) muda atendimento padrão e ativa; GET .../linhas/atendimentos alimenta a tela. Tabela Linhas: filtro Só ativas (ligado) e selo Terceirizada/Por encomenda'::text)),
+    updated_at = NOW()
+WHERE module_key = 'admin_linha_produtos'
+  AND NOT (COALESCE(detail->'attention', '[]'::jsonb) @> to_jsonb('Linha ativa/inativa usa config_linhas.visivel (0 = inativa), que já esconde a linha e seus produtos em Produção, Compras, onde é usado dos insumos e relatórios. Ação classificar_linha (POST /api/admin/produtos-ativos/linhas/classificacao, 2 passos, auditoria) muda atendimento padrão e ativa; GET .../linhas/atendimentos alimenta a tela. Tabela Linhas: filtro Só ativas (ligado) e selo Terceirizada/Por encomenda'::text));

@@ -3,8 +3,10 @@ import { Search, RefreshCw, Edit, Check, Layers, GraduationCap } from 'lucide-re
 import { apiFetch } from '../../geral/lib/http';
 import { cn } from '../../geral/lib/utils';
 import Drawer from '../../geral/components/ui/Drawer';
-import { Category, GraduationCandidate, PRODUCT_LINE_STATUSES } from '../../geral/lib/types';
-import { eBase, STATUS_IGNORADOS_PADRAO } from '../../geral/lib/regrasProduto';
+import { Category, GraduationCandidate } from '../../geral/lib/types';
+import { useAtendimentos } from './useAtendimentos';
+import { ATENDIMENTOS_UI, SITUACOES_UI } from './tipos';
+import { eBase } from '../../geral/lib/regrasProduto';
 import type { LineConfig, PedirBulkOpts, ProductOverride, ProductResult } from './tipos';
 
 interface Props {
@@ -34,7 +36,7 @@ const VISTAS: { id: Vista; label: string }[] = [
   { id: 'ativos', label: 'Ativos' },
   { id: 'kits', label: 'Kits' },
   { id: 'bases', label: 'Bases' },
-  { id: 'terceirizados', label: 'Terceirizados' },
+  { id: 'terceirizados', label: 'Sem demanda' },
   { id: 'semlinha', label: 'Sem linha' },
   { id: 'ajuste', label: 'Ajuste manual' },
 ];
@@ -56,6 +58,14 @@ export default function StatusTab({ products, categories, configs, kitComposicao
   
   // Form overrides state
   const [statusForm, setStatusForm] = useState('ativo');
+  const [atendimentoForm, setAtendimentoForm] = useState(''); // '' = herda da linha
+  const [bulkAtendimento, setBulkAtendimento] = useState('');
+  const atend = useAtendimentos(products);
+  // Situação real: a guardada; sem registro, o status lido (o antigo "terceirizado" era situação ativa + atendimento).
+  const situacaoDe = (codigo: string, status: string | null) =>
+    atend.produtos[codigo]?.situacao || (status === 'terceirizado' || !status ? 'ativo' : status);
+  const atendimentoEfetivoDe = (codigo: string, status: string | null) =>
+    atend.produtos[codigo]?.atendimentoEfetivo || (status === 'terceirizado' ? 'terceirizado' : 'estoque');
   const [categoryForm, setCategoryForm] = useState('');
   const [lineOverride, setLineOverride] = useState('');
   const [idealStockOverride, setIdealStockOverride] = useState('');
@@ -106,10 +116,10 @@ export default function StatusTab({ products, categories, configs, kitComposicao
     const status = p.status_produto || 'ativo';
     switch (v) {
       case 'todos': return true;
-      case 'ativos': return !STATUS_IGNORADOS_PADRAO.includes(status) && p.visivel !== 0;
+      case 'ativos': return situacaoDe(p.codigo, p.status_produto) !== 'descontinuado' && p.visivel !== 0;
       case 'kits': return ehKit(p);
       case 'bases': return eBase(p.codigo, p.categoria_produto, p.status_produto);
-      case 'terceirizados': return status === 'terceirizado';
+      case 'terceirizados': return atendimentoEfetivoDe(p.codigo, p.status_produto) !== 'estoque';
       case 'semlinha': return (p.linha_prefix_manual || p.linha_prefix || 'DEFAULT') === 'DEFAULT';
       case 'ajuste': return codigosComAjuste.has(p.codigo);
     }
@@ -119,7 +129,7 @@ export default function StatusTab({ products, categories, configs, kitComposicao
     for (const v of VISTAS) cont[v.id] = products.filter(p => pertenceVista(p, v.id)).length;
     return cont;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, categories, kitComposicao, codigosComAjuste]);
+  }, [products, categories, kitComposicao, codigosComAjuste, atend]);
 
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
@@ -127,8 +137,11 @@ export default function StatusTab({ products, categories, configs, kitComposicao
         (p.descricao || '').toLowerCase().includes(search.toLowerCase()) ||
         (p.codigo || '').toLowerCase().includes(search.toLowerCase());
 
-      const resolvedStatus = p.status_produto || 'ativo';
-      const matchesStatus = statusFilter === 'ALL' || resolvedStatus === statusFilter;
+      const matchesStatus =
+        statusFilter === 'ALL' ||
+        (statusFilter.startsWith('at:')
+          ? atendimentoEfetivoDe(p.codigo, p.status_produto) === statusFilter.slice(3)
+          : situacaoDe(p.codigo, p.status_produto) === statusFilter);
 
       const resolvedLine = p.linha_prefix_manual || p.linha_prefix;
       const matchesLine = lineFilter === 'ALL' || resolvedLine === lineFilter;
@@ -138,7 +151,7 @@ export default function StatusTab({ products, categories, configs, kitComposicao
       return matchesSearch && matchesStatus && matchesLine && matchesCategory && pertenceVista(p, vista);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, search, statusFilter, lineFilter, categoryFilter, vista, categories, kitCategoryIds, kitComposicao, codigosComAjuste]);
+  }, [products, search, statusFilter, lineFilter, categoryFilter, vista, categories, kitCategoryIds, kitComposicao, codigosComAjuste, atend]);
 
   // Group categories by parent category
   const groupedCategories = useMemo(() => {
@@ -198,7 +211,8 @@ export default function StatusTab({ products, categories, configs, kitComposicao
     setAbaProduto('geral');
     
     // Populate form states
-    setStatusForm(p.status_produto || 'ativo');
+    setStatusForm(situacaoDe(p.codigo, p.status_produto));
+    setAtendimentoForm(atend.produtos[p.codigo]?.atendimento || '');
     setCategoryForm(p.categoria_produto || '');
     setBaseCodigoForm(p.base_codigo || '');
     setLineOverride(p.linha_prefix_manual || 'AUTO');
@@ -221,7 +235,7 @@ export default function StatusTab({ products, categories, configs, kitComposicao
         const overridesList: ProductOverride[] = await res.json();
         const override = overridesList.find(o => o.codigo === code);
         if (override) {
-          setStatusForm(override.status_produto || 'ativo');
+          setStatusForm(situacaoDe(code, override.status_produto));
           setCategoryForm(override.categoria_produto || '');
           setLineOverride(override.linha_prefix_manual || 'AUTO');
           setIdealStockOverride(override.estoque_ideal_manual?.toString() || '');
@@ -282,7 +296,8 @@ export default function StatusTab({ products, categories, configs, kitComposicao
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           codigo: selectedProduct.codigo,
-          status_produto: statusForm || 'ativo',
+          situacao: statusForm || 'ativo',
+          atendimento: atendimentoForm || null,
           categoria_produto: categoryForm.trim() || null,
           base_codigo: baseCodigoForm.trim() || null,
           linha_prefix_manual: lineOverride === 'AUTO' ? null : lineOverride,
@@ -317,7 +332,7 @@ export default function StatusTab({ products, categories, configs, kitComposicao
   // Bulk Save (2 passos: prévia no painel, grava no OK)
   const handleBulkAction = async (action: string, value: string) => {
     if (selectedCodes.size === 0) return;
-    const rotulos: Record<string, string> = { set_status: 'status', set_line: 'linha', set_category: 'categoria' };
+    const rotulos: Record<string, string> = { set_status: 'situação', set_atendimento: 'atendimento', set_line: 'linha', set_category: 'categoria' };
     await pedirBulk({
       titulo: `Alterar ${rotulos[action] || 'ajuste'} de ${selectedCodes.size} produto(s)`,
       codigos: Array.from(selectedCodes),
@@ -327,12 +342,14 @@ export default function StatusTab({ products, categories, configs, kitComposicao
       aoConcluir: async () => {
         setSelectedCodes(new Set());
         setBulkStatus('');
+        setBulkAtendimento('');
         setBulkCategory('');
         setBulkLine('');
         await onReload();
       },
       aoCancelar: () => {
         setBulkStatus('');
+        setBulkAtendimento('');
         setBulkLine('');
         setBulkCategory('');
       },
@@ -342,22 +359,21 @@ export default function StatusTab({ products, categories, configs, kitComposicao
 
 
   const renderStatusBadge = (status: string | null, categoria?: string | null, codigo?: string | null) => {
-    const statusVal = status || 'ativo';
+    const statusVal = codigo ? situacaoDe(codigo, status) : (status || 'ativo');
+    const atendimento = codigo ? atendimentoEfetivoDe(codigo, status) : 'estoque';
     // Ciclo de vida — não incluir roteamento (cat_base)
     const styles: Record<string, string> = {
       ativo: 'bg-zinc-100 text-zinc-700 border-zinc-200',
       lancamento: 'bg-zinc-900 text-white border-zinc-900',
       saindo_de_linha: 'bg-amber-50 text-amber-700 border-amber-100',
       descontinuado: 'bg-rose-50 text-rose-700 border-rose-100',
-      terceirizado: 'bg-white text-zinc-600 border-zinc-300',
     };
 
     const labels: Record<string, string> = {
-      ativo: 'Ativa',
+      ativo: 'Ativo',
       lancamento: 'Lançamento',
-      saindo_de_linha: 'Saindo de Linha',
-      descontinuado: 'Saiu de Linha',
-      terceirizado: 'Terceirizado',
+      saindo_de_linha: 'Saindo de linha',
+      descontinuado: 'Inativo',
     };
 
     const lifeStatus = statusVal === 'bases' ? 'ativo' : statusVal;
@@ -366,6 +382,11 @@ export default function StatusTab({ products, categories, configs, kitComposicao
         <span className={cn("inline-flex items-center px-2.5 py-1 border text-[11px] font-bold rounded-full whitespace-nowrap", styles[lifeStatus] || styles.ativo)}>
           {labels[lifeStatus] || labels.ativo}
         </span>
+        {atendimento !== 'estoque' && lifeStatus !== 'descontinuado' && (
+          <span className="inline-flex items-center px-2 py-1 border border-zinc-300 bg-white text-zinc-600 text-[11px] font-bold rounded-full whitespace-nowrap">
+            {ATENDIMENTOS_UI.find(a => a.value === atendimento)?.selo || atendimento}
+          </span>
+        )}
       </span>
     );
   };
@@ -431,15 +452,13 @@ export default function StatusTab({ products, categories, configs, kitComposicao
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
-                    aria-label="Filtrar por status"
+                    aria-label="Filtrar por situação ou atendimento"
                     className="h-9 pl-3 pr-8 bg-white border border-zinc-200 rounded-xl text-[13px] text-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-900 cursor-pointer"
                   >
-                    <option value="ALL">Todos os status</option>
-                    <option value="ativo">Ativa</option>
-                    <option value="lancamento">Lançamento</option>
-                    <option value="saindo_de_linha">Saindo de Linha</option>
-                    <option value="descontinuado">Saiu de Linha</option>
-                    <option value="terceirizado">Terceirizado</option>
+                    <option value="ALL">Todas as situações</option>
+                    {SITUACOES_UI.map(sit => <option key={sit.value} value={sit.value}>{sit.label}</option>)}
+                    <option value="at:encomenda">Por encomenda</option>
+                    <option value="at:terceirizado">Terceirizado</option>
                   </select>
                   <select
                     value={lineFilter}
@@ -664,17 +683,23 @@ export default function StatusTab({ products, categories, configs, kitComposicao
                     {selectedCodes.size === 1 ? 'produto selecionado' : 'produtos selecionados'}. Escolha o que mudar; uma prévia mostra o antes e o depois.
                   </span>
                   <select
-                    aria-label="Mudar status"
+                    aria-label="Mudar situação"
                     value={bulkStatus}
                     onChange={(e) => { setBulkStatus(e.target.value); if (e.target.value) handleBulkAction('set_status', e.target.value); }}
                     className="h-8 bg-zinc-800 text-white border border-zinc-700 rounded-xl text-xs font-bold px-2 focus:outline-none cursor-pointer"
                   >
-                    <option value="">Mudar status…</option>
-                    <option value="ativo">Ativa</option>
-                    <option value="lancamento">Lançamento</option>
-                    <option value="saindo_de_linha">Saindo de Linha</option>
-                    <option value="descontinuado">Saiu de Linha</option>
-                    <option value="terceirizado">Terceirizado</option>
+                    <option value="">Mudar situação…</option>
+                    {SITUACOES_UI.map(sit => <option key={sit.value} value={sit.value}>{sit.label}</option>)}
+                  </select>
+                  <select
+                    aria-label="Mudar atendimento"
+                    value={bulkAtendimento}
+                    onChange={(e) => { setBulkAtendimento(e.target.value); if (e.target.value) handleBulkAction('set_atendimento', e.target.value); }}
+                    className="h-8 bg-zinc-800 text-white border border-zinc-700 rounded-xl text-xs font-bold px-2 focus:outline-none cursor-pointer"
+                  >
+                    <option value="">Mudar atendimento…</option>
+                    <option value="AUTO">Herdar da linha</option>
+                    {ATENDIMENTOS_UI.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
                   </select>
                   <select
                     aria-label="Mudar linha"
@@ -789,20 +814,38 @@ export default function StatusTab({ products, categories, configs, kitComposicao
               </div>
             )}
 
-            {/* Status Select — ciclo de vida */}
+            {/* Situação (catálogo) e Atendimento (gera demanda?) */}
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-zinc-700 block">Status de ciclo de vida</label>
+              <label className="text-xs font-bold text-zinc-700 block">Situação</label>
               <select
                 value={statusForm}
                 onChange={(e) => setStatusForm(e.target.value)}
                 className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
               >
-                {PRODUCT_LINE_STATUSES.map(s => (
+                {SITUACOES_UI.map(s => (
                   <option key={s.value} value={s.value}>{s.label}</option>
                 ))}
               </select>
               <span className="text-[10px] text-zinc-400 font-semibold block leading-tight">
-                {PRODUCT_LINE_STATUSES.find(s => s.value === statusForm)?.description || (categoryForm === 'cat_base' ? 'Produto base: use a categoria abaixo; status de ciclo de vida continua aplicável.' : 'Status alteram recomendações de produção e compras.')}
+                {SITUACOES_UI.find(s => s.value === statusForm)?.description}
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700 block">Atendimento</label>
+              <select
+                value={atendimentoForm}
+                onChange={(e) => setAtendimentoForm(e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
+              >
+                <option value="">
+                  Herdar da linha ({ATENDIMENTOS_UI.find(a => a.value === (atend.linhas[lineOverride === 'AUTO' ? (selectedProduct?.linha_prefix || 'DEFAULT') : lineOverride]?.atendimento || 'estoque'))?.label})
+                </option>
+                {ATENDIMENTOS_UI.map(a => (
+                  <option key={a.value} value={a.value}>{a.label}</option>
+                ))}
+              </select>
+              <span className="text-[10px] text-zinc-400 font-semibold block leading-tight">
+                {atendimentoForm ? ATENDIMENTOS_UI.find(a => a.value === atendimentoForm)?.description : 'Exceção do produto: vazio segue o atendimento da linha.'}
               </span>
             </div>
 
