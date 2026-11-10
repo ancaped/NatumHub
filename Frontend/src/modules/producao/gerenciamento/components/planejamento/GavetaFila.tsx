@@ -69,7 +69,7 @@ export function GavetaFila({ fila, busca, acoes, podeEditar }: GavetaFilaProps) 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <Package size={16} className="text-zinc-700" />
-            <h3 className="font-bold text-zinc-900 text-xs">Fila de Demandas</h3>
+            <h3 className="font-bold text-zinc-900 text-xs">Fila</h3>
           </div>
           <span className="px-2 py-0.5 bg-zinc-900 text-white font-bold text-[11px] md:text-[10px] rounded-full">
             {demandCandidates.length} itens na fila

@@ -268,3 +268,10 @@ export function validarAlocacao(opts: {
   }
   return null;
 }
+
+/** Selo de situação de uma ordem/batelada, derivado do que já vem no item (sem dado novo). */
+export function situacaoOrdem(b: Pick<CellBatchGroup, 'isAprovado' | 'isLoteCriado' | 'loteErp'>): { rotulo: string; classe: string } {
+  if (b.isLoteCriado || b.loteErp) return { rotulo: 'Com lote', classe: 'bg-emerald-50 text-emerald-800 border-emerald-300' };
+  if (b.isAprovado) return { rotulo: 'Aprovada', classe: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+  return { rotulo: 'Planejada', classe: 'bg-zinc-100 text-zinc-700 border-zinc-200' };
+}

@@ -33,7 +33,7 @@ import {
   type CellBatchGroup, type ReatorConfig, type PlanejamentoItem,
 } from './planejamento/lib/planejamentoSemanal';
 import { imprimirPlanejamentoSemanal } from './planejamento/lib/imprimirPlanejamento';
-import { CartaoOrdem } from './planejamento/CartaoOrdem';
+import { OrdemDrawer } from './planejamento/OrdemDrawer';
 import { BarraSemana } from './planejamento/BarraSemana';
 import { ListaPorDia } from './planejamento/ListaPorDia';
 import { GradeSemanal } from './planejamento/GradeSemanal';
@@ -152,6 +152,8 @@ export function PlanejamentoSemanalTab({
   const [dragOverCell, setDragOverCell] = useState<{ reatorId: string; dateStr: string } | null>(null);
 
   const [coberturaAberta, setCoberturaAberta] = useState(false);
+  // Ordem aberta no painel de ações (guarda só os ids: o painel relê o quadro, então reflete mudanças)
+  const [ordemAbertaIds, setOrdemAbertaIds] = useState<string[] | null>(null);
 
   // Drawer autônomo de Detalhes do Produto
   const [internalDrawerCode, setInternalDrawerCode] = useState<string | null>(null);
@@ -1430,16 +1432,49 @@ export function PlanejamentoSemanalTab({
     });
   };
 
-  const arraste = { draggedItem, draggedBatch, draggedDrawerProduct, dragOverCell, setDraggedItem, setDraggedBatch, setDraggedDrawerProduct, setDragOverCell };
-  const acoesCartao = {
-    handleOpenTechnicalModal, handleMoveOrder, handleDeleteBatch, handleOpenBatchMassEditModal, handleOpenLinkLoteModal,
-    handleToggleBatchAprovacao, handleToggleAprovacao, setEditQtyModalItem, setCoberturaAberta,
+  // Move ordens para outro reator/dia com a mesma validação do arraste; devolve true se gravou
+  const moverOrdens = async (itens: PlanejamentoItem[], reatorId: string, dateStr: string): Promise<boolean> => {
+    const reator = reatores.find(r => r.id === reatorId);
+    if (!reator || itens.length === 0) return false;
+    if (itens.every(i => i.reator_id === reatorId && i.data_planejada === dateStr)) return false;
+    const bloqueio = validarAlocacao({
+      reatorId, dateStr,
+      kg: itens.reduce((acc, it) => acc + (Number(it.quantidade_planejada) || 0), 0),
+      reatores, plannedItems, ignoreIds: new Set(itens.map(i => i.id)),
+    });
+    if (bloqueio) {
+      avisar(bloqueio, 'info');
+      return false;
+    }
+    const base = (matrixItemsMap[`${reatorId}_${dateStr}`] || []).length;
+    let salvos = 0;
+    for (let idx = 0; idx < itens.length; idx++) {
+      const it = itens[idx];
+      const updated: PlanejamentoItem = {
+        ...it,
+        reator_id: reatorId,
+        data_planejada: dateStr,
+        recipiente_detalhe: ehBombona(reator) ? reator.nome : 'Reator',
+        ordem_sequencia: base + 1 + idx,
+      };
+      if (await handleSaveItem(updated)) salvos++;
+    }
+    if (salvos !== itens.length) await fetchPlanejamento();
+    return salvos > 0;
   };
-  const cartao = { arraste, acoes: acoesCartao, diasAteEnvasePorCodigo, coberturaPorOrdem };
-  // Cartão de uma ordem/batelada: o mesmo componente serve à grade (desktop) e à lista por dia (celular)
-  const renderCartaoOrdem = (batch: CellBatchGroup, cellItems: PlanejamentoItem[]) => (
-    <CartaoOrdem key={batch.key} batch={batch} cellItems={cellItems} {...cartao} />
-  );
+
+  const abrirOrdem = (batch: CellBatchGroup) => setOrdemAbertaIds(batch.items.map(i => i.id));
+  const arraste = { draggedItem, draggedBatch, draggedDrawerProduct, dragOverCell, setDraggedItem, setDraggedBatch, setDraggedDrawerProduct, setDragOverCell };
+  const cartao = { arraste, acoes: { abrirOrdem, setCoberturaAberta }, coberturaPorOrdem };
+  const acoesOrdem = {
+    handleOpenTechnicalModal, handleOpenLinkLoteModal, handleOpenBatchMassEditModal, handleToggleBatchAprovacao, handleToggleAprovacao,
+    handleDeleteBatch, handleMoveOrder, setEditQtyModalItem, setCoberturaAberta, moverOrdens,
+  };
+  const ordemAberta = useMemo(() => {
+    if (!ordemAbertaIds) return null;
+    const itens = plannedItems.filter(i => ordemAbertaIds.includes(i.id));
+    return itens.length ? groupCellItems(itens)[0] : null;
+  }, [ordemAbertaIds, plannedItems]);
 
   return (
     <div className="flex flex-col gap-4 w-full">
@@ -1447,7 +1482,7 @@ export function PlanejamentoSemanalTab({
       <AvisoProdutosSemPeso />
       {/* BARRA SUPERIOR DE COMANDOS */}
       <BarraSemana
-        semana={{ currentWeekKey, weekDays, weekStats, loadingPlan, plannedItems, filaTodos }}
+        semana={{ currentWeekKey, weekDays, loadingPlan, plannedItems, filaTodos }}
         acoes={{
           handlePrevWeek, handleToday, handleNextWeek, fetchPlanejamento, fetchFila, handleOpenScheduleModal, handleRunHeuristic,
           handlePrintWeeklyPlan, handleClearWeek, setCoberturaAberta, setReatoresModalOpen, setDemandBankOpen,
@@ -1479,9 +1514,7 @@ export function PlanejamentoSemanalTab({
           podeEditar={podeEditar}
           arraste={arraste}
           cartao={cartao}
-          avisar={avisar}
-          handleSaveItem={handleSaveItem}
-          fetchPlanejamento={fetchPlanejamento}
+          moverOrdens={moverOrdens}
           handleOpenScheduleModal={handleOpenScheduleModal}
         />
 
@@ -1500,6 +1533,19 @@ export function PlanejamentoSemanalTab({
           />
         )}
       </div>
+
+      {ordemAberta && (
+        <OrdemDrawer
+          batch={ordemAberta}
+          gruposNaCelula={groupCellItems(matrixItemsMap[`${ordemAberta.primaryItem.reator_id}_${ordemAberta.primaryItem.data_planejada}`] || []).length}
+          weekDays={weekDays}
+          reatores={reatores}
+          plannedItems={plannedItems}
+          diasAteEnvasePorCodigo={diasAteEnvasePorCodigo}
+          acoes={acoesOrdem}
+          onClose={() => setOrdemAbertaIds(null)}
+        />
+      )}
 
       {/* MODAL: CONFIGURAÇÃO DE REATORES E REGRAS DE CAPACIDADE */}
       {reatoresModalOpen && (
