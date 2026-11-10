@@ -142,6 +142,7 @@ pub fn todas() -> Vec<Acao> {
     v.extend(reatores::acoes());
     v.extend(cobertura::acoes());
     v.extend(crate::modules::producao::prevista::acoes());
+    v.extend(crate::modules::producao::saude_estoque::acoes());
     v.extend(lotes::acoes());
     v.extend(calculo::acoes());
     v.extend(bases::acoes());
@@ -320,6 +321,7 @@ mod tests {
             include_str!("../modules/administrativo/acompanhamento_producao/mod.rs"),
             include_str!("../modules/producao/sem_peso.rs"),
             include_str!("../modules/producao/prevista.rs"),
+            include_str!("../modules/producao/saude_estoque.rs"),
             include_str!("../modules/producao/kits_erp.rs"),
             include_str!("../modules/producao/vira_erp.rs"),
             include_str!("../modules/expedicao/mod.rs"),
