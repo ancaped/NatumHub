@@ -182,13 +182,54 @@ pub fn cobertura_dias(efp: f64, media_mensal: f64) -> Option<f64> {
     Some((efp.max(0.0) / (media_mensal / 30.0) * 10.0).round() / 10.0)
 }
 
+/// Movimento de vendas de um produto numa janela: últimos 3 e 12 meses, média mensal e data da última venda.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Janela {
+    pub m3: i64,
+    pub m12: i64,
+    pub media: f64,
+    pub ultima: Option<NaiveDate>,
+}
+
+/// Venda direta + venda dos kits que contêm o produto (cada kit × a quantidade dele no kit).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Combinado {
+    pub total: Janela,
+    pub direta: Janela,
+    pub por_kits: Janela,
+}
+
+/// A última venda é a mais recente entre a direta e a de qualquer kit pai; vendas e média somam.
+pub fn combinar_vendas(direta: Janela, kits: &[(Janela, f64)]) -> Combinado {
+    let mut por_kits = Janela::default();
+    for (k, q) in kits {
+        por_kits.m3 += (k.m3 as f64 * q).round() as i64;
+        por_kits.m12 += (k.m12 as f64 * q).round() as i64;
+        por_kits.media += k.media * q;
+        por_kits.ultima = por_kits.ultima.max(k.ultima);
+    }
+    let total = Janela {
+        m3: direta.m3 + por_kits.m3,
+        m12: direta.m12 + por_kits.m12,
+        media: direta.media + por_kits.media,
+        ultima: direta.ultima.max(por_kits.ultima),
+    };
+    Combinado { total, direta, por_kits }
+}
+
+/// Ideal de quem entra em kits: o da Demanda + o ideal de cada kit pai × a quantidade no kit
+/// (mesma ideia da Demanda para o regime misto: ideal próprio + a demanda dos kits).
+pub fn ideal_com_kits(ideal: f64, kits: &[(f64, f64)]) -> f64 {
+    ideal + kits.iter().map(|(i, q)| i.max(0.0) * q).sum::<f64>()
+}
+
 #[derive(Debug, Serialize)]
 pub struct ItemSaude {
     pub codigo: String,
     pub descricao: String,
     pub linha_prefix: String,
     pub nome_linha: String,
-    /// "produto" ou "kit".
+    /// "produto", "kit", "coloracao" ou "apoio".
     pub tipo: &'static str,
     pub situacao: Situacao,
     /// "lancamento" (quando aplicável).
@@ -216,6 +257,15 @@ pub struct ItemSaude {
     pub faltas_venda: i64,
     pub status_demanda: String,
     pub producao_recomendada: i64,
+    /// "so_kit" (produzido só para kits) ou "em_kit" (vendido direto e dentro de kits); `None` fora de kits.
+    pub papel_kit: Option<&'static str>,
+    pub kits_pais: Vec<String>,
+    pub vendas_diretas_12m: i64,
+    pub vendas_por_kits_12m: i64,
+    /// Só comprados prontos (coloração e apoio): pedido de compra em trânsito, previsão de chegada mais próxima e sugestão de compra.
+    pub em_transito: i64,
+    pub previsao_chegada: Option<String>,
+    pub sugestao_compra: i64,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -261,6 +311,8 @@ struct Movimento {
     ultima_venda: HashMap<String, NaiveDate>,
     ultima_producao: HashMap<String, String>,
     atendimento: HashMap<String, String>,
+    /// Comprados prontos: data de previsão mais próxima entre os pedidos de compra em aberto.
+    previsao_compra: HashMap<String, String>,
 }
 
 async fn carregar_movimento(db: &Db) -> Result<Movimento, String> {
@@ -321,7 +373,18 @@ async fn carregar_movimento(db: &Db) -> Result<Movimento, String> {
         .map(|(c, prod, linha)| (clean_product_code(&c), atendimento_efetivo(prod.as_deref(), linha.as_deref()).to_string()))
         .collect();
 
-    Ok(Movimento { vendas_mes, ultima_venda, ultima_producao, atendimento })
+    // Mesmo critério do trânsito da Demanda (`pedidos_compra_aberto`): pedido não encerrado com saldo a chegar.
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT poi.c_referencia, MIN(NULLIF(LEFT(TRIM(COALESCE(po.d_previsao, '')), 10), '')) \
+         FROM purchase_order_items poi JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro \
+         WHERE po.c_status <> 'T' AND poi.n_qtde > poi.n_chegou GROUP BY poi.c_referencia",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|x| e("previsão de chegada", x))?;
+    let previsao_compra = rows.into_iter().filter_map(|(c, d)| d.map(|d| (clean_product_code(&c), d))).collect();
+
+    Ok(Movimento { vendas_mes, ultima_venda, ultima_producao, atendimento, previsao_compra })
 }
 
 /// Serviço: classifica os produtos acabados e kits (sem base, coloração, apoio nem inativos) na data `hoje`.
@@ -342,6 +405,24 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
     let mov = carregar_movimento(db).await?;
     let retirados_lista = listar_retirados(db.pool()).await?;
     let retirados: HashMap<String, ()> = retirados_lista.iter().map(|r| (clean_product_code(&r.codigo), ())).collect();
+    let composicao = db.get_kit_composition().await.unwrap_or_default();
+    // componente (código limpo) -> kits que o contêm, com a quantidade por kit
+    let mut kits_do_componente: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+    for (kit, comps) in &composicao {
+        for (comp, qtd, _, _) in comps {
+            let lista = kits_do_componente.entry(clean_product_code(comp)).or_default();
+            let k = clean_product_code(kit);
+            if !lista.iter().any(|(x, _)| *x == k) {
+                lista.push((k, *qtd));
+            }
+        }
+    }
+    let por_codigo: HashMap<String, &ProductCalculationResult> = produtos.iter().map(|p| (clean_product_code(&p.codigo), p)).collect();
+    let janela_do = |codigo: &str, media: f64| -> Janela {
+        let meses = mov.vendas_mes.get(codigo).map(Vec::as_slice).unwrap_or(&[]);
+        let (m3, m12) = vendas_3_e_12_meses(meses, hoje.month());
+        Janela { m3, m12, media, ultima: mov.ultima_venda.get(codigo).copied() }
+    };
     let pais = carregar_pais_categorias(db.pool()).await.map_err(|e| format!("Erro ao ler categorias: {e}"))?;
 
     let termo = filtro.search.as_deref().map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
@@ -351,11 +432,9 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
     for p in &produtos {
         let categoria = categoria_raiz(p.categoria_produto.as_deref().unwrap_or(""), &pais);
         let status_produto = p.status_produto.as_deref().unwrap_or("ativo");
-        // Fora do escopo: base, coloração, apoio (depois) e o que já saiu do catálogo ou está escondido.
+        // Fora do escopo: base e o que já saiu do catálogo ou está escondido. Coloração e apoio (comprados prontos) entram.
         if retirados.contains_key(&clean_product_code(&p.codigo))
             || e_base(&p.codigo, &categoria, status_produto)
-            || categoria == "cat_coloracao"
-            || categoria == "cat_apoio"
             || p.status == "descontinuado"
             || status_produto == "descontinuado"
             || p.visivel == Some(0)
@@ -371,22 +450,39 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
         }
         let selo = if p.is_lancamento { Some("lancamento") } else { None };
 
-        let meses = mov.vendas_mes.get(&chave).map(Vec::as_slice).unwrap_or(&[]);
-        let (vendas_3m, vendas_12m) = vendas_3_e_12_meses(meses, hoje.month());
-        let ultima_venda = mov.ultima_venda.get(&chave).copied();
+        let comprado = categoria == "cat_coloracao" || categoria == "cat_apoio";
+        // Quem entra em kits: venda direta + venda dos kits × quantidade no kit (e ideal com o dos kits).
+        let pais_kit: Vec<(&ProductCalculationResult, f64)> = kits_do_componente
+            .get(&chave)
+            .map(|l| l.iter().filter_map(|(k, q)| por_codigo.get(k).map(|kp| (*kp, *q))).collect())
+            .unwrap_or_default();
+        let janelas_kits: Vec<(Janela, f64)> = pais_kit.iter().map(|(kp, q)| (janela_do(&clean_product_code(&kp.codigo), kp.media_vendas), *q)).collect();
+        let comb = combinar_vendas(janela_do(&chave, p.media_vendas), &janelas_kits);
+        let (vendas_3m, vendas_12m) = (comb.total.m3, comb.total.m12);
+        let media_total = comb.total.media;
+        let ideal = ideal_com_kits(p.estoque_ideal_qtd, &pais_kit.iter().map(|(kp, q)| (kp.estoque_ideal_qtd, *q)).collect::<Vec<_>>());
+        let ultima_venda = comb.total.ultima;
+        let papel_kit = if pais_kit.is_empty() { None } else if p.produzir_apenas_kit == Some(1) { Some("so_kit") } else { Some("em_kit") };
         let dias_sem_venda = ultima_venda.map(|d| (hoje - d).num_days().max(0));
         let ultima_producao = mov.ultima_producao.get(&chave).cloned();
         let faltas = faltas_de_venda(p.estoque as f64, p.pedidos_aberto as f64);
-        let gatilho = gatilho_qtd(p);
-        let efp = p.estoque_futuro_com_producao as f64;
+        let em_transito = p.pedidos_compra_aberto.unwrap_or(0);
+        let sugestao_compra = p.sugestao_compra.unwrap_or(0);
+        // Comprados prontos: estoque + pedidos de compra em trânsito − pedidos de venda (a base da sugestão de compra do Compras);
+        // "baixo" = o Compras sugere comprar. Fabricados e kits: a base e o status da Demanda de Produção.
+        let (efp, abaixo_do_gatilho, gatilho) = if comprado {
+            ((p.estoque + em_transito - p.pedidos_aberto) as f64, sugestao_compra > 0, p.estoque_ideal_qtd)
+        } else {
+            (p.estoque_futuro_com_producao as f64, p.status == "critico" || p.status == "ordem", gatilho_qtd(p))
+        };
 
         let situacao = classificar(&Entrada {
             efp,
             estoque: p.estoque as f64,
             pedidos_aberto: p.pedidos_aberto as f64,
-            ideal: p.estoque_ideal_qtd,
-            abaixo_do_gatilho: p.status == "critico" || p.status == "ordem",
-            tem_venda: p.media_vendas > 0.0 || vendas_12m > 0 || p.pedidos_aberto > 0,
+            ideal,
+            abaixo_do_gatilho,
+            tem_venda: media_total > 0.0 || vendas_12m > 0 || p.pedidos_aberto > 0,
             dias_sem_venda,
             dias_desde_producao: ultima_producao.as_deref().and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()).map(|d| (hoje - d).num_days().max(0)),
             com_selo: selo.is_some(),
@@ -405,24 +501,24 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
             }
         }
 
-        let excedente = (efp - p.estoque_ideal_qtd.max(0.0) * FATOR_EXCESSO).max(0.0).round() as i64;
+        let excedente = (efp - ideal.max(0.0) * FATOR_EXCESSO).max(0.0).round() as i64;
         itens.push(ItemSaude {
             codigo: p.codigo.clone(),
             descricao: p.descricao.clone(),
             linha_prefix: p.linha_prefix.clone(),
             nome_linha: p.nome_linha.clone(),
-            tipo: if p.is_kit == Some(true) { "kit" } else { "produto" },
+            tipo: if categoria == "cat_coloracao" { "coloracao" } else if categoria == "cat_apoio" { "apoio" } else if p.is_kit == Some(true) { "kit" } else { "produto" },
             situacao,
             selo,
             situacao_produto: p.status_produto.clone(),
             estoque: p.estoque,
             em_producao: p.producao,
             pedidos_aberto: p.pedidos_aberto,
-            estoque_demanda: p.estoque_futuro_com_producao,
-            ideal: p.estoque_ideal_qtd.round() as i64,
+            estoque_demanda: efp.round() as i64,
+            ideal: ideal.round() as i64,
             gatilho: gatilho.round() as i64,
-            media_mensal: (p.media_vendas * 10.0).round() / 10.0,
-            cobertura_dias: cobertura_dias(efp, p.media_vendas),
+            media_mensal: (media_total * 10.0).round() / 10.0,
+            cobertura_dias: cobertura_dias(efp, media_total),
             excedente: if situacao == Situacao::Excesso { excedente } else { 0 },
             vendas_3m,
             vendas_12m,
@@ -435,6 +531,13 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
             faltas_venda: faltas.round() as i64,
             status_demanda: p.status.clone(),
             producao_recomendada: p.producao_recomendada,
+            papel_kit,
+            kits_pais: pais_kit.iter().map(|(kp, _)| kp.codigo.clone()).collect(),
+            vendas_diretas_12m: comb.direta.m12,
+            vendas_por_kits_12m: comb.por_kits.m12,
+            em_transito: if comprado { em_transito } else { 0 },
+            previsao_chegada: if comprado { mov.previsao_compra.get(&chave).cloned() } else { None },
+            sugestao_compra: if comprado { sugestao_compra } else { 0 },
         });
     }
 
@@ -700,5 +803,78 @@ mod tests {
         assert_eq!(cobertura_dias(300.0, 0.0), None);
         assert_eq!(cobertura_dias(300.0, 100.0), Some(90.0));
         assert_eq!(cobertura_dias(-5.0, 100.0), Some(0.0));
+    }
+
+    fn dia(d: &str) -> Option<NaiveDate> {
+        NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()
+    }
+    fn hoje() -> NaiveDate {
+        dia("2026-11-10").unwrap()
+    }
+    /// Classifica um componente de kit como o serviço faz: vendas combinadas, ideal com o dos kits.
+    fn classificar_componente(direta: Janela, kits: &[(Janela, f64)], ideal: f64, efp: f64) -> (Situacao, Combinado) {
+        let c = combinar_vendas(direta, kits);
+        let s = classificar(&Entrada {
+            efp,
+            estoque: efp,
+            pedidos_aberto: 0.0,
+            ideal,
+            abaixo_do_gatilho: false,
+            tem_venda: c.total.media > 0.0 || c.total.m12 > 0,
+            dias_sem_venda: c.total.ultima.map(|d| (hoje() - d).num_days()),
+            dias_desde_producao: None,
+            com_selo: false,
+        });
+        (s, c)
+    }
+
+    #[test]
+    fn so_kit_com_kit_vendendo_nao_e_sem_giro() {
+        let kit = Janela { m3: 30, m12: 120, media: 10.0, ultima: dia("2026-11-02") };
+        let (s, c) = classificar_componente(Janela::default(), &[(kit, 2.0)], ideal_com_kits(0.0, &[(30.0, 2.0)]), 50.0);
+        assert_eq!(c.total.m12, 240, "2 unidades por kit");
+        assert_eq!(c.total.media, 20.0);
+        assert_eq!(c.por_kits.m12, 240);
+        assert_eq!(c.direta.m12, 0);
+        assert_eq!(c.total.ultima, dia("2026-11-02"));
+        // ideal 60 (30 × 2), estoque 50: adequado (antes: ideal 0 e sem venda direta = sem giro)
+        assert_eq!(s, Situacao::Adequado);
+    }
+
+    #[test]
+    fn so_kit_com_kit_parado_e_sem_giro() {
+        let kit = Janela { m3: 0, m12: 40, media: 3.3, ultima: dia("2026-03-01") };
+        let (s, _) = classificar_componente(Janela::default(), &[(kit, 1.0)], 10.0, 50.0);
+        assert_eq!(s, Situacao::SemGiro);
+    }
+
+    #[test]
+    fn misto_soma_direta_e_kit_e_pega_a_venda_mais_recente() {
+        let direta = Janela { m3: 20, m12: 100, media: 8.0, ultima: dia("2026-09-15") };
+        let kit = Janela { m3: 10, m12: 30, media: 2.5, ultima: dia("2026-11-05") };
+        let (s, c) = classificar_componente(direta, &[(kit, 1.0)], ideal_com_kits(24.0, &[(8.0, 1.0)]), 40.0);
+        assert_eq!((c.total.m3, c.total.m12), (30, 130));
+        assert_eq!(c.total.media, 10.5);
+        assert_eq!(c.total.ultima, dia("2026-11-05"));
+        assert_eq!((c.direta.m12, c.por_kits.m12), (100, 30));
+        assert_eq!(s, Situacao::Adequado);
+    }
+
+    #[test]
+    fn componente_de_dois_kits_soma_os_dois() {
+        let k1 = Janela { m3: 6, m12: 24, media: 2.0, ultima: dia("2026-10-01") };
+        let k2 = Janela { m3: 9, m12: 36, media: 3.0, ultima: dia("2026-11-08") };
+        let (s, c) = classificar_componente(Janela::default(), &[(k1, 1.0), (k2, 3.0)], ideal_com_kits(0.0, &[(5.0, 1.0), (4.0, 3.0)]), 500.0);
+        assert_eq!(c.total.m12, 24 + 108);
+        assert_eq!(c.total.m3, 6 + 27);
+        assert_eq!(c.total.media, 2.0 + 9.0);
+        assert_eq!(c.total.ultima, dia("2026-11-08"), "a mais recente entre os kits");
+        // ideal 5 + 12 = 17; estoque 500 > 34: excesso
+        assert_eq!(s, Situacao::Excesso);
+    }
+
+    #[test]
+    fn ideal_com_kits_ignora_negativo() {
+        assert_eq!(ideal_com_kits(10.0, &[(-5.0, 2.0), (3.0, 2.0)]), 16.0);
     }
 }

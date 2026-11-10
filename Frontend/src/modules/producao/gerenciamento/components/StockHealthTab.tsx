@@ -5,7 +5,6 @@ import { BotaoAcao, FilterBar, FiltroSelect, ReportHeader, ReportTabs, StatusBad
 import type { VarianteBadge } from '../../../geral/components/ui/ReportKit';
 import { unidadesParaKg, ehBaseProduto } from '../../lib/unitConversion';
 import { ProductDetailsDrawer } from './ProductDetailsDrawer';
-import { StockHealthLegadoTab } from './StockHealthLegadoTab';
 
 /**
  * Saúde do Estoque: a classificação vem pronta do servidor (`GET /api/producao/saude-estoque`),
@@ -19,7 +18,7 @@ interface ItemSaude {
   descricao: string;
   linha_prefix: string;
   nome_linha: string;
-  tipo: 'produto' | 'kit';
+  tipo: 'produto' | 'kit' | 'coloracao' | 'apoio';
   situacao: Situacao;
   selo: string | null;
   situacao_produto: string | null;
@@ -43,7 +42,13 @@ interface ItemSaude {
   faltas_venda: number;
   status_demanda: string;
   producao_recomendada: number;
-  base_codigo?: string | null;
+  papel_kit: 'so_kit' | 'em_kit' | null;
+  kits_pais: string[];
+  vendas_diretas_12m: number;
+  vendas_por_kits_12m: number;
+  em_transito: number;
+  previsao_chegada: string | null;
+  sugestao_compra: number;
 }
 
 interface Retirado {
@@ -62,7 +67,7 @@ interface RespostaSaude {
   itens: ItemSaude[];
 }
 
-type Aba = 'disponibilidade' | 'excesso' | 'sem_giro' | 'todos' | 'retirados' | 'coloracao';
+type Aba = 'disponibilidade' | 'excesso' | 'sem_giro' | 'todos' | 'retirados';
 
 const ROTULO: Record<Situacao, string> = {
   ruptura: 'Ruptura',
@@ -82,14 +87,14 @@ const VARIANTE: Record<Situacao, VarianteBadge> = {
 };
 const ROTULO_SELO: Record<string, string> = { lancamento: 'Lançamento', encomenda: 'Encomenda', terceirizado: 'Terceirizado' };
 
-const ABAS_SITUACOES: Record<Exclude<Aba, 'coloracao' | 'retirados'>, Situacao[] | null> = {
+const ABAS_SITUACOES: Record<Exclude<Aba, 'retirados'>, Situacao[] | null> = {
   disponibilidade: ['ruptura', 'baixo'],
   excesso: ['excesso'],
   sem_giro: ['sem_giro'],
   todos: null,
 };
 
-const ORDEM_PADRAO: Record<Exclude<Aba, 'coloracao' | 'retirados'>, { campo: string; dir: 'asc' | 'desc' }> = {
+const ORDEM_PADRAO: Record<Exclude<Aba, 'retirados'>, { campo: string; dir: 'asc' | 'desc' }> = {
   disponibilidade: { campo: 'cobertura_dias', dir: 'asc' },
   excesso: { campo: 'excedente', dir: 'desc' },
   sem_giro: { campo: 'dias_sem_venda', dir: 'desc' },
@@ -100,6 +105,11 @@ const num = (n: number) => n.toLocaleString('pt-BR');
 const dataBr = (iso: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
 const diasTxt = (d: number | null) => (d == null ? '—' : d >= 365 ? `${num(Math.round(d))} d (${(d / 365).toFixed(1).replace('.', ',')} a)` : `${num(Math.round(d))} d`);
 const mesesTxt = (d: number | null) => (d == null ? '—' : `${(d / 30).toFixed(1).replace('.', ',')} m`);
+/** Fabricados: em produção. Comprados prontos: pedido de compra em trânsito e a previsão de chegada. */
+const entrada = (i: ItemSaude) =>
+  i.tipo === 'coloracao' || i.tipo === 'apoio'
+    ? i.em_transito > 0 ? `+${num(i.em_transito)} un${i.previsao_chegada ? ` · chega ${dataBr(i.previsao_chegada)}` : ''}` : '—'
+    : i.em_producao > 0 ? num(i.em_producao) : '—';
 const tendenciaTxt = (t: number | null) => (t == null ? '—' : `${t > 0 ? '+' : ''}${t.toLocaleString('pt-BR')}%`);
 
 /** Valor de ordenação; sem valor vai para o fim (sem giro: quem nunca vendeu vem primeiro). */
@@ -153,7 +163,7 @@ export function StockHealthTab({ setView }: Props) {
   const trocarAba = (a: string) => {
     setAba(a as Aba);
     setFiltroSituacao(null);
-    if (a !== 'coloracao' && a !== 'retirados') setOrdem(ORDEM_PADRAO[a as Exclude<Aba, 'coloracao' | 'retirados'>]);
+    if (a !== 'retirados') setOrdem(ORDEM_PADRAO[a as Exclude<Aba, 'retirados'>]);
   };
 
   const ordenarPor = (campo: string) =>
@@ -176,13 +186,13 @@ export function StockHealthTab({ setView }: Props) {
     );
   }, [dados, busca, tipo, linha]);
 
-  const contar = (a: Exclude<Aba, 'coloracao' | 'retirados'>) => {
+  const contar = (a: Exclude<Aba, 'retirados'>) => {
     const s = ABAS_SITUACOES[a];
     return s ? base.filter((i) => s.includes(i.situacao)).length : base.length;
   };
 
   const lista = useMemo(() => {
-    if (aba === 'coloracao' || aba === 'retirados') return [];
+    if (aba === 'retirados') return [];
     const s = ABAS_SITUACOES[aba];
     const sel = (s ? base.filter((i) => s.includes(i.situacao)) : [...base]).filter((i) => !filtroSituacao || i.situacao === filtroSituacao);
     const f = ordem.dir === 'asc' ? 1 : -1;
@@ -250,14 +260,24 @@ export function StockHealthTab({ setView }: Props) {
       <div style={{ fontSize: '0.68rem', color: 'hsl(var(--text-secondary-hsl))', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         <span className="font-mono">{i.codigo}</span>
         {i.tipo === 'kit' && <span>Kit</span>}
+        {i.tipo === 'coloracao' && <span>Coloração</span>}
+        {i.tipo === 'apoio' && <span>Apoio</span>}
+        {i.papel_kit && <span style={{ fontWeight: 700 }} title={`Kits: ${i.kits_pais.join(', ')}`}>{i.papel_kit === 'so_kit' ? 'Só kit' : 'Também em kit'}</span>}
         {i.selo && <span style={{ fontWeight: 700 }}>{ROTULO_SELO[i.selo] ?? i.selo}</span>}
         {i.situacao_produto === 'saindo_de_linha' && <span style={{ fontWeight: 700 }}>Saindo de linha</span>}
       </div>
+      {i.papel_kit && (
+        <div style={{ fontSize: '0.66rem', color: 'hsl(var(--text-secondary-hsl))' }}>
+          Vendas 12 m: {num(i.vendas_diretas_12m)} direto + {num(i.vendas_por_kits_12m)} por kits
+        </div>
+      )}
     </>
   );
 
   const AcaoFila = ({ i }: { i: ItemSaude }) =>
-    i.na_fila || i.planejado ? (
+    i.tipo === 'coloracao' || i.tipo === 'apoio' ? (
+      i.sugestao_compra > 0 ? <span style={{ fontSize: '0.72rem', fontWeight: 700 }}>Comprar {num(i.sugestao_compra)}</span> : null
+    ) : i.na_fila || i.planejado ? (
       <StatusBadge variante="aguardando">{i.planejado ? 'Planejado' : 'Na fila'}</StatusBadge>
     ) : (
       <button
@@ -296,10 +316,10 @@ export function StockHealthTab({ setView }: Props) {
     </button>
   );
 
-  const colunas = aba === 'coloracao' || aba === 'retirados' ? [] : colunasDaAba(aba);
+  const colunas = aba === 'retirados' ? [] : colunasDaAba(aba);
 
   /** Texto de cada célula da aba (usado nas linhas do celular e na impressão). */
-  function colunasDaAba(a: Exclude<Aba, 'coloracao' | 'retirados'>): { campo: string; rotulo: string; direita?: boolean; valor: (i: ItemSaude) => React.ReactNode; texto: (i: ItemSaude) => string }[] {
+  function colunasDaAba(a: Exclude<Aba, 'retirados'>): { campo: string; rotulo: string; direita?: boolean; valor: (i: ItemSaude) => React.ReactNode; texto: (i: ItemSaude) => string }[] {
     const sit = { campo: 'situacao', rotulo: 'Situação', valor: (i: ItemSaude) => <StatusBadge variante={VARIANTE[i.situacao]}>{ROTULO[i.situacao]}</StatusBadge>, texto: (i: ItemSaude) => ROTULO[i.situacao] };
     const est = { campo: 'estoque', rotulo: 'Estoque', direita: true, valor: (i: ItemSaude) => num(i.estoque), texto: (i: ItemSaude) => num(i.estoque) };
     const ideal = { campo: 'ideal', rotulo: 'Ideal', direita: true, valor: (i: ItemSaude) => num(i.ideal), texto: (i: ItemSaude) => num(i.ideal) };
@@ -310,7 +330,7 @@ export function StockHealthTab({ setView }: Props) {
       return [
         sit, est, ideal, cobDias,
         { campo: 'faltas_venda', rotulo: 'Faltas', direita: true, valor: (i) => (i.faltas_venda > 0 ? num(i.faltas_venda) : '—'), texto: (i) => (i.faltas_venda > 0 ? num(i.faltas_venda) : '—') },
-        { campo: 'em_producao', rotulo: 'Em produção', direita: true, valor: (i) => (i.em_producao > 0 ? num(i.em_producao) : '—'), texto: (i) => (i.em_producao > 0 ? num(i.em_producao) : '—') },
+        { campo: 'em_producao', rotulo: 'Em produção / trânsito', direita: true, valor: (i) => entrada(i), texto: (i) => entrada(i) },
       ];
     }
     if (a === 'excesso') {
@@ -352,7 +372,6 @@ export function StockHealthTab({ setView }: Props) {
     { id: 'sem_giro', label: 'Sem giro', contagem: contar('sem_giro') },
     { id: 'todos', label: 'Todos', contagem: contar('todos') },
     { id: 'retirados', label: 'Retirados', contagem: dados?.retirados.length ?? 0 },
-    { id: 'coloracao', label: 'Coloração e ocultos (versão anterior)' },
   ];
   const tituloAba = abas.find((a) => a.id === aba)?.label ?? '';
   const regras = dados?.regras;
@@ -386,21 +405,12 @@ export function StockHealthTab({ setView }: Props) {
     );
   }
 
-  if (aba === 'coloracao') {
-    return (
-      <div>
-        <ReportTabs abas={abas} ativa={aba} onChange={trocarAba} />
-        <ColoracaoAnterior />
-      </div>
-    );
-  }
-
   return (
     <div>
       <div className="no-print">
         <ReportHeader
           titulo="Saúde do Estoque"
-          subtitulo={regras ? `Produtos acabados e kits · excesso: acima de ${regras.fator_excesso}× o ideal · sem giro: ${regras.dias_sem_giro} dias sem venda` : 'Produtos acabados e kits'}
+          subtitulo={regras ? `Produtos, kits, coloração e apoio · excesso: acima de ${regras.fator_excesso}× o ideal · sem giro: ${regras.dias_sem_giro} dias sem venda` : 'Produtos, kits, coloração e apoio'}
           acoes={
             <>
               <BotaoAcao onClick={carregar} disabled={carregando} title="Atualizar">
@@ -439,7 +449,7 @@ export function StockHealthTab({ setView }: Props) {
         </div>
         <ReportTabs abas={abas} ativa={aba} onChange={trocarAba} />
         <FilterBar busca={busca} onBusca={setBusca} placeholder="Buscar por código ou descrição...">
-          <FiltroSelect value={tipo} onChange={setTipo} opcoes={[{ valor: 'todos', rotulo: 'Produtos e kits' }, { valor: 'produto', rotulo: 'Só produtos' }, { valor: 'kit', rotulo: 'Só kits' }]} />
+          <FiltroSelect value={tipo} onChange={setTipo} opcoes={[{ valor: 'todos', rotulo: 'Todos os tipos' }, { valor: 'produto', rotulo: 'Só produtos' }, { valor: 'kit', rotulo: 'Só kits' }, { valor: 'coloracao', rotulo: 'Coloração' }, { valor: 'apoio', rotulo: 'Apoio' }]} />
           <FiltroSelect value={linha} onChange={setLinha} opcoes={[{ valor: 'todas', rotulo: 'Todas as linhas' }, ...linhas.map(([k, n]) => ({ valor: k, rotulo: n }))]} />
         </FilterBar>
 
@@ -538,55 +548,5 @@ export function StockHealthTab({ setView }: Props) {
 
       <ProductDetailsDrawer productCode={detalhe} isOpen={!!detalhe} onClose={() => setDetalhe(null)} />
     </div>
-  );
-}
-
-/**
- * Coloração e ocultos ainda não fazem parte da classificação nova (o plano deixa Coloração e Apoio para depois).
- * Enquanto isso, a tela anterior fica acessível aqui, com o cálculo e as exclusões manuais de antes.
- */
-function ColoracaoAnterior() {
-  const [allProducts, setAllProducts] = useState<any[]>([]);
-  const [coloracoes, setColoracoes] = useState<any[]>([]);
-  const [kits, setKits] = useState<any[]>([]);
-  const [configs, setConfigs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const carregar = useCallback(async () => {
-    setLoading(true);
-    try {
-      const pegar = async (url: string) => {
-        const r = await apiFetch(url);
-        return r.ok ? r.json() : null;
-      };
-      const [p, k, c, cfg] = await Promise.all([
-        pegar('/products?limit=9999&show_hidden=true'),
-        pegar('/kits?limit=9999&show_hidden=true'),
-        pegar('/products?status=coloracao&limit=9999&show_hidden=true'),
-        pegar('/configs'),
-      ]);
-      setAllProducts(p?.items || []);
-      setKits(k?.items || []);
-      setColoracoes(c?.items || []);
-      setConfigs(cfg || []);
-    } catch (e) {
-      console.error('Erro ao carregar dados da Saúde do Estoque (versão anterior):', e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { carregar(); }, [carregar]);
-
-  return (
-    <StockHealthLegadoTab
-      allProducts={allProducts}
-      coloracoes={coloracoes}
-      kits={kits}
-      configs={configs}
-      loading={loading}
-      onRefresh={carregar}
-      onShowDetails={() => {}}
-    />
   );
 }
