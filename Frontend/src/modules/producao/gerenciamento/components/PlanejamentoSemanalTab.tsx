@@ -33,6 +33,8 @@ import {
   type CellBatchGroup, type ReatorConfig, type PlanejamentoItem,
 } from './planejamento/lib/planejamentoSemanal';
 import { imprimirPlanejamentoSemanal } from './planejamento/lib/imprimirPlanejamento';
+import { ListaSemana } from './planejamento/ListaSemana';
+import { AvisoDesfazer, type DesfazerAcao } from './planejamento/AvisoDesfazer';
 import { OrdemDrawer } from './planejamento/OrdemDrawer';
 import { BarraSemana } from './planejamento/BarraSemana';
 import { ListaPorDia } from './planejamento/ListaPorDia';
@@ -152,6 +154,9 @@ export function PlanejamentoSemanalTab({
   const [dragOverCell, setDragOverCell] = useState<{ reatorId: string; dateStr: string } | null>(null);
 
   const [coberturaAberta, setCoberturaAberta] = useState(false);
+  const [visao, setVisao] = useState<'grade' | 'lista'>('grade');
+  const [desfazer, setDesfazer] = useState<DesfazerAcao | null>(null);
+  const oferecerDesfazer = (mensagem: string, fn: () => Promise<void>) => setDesfazer({ id: Date.now(), mensagem, desfazer: fn });
   // Ordem aberta no painel de ações (guarda só os ids: o painel relê o quadro, então reflete mudanças)
   const [ordemAbertaIds, setOrdemAbertaIds] = useState<string[] | null>(null);
 
@@ -933,6 +938,29 @@ export function PlanejamentoSemanalTab({
     const removidosIds = new Set(removidos.map(i => i.id));
     setPlannedItems(prev => prev.filter(i => !removidosIds.has(i.id)));
     if (bloqueado) await fetchPlanejamento();
+    if (removidos.length > 0) {
+      const originais = removidos.map(i => ({ ...i }));
+      oferecerDesfazer(originais.length > 1 ? 'Batelada removida; voltou para a fila.' : 'Ordem removida; voltou para a fila.', async () => {
+        // a remoção devolveu a demanda à fila: ao regravar a ordem, o servidor consome essa demanda de volta
+        const consumirFila: { filaId: string; kg: number }[] = [];
+        try {
+          const res = await apiFetch(`/producao/fila-demandas?week=${encodeURIComponent(semanaFila)}`);
+          const lista: any[] = res.ok ? ((await res.json()).items ?? []) : [];
+          const usados = new Set<string>();
+          for (const o of originais) {
+            const kg = Number(o.quantidade_planejada) || 0;
+            const f = lista.find(x => x.origem !== 'automatica' && !usados.has(x.id) && (x.codigoProduto || x.codigo_produto) === o.codigo_produto && Number(x.quantidadeKg ?? x.quantidade_kg ?? 0) + 0.05 >= kg);
+            if (f) { usados.add(f.id); consumirFila.push({ filaId: f.id, kg }); }
+          }
+        } catch (e) { console.warn('Falha ao ler a fila para desfazer:', e); }
+        if (await handleSaveItems(originais, consumirFila)) {
+          await fetchFila();
+          avisar('Remoção desfeita.', 'sucesso');
+        } else {
+          await fetchPlanejamento();
+        }
+      });
+    }
     window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
     onScheduleChanged?.();
   };
@@ -1461,6 +1489,15 @@ export function PlanejamentoSemanalTab({
       if (await handleSaveItem(updated)) salvos++;
     }
     if (salvos !== itens.length) await fetchPlanejamento();
+    if (salvos > 0) {
+      const originais = itens.map(i => ({ ...i }));
+      oferecerDesfazer(itens.length > 1 ? 'Batelada movida.' : 'Ordem movida.', async () => {
+        let ok = true;
+        for (const o of originais) if (!(await handleSaveItem(o))) ok = false;
+        if (!ok) await fetchPlanejamento();
+        else avisar('Movimento desfeito.', 'sucesso');
+      });
+    }
     return salvos > 0;
   };
 
@@ -1480,6 +1517,7 @@ export function PlanejamentoSemanalTab({
   return (
     <div className="flex flex-col gap-4 w-full">
       {aviso}
+      <AvisoDesfazer acao={desfazer} onFechar={() => setDesfazer(null)} />
       <AvisoProdutosSemPeso />
       {/* BARRA SUPERIOR DE COMANDOS */}
       <BarraSemana
@@ -1492,11 +1530,16 @@ export function PlanejamentoSemanalTab({
         demandBankOpen={demandBankOpen}
         sugerindo={sugerindo}
         reatores={reatores}
+        visao={visao}
+        setVisao={setVisao}
       />
 
       {/* ÁREA PRINCIPAL: GRADE DE REATORES + GAVETA LATERAL DE DEMANDAS */}
       <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-start w-full">
         {/* LISTA POR DIA (CELULAR): segunda a sexta, reatores com as mesmas ordens da grade */}
+        {visao === 'lista' ? (
+          <ListaSemana weekDays={weekDays} reatores={reatores} matrixItemsMap={matrixItemsMap} coberturaPorOrdem={coberturaPorOrdem} podeEditar={podeEditar} abrirOrdem={abrirOrdem} setCoberturaAberta={setCoberturaAberta} />
+        ) : (<>
         <ListaPorDia
           weekDays={weekDays}
           reatores={reatores}
@@ -1518,6 +1561,7 @@ export function PlanejamentoSemanalTab({
           moverOrdens={moverOrdens}
           handleOpenScheduleModal={handleOpenScheduleModal}
         />
+        </>)}
 
         {/* GAVETA LATERAL: BANCO DE DEMANDAS (FILA EXCLUSIVA) */}
         {demandBankOpen && (

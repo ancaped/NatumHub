@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CalendarClock, RefreshCw, ChevronLeft, ChevronRight, Package, Plus, Sparkles, ShieldCheck, Printer, Settings, Trash2, MoreHorizontal } from 'lucide-react';
+import { CalendarClock, RefreshCw, ChevronLeft, ChevronRight, Package, Plus, Sparkles, ShieldCheck, Printer, Settings, Trash2, MoreHorizontal, LayoutGrid, List } from 'lucide-react';
 import type { ReatorConfig, PlanejamentoItem } from './lib/planejamentoSemanal';
 import type { DiaSemana } from './tiposDrawers';
 
@@ -33,12 +33,14 @@ interface BarraSemanaProps {
   demandBankOpen: boolean;
   sugerindo: boolean;
   reatores: ReatorConfig[];
+  visao: 'grade' | 'lista';
+  setVisao: (v: 'grade' | 'lista') => void;
 }
 
 const BTN = 'max-md:min-h-11 max-md:min-w-11 max-md:justify-center px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-300';
 
 /** Barra superior: navegação da semana e as quatro ações do dia a dia; o resto fica no menu "Mais". */
-export function BarraSemana({ semana, acoes, podeEditar, demandBankOpen, sugerindo, reatores }: BarraSemanaProps) {
+export function BarraSemana({ semana, acoes, podeEditar, demandBankOpen, sugerindo, reatores, visao, setVisao }: BarraSemanaProps) {
   const { currentWeekKey, weekDays, loadingPlan, plannedItems, filaTodos } = semana;
   const {
     handlePrevWeek, handleToday, handleNextWeek, fetchPlanejamento, fetchFila, handleOpenScheduleModal, handleRunHeuristic,
@@ -76,6 +78,20 @@ export function BarraSemana({ semana, acoes, podeEditar, demandBankOpen, sugerin
         <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-100 border border-zinc-200 rounded-lg text-zinc-900 font-mono font-bold text-xs">
           <CalendarClock size={14} className="text-zinc-600" />
           <span>Semana {currentWeekKey.split('-W')[1]} ({weekDays[0].dateStr.split('-').slice(1).reverse().join('/')} a {weekDays[4].dateStr.split('-').slice(1).reverse().join('/')})</span>
+        </div>
+
+        <div className="flex items-center bg-zinc-100 p-1 rounded-lg border border-zinc-200" role="group" aria-label="Visão da semana">
+          {([['grade', 'Grade', LayoutGrid], ['lista', 'Lista', List]] as const).map(([v, rot, Ic]) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setVisao(v)}
+              aria-pressed={visao === v}
+              className={`px-2.5 py-1 max-md:min-h-11 text-xs font-semibold rounded-md flex items-center gap-1.5 cursor-pointer transition-colors ${visao === v ? 'bg-white text-zinc-900 shadow-2xs' : 'text-zinc-500 hover:text-zinc-800'}`}
+            >
+              <Ic size={13} /> {rot}
+            </button>
+          ))}
         </div>
 
         <button
