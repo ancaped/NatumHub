@@ -53,11 +53,20 @@ pub struct LinhaFormula {
     pub quantidade: f64,
 }
 
+/// Linha de fórmula que é embalagem: pelo código/descrição (`is_embalagem`) ou porque o item é medido em unidade (`UN`).
+/// A lista de prefixos/palavras não cobre todos os grupos de frasco, pote, rótulo e inserto (9.03, 9.08, 9.14, 9.38,
+/// 9.45, 9.51...); a unidade do cadastro cobre. Exceção: insumo químico (9.15.*) cadastrado com unidade `UN` por engano
+/// (cera de abelha, essências) continua sendo massa.
+pub fn linha_e_embalagem(l: &LinhaFormula) -> bool {
+    is_embalagem(&l.codigo, &l.descricao)
+        || (l.unidade.as_deref().map_or(false, |u| u.trim().eq_ignore_ascii_case("UN")) && !l.codigo.trim().starts_with("9.15."))
+}
+
 /// Massa química da fórmula (exclui embalagens): base do multiplicador `kg / massa`.
 pub fn massa_quimica(formula: &[LinhaFormula]) -> f64 {
     formula
         .iter()
-        .filter(|l| !is_embalagem(&l.codigo, &l.descricao))
+        .filter(|l| !linha_e_embalagem(l))
         .map(|l| l.quantidade)
         .sum()
 }
@@ -1754,6 +1763,25 @@ mod tests {
         assert!((g("1") - 160.0).abs() < 1e-9);
         assert!((g("2") - 40.0).abs() < 1e-9);
         assert!((g("9.02.1") - 1000.0).abs() < 1e-9, "a embalagem usa o mesmo multiplicador (2x)");
+    }
+
+    #[test]
+    fn massa_quimica_exclui_item_em_unidade_que_a_lista_de_codigos_nao_reconhece() {
+        // pomada 60 g: 9.08.* (inserto/pote cristal) não está na lista de prefixos, mas o cadastro mede em UN
+        let un = |c: &str, d: &str, q: f64| LinhaFormula { codigo: c.into(), descricao: d.into(), unidade: Some("UN".into()), quantidade: q };
+        let f = vec![
+            lf("9.15.064", "AGUA", 0.05),
+            lf("9.15.065", "ALKONAT", 0.0125),
+            un("9.08.035", "INSERTO PT 100 ML JASPE 3MB", 1.0),
+            un("9.08.038", "PT CRISTAL 60G", 1.0),
+            un("9.15.200", "CERA DE ABELHA", 0.0125), // químico cadastrado como UN: continua massa
+        ];
+        assert!((massa_quimica(&f) - 0.075).abs() < 1e-9);
+        // 4 kg do lote = 64 unidades de 60 g: a embalagem sai 1 por unidade
+        let n = necessidades_do_produto(&f, 4.8, &HashMap::new(), BaseFonte::Explodir).unwrap();
+        let g = |c: &str| n.iter().find(|x| x.codigo == c).unwrap().quantidade;
+        assert!((g("9.08.035") - 64.0).abs() < 1e-9);
+        assert!((g("9.15.064") - 3.2).abs() < 1e-9);
     }
 
     #[test]
