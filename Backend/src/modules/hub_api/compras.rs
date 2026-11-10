@@ -452,6 +452,16 @@ async fn unlink_similar_item_handler(
 struct SetItemStockBody {
     code: String,
     stock: f64,
+    #[serde(default)]
+    motivo: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoverCalibracaoBody {
+    code: String,
+    #[serde(default)]
+    motivo: String,
 }
 
 async fn list_stock_calibrations_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -461,9 +471,38 @@ async fn list_stock_calibrations_handler(State(state): State<Arc<AppState>>) -> 
     }
 }
 
-async fn set_item_real_stock_handler(State(state): State<Arc<AppState>>, Json(body): Json<SetItemStockBody>) -> impl IntoResponse {
-    match with_pool(&state, |pool| set_item_real_stock_query(pool, &body.code, body.stock)).await {
-        Ok(()) => ok_status().into_response(),
+// POST /api/hub/compras/items/stock (2 passos): grava o estoque real como diferença sobre o ERP; não mexe no estoque do ERP.
+async fn set_item_real_stock_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<SetItemStockBody>,
+) -> Response {
+    match executar_em_2_passos(state.db.pool(), "ajustar_estoque_real_compras", c.confirmar, move |tx| {
+        let (code, stock, motivo) = (body.code.clone(), body.stock, body.motivo.clone());
+        Box::pin(async move { estoque_calibrado::calibrar(&mut **tx, &code, stock, &motivo).await })
+    })
+    .await
+    {
+        Ok(r) => concluir(state.db.pool(), &ctx, "ajustar_estoque_real_compras", "item", r, false).await,
+        Err(e) => e.into_response(),
+    }
+}
+
+// POST /api/hub/compras/items/stock/remover (2 passos): tira a calibração e o item volta a mostrar o estoque do ERP.
+async fn remover_calibracao_handler(
+    State(state): State<Arc<AppState>>,
+    axum::Extension(ctx): axum::Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<RemoverCalibracaoBody>,
+) -> Response {
+    match executar_em_2_passos(state.db.pool(), "remover_estoque_calibrado_compras", c.confirmar, move |tx| {
+        let (code, motivo) = (body.code.clone(), body.motivo.clone());
+        Box::pin(async move { estoque_calibrado::remover(&mut **tx, &code, &motivo).await })
+    })
+    .await
+    {
+        Ok(r) => concluir(state.db.pool(), &ctx, "remover_estoque_calibrado_compras", "item", r, false).await,
         Err(e) => e.into_response(),
     }
 }
@@ -1350,6 +1389,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/hub/compras/items/similar/item/:code", delete(unlink_similar_item_handler))
         .route("/api/hub/compras/items/stock-calibrations", get(list_stock_calibrations_handler))
         .route("/api/hub/compras/items/stock", post(set_item_real_stock_handler))
+        .route("/api/hub/compras/items/stock/remover", post(remover_calibracao_handler))
         .route("/api/hub/compras/items/category", post(update_items_category_handler))
         .route("/api/hub/compras/items/categoria/bulk", post(mover_itens_handler))
         .route("/api/hub/compras/items/:code/categoria", post(trocar_categoria_item_handler))
@@ -1453,6 +1493,33 @@ pub fn acoes() -> Vec<Acao> {
             ],
         )
         .com_familias(agente::FAMILIAS),
+        Acao::gravacao(
+            "ajustar_estoque_real_compras",
+            MP,
+            "Grava o estoque real (contagem) de um item como DIFERENÇA sobre o ERP: estoque mostrado = ERP agora + (real - ERP no dia), então acompanha as movimentações seguintes. Não altera o estoque do ERP. Sem `confirmar=true` devolve a prévia (`antes`, `depois`, `diferenca`) e não grava; com ele grava e audita o motivo. Recusa item inexistente, valor inválido e quando nada muda. Para voltar ao estoque do ERP use `remover_estoque_calibrado_compras`.",
+            "POST",
+            "/api/hub/compras/items/stock",
+            true,
+            vec![
+                param("code", "corpo", "texto", true, "Código do item (insumo ou produto)."),
+                param("stock", "corpo", "numero", true, "Estoque real contado (>= 0)."),
+                param("motivo", "corpo", "texto", true, "Por que o estoque está sendo ajustado (ex.: contagem física)."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
+        ),
+        Acao::gravacao(
+            "remover_estoque_calibrado_compras",
+            MP,
+            "Remove a calibração manual de estoque de um item: ele volta a mostrar o estoque do ERP. Sem `confirmar=true` só devolve a prévia; com ele grava e audita o motivo. Calibração antiga (valor fixo, `fixa: true` em `calibracao`) também se remove aqui. Recusa quando o item não está calibrado.",
+            "POST",
+            "/api/hub/compras/items/stock/remover",
+            true,
+            vec![
+                param("code", "corpo", "texto", true, "Código do item calibrado."),
+                param("motivo", "corpo", "texto", true, "Por que a calibração está sendo removida."),
+                param("confirmar", "query", "booleano", false, "true grava; ausente só devolve a prévia."),
+            ],
+        ),
         Acao::leitura(
             "acuracia_duracao_compras",
             MP,

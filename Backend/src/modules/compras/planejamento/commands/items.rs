@@ -438,7 +438,8 @@ pub async fn list_stock_calibrations_query(pool: PgPool) -> Result<Vec<String>, 
         "CREATE TABLE IF NOT EXISTS item_stock_calibrations (
             item_code TEXT PRIMARY KEY,
             stock DOUBLE PRECISION NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            erp_base DOUBLE PRECISION
         )",
     )
     .execute(&pool)
@@ -449,56 +450,6 @@ pub async fn list_stock_calibrations_query(pool: PgPool) -> Result<Vec<String>, 
         .await
         .map_err(|e| e.to_string())?;
     Ok(rows.into_iter().map(|row| row.get(0)).collect())
-}
-
-pub async fn set_item_real_stock_query(pool: PgPool, code: &str, stock: f64) -> Result<(), String> {
-    let code = code.trim();
-    if code.is_empty() || !stock.is_finite() || stock < 0.0 {
-        return Err("Informe o código e um estoque válido.".into());
-    }
-    list_stock_calibrations_query(pool.clone()).await?;
-    let is_product: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM produtos WHERE codigo = $1)")
-        .bind(code)
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
-    if is_product {
-        sqlx::query(
-            "INSERT INTO estoque_atual (codigo, estoque, producao, pedidos_aberto)
-             VALUES ($1, $2, 0, 0)
-             ON CONFLICT (codigo) DO UPDATE SET estoque = EXCLUDED.estoque",
-        )
-        .bind(code)
-        .bind(stock)
-        .execute(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
-    }
-    sqlx::query(
-        "UPDATE stock_snapshots SET stock_qty = $2
-         WHERE id = (
-             SELECT id FROM stock_snapshots
-             WHERE TRIM(item_code) = TRIM($1)
-             ORDER BY snapshot_date DESC, id DESC
-             LIMIT 1
-         )",
-    )
-    .bind(code)
-    .bind(stock)
-    .execute(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
-    sqlx::query(
-        "INSERT INTO item_stock_calibrations (item_code, stock, updated_at)
-         VALUES ($1, $2, NOW()::text)
-         ON CONFLICT (item_code) DO UPDATE SET stock = EXCLUDED.stock, updated_at = EXCLUDED.updated_at",
-    )
-    .bind(code)
-    .bind(stock)
-    .execute(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
-    Ok(())
 }
 
 pub async fn remove_similar_item_query(pool: PgPool, code_a: &str, code_b: &str) -> Result<(), String> {

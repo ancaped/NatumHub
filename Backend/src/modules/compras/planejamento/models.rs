@@ -179,6 +179,16 @@ pub struct CustomPurchaseConfigRow {
     pub periodo_media: Option<i32>,
 }
 
+/// Estoque calibrado manualmente: `erp` = estoque do ERP agora; `diferenca` = quanto o real difere dele;
+/// `fixa` = calibração antiga, valor fixo que não acompanha o ERP (remover para voltar ao ERP).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Calibracao {
+    pub erp: f64,
+    pub diferenca: f64,
+    pub fixa: bool,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DemandResult {
@@ -220,6 +230,9 @@ pub struct DemandResult {
     pub fornecedor_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fornecedor: Option<String>,
+    /// Presente quando o estoque mostrado é calibrado manualmente.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calibracao: Option<Calibracao>,
     #[serde(default)]
     pub trigger_point: f64,
     #[serde(default)]

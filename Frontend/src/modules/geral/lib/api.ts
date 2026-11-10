@@ -73,8 +73,12 @@ export const api = {
   getStockCalibrations(): Promise<string[]> {
     return hubJson('compras/items/stock-calibrations');
   },
-  setItemRealStock(code: string, stock: number): Promise<void> {
-    return hubJson('compras/items/stock', { method: 'POST', body: JSON.stringify({ code, stock }) });
+  /** Grava na hora (confirmar=true); a calibração vale como diferença sobre o ERP e acompanha as movimentações. */
+  setItemRealStock(code: string, stock: number, motivo = 'Ajuste de estoque real pela tela'): Promise<void> {
+    return hubJson('compras/items/stock?confirmar=true', { method: 'POST', body: JSON.stringify({ code, stock, motivo }) });
+  },
+  removeStockCalibration(code: string, motivo = 'Calibração removida pela tela'): Promise<void> {
+    return hubJson('compras/items/stock/remover?confirmar=true', { method: 'POST', body: JSON.stringify({ code, motivo }) });
   },
   addSimilarItem(codeA: string, codeB: string): Promise<void> {
     return hubJson('compras/items/similar', { method: 'POST', body: JSON.stringify({ codeA, codeB }) });

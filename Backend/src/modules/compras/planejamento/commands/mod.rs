@@ -7,6 +7,7 @@ mod suppliers;
 mod sugestoes_fornecedor;
 pub mod unificar_fornecedores;
 pub mod duracao;
+pub mod estoque_calibrado;
 mod custom_configs;
 mod purchase_lists;
 mod lista_compra;

@@ -162,7 +162,7 @@ fn sum_movements_for_period(
 const DEMANDS_SQL_ITEMS: &str = "
              SELECT 
                  i.code, i.description, i.unit, i.category_id, COALESCE(c.name, 'Sem Categoria') as category_name,
-                 COALESCE(cal.stock, s.stock_qty, 0) as stock_qty, COALESCE(s.reserved_qty, 0) as reserved_qty, 
+                 COALESCE(s.stock_qty, 0) as stock_qty, COALESCE(s.reserved_qty, 0) as reserved_qty, 
                  COALESCE(s.in_production, 0) as in_production,
                  COALESCE((
                      SELECT SUM(poi.n_qtde - poi.n_chegou)
@@ -174,7 +174,7 @@ const DEMANDS_SQL_ITEMS: &str = "
                  COALESCE(c2024.monthly_avg, 0) as monthly_avg_2024, 
                  COALESCE(c2025.monthly_avg, 0) as monthly_avg_2025, 
                  COALESCE(c2026.monthly_avg, 0) as monthly_avg_2026,
-                 i.notes
+                 i.notes, cal.stock AS cal_stock, cal.erp_base AS cal_base
              FROM items i
              LEFT JOIN categories c ON i.category_id = c.id
              LEFT JOIN (
@@ -196,7 +196,7 @@ const DEMANDS_SQL_PRODUCTS: &str = "
                  p.codigo as code, p.descricao as description, 'UN' as unit, 
                  COALESCE(o.categoria_produto, CASE WHEN p.codigo LIKE '1.34.%' THEN 'cat_coloracao' WHEN p.codigo LIKE '1.30.%' THEN 'cat_apoio' ELSE '' END) as category_id,
                  CASE WHEN p.codigo LIKE '1.34.%' THEN 'Coloração' WHEN p.codigo LIKE '1.30.%' THEN 'Material de Apoio' ELSE 'Sem Categoria' END as category_name,
-                 COALESCE(cal.stock, e.estoque, 0) as stock_qty, 0 as reserved_qty, COALESCE(e.producao, 0) as in_production, 
+                 COALESCE(e.estoque, 0) as stock_qty, 0 as reserved_qty, COALESCE(e.producao, 0) as in_production, 
                  (
                      COALESCE((
                          SELECT SUM(poi.n_qtde - poi.n_chegou)
@@ -222,7 +222,7 @@ const DEMANDS_SQL_PRODUCTS: &str = "
                  COALESCE(o.media_manual, p.media_levantamento) as monthly_avg_2024, 
                  COALESCE(o.media_manual, p.media_levantamento) as monthly_avg_2025, 
                  COALESCE(o.media_manual, p.media_levantamento) as monthly_avg_2026,
-                 COALESCE(o.observacao, '') as notes
+                 COALESCE(o.observacao, '') as notes, cal.stock AS cal_stock, cal.erp_base AS cal_base
              FROM produtos p
              LEFT JOIN overrides_produtos o ON p.codigo = o.codigo
              LEFT JOIN estoque_atual e ON p.codigo = e.codigo
@@ -246,7 +246,7 @@ fn build_demands_sql(include_products: bool) -> String {
             "SELECT code, description, unit, category_id, category_name,
                 stock_qty, reserved_qty, in_production, in_orders,
                 monthly_avg_2024, monthly_avg_2025, monthly_avg_2026,
-                notes
+                notes, cal_stock, cal_base
          FROM (
              {DEMANDS_SQL_ITEMS}
              UNION ALL
@@ -259,7 +259,7 @@ fn build_demands_sql(include_products: bool) -> String {
             "SELECT code, description, unit, category_id, category_name,
                 stock_qty, reserved_qty, in_production, in_orders,
                 monthly_avg_2024, monthly_avg_2025, monthly_avg_2026,
-                notes
+                notes, cal_stock, cal_base
          FROM (
              {DEMANDS_SQL_ITEMS}
          ) t
@@ -519,7 +519,7 @@ fn build_demand_result(
     let unit: String = row.get(2);
     let cat_id: Option<String> = row.get(3);
     let cat_name: String = row.get(4);
-    let current_stock: f64 = row.get(5);
+    let erp_stock: f64 = row.get(5);
     let reserved_qty_imported: f64 = row.get(6);
     let in_production: f64 = row.get(7);
     let in_orders: f64 = row.get::<f64, _>(8).max(0.0);
@@ -527,6 +527,8 @@ fn build_demand_result(
     let avg25: f64 = row.get(10);
     let avg26: f64 = row.get(11);
     let notes: Option<String> = row.get(12);
+    // Estoque calibrado vale como diferença sobre o ERP (acompanha as movimentações); calibração antiga é valor fixo.
+    let (current_stock, calibracao) = super::estoque_calibrado::efetivo(erp_stock, row.get::<Option<f64>, _>(13), row.get::<Option<f64>, _>(14));
 
     // Reserva calculada pelos lotes abertos (regra 38A); o valor do ERP fica só como informação.
     let reserva_calculada = reserva_calculada_map
@@ -764,6 +766,7 @@ fn build_demand_result(
         last_supplier_invoice,
         last_supplier_order,
         fornecedor_id: None,
+        calibracao,
         fornecedor: None,
         trigger_point,
         target_stock,
@@ -787,12 +790,17 @@ pub async fn get_demands_query(
         "CREATE TABLE IF NOT EXISTS item_stock_calibrations (
             item_code TEXT PRIMARY KEY,
             stock DOUBLE PRECISION NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            erp_base DOUBLE PRECISION
         )",
     )
     .execute(&pool)
     .await
     .map_err(|e| e.to_string())?;
+    sqlx::query("ALTER TABLE item_stock_calibrations ADD COLUMN IF NOT EXISTS erp_base DOUBLE PRECISION")
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let mut custom_configs: Vec<TempConfig> = Vec::new();
     if let Ok(rows) = sqlx::query(
