@@ -13,6 +13,7 @@ import Drawer from '../../../geral/components/ui/Drawer';
 import { useListaCompra } from '../useListaCompra';
 import { HistoricoPedidosTable, type PedidoCompraHistorico } from './HistoricoPedidosTable';
 import { ultimoRecebimento } from '../ultimoRecebimento';
+import { MarcaCalibrado } from './EstoqueCalibrado';
 import { FiltroFornecedor, LinhaGrupoFornecedor, compararFornecedor, nomeFornecedor, opcoesFornecedor, passaFornecedor } from './FornecedorGrupo';
 
 interface ProductRow {
@@ -513,8 +514,10 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
   // Compute products metrics in real time based on targetDays
   const computedProducts = useMemo(() => {
     return products.map(p => {
-      const stock = p.estoque || 0;
       const demandRow = demandsByCode[p.codigo] || demandsByCode[p.codigo.replace(/\./g, '')];
+      // Estoque calibrado manualmente (diferença sobre o ERP) vem da demanda; sem calibração vale o do ERP.
+      const estoqueEfetivo = demandRow?.calibracao ? demandRow.currentStock : (p.estoque || 0);
+      const stock = estoqueEfetivo;
       const mediaVendas = demandRow?.overallAvg && demandRow.overallAvg > 0
         ? demandRow.overallAvg
         : (p.media_vendas || 0);
@@ -604,6 +607,8 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
       return {
         ...p,
+        estoque: estoqueEfetivo,
+        calibracao: demandRow?.calibracao,
         media_vendas: mediaVendas,
         estoque_ideal_qtd_computed: estoqueIdealQtd,
         sugestao_compra_computed: suggestion,
@@ -1516,7 +1521,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <div className="font-semibold text-zinc-800">{p.estoque.toLocaleString('pt-BR')} un</div>
+                        <div className="font-semibold text-zinc-800"><MarcaCalibrado calibracao={p.calibracao} unit="un" />{p.estoque.toLocaleString('pt-BR')} un</div>
                         <div className="text-[10px] text-zinc-450 font-bold">
                           -{p.faltas_ativas || 0} F / +{p.pedidos_compra_aberto || 0} T
                         </div>

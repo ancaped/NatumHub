@@ -1,4 +1,4 @@
--- 112_situacao_atendimento.sql
+-- 113_situacao_atendimento.sql
 -- L1 do plano da Linha de Produtos (decisão do Edson, 2026-11-10): Situação e Atendimento viram dois campos.
 -- Situação: ativo, lançamento, saindo de linha, inativo (guardado como "descontinuado", um valor só).
 -- Atendimento: estoque (gera demanda), encomenda e terceirizado (não geram demanda automática). Padrão na linha, exceção no produto.

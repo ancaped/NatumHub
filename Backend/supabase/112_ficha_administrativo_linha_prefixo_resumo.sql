@@ -1,4 +1,4 @@
--- 111_ficha_administrativo_linha_prefixo_resumo.sql
+-- 112_ficha_administrativo_linha_prefixo_resumo.sql
 -- Ficha da Linha de Produtos: troca de prefixo em 2 passos e aba Resumo da linha.
 -- Aditiva e idempotente: acrescenta pontos de atenção só se ainda não existirem.
 

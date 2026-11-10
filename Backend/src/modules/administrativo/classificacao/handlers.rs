@@ -304,7 +304,7 @@ mod tests {
             sqlx::query(sql).execute(&pool).await.unwrap();
         }
         sqlx::query("INSERT INTO config_linhas (linha_prefix, nome_linha) VALUES ('ZZL1', 'Teste L1')").execute(&pool).await.unwrap();
-        sqlx::raw_sql(include_str!("../../../../supabase/112_situacao_atendimento.sql")).execute(&pool).await.unwrap();
+        sqlx::raw_sql(include_str!("../../../../supabase/113_situacao_atendimento.sql")).execute(&pool).await.unwrap();
         for c in ["ZZL1.1", "ZZL1.2", "ZZL1.3"] {
             sqlx::query("INSERT INTO produtos (codigo, descricao, linha_prefix, media_levantamento) VALUES ($1, 'teste', 'ZZL1', 0)").bind(c).execute(&pool).await.unwrap();
         }
@@ -312,7 +312,7 @@ mod tests {
         sqlx::query("INSERT INTO overrides_produtos (codigo, status_produto, situacao) VALUES ('ZZL1.2', 'lancamento', 'lancamento')").execute(&pool).await.unwrap();
         sqlx::query("INSERT INTO overrides_produtos (codigo, status_produto) VALUES ('ZZL1.3', 'terceirizado')").execute(&pool).await.unwrap();
         // migração: terceirizado antigo -> ativo + atendimento terceirizado, status lido continua igual
-        sqlx::raw_sql(include_str!("../../../../supabase/112_situacao_atendimento.sql")).execute(&pool).await.unwrap();
+        sqlx::raw_sql(include_str!("../../../../supabase/113_situacao_atendimento.sql")).execute(&pool).await.unwrap();
         let (sit, atd): (Option<String>, Option<String>) =
             sqlx::query_as("SELECT situacao, atendimento FROM overrides_produtos WHERE codigo = 'ZZL1.3'").fetch_one(&pool).await.unwrap();
         assert_eq!((sit.as_deref(), atd.as_deref()), (Some("ativo"), Some("terceirizado")));

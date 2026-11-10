@@ -458,9 +458,10 @@ pub(super) async fn carregar_estoque(
             },
         );
     }
-    // Calibração manual (a tabela só existe depois do primeiro uso do módulo de compras).
+    // Calibração manual (a tabela só existe depois do primeiro uso do módulo de compras): vale como diferença
+    // sobre o ERP (acompanha as movimentações); calibração antiga, sem `erp_base`, segue como valor fixo.
     if let Ok(rows) = sqlx::query(
-        "SELECT TRIM(item_code) AS code, stock::float8 AS stock FROM item_stock_calibrations WHERE TRIM(item_code) = ANY($1)",
+        "SELECT TRIM(item_code) AS code, stock::float8 AS stock, erp_base::float8 AS erp_base FROM item_stock_calibrations WHERE TRIM(item_code) = ANY($1)",
     )
     .bind(codigos)
     .fetch_all(pool)
@@ -469,9 +470,10 @@ pub(super) async fn carregar_estoque(
         for r in rows {
             let code: String = r.get::<Option<String>, _>("code").unwrap_or_default();
             if let Some(stock) = r.get::<Option<f64>, _>("stock") {
+                let base = r.get::<Option<f64>, _>("erp_base");
                 let (descricao, unidade) = formulas.itens.get(&code).cloned().unwrap_or_default();
                 let e = out.entry(code).or_insert(EstoqueItem { descricao, unidade, estoque: 0.0, reserva: 0.0, reserva_erp: 0.0, calibrado: false });
-                e.estoque = stock;
+                e.estoque = crate::modules::compras::planejamento::commands::estoque_calibrado::efetivo(e.estoque, Some(stock), base).0;
                 e.calibrado = true;
             }
         }

@@ -203,6 +203,8 @@ export interface DemandResult {
   /** Fornecedor do último pedido (o principal, se o cadastro estiver agrupado). */
   fornecedorId?: string;
   fornecedor?: string;
+  /** Presente quando o estoque mostrado é calibrado manualmente. */
+  calibracao?: Calibracao;
   triggerPoint?: number;
   targetStock?: number;
   triggerDays?: number;
@@ -936,4 +938,11 @@ export interface AcuraciaDuracao {
     horizonteDias: number;
     familias: { familia: string; amostras: number; real: number; erroMediaPct: number | null; erroPlanoPct: number | null; somaMedia: number; somaPlano: number }[];
   };
+}
+
+/** Estoque calibrado manualmente: `erp` = estoque do ERP agora; `diferenca` = real - ERP; `fixa` = calibração antiga (valor fixo). */
+export interface Calibracao {
+  erp: number;
+  diferenca: number;
+  fixa: boolean;
 }

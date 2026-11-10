@@ -877,6 +877,18 @@ pub async fn get_insumo_detalhes(
         ),
         _ => (0.0, 0.0, 0.0),
     };
+    // Estoque calibrado manualmente vale como diferença sobre o ERP (igual à lista de Compras).
+    let cal = sqlx::query("SELECT stock, erp_base FROM item_stock_calibrations WHERE TRIM(item_code) = TRIM($1)")
+        .bind(&code)
+        .fetch_optional(&pool)
+        .await
+        .ok()
+        .flatten();
+    let (current_stock, calibracao) = super::commands::estoque_calibrado::efetivo(
+        current_stock,
+        cal.as_ref().map(|r| r.get::<f64, _>("stock")),
+        cal.as_ref().and_then(|r| r.get::<Option<f64>, _>("erp_base")),
+    );
     let available_qty = current_stock - reserved_qty;
 
     let mut consumption_yoy = Vec::new();
@@ -1335,6 +1347,7 @@ pub async fn get_insumo_detalhes(
         category_name,
         is_ignored,
         current_stock,
+        calibracao,
         reserved_qty,
         in_production,
         in_orders,

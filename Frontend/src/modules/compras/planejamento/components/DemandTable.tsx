@@ -10,6 +10,7 @@ import { LoteDetailsDrawer } from '../../../producao/gerenciamento/components/Lo
 import Drawer from '../../../geral/components/ui/Drawer';
 import { useListaCompra } from '../useListaCompra';
 import { HistoricoPedidosTable } from './HistoricoPedidosTable';
+import { MarcaCalibrado, NotaCalibracao } from './EstoqueCalibrado';
 import { FiltroFornecedor, LinhaGrupoFornecedor, compararFornecedor, nomeFornecedor, opcoesFornecedor, passaFornecedor } from './FornecedorGrupo';
 import { ItensSemelhantesTab } from './ItensSemelhantesTab';
 
@@ -22,6 +23,7 @@ interface InsumoDetalhes {
   categoryName: string | null;
   isIgnored: boolean;
   currentStock: number;
+  calibracao?: import('../../../geral/lib/types').Calibracao;
   reservedQty?: number;
   inProduction?: number;
   inOrders?: number;
@@ -1229,6 +1231,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                           className="font-medium"
                           title="Estoque = nQtdeEstoque da tela do ERP (último sync)"
                         >
+                          <MarcaCalibrado calibracao={demand.calibracao} unit={demand.unit} />
                           {demand.currentStock.toLocaleString('pt-BR', {
                             maximumFractionDigits: 4,
                             minimumFractionDigits: 0,
@@ -1376,6 +1379,15 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                         <p className="text-lg font-extrabold text-zinc-900 mt-1">
                           {details.currentStock.toLocaleString('pt-BR')} <span className="text-xs font-semibold text-zinc-500">{details.unit}</span>
                         </p>
+                        <NotaCalibracao
+                          calibracao={details.calibracao}
+                          unit={details.unit}
+                          onRemover={async () => {
+                            await api.removeStockCalibration(details.code);
+                            await loadDetails(details.code);
+                            loadDemands();
+                          }}
+                        />
                       </div>
 
                       <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">

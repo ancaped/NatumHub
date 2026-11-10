@@ -579,6 +579,9 @@ pub struct InsumoDetalhesResponse {
     pub category_name: Option<String>,
     pub is_ignored: bool,
     pub current_stock: f64,
+    /// Presente quando o estoque mostrado é calibrado manualmente (o do ERP vem dentro).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calibracao: Option<crate::modules::compras::planejamento::models::Calibracao>,
     #[serde(default)]
     pub reserved_qty: f64,
     #[serde(default)]

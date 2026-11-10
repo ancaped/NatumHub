@@ -462,16 +462,20 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         include_str!("../../../../supabase/110_ficha_producao_sugestao_reator.sql"),
     ),
     (
-        "111_ficha_administrativo_linha_prefixo_resumo.sql",
-        include_str!("../../../../supabase/111_ficha_administrativo_linha_prefixo_resumo.sql"),
+        "111_compras_estoque_calibrado_diferenca.sql",
+        include_str!("../../../../supabase/111_compras_estoque_calibrado_diferenca.sql"),
     ),
     (
-        "112_situacao_atendimento.sql",
-        include_str!("../../../../supabase/112_situacao_atendimento.sql"),
+        "112_ficha_administrativo_linha_prefixo_resumo.sql",
+        include_str!("../../../../supabase/112_ficha_administrativo_linha_prefixo_resumo.sql"),
     ),
     (
-        "113_ficha_administrativo_situacao_atendimento.sql",
-        include_str!("../../../../supabase/113_ficha_administrativo_situacao_atendimento.sql"),
+        "113_situacao_atendimento.sql",
+        include_str!("../../../../supabase/113_situacao_atendimento.sql"),
+    ),
+    (
+        "114_ficha_administrativo_situacao_atendimento.sql",
+        include_str!("../../../../supabase/114_ficha_administrativo_situacao_atendimento.sql"),
     ),
 ];
 
