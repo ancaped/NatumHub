@@ -935,7 +935,7 @@ mod tests {
                 equivalentes: HashMap::new(),
                 sem_controle: HashSet::new(),
             },
-            formulas: Formulas { por_produto: [formula("P1"), formula("P2")].into(), bases: HashMap::new(), itens: HashMap::new(), trocas: Vec::new() },
+            formulas: Formulas { por_produto: [formula("P1"), formula("P2")].into(), bases: HashMap::new(), itens: HashMap::new(), trocas: Vec::new(), kits: HashMap::new() },
             decisoes_base: HashMap::new(),
             inicio_semana: d("2026-10-26"),
             fim_semana: d("2026-11-01"),

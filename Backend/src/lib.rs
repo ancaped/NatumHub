@@ -51,6 +51,7 @@ pub mod modules {
         pub mod processo;
         pub mod sequencia;
         pub mod fila_auto;
+        pub mod prevista;
     }
     pub mod compras;
     pub mod estoque;

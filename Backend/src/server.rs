@@ -215,6 +215,7 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         )
         .merge(modules::producao::proc::router())
         .merge(modules::producao::cobertura::router())
+        .merge(modules::producao::prevista::router())
         .merge(modules::producao::decisoes::router())
         .merge(modules::producao::fila::router())
         .merge(modules::producao::sem_peso::router())

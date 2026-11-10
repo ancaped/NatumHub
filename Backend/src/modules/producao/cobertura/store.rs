@@ -73,6 +73,25 @@ pub struct Formulas {
     pub itens: HashMap<String, (String, Option<String>)>,
     /// Trocas de insumo ativas (não mexem no ERP nem na fórmula; só na previsão).
     pub trocas: Vec<Troca>,
+    /// Kits (código canônico) -> componentes e quantidade por kit (`kit_composicao`). Só preenchido por
+    /// `carregar_formulas_previstas`; a Cobertura do Planejamento não usa.
+    pub kits: HashMap<String, Vec<(String, f64)>>,
+}
+
+/// Quantidade de um item da produção prevista: unidades (produto acabado e kit: fórmula "por unidade") ou kg (base e
+/// ordem do quadro: fórmula normalizada pela massa).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Quantidade {
+    Unidades(f64),
+    Kg(f64),
+}
+
+/// Necessidade de um produto que contribui para o consumo de um item previsto. Num kit, o contribuinte é o componente
+/// (ou o próprio kit, no item direto da composição).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Contribuicao {
+    pub produto: String,
+    pub necessidades: Vec<Necessidade>,
 }
 
 fn variantes_codigo(c: &str) -> Vec<String> {
@@ -163,12 +182,113 @@ pub async fn carregar_formulas(pool: &PgPool, produtos: &[String]) -> Result<For
     // O substituto de uma troca também precisa de descrição/unidade.
     codigos.extend(trocas.iter().map(|t| t.para.clone()));
     let codigos: Vec<String> = codigos.into_iter().collect();
-    let mut f = Formulas { por_produto, bases, itens: HashMap::new(), trocas };
+    let mut f = Formulas { por_produto, bases, itens: HashMap::new(), trocas, kits: HashMap::new() };
     f.completar_itens(pool, &codigos).await?;
     Ok(f)
 }
 
+/// Como `carregar_formulas`, mais os kits (`kit_composicao`) dos produtos pedidos e as fórmulas dos componentes.
+pub async fn carregar_formulas_previstas(pool: &PgPool, produtos: &[String]) -> Result<Formulas, String> {
+    let rows = sqlx::query(
+        "SELECT TRIM(kit_codigo) AS kit, TRIM(componente_codigo) AS comp, COALESCE(quantidade, 1)::float8 AS qtd \
+         FROM kit_composicao",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Erro ao ler a composição dos kits: {e}"))?;
+    let pedidos: HashSet<String> = produtos.iter().map(|p| canon(p)).collect();
+    let mut kits: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+    for r in rows {
+        let kit = canon(&r.get::<Option<String>, _>("kit").unwrap_or_default());
+        if !pedidos.contains(&kit) {
+            continue;
+        }
+        let comp = r.get::<Option<String>, _>("comp").unwrap_or_default();
+        kits.entry(kit).or_default().push((comp, r.get::<Option<f64>, _>("qtd").unwrap_or(1.0)));
+    }
+    let mut todos: Vec<String> = produtos.to_vec();
+    todos.extend(kits.values().flatten().map(|(c, _)| c.clone()));
+    todos.sort();
+    todos.dedup();
+    let mut f = carregar_formulas(pool, &todos).await?;
+    f.kits = kits;
+    Ok(f)
+}
+
 impl Formulas {
+    /// Consumo de `qtd` do produto, por contribuinte. Produto com fórmula: um contribuinte (ele mesmo). Kit: explode a
+    /// `kit_composicao` (componente com fórmula própria + item direto sem fórmula), como o MRP do Compras faz:
+    /// - componente fabricado que também está em `produzidos` não conta pelo kit (já conta por si);
+    /// - item direto já presente na fórmula de algum componente do kit não conta de novo.
+    /// `None` = sem fórmula nem kit utilizável (o chamador avisa; nunca some em silêncio).
+    pub fn necessidades_previstas(
+        &self,
+        produto: &str,
+        qtd: Quantidade,
+        fonte: BaseFonte,
+        produzidos: &HashSet<String>,
+    ) -> Option<Vec<Contribuicao>> {
+        let chave = canon(produto);
+        let Some(comps) = self.kits.get(&chave) else {
+            let n = match qtd {
+                Quantidade::Kg(kg) => self.necessidades_com(&chave, kg, fonte)?,
+                Quantidade::Unidades(u) => self.por_unidade(&chave, u, fonte)?,
+            };
+            return Some(vec![Contribuicao { produto: chave, necessidades: n }]);
+        };
+        let Quantidade::Unidades(unidades) = qtd else { return None };
+        let mut out: Vec<Contribuicao> = Vec::new();
+        for (comp, q) in comps {
+            let c = canon(comp);
+            if *q <= 0.0 {
+                continue;
+            }
+            let tem_formula = self.por_produto.contains_key(&c);
+            if tem_formula {
+                if produzidos.contains(&c) {
+                    continue;
+                }
+                if let Some(n) = self.por_unidade(&c, unidades * q, fonte) {
+                    out.push(Contribuicao { produto: c, necessidades: n });
+                }
+            } else {
+                let ja_na_formula = comps.iter().any(|(o, _)| {
+                    self.por_produto.get(&canon(o)).map_or(false, |f| f.iter().any(|l| canon(&l.codigo) == c))
+                });
+                if ja_na_formula {
+                    continue;
+                }
+                let mut n = vec![Necessidade { codigo: c.clone(), descricao: String::new(), unidade: None, quantidade: unidades * q }];
+                n = aplicar_trocas(n, &chave, &self.trocas);
+                self.completar_descricoes(&mut n);
+                out.push(Contribuicao { produto: chave.clone(), necessidades: n });
+            }
+        }
+        Some(out)
+    }
+
+    /// Fórmula "por unidade": cada linha × `unidades`, com as trocas.
+    fn por_unidade(&self, produto: &str, unidades: f64, fonte: BaseFonte) -> Option<Vec<Necessidade>> {
+        let f = self.por_produto.get(&canon(produto))?;
+        let mut n = super::calc::necessidades_por_unidade(f, unidades, &self.bases, fonte)?;
+        n = aplicar_trocas(n, &canon(produto), &self.trocas);
+        self.completar_descricoes(&mut n);
+        Some(n)
+    }
+
+    fn completar_descricoes(&self, n: &mut [Necessidade]) {
+        for x in n.iter_mut() {
+            if x.descricao.is_empty() {
+                if let Some((d, u)) = self.itens.get(&x.codigo) {
+                    x.descricao = d.clone();
+                    if x.unidade.is_none() {
+                        x.unidade = u.clone();
+                    }
+                }
+            }
+        }
+    }
+
     /// Descrição/unidade de itens ainda desconhecidos (insumos extras, equivalentes, substitutos).
     pub async fn completar_itens(&mut self, pool: &PgPool, codigos: &[String]) -> Result<(), String> {
         let faltam: Vec<String> = codigos.iter().filter(|c| !self.itens.contains_key(*c)).cloned().collect();
@@ -753,11 +873,14 @@ pub struct ItemFila {
     pub codigo: String,
     pub descricao: String,
     pub kg: Option<f64>,
+    pub quantidade: f64,
+    pub unidade: String,
 }
 
 pub async fn carregar_fila(pool: &PgPool) -> Result<Vec<ItemFila>, String> {
     let rows = sqlx::query(
-        "SELECT id, codigo_produto, COALESCE(descricao, '') AS descricao, quantidade_kg::float8 AS kg \
+        "SELECT id, codigo_produto, COALESCE(descricao, '') AS descricao, quantidade_kg::float8 AS kg, \
+                COALESCE(quantidade, 0)::float8 AS quantidade, COALESCE(unidade, '') AS unidade \
          FROM producao_fila_demandas ORDER BY prioridade NULLS LAST, created_at",
     )
     .fetch_all(pool)
@@ -770,6 +893,8 @@ pub async fn carregar_fila(pool: &PgPool) -> Result<Vec<ItemFila>, String> {
             codigo: canon(&r.get::<String, _>("codigo_produto")),
             descricao: r.get::<String, _>("descricao"),
             kg: r.get::<Option<f64>, _>("kg").filter(|k| *k > 0.0),
+            quantidade: r.get::<f64, _>("quantidade"),
+            unidade: r.get::<String, _>("unidade"),
         })
         .collect())
 }

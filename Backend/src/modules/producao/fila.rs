@@ -774,6 +774,22 @@ pub fn medida_kg(descricao: &str) -> Option<f64> {
     }
 }
 
+/// Massa (kg) de uma quantidade de produto: o kg informado manda; senão a quantidade em kg; senão unidades × peso da
+/// descrição (`medida_kg`). `None` quando não dá para saber (peso desconhecido): quem usa avisa, nunca presume 1 kg.
+/// É a única conversão unidade -> kg da produção prevista (fila, horizonte do Compras).
+pub fn kg_de_quantidade(quantidade_kg: Option<f64>, quantidade: f64, unidade: &str, descricao: &str) -> Option<f64> {
+    if let Some(kg) = quantidade_kg.filter(|k| *k > 0.0) {
+        return Some(kg);
+    }
+    if quantidade <= 0.0 {
+        return None;
+    }
+    if unidade.trim().eq_ignore_ascii_case("kg") {
+        return Some(quantidade);
+    }
+    medida_kg(descricao).map(|peso| quantidade * peso)
+}
+
 /// Consome `kg` agendados de um item da fila, na transação de quem chama: agendamento parcial devolve o saldo à
 /// fila; total (ou sem kg) remove a linha. Item que não existe mais não é erro.
 pub async fn consumir_fila(
@@ -824,6 +840,15 @@ pub async fn consumir_fila(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kg_de_quantidade_converte_ou_devolve_none() {
+        assert_eq!(kg_de_quantidade(Some(40.0), 100.0, "un", "SH 300ML"), Some(40.0), "o kg gravado manda");
+        assert_eq!(kg_de_quantidade(None, 25.0, "KG", "BASE X"), Some(25.0));
+        assert_eq!(kg_de_quantidade(Some(0.0), 100.0, "un", "SH 300ML"), Some(30.0));
+        assert_eq!(kg_de_quantidade(None, 100.0, "un", "SH SEM MEDIDA"), None, "peso desconhecido: avisa, não presume 1 kg");
+        assert_eq!(kg_de_quantidade(None, 0.0, "un", "SH 300ML"), None);
+    }
 
     #[test]
     fn peso_unitario_le_a_medida_da_descricao() {

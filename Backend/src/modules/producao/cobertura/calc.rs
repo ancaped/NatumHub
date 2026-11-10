@@ -129,7 +129,30 @@ pub fn necessidades_do_produto(
     if massa <= 0.0001 || kg <= 0.0 {
         return None;
     }
-    let mult = kg / massa;
+    Some(explodir_formula(formula, kg / massa, bases, fonte))
+}
+
+/// Necessidade para produzir `unidades` do produto, com a fórmula "por unidade" (cada linha × `unidades`, sem normalizar
+/// pela massa): é a conta do MRP do Compras para produto acabado e kit. A base continua explodida como em
+/// `necessidades_do_produto`. `None` = quantidade ou fórmula vazia.
+pub fn necessidades_por_unidade(
+    formula: &[LinhaFormula],
+    unidades: f64,
+    bases: &HashMap<String, Vec<LinhaFormula>>,
+    fonte: BaseFonte,
+) -> Option<Vec<Necessidade>> {
+    if formula.is_empty() || unidades <= 0.0 {
+        return None;
+    }
+    Some(explodir_formula(formula, unidades, bases, fonte))
+}
+
+fn explodir_formula(
+    formula: &[LinhaFormula],
+    mult: f64,
+    bases: &HashMap<String, Vec<LinhaFormula>>,
+    fonte: BaseFonte,
+) -> Vec<Necessidade> {
     // codigo -> (descricao, unidade, quantidade)
     let mut acc: BTreeMap<String, (String, Option<String>, f64)> = BTreeMap::new();
     let mut somar = |codigo: &str, desc: &str, un: &Option<String>, q: f64| {
@@ -156,11 +179,9 @@ pub fn necessidades_do_produto(
             None => somar(&l.codigo, &l.descricao, &l.unidade, req),
         }
     }
-    Some(
-        acc.into_iter()
-            .map(|(codigo, (descricao, unidade, quantidade))| Necessidade { codigo, descricao, unidade, quantidade })
-            .collect(),
-    )
+    acc.into_iter()
+        .map(|(codigo, (descricao, unidade, quantidade))| Necessidade { codigo, descricao, unidade, quantidade })
+        .collect()
 }
 
 /// Troca de insumo decidida pelo Edson. Não altera o ERP nem a fórmula: só a previsão de consumo.

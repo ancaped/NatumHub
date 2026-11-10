@@ -272,7 +272,7 @@ fn item_manual(f: &FilaDemandaRow, p: Option<&ProductCalculationResult>) -> Item
     }
 }
 
-fn item_automatico(p: &ProductCalculationResult) -> ItemCalculado {
+pub(crate) fn item_automatico(p: &ProductCalculationResult) -> ItemCalculado {
     let base = p.base.as_deref().unwrap_or("");
     let processo = tipo_de_processo(&entrada_do_produto(&p.codigo, &p.descricao, base, p.producao_recomendada as f64, Some(p)));
     let minimo_kg = p.producao_minima_kg.unwrap_or(0.0).max(0.0);
@@ -307,7 +307,7 @@ fn erro_texto(e: String) -> ErroApi {
 }
 
 /// Os produtos "necessários" da Demanda de Produção (mesma fonte e ordem de "Tudo p/ Produzir Hoje").
-async fn produtos_necessarios(db: &Db) -> Result<Vec<ProductCalculationResult>, ErroApi> {
+pub(crate) async fn produtos_necessarios(db: &Db) -> Result<Vec<ProductCalculationResult>, ErroApi> {
     let params = QueryParams {
         segment: Some("needed".into()),
         include_all_regimes: Some(true),
@@ -322,7 +322,7 @@ async fn produtos_necessarios(db: &Db) -> Result<Vec<ProductCalculationResult>, 
         .map_err(|e| ErroApi::interno(format!("Erro ao ler a lista de produtos necessários: {e}")))
 }
 
-async fn itens_manuais(pool: &sqlx::PgPool) -> Result<Vec<FilaDemandaRow>, ErroApi> {
+pub(crate) async fn itens_manuais(pool: &sqlx::PgPool) -> Result<Vec<FilaDemandaRow>, ErroApi> {
     let sql = r#"
         SELECT id, codigo_produto, descricao, quantidade::float8, unidade,
                quantidade_kg::float8, origem_demanda, linha_envase, base_codigo,
