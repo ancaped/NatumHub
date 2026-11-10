@@ -164,7 +164,7 @@ pub async fn listar(db: &Db) -> Result<ProducaoPrevista, ErroApi> {
     let resumo: Vec<(String, f64)> = necessarios.iter().map(|p| (p.codigo.clone(), p.producao_recomendada as f64)).collect();
     let (escolhidos, excluidos) = fila_auto::escolher_automaticos(&resumo, &codigos_manuais, &com_ordem, &descartados);
     for i in escolhidos {
-        let it = fila_auto::item_automatico(&necessarios[i]);
+        let it = fila_auto::item_automatico(&necessarios[i], None);
         itens.push(ItemPrevisto {
             camada: Camada::FilaAutomatica,
             firme: false,

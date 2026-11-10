@@ -34,7 +34,8 @@ use crate::modules::geral::auth::models::AuthContext;
 use crate::modules::producao::cobertura::store::{self, canon, Contexto};
 use crate::modules::producao::cobertura::{Proposta, Simulador};
 use crate::modules::producao::fila_auto::{self, coberto_total, faltas_do_resultado, Falta, ItemCalculado};
-use crate::modules::producao::planejamento::{gravar_planejamento_em, PedidoConsumoFila, PlanejamentoItemDto};
+use crate::modules::producao::planejamento::{gravar_planejamento_em, validar_capacidade, PedidoConsumoFila, PlanejamentoItemDto};
+use crate::modules::producao::regras_reator::{carregar_regras, RegrasProduto};
 use crate::modules::producao::processo::LIMITE_BOMBONA_QUENTE_KG;
 use crate::modules::producao::{auditoria, permissao, reatores};
 
@@ -68,6 +69,7 @@ pub fn acoes() -> Vec<Acao> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReatorPlano {
     pub id: String,
+    pub nome: String,
     pub capacidade_kg: f64,
     pub tipo: String,
     pub ordem: i32,
@@ -236,6 +238,8 @@ pub enum SemLugar {
     SemQuantidade,
     SemReator,
     SemDia,
+    /// A batelada montada passaria da capacidade do reator escolhido (a mesma regra que a gravação aplica).
+    ForaDaCapacidade,
 }
 
 /// Distribui um produto em bateladas nos dias permitidos: cada batelada vai para o dia de menor carga em kg (empate: o mais
@@ -269,6 +273,9 @@ pub fn distribuir(estado: &mut EstadoPlano, perfil: &PerfilProducao, reatores: &
             .reduce(|melhor, d| if estado.carga.get(&d).copied().unwrap_or(0.0) < estado.carga.get(&melhor).copied().unwrap_or(0.0) { d } else { melhor })
             .expect("há dia permitido");
         let (kg, recipiente) = dimensionar(cenario, &reator, *parte_kg);
+        if validar_capacidade(&reator.nome, reator.capacidade_kg, e_bombona(&reator), kg).is_some() {
+            return Err(SemLugar::ForaDaCapacidade);
+        }
         *estado.carga.entry(dia).or_insert(0.0) += kg;
         usados.insert(dia);
         let processo_termico = processo_de(cenario, &reator, perfil.is_quente);
@@ -408,6 +415,10 @@ pub fn montar_sequencia(
             }
             Err(SemLugar::SemDia) => {
                 pulados.push(pula("sem_dia", "Nenhum dia livre para este produto (exclusivo ou dias tomados por outro exclusivo).".into(), Vec::new()));
+                continue;
+            }
+            Err(SemLugar::ForaDaCapacidade) => {
+                pulados.push(pula("sem_reator_compativel", "A batelada passaria da capacidade do reator escolhido.".into(), Vec::new()));
                 continue;
             }
         };
@@ -551,17 +562,40 @@ fn ordem_da_batelada(semana: &str, item: &ItemCalculado, b: &Batelada) -> Planej
 }
 
 fn reatores_do_plano(lista: Vec<reatores::ReatorConfigDto>) -> Vec<ReatorPlano> {
-    lista.into_iter().map(|r| ReatorPlano { id: r.id, capacidade_kg: r.capacidade_kg, tipo: r.tipo, ordem: r.ordem, ativo: r.ativo }).collect()
+    lista.into_iter().map(|r| ReatorPlano { id: r.id, nome: r.nome, capacidade_kg: r.capacidade_kg, tipo: r.tipo, ordem: r.ordem, ativo: r.ativo }).collect()
 }
 
-/// Carga (kg) e ocupação por dia do quadro da semana, ponto de partida da distribuição.
-fn estado_do_quadro(ctx: &Contexto) -> EstadoPlano {
+/// Carga (kg) e ocupação por dia do quadro da semana, ponto de partida da distribuição. Dia que já tem ordem de produto
+/// exclusivo fica tomado: ninguém mais entra nele (a regra do cadastro manda; sem regra, AOX na descrição).
+fn estado_do_quadro(ctx: &Contexto, regras: &HashMap<String, RegrasProduto>) -> EstadoPlano {
     let mut estado = EstadoPlano::default();
     for o in ctx.entrada.ordens.iter().filter(|o| o.da_semana) {
         *estado.carga.entry(o.data).or_insert(0.0) += o.kg;
         estado.dias_ocupados.insert(o.data);
+        let regra = regras.get(&canon(&o.codigo_produto)).and_then(|r| r.exclusivo_no_dia);
+        if fila_auto::exclusivo_efetivo(regra, o.descricao.as_deref().unwrap_or("")) {
+            estado.dias_exclusivos.insert(o.data);
+        }
     }
     estado
+}
+
+/// Avisos da proposta: produto cuja massa passa do maior reator compatível é dividido em bateladas iguais
+/// (comportamento de sempre); o PCP precisa saber, porque são várias ordens e o item não cabe numa só.
+fn avisos_de_divisao(item: &ItemSequencia, bateladas: &[Batelada], reatores: &[ReatorPlano]) -> Option<String> {
+    let partes = bateladas.first().map_or(1, |b| b.partes);
+    if partes <= 1 {
+        return None;
+    }
+    let maior = bateladas.iter().filter_map(|b| reatores.iter().find(|r| r.id == b.reator_id)).map(|r| r.capacidade_kg).fold(0.0, f64::max);
+    Some(format!(
+        "{} {}: {} kg passam do maior reator compatível ({} kg); dividido em {} bateladas.",
+        item.codigo,
+        item.descricao,
+        item.perfil.kg,
+        maior,
+        partes
+    ))
 }
 
 fn perfil_do_item(item: &ItemCalculado) -> PerfilProducao {
@@ -593,6 +627,7 @@ pub async fn sugerir_sequencia(db: &Db, corpo: &SequenciaBody, confirmar: bool, 
     let reatores = reatores_do_plano(reatores::carregar_reatores(pool).await?);
 
     let fila = fila_auto::montar_fila(db, &semana).await?;
+    let regras = carregar_regras(pool).await?;
     let planejados = fila_auto::codigos_planejados(&fila.ctx);
 
     // Item cujo produto já tem ordem na semana não entra de novo.
@@ -616,15 +651,17 @@ pub async fn sugerir_sequencia(db: &Db, corpo: &SequenciaBody, confirmar: bool, 
         origem_itens.push(item);
     }
 
-    let plano = montar_sequencia(&fila.ctx, &itens, &reatores, &dias, estado_do_quadro(&fila.ctx), corpo.limite_itens);
+    let plano = montar_sequencia(&fila.ctx, &itens, &reatores, &dias, estado_do_quadro(&fila.ctx, &regras), corpo.limite_itens);
     pulados.extend(plano.pulados.iter().cloned());
 
     let mut ordens: Vec<PlanejamentoItemDto> = Vec::new();
     let mut consumos: Vec<PedidoConsumoFila> = Vec::new();
     let mut bateladas_json: Vec<Value> = Vec::new();
     let mut total_kg = 0.0;
+    let mut avisos: Vec<String> = Vec::new();
     for a in &plano.aceitos {
         let item = origem_itens[a.indice];
+        avisos.extend(avisos_de_divisao(&itens[a.indice], &a.bateladas, &reatores));
         let mut kg_item = 0.0;
         for b in &a.bateladas {
             let ordem = ordem_da_batelada(&semana, item, b);
@@ -672,6 +709,7 @@ pub async fn sugerir_sequencia(db: &Db, corpo: &SequenciaBody, confirmar: bool, 
         "dias": dias,
         "bateladas": bateladas_json,
         "pulados": pulados,
+        "avisos": avisos,
         "resumo": resumo,
         "motivo": motivo,
         "fila": gravacao.consumos,
@@ -718,7 +756,7 @@ mod tests {
     }
 
     fn reat(id: &str, capacidade_kg: f64, tipo: &str, ordem: i32) -> ReatorPlano {
-        ReatorPlano { id: id.into(), capacidade_kg, tipo: tipo.into(), ordem, ativo: true }
+        ReatorPlano { id: id.into(), nome: id.into(), capacidade_kg, tipo: tipo.into(), ordem, ativo: true }
     }
 
     fn fabrica() -> Vec<ReatorPlano> {
@@ -991,11 +1029,11 @@ mod tests {
             sugestao_base: None,
             da_semana: true,
         });
-        let plano = montar_sequencia(&ctx, &[item("P2", 60.0, true)], &fabrica(), &semana(), estado_do_quadro(&ctx), None);
+        let plano = montar_sequencia(&ctx, &[item("P2", 60.0, true)], &fabrica(), &semana(), estado_do_quadro(&ctx, &HashMap::new()), None);
         assert!(plano.aceitos.is_empty(), "60 kg não cabem nos 30 kg que o quadro deixou");
         assert_eq!(plano.pulados[0].motivo, "falta_insumo");
 
-        let plano = montar_sequencia(&ctx, &[item("P2", 25.0, true), item("P1", 5.0, false)], &fabrica(), &semana(), estado_do_quadro(&ctx), Some(1));
+        let plano = montar_sequencia(&ctx, &[item("P2", 25.0, true), item("P1", 5.0, false)], &fabrica(), &semana(), estado_do_quadro(&ctx, &HashMap::new()), Some(1));
         assert_eq!(plano.aceitos.len(), 1, "limite de 1 item");
         assert_eq!(plano.nao_tentados, 1);
     }
@@ -1010,6 +1048,139 @@ mod tests {
         assert_eq!(p.pulados[0].motivo, "sem_quantidade");
         let p = montar_sequencia(&ctx, &[item("SEM", 50.0, false)], &fabrica(), &semana(), EstadoPlano::default(), None);
         assert_eq!(p.pulados[0].motivo, "sem_formula");
+    }
+
+    // ---- C2: menor reator que cabe, regras por produto, uma validação de capacidade ----
+    fn reator_do(kg: f64, quente: bool, bombona: bool) -> (String, f64) {
+        let (_, b) = {
+            let mut estado = EstadoPlano::default();
+            let p = PerfilProducao { is_quente: quente, can_bombona: bombona, ..perfil("X", kg) };
+            (0, distribuir(&mut estado, &p, &fabrica(), &semana()).unwrap())
+        };
+        (b[0].reator_id.clone(), b[0].kg)
+    }
+
+    #[test]
+    fn c2_demanda_igual_a_capacidade_fica_no_reator_e_logo_acima_sobe_um_degrau() {
+        assert_eq!(reator_do(100.0, false, false), ("R_100".to_string(), 100.0));
+        assert_eq!(reator_do(100.1, false, false), ("R_200".to_string(), 100.1));
+        assert_eq!(reator_do(200.0, false, false), ("R_200".to_string(), 200.0));
+        assert_eq!(reator_do(200.1, false, false), ("R_500".to_string(), 200.1));
+        assert_eq!(reator_do(1000.0, false, false), ("R_1000_MISTO".to_string(), 1000.0));
+    }
+
+    #[test]
+    fn c2_demanda_pequena_nao_e_inflada_para_80_por_cento_da_capacidade() {
+        // 30 kg frio: o menor reator que cabe é o R_100 e a batelada tem só os 30 kg pedidos
+        assert_eq!(reator_do(30.0, false, false), ("R_100".to_string(), 30.0));
+        assert_eq!(reator_do(130.0, false, false), ("R_200".to_string(), 130.0));
+    }
+
+    #[test]
+    fn c2_bombona_no_limite_de_200_kg_a_frio_e_acima_vai_para_reator() {
+        assert_eq!(reator_do(200.0, false, true).0, "BOMBONAS");
+        assert_eq!(reator_do(200.1, false, true).0, "R_500");
+        // sem a regra permite_bombona o produto nunca vai para bombona
+        assert_eq!(reator_do(100.0, false, false).0, "R_100");
+    }
+
+    #[test]
+    fn c2_quente_com_bombona_vai_em_bombona_ate_o_limite_da_agua_quente() {
+        assert_eq!(reator_do(150.0, true, true).0, "BOMBONAS");
+        assert_ne!(reator_do(150.1, true, true).0, "BOMBONAS");
+    }
+
+    #[test]
+    fn c2_exclusivo_fica_sozinho_no_dia_nos_dois_sentidos() {
+        let f = fabrica();
+        // exclusivo primeiro: os dois seguintes não entram no mesmo dia
+        let perfis = vec![PerfilProducao { exclusivo: true, ..perfil("E", 90.0) }, perfil("A", 90.0), perfil("B", 90.0)];
+        let (b, sem, _) = planejar_semana(&perfis, &f, &semana(), EstadoPlano::default());
+        assert!(sem.is_empty());
+        let dia_e = b.iter().find(|x| x.codigo == "E").unwrap().dia;
+        assert!(b.iter().filter(|x| x.codigo != "E").all(|x| x.dia != dia_e));
+        // exclusivo depois: só entra em dia que ainda não tem ordem
+        let perfis = vec![perfil("A", 90.0), PerfilProducao { exclusivo: true, ..perfil("E", 90.0) }];
+        let (b, _, _) = planejar_semana(&perfis, &f, &semana()[..1], EstadoPlano::default());
+        assert_eq!(b.len(), 1, "com um dia só e ocupado, o exclusivo não entra");
+        // semana inteira ocupada: exclusivo vai para sem_lugar
+        let ocupado = EstadoPlano { dias_ocupados: semana().into_iter().collect(), ..Default::default() };
+        let (_, sem, _) = planejar_semana(&[PerfilProducao { exclusivo: true, ..perfil("E", 90.0) }], &f, &semana(), ocupado);
+        assert_eq!(sem, ["E"]);
+    }
+
+    #[test]
+    fn c2_ordem_exclusiva_que_ja_esta_no_quadro_toma_o_dia() {
+        let mut ctx = contexto(1000.0);
+        let ordem = |id: &str, dia: &str, cod: &str, desc: &str| crate::modules::producao::cobertura::calc::OrdemEntrada {
+            id: id.into(),
+            data: d(dia),
+            sequencia: 1,
+            codigo_produto: cod.into(),
+            descricao: Some(desc.into()),
+            kg: 50.0,
+            lote_erp: None,
+            lote_no_erp: false,
+            grupo: id.into(),
+            necessidades: None,
+            bases_usadas: Vec::new(),
+            base_fonte: BaseFonte::Explodir,
+            sugestao_base: None,
+            da_semana: true,
+        };
+        ctx.entrada.ordens.push(ordem("o1", "2026-10-26", "E1", "Produto regra"));
+        ctx.entrada.ordens.push(ordem("o2", "2026-10-27", "A1", "Hidratante AOX"));
+        ctx.entrada.ordens.push(ordem("o3", "2026-10-28", "C1", "Comum"));
+        let regras: HashMap<String, RegrasProduto> = [("E1".to_string(), RegrasProduto { exclusivo_no_dia: Some(true), ..Default::default() })].into();
+        let e = estado_do_quadro(&ctx, &regras);
+        assert!(e.dias_exclusivos.contains(&d("2026-10-26")), "regra do cadastro");
+        assert!(e.dias_exclusivos.contains(&d("2026-10-27")), "AOX sem regra");
+        assert!(!e.dias_exclusivos.contains(&d("2026-10-28")));
+        // regra false vence o AOX da descrição
+        let regras: HashMap<String, RegrasProduto> = [("A1".to_string(), RegrasProduto { exclusivo_no_dia: Some(false), ..Default::default() })].into();
+        assert!(!estado_do_quadro(&ctx, &regras).dias_exclusivos.contains(&d("2026-10-27")));
+        // quem entra agora cai só no dia que sobrou
+        let (b, _, _) = planejar_semana(&[perfil("N", 60.0)], &fabrica(), &semana(), estado_do_quadro(&ctx, &[("E1".to_string(), RegrasProduto { exclusivo_no_dia: Some(true), ..Default::default() })].into()));
+        assert_ne!(b[0].dia, d("2026-10-26"));
+    }
+
+    #[test]
+    fn c2_regra_de_cadastro_manda_sobre_o_aox_da_descricao() {
+        assert!(fila_auto::exclusivo_efetivo(None, "Oxidante AOX 1L"));
+        assert!(!fila_auto::exclusivo_efetivo(Some(false), "Oxidante AOX 1L"));
+        assert!(fila_auto::exclusivo_efetivo(Some(true), "Shampoo"));
+        assert!(!fila_auto::exclusivo_efetivo(None, "Shampoo"));
+    }
+
+    #[test]
+    fn c2_r100_aceita_varias_ordens_no_mesmo_dia_decisao_37_de_2026_10_27() {
+        let perfis: Vec<_> = (0..3).map(|i| perfil(&format!("R{i}"), 80.0)).collect();
+        let (b, sem, _) = planejar_semana(&perfis, &fabrica(), &semana()[..1], EstadoPlano::default());
+        assert!(sem.is_empty());
+        assert_eq!(b.iter().filter(|x| x.reator_id == "R_100").count(), 3);
+    }
+
+    #[test]
+    fn c2_demanda_maior_que_o_maior_reator_divide_e_avisa() {
+        let f = fabrica();
+        let mut estado = EstadoPlano::default();
+        let p = perfil("G", 1500.0);
+        let b = distribuir(&mut estado, &p, &f, &semana()).unwrap();
+        assert_eq!(b.len(), 2);
+        let item = ItemSequencia { automatico: true, fila_id: None, codigo: "G".into(), descricao: "Produto G".into(), perfil: p };
+        let aviso = avisos_de_divisao(&item, &b, &f).expect("avisa a divisão");
+        assert!(aviso.contains("1500") && aviso.contains("1000") && aviso.contains("2 bateladas"), "{aviso}");
+        // cabendo num reator só, não há aviso
+        let b1 = distribuir(&mut EstadoPlano::default(), &perfil("H", 1000.0), &f, &semana()).unwrap();
+        assert!(avisos_de_divisao(&item, &b1, &f).is_none());
+    }
+
+    #[test]
+    fn c2_validar_capacidade_e_a_mesma_do_servidor_com_tolerancia() {
+        assert_eq!(validar_capacidade("R100", 100.0, false, 100.0), None);
+        assert_eq!(validar_capacidade("R100", 100.0, false, 100.05), None);
+        assert!(validar_capacidade("R100", 100.0, false, 100.1).unwrap().contains("passa da capacidade de 100 kg"));
+        assert!(validar_capacidade("Bombona 200", 200.0, true, 200.5).unwrap().starts_with("Bombona 200 comporta até 200 kg"));
     }
 
     // ---- dias, cor e textos ----

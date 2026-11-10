@@ -250,7 +250,7 @@ export function candidatoDaFila(f: any, p: any): any {
   };
 }
 
-/** Regras de chão de fábrica aplicadas no modal, no arraste e na sugestão. A capacidade limita só a batelada; não há limite de ordens por dia no reator. */
+/** Espelho, para avisar na hora, da regra que o servidor aplica ao gravar (`validar_capacidade` em `planejamento.rs`): modal, arraste e sugestão passam todos por ela no servidor. A capacidade limita só a batelada; não há limite de ordens por dia no reator (decisão do Edson, 2026-10-27). */
 export function validarAlocacao(opts: {
   reatorId: string;
   dateStr: string;

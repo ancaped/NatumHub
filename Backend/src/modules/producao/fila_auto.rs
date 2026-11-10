@@ -20,6 +20,7 @@ use crate::modules::producao::cobertura::calc::{ResultadoOrdem, StatusCobertura,
 use crate::modules::producao::cobertura::store::{self, canon, Contexto};
 use crate::modules::producao::cobertura::{Proposta, Simulador};
 use crate::modules::producao::fila::FilaDemandaRow;
+use crate::modules::producao::regras_reator::{carregar_regras, RegrasProduto};
 use crate::modules::producao::processo::{tipo_de_processo, EntradaProcesso, ProcessoProduto};
 use crate::modules::producao::{calculo, decisoes};
 
@@ -220,6 +221,7 @@ fn entrada_do_produto<'a>(
     base: &'a str,
     recomendada: f64,
     p: Option<&'a ProductCalculationResult>,
+    regras: Option<&'a RegrasProduto>,
 ) -> EntradaProcesso<'a> {
     EntradaProcesso {
         codigo,
@@ -230,18 +232,24 @@ fn entrada_do_produto<'a>(
         producao_recomendada: recomendada,
         estoque_ideal_manual: p.and_then(|p| p.estoque_ideal_manual).unwrap_or(0) as f64,
         lote_minimo: 0.0,
-        processo_termico: p.and_then(|p| p.processo_termico.as_deref()),
-        permite_bombona: p.and_then(|p| p.permite_bombona),
+        // O cadastro (`regras`) vale também para produto fora da Demanda; o resultado do cálculo vem da mesma tabela.
+        processo_termico: p.and_then(|p| p.processo_termico.as_deref()).or(regras.and_then(|r| r.processo_termico.as_deref())),
+        permite_bombona: p.and_then(|p| p.permite_bombona).or(regras.and_then(|r| r.permite_bombona)),
     }
 }
 
-fn exclusivo_do_produto(p: Option<&ProductCalculationResult>, descricao: &str) -> bool {
-    p.and_then(|p| p.exclusivo_no_dia).unwrap_or_else(|| descricao.to_uppercase().contains("AOX"))
+/// Produto exclusivo no dia: a regra do cadastro manda; sem regra, o que tem AOX na descrição (comportamento de sempre).
+pub fn exclusivo_efetivo(regra: Option<bool>, descricao: &str) -> bool {
+    regra.unwrap_or_else(|| descricao.to_uppercase().contains("AOX"))
 }
 
-fn item_manual(f: &FilaDemandaRow, p: Option<&ProductCalculationResult>) -> ItemCalculado {
+fn exclusivo_do_produto(p: Option<&ProductCalculationResult>, regras: Option<&RegrasProduto>, descricao: &str) -> bool {
+    exclusivo_efetivo(p.and_then(|p| p.exclusivo_no_dia).or(regras.and_then(|r| r.exclusivo_no_dia)), descricao)
+}
+
+fn item_manual(f: &FilaDemandaRow, p: Option<&ProductCalculationResult>, regras: Option<&RegrasProduto>) -> ItemCalculado {
     let base = f.base_nome.as_deref().unwrap_or("");
-    let processo = tipo_de_processo(&entrada_do_produto(&f.codigo_produto, &f.descricao, base, f.quantidade, p));
+    let processo = tipo_de_processo(&entrada_do_produto(&f.codigo_produto, &f.descricao, base, f.quantidade, p, regras));
     // O kg da fila manda; sem ele, a quantidade em kg (unidade kg) ou a convertida pelo peso da descrição.
     let kg = f
         .quantidade_kg
@@ -263,7 +271,7 @@ fn item_manual(f: &FilaDemandaRow, p: Option<&ProductCalculationResult>) -> Item
         prioridade: f.prioridade,
         created_at: f.created_at.clone(),
         updated_at: f.updated_at.clone(),
-        exclusivo: exclusivo_do_produto(p, &f.descricao),
+        exclusivo: exclusivo_do_produto(p, regras, &f.descricao),
         minimo_kg: 0.0,
         processo,
         situacao: Situacao::Disponivel,
@@ -272,9 +280,9 @@ fn item_manual(f: &FilaDemandaRow, p: Option<&ProductCalculationResult>) -> Item
     }
 }
 
-pub(crate) fn item_automatico(p: &ProductCalculationResult) -> ItemCalculado {
+pub(crate) fn item_automatico(p: &ProductCalculationResult, regras: Option<&RegrasProduto>) -> ItemCalculado {
     let base = p.base.as_deref().unwrap_or("");
-    let processo = tipo_de_processo(&entrada_do_produto(&p.codigo, &p.descricao, base, p.producao_recomendada as f64, Some(p)));
+    let processo = tipo_de_processo(&entrada_do_produto(&p.codigo, &p.descricao, base, p.producao_recomendada as f64, Some(p), regras));
     let minimo_kg = p.producao_minima_kg.unwrap_or(0.0).max(0.0);
     let eh_base = crate::core::regras_produto::e_base(&p.codigo, p.categoria_produto.as_deref().unwrap_or(""), p.status_produto.as_deref().unwrap_or(""));
     ItemCalculado {
@@ -293,7 +301,7 @@ pub(crate) fn item_automatico(p: &ProductCalculationResult) -> ItemCalculado {
         prioridade: None,
         created_at: None,
         updated_at: None,
-        exclusivo: exclusivo_do_produto(Some(p), &p.descricao),
+        exclusivo: exclusivo_do_produto(Some(p), regras, &p.descricao),
         minimo_kg,
         processo,
         situacao: Situacao::Disponivel,
@@ -366,8 +374,15 @@ pub async fn montar_fila(db: &Db, semana: &str) -> Result<FilaCalculada, ErroApi
     let (escolhidos, excluidos) = escolher_automaticos(&resumo, &codigos_manuais, &planejados, &descartados);
 
     let por_codigo: std::collections::HashMap<String, &ProductCalculationResult> = necessarios.iter().map(|p| (canon(&p.codigo), p)).collect();
-    let mut itens: Vec<ItemCalculado> = manuais.iter().map(|m| item_manual(m, por_codigo.get(&canon(&m.codigo_produto)).copied())).collect();
-    itens.extend(escolhidos.iter().map(|i| item_automatico(&necessarios[*i])));
+    let regras = carregar_regras(pool).await?;
+    let mut itens: Vec<ItemCalculado> = manuais
+        .iter()
+        .map(|m| {
+            let c = canon(&m.codigo_produto);
+            item_manual(m, por_codigo.get(&c).copied(), regras.get(&c))
+        })
+        .collect();
+    itens.extend(escolhidos.iter().map(|i| item_automatico(&necessarios[*i], regras.get(&canon(&necessarios[*i].codigo)))));
 
     let extras: Vec<String> = itens.iter().map(|i| canon(&i.codigo)).collect();
     let ctx = store::montar_contexto(pool, semana, &extras).await.map_err(erro_texto)?;

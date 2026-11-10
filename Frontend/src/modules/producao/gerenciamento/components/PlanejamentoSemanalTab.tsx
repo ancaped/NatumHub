@@ -1385,6 +1385,7 @@ export function PlanejamentoSemanalTab({
         })),
         avisos: (d) => [
           ...(d?.bateladas ?? []).length === 0 ? ['Nenhum item da fila tem os insumos 100% cobertos para entrar na semana.'] : [],
+          ...(d?.avisos ?? []),
           ...(d?.pulados ?? []).slice(0, 12).map((p: any) => `${p.codigo} ${p.descricao}: ${p.detalhe}`),
           ...((d?.pulados ?? []).length > 12 ? [`E mais ${(d.pulados.length - 12)} item(ns) pulado(s).`] : []),
         ],
