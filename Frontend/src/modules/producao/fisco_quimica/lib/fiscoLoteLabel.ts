@@ -9,6 +9,8 @@ export interface FiscoLoteBulk {
   /** Unidades por caixa no cadastro do produto (ERP nQtdeCx). */
   qtdeCx?: number;
   date?: string;
+  /** Nome completo do produto no cadastro do ERP (o do laudo pode vir abreviado). */
+  productName?: string;
 }
 
 function formatDateBr(raw?: string | null): string {
@@ -122,7 +124,10 @@ export function describeFiscoLoteLabel(input: {
   bulk?: FiscoLoteBulk | null;
 }): FiscoLoteLabelFields {
   const { analysis, pattern, procItem, approved } = input;
-  const name = (analysis.productName || '').trim();
+  const nomeLaudo = (analysis.productName || '').trim();
+  const nomeErp = (input.bulk?.productName || '').trim();
+  // o cadastro do ERP traz o nome completo (com o conteúdo); o do laudo pode estar abreviado
+  const name = nomeErp.length > nomeLaudo.length ? nomeErp : nomeLaudo;
   return {
     name,
     code: (analysis.productCode || '').trim(),

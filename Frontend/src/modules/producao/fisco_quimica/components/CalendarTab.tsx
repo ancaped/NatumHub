@@ -384,6 +384,7 @@ export function CalendarTab({
           unidades: Number(hit.unidades) || 0,
           qtdeCx: Number(hit.qtde_cx) || 0,
           date: hit.date_erp || '',
+          productName: hit.product_name || '',
         }
         : null;
       loteCache.current.set(key, info);

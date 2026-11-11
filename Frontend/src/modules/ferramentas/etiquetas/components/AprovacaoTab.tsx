@@ -111,7 +111,7 @@ export default function AprovacaoTab({ modelo, onImpresso }: Props) {
         const res = await api.getFiscoErpLotes({ search: lote, limit: 20 });
         const hit = (res.items || []).find((i) => String(i.lote).trim() === lote && normalizar(i.product_code) === normalizar(a.productCode))
           || (res.items || []).find((i) => String(i.lote).trim() === lote);
-        if (hit) bulk = { qtyKg: Number(hit.qty_kg) || 0, unidades: Number(hit.unidades) || 0, qtdeCx: Number(hit.qtde_cx) || 0, date: hit.date_erp || '' };
+        if (hit) bulk = { qtyKg: Number(hit.qty_kg) || 0, unidades: Number(hit.unidades) || 0, qtdeCx: Number(hit.qtde_cx) || 0, date: hit.date_erp || '', productName: hit.product_name || '' };
       } catch {
         bulk = null;
       }
