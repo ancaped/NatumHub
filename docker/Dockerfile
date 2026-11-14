@@ -29,7 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app/Backend
 # Camada só das dependências: compila com um código vazio e fica no cache do GitHub (cache-to gha) enquanto
-# Cargo.toml/Cargo.lock não mudarem. Assim cada commit recompila só o crate do Nexus (~2 min a menos por build).
+# Cargo.toml/Cargo.lock não mudarem. O rm apaga o estado do crate nexus nos dois layouts de pasta do cargo (nexus-<hash> e nexus/<hash>):
+# com cache frio e cargo novo, sobrava o build.rs vazio e o build final não achava mapa_codigo.json (2026-11-14). Assim cada commit recompila só o crate do Nexus (~2 min a menos por build).
 COPY Backend/Cargo.toml Backend/Cargo.lock ./
 RUN mkdir -p src/bin \
     && echo 'fn main() {}' > src/main.rs \
@@ -37,7 +38,7 @@ RUN mkdir -p src/bin \
     && touch src/lib.rs \
     && echo 'fn main() {}' > build.rs \
     && cargo build --release --bin nexus-server --no-default-features \
-    && rm -rf src build.rs target/release/.fingerprint/nexus-*
+    && rm -rf src build.rs target/release/.fingerprint/nexus-* target/release/.fingerprint/nexus target/release/build/nexus-* target/release/build/nexus
 
 WORKDIR /app
 # Copia código-fonte necessário para o build
