@@ -2,6 +2,7 @@
 mod classificacao_linha;
 mod handlers;
 pub use classificacao_linha::classificar_linha;
+pub mod heranca;
 pub mod prefixo;
 pub mod resumo;
 
@@ -15,6 +16,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/admin/produtos-ativos/linhas/prefixo", post(handlers::trocar_prefixo))
         .route("/api/admin/produtos-ativos/linhas/classificacao", post(handlers::classificar_linha))
         .route("/api/admin/produtos-ativos/linhas/atendimentos", get(handlers::atendimentos))
+        .route("/api/admin/produtos-ativos/linhas/heranca", get(handlers::heranca))
+        .route("/api/admin/produtos-ativos/linhas/principal", post(handlers::linha_principal))
+        .route("/api/admin/produtos-ativos/linhas/parametro", post(handlers::parametro))
         .route("/api/admin/produtos-ativos/linhas/:prefixo/resumo", get(handlers::resumo))
 }
 
@@ -48,6 +52,41 @@ pub fn acoes() -> Vec<Acao> {
                 param("atendimento", "corpo", "texto", false, "estoque, encomenda ou terceirizado."),
                 param("ativa", "corpo", "booleano", false, "false inativa a linha; true a reativa."),
             ],
+        ),
+        Acao::gravacao(
+            "definir_linha_principal",
+            M,
+            "Faz uma linha virar sublinha de outra (ou tira a linha principal). Só um nível: sublinha não tem sublinha, linha com sublinhas não vira sublinha, DEFAULT não entra. Ao virar sublinha os valores atuais continuam próprios (nenhum número muda). Inativar a principal esconde as sublinhas junto. Sem `confirmar=true` devolve só a prévia; com `confirmar=true` grava e audita antes e depois.",
+            "POST",
+            "/api/admin/produtos-ativos/linhas/principal",
+            true,
+            vec![
+                param("confirmar", "query", "booleano", false, "true grava; ausente só mostra a prévia."),
+                param("prefixo", "corpo", "texto", true, "Prefixo da linha que vira sublinha."),
+                param("principal", "corpo", "texto", false, "Prefixo da linha principal; ausente ou vazio tira a linha principal."),
+            ],
+        ),
+        Acao::gravacao(
+            "parametro_linha",
+            M,
+            "Marca um parâmetro de uma linha como próprio (com `valor`) ou, numa sublinha, volta a herdar o valor da principal. Parâmetros: estoque_ideal, abrir_ordem, abrir_prod, fator_z, atendimento. Mudar o valor de uma principal vale para as sublinhas que herdam. A prévia mostra quantas sublinhas e produtos mudam; com `confirmar=true` grava e audita.",
+            "POST",
+            "/api/admin/produtos-ativos/linhas/parametro",
+            true,
+            vec![
+                param("confirmar", "query", "booleano", false, "true grava; ausente só mostra a prévia."),
+                param("prefixo", "corpo", "texto", true, "Prefixo da linha."),
+                param("parametro", "corpo", "texto", true, "estoque_ideal, abrir_ordem, abrir_prod, fator_z ou atendimento."),
+                param("modo", "corpo", "texto", true, "proprio (valor próprio) ou herdar (volta ao valor da principal)."),
+                param("valor", "corpo", "número ou texto", false, "Valor novo (modo proprio); sem valor só deixa de herdar mantendo o número de agora."),
+            ],
+        ),
+        Acao::leitura(
+            "heranca_linhas_produtos",
+            M,
+            "Para cada linha: a linha principal (se for sublinha), quais parâmetros herda e a escolha própria de ativa/inativa.",
+            "/api/admin/produtos-ativos/linhas/heranca",
+            vec![],
         ),
         Acao::leitura(
             "atendimentos_linhas_produtos",

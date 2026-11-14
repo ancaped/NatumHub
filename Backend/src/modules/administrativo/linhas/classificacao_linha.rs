@@ -21,6 +21,10 @@ fn pode_editar(ctx: &AuthContext) -> Result<(), ErroApi> {
     }
 }
 
+fn escondidas_vazio(v: &[Value]) -> bool {
+    v.is_empty()
+}
+
 /// Serviço: muda o atendimento padrão e/ou ativa/inativa da linha. `None` = não mexe. Sem `confirmar` só prévia.
 pub async fn classificar_linha(
     pool: &PgPool,
@@ -44,7 +48,7 @@ pub async fn classificar_linha(
     let resposta = executar_em_2_passos(pool, "classificar_linha", confirmar, move |tx| {
         Box::pin(async move {
             let conn: &mut sqlx::PgConnection = &mut **tx;
-            let linha = sqlx::query("SELECT nome_linha, atendimento, visivel FROM config_linhas WHERE linha_prefix = $1 FOR UPDATE")
+            let linha = sqlx::query("SELECT nome_linha, atendimento, visivel, linha_principal, herda_atendimento FROM config_linhas WHERE linha_prefix = $1 FOR UPDATE")
                 .bind(&p)
                 .fetch_optional(&mut *conn)
                 .await?
@@ -52,6 +56,13 @@ pub async fn classificar_linha(
             let nome: String = linha.get(0);
             let atend_antes: String = linha.get(1);
             let ativa_antes = linha.get::<i32, _>(2) != 0;
+            let principal: Option<String> = linha.get(3);
+            let herda_atendimento: bool = linha.get(4);
+            if atendimento.as_deref().is_some_and(|a| a != atend_antes) && herda_atendimento {
+                return Err(ErroApi::regra(format!(
+                    "O atendimento de {p} é herdado da principal. Use a ação parametro_linha (modo proprio) para dar um valor próprio, ou mude a principal."
+                )));
+            }
             if p == "DEFAULT" && ativa == Some(false) {
                 return Err(ErroApi::regra("A linha DEFAULT (produtos sem linha) não pode ser inativada."));
             }
@@ -70,7 +81,8 @@ pub async fn classificar_linha(
             .await?;
             let atend_depois = atendimento.clone().unwrap_or_else(|| atend_antes.clone());
             let ativa_depois = ativa.unwrap_or(ativa_antes);
-            sqlx::query("UPDATE config_linhas SET atendimento = $2, visivel = $3 WHERE linha_prefix = $1")
+            // `visivel_proprio` é a escolha da própria linha; `visivel` = própria E principal ativa (resolvido em `propagar`).
+            sqlx::query("UPDATE config_linhas SET atendimento = $2, visivel = $3, visivel_proprio = $3 WHERE linha_prefix = $1")
                 .bind(&p)
                 .bind(&atend_depois)
                 .bind(if ativa_depois { 1 } else { 0 })
@@ -81,6 +93,12 @@ pub async fn classificar_linha(
             } else {
                 0
             };
+            // Sublinha: a principal ativa decide se ela aparece. Principal: as sublinhas acompanham atendimento e ativa.
+            let alvo_propagar = principal.clone().unwrap_or_else(|| p.clone());
+            let m = super::heranca::propagar(conn, &alvo_propagar).await?;
+            let escondidas: Vec<Value> = m.iter().filter(|x| x.escondida).map(|x| x.json()).collect();
+            let sublinhas_afetadas: Vec<Value> = if principal.is_none() { m.iter().map(|x| x.json()).collect() } else { vec![] };
+            let produtos_sublinhas: i64 = if principal.is_none() { m.iter().map(|x| x.produtos).sum() } else { 0 };
             let mut antes = Map::new();
             antes.insert("atendimento".into(), json!(atend_antes));
             antes.insert("ativa".into(), json!(ativa_antes));
@@ -91,6 +109,9 @@ pub async fn classificar_linha(
             if !ativa_depois {
                 avisos.push("Linha inativa: a linha e os produtos dela somem das telas e do onde é usado dos insumos; o histórico fica guardado.");
             }
+            if !ativa_depois && principal.is_none() && !escondidas_vazio(&escondidas) {
+                avisos.push("As sublinhas listadas somem junto com a principal.");
+            }
             Ok(json!({
                 "prefixo": p,
                 "nomeLinha": nome,
@@ -100,6 +121,9 @@ pub async fn classificar_linha(
                 "produtosNaLinha": produtos,
                 "produtosComExcecaoDeAtendimento": com_excecao,
                 "produtosQueMudamDeEfeito": status_mudam,
+                "sublinhasAfetadas": sublinhas_afetadas,
+                "sublinhasEscondidas": escondidas,
+                "produtosDasSublinhasAfetadas": produtos_sublinhas,
                 "avisos": avisos,
             }))
         })

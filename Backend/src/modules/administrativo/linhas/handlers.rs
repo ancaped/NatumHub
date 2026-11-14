@@ -58,3 +58,40 @@ pub async fn atendimentos(State(state): State<Arc<AppState>>) -> Response {
         Err(e) => e.into_response(),
     }
 }
+
+/// GET /api/admin/produtos-ativos/linhas/heranca
+pub async fn heranca(State(state): State<Arc<AppState>>) -> Response {
+    match super::heranca::listar_heranca(state.db.pool()).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// POST /api/admin/produtos-ativos/linhas/principal (sem `?confirmar=true` só devolve a prévia).
+pub async fn linha_principal(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(corpo): Json<Value>,
+) -> Response {
+    let prefixo = corpo.get("prefixo").and_then(Value::as_str).unwrap_or("");
+    let principal = corpo.get("principal").and_then(Value::as_str).map(str::to_string);
+    match super::heranca::definir_linha_principal(state.db.pool(), &ctx, prefixo, principal, c.confirmar).await {
+        Ok(r) => Json(r).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// POST /api/admin/produtos-ativos/linhas/parametro (sem `?confirmar=true` só devolve a prévia).
+pub async fn parametro(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(corpo): Json<Value>,
+) -> Response {
+    let texto = |k: &str| corpo.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    match super::heranca::parametro_linha(state.db.pool(), &ctx, &texto("prefixo"), &texto("parametro"), &texto("modo"), corpo.get("valor").cloned(), c.confirmar).await {
+        Ok(r) => Json(r).into_response(),
+        Err(e) => e.into_response(),
+    }
+}

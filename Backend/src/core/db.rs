@@ -42,6 +42,7 @@ impl Db {
 
     pub async fn update_line_config(&self, config: &LineConfig) -> Result<(), String> {
         let vis = config.visivel.unwrap_or(1);
+        let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
         sqlx::query(
             "INSERT INTO config_linhas (linha_prefix, nome_linha, estoque_ideal_mult, abrir_ordem_mult, abrir_prod_mult, fator_seguranca_z, visivel)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -60,9 +61,12 @@ impl Db {
         .bind(config.abrir_prod_mult)
         .bind(config.fator_seguranca_z)
         .bind(vis)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
+        // Sublinhas: mantém o valor efetivo (herdado) e a visibilidade em dia. Sem sublinhas não muda nada.
+        crate::modules::administrativo::linhas::heranca::reaplicar(&mut tx, &config.linha_prefix).await.map_err(|e| e.to_string())?;
+        tx.commit().await.map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -91,6 +95,7 @@ impl Db {
             .await
             .map_err(|e| e.to_string())?
             .rows_affected();
+        crate::modules::administrativo::linhas::heranca::soltar_sublinhas(&mut **tx, prefix).await.map_err(|e| e.to_string())?;
         sqlx::query("DELETE FROM config_linhas WHERE linha_prefix = $1")
             .bind(prefix)
             .execute(&mut **tx)

@@ -40,7 +40,8 @@ fn texto(v: &Value, k: &str) -> String {
     v.get(k).and_then(Value::as_str).unwrap_or("").to_string()
 }
 
-/// Serviço: resumo da linha `prefixo`. `Err(nao_encontrado)` se a linha não existe.
+/// Serviço: resumo da linha `prefixo`. `Err(nao_encontrado)` se a linha não existe. Linha principal: os números são o total
+/// com as sublinhas e `sublinhas` traz a quebra; sublinha e linha própria: só os dados dela.
 pub async fn resumo_da_linha(db: &Db, prefixo: &str) -> Result<Value, ErroApi> {
     let pool: &PgPool = db.pool();
     let nome: Option<String> = sqlx::query_scalar("SELECT nome_linha FROM config_linhas WHERE linha_prefix = $1")
@@ -48,15 +49,43 @@ pub async fn resumo_da_linha(db: &Db, prefixo: &str) -> Result<Value, ErroApi> {
         .fetch_optional(pool)
         .await?;
     let nome = nome.ok_or_else(|| ErroApi::nao_encontrado(format!("Linha {prefixo} não existe.")))?;
+    let subs: Vec<(String, String)> =
+        sqlx::query_as("SELECT linha_prefix, nome_linha FROM config_linhas WHERE linha_principal = $1 ORDER BY linha_prefix")
+            .bind(prefixo)
+            .fetch_all(pool)
+            .await?;
+    let mut todos = vec![prefixo.to_string()];
+    todos.extend(subs.iter().map(|s| s.0.clone()));
+    let mut r = calcular(db, &todos, &nome).await?;
+    if !subs.is_empty() {
+        // Quebra: a própria principal e cada sublinha, só com os números de resumo.
+        let mut quebra = vec![];
+        for (p, n) in std::iter::once((prefixo.to_string(), nome.clone())).chain(subs.iter().cloned()) {
+            let v = calcular(db, std::slice::from_ref(&p), &n).await?;
+            quebra.push(json!({
+                "prefixo": p, "nome": n, "propria": p == prefixo,
+                "vendas12m": v["vendas"]["total12m"], "produtosNaDemanda": v["estoque"]["produtosNaDemanda"],
+                "estoqueTotal": v["estoque"]["estoqueTotal"], "abaixoDoGatilho": v["estoque"]["abaixoDoGatilho"],
+                "faltasTotal": v["estoque"]["faltasTotal"],
+            }));
+        }
+        r["sublinhas"] = json!(quebra);
+        r["inclui"] = json!(todos);
+    }
+    Ok(r)
+}
+
+async fn calcular(db: &Db, prefixos: &[String], nome: &str) -> Result<Value, ErroApi> {
+    let pool: &PgPool = db.pool();
     let hoje = Local::now().date_naive();
 
     // (a) Vendas: o ERP traz 12 meses por número de mês (sem ano); o ano sai do calendário dos últimos 12 meses.
     let linhas_venda = sqlx::query(&format!(
         "SELECT f.mes, COALESCE(SUM(f.quantidade), 0)::bigint FROM historico_faturamento f \
          JOIN produtos p ON p.codigo = f.codigo LEFT JOIN overrides_produtos o ON o.codigo = p.codigo \
-         WHERE {LINHA_EFETIVA_SQL} = $1 GROUP BY f.mes"
+         WHERE {LINHA_EFETIVA_SQL} = ANY($1) GROUP BY f.mes"
     ))
-    .bind(prefixo)
+    .bind(prefixos)
     .fetch_all(pool)
     .await?;
     let mut por_mes = [0i64; 12];
@@ -74,10 +103,10 @@ pub async fn resumo_da_linha(db: &Db, prefixo: &str) -> Result<Value, ErroApi> {
     let mais_vendem: Vec<Value> = sqlx::query(&format!(
         "SELECT p.codigo, p.descricao, COALESCE(SUM(f.quantidade), 0)::bigint AS un FROM historico_faturamento f \
          JOIN produtos p ON p.codigo = f.codigo LEFT JOIN overrides_produtos o ON o.codigo = p.codigo \
-         WHERE {LINHA_EFETIVA_SQL} = $1 GROUP BY p.codigo, p.descricao HAVING SUM(f.quantidade) > 0 \
+         WHERE {LINHA_EFETIVA_SQL} = ANY($1) GROUP BY p.codigo, p.descricao HAVING SUM(f.quantidade) > 0 \
          ORDER BY un DESC, p.codigo LIMIT $2"
     ))
-    .bind(prefixo)
+    .bind(prefixos)
     .bind(TOP_PRODUTOS)
     .fetch_all(pool)
     .await?
@@ -86,16 +115,19 @@ pub async fn resumo_da_linha(db: &Db, prefixo: &str) -> Result<Value, ErroApi> {
     .collect();
 
     // (b) Estoque, gatilho e faltas: a mesma lista da Demanda de Produção, filtrada pela linha.
-    let params = QueryParams {
-        linha: Some(prefixo.to_string()),
-        page: Some(1),
-        limit: Some(100_000),
-        include_all_regimes: Some(true),
-        include_programadas: Some(true),
-        ..Default::default()
-    };
-    let demanda = crate::modules::producao::calculo::listar_produtos(db, &params).await.map_err(ErroApi::interno)?;
-    let itens: Vec<Value> = demanda.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut itens: Vec<Value> = vec![];
+    for prefixo in prefixos {
+        let params = QueryParams {
+            linha: Some(prefixo.to_string()),
+            page: Some(1),
+            limit: Some(100_000),
+            include_all_regimes: Some(true),
+            include_programadas: Some(true),
+            ..Default::default()
+        };
+        let demanda = crate::modules::producao::calculo::listar_produtos(db, &params).await.map_err(ErroApi::interno)?;
+        itens.extend(demanda.get("items").and_then(Value::as_array).cloned().unwrap_or_default());
+    }
     let estoque_total: i64 = itens.iter().map(|i| num(i, "estoque")).sum();
     let em_producao: i64 = itens.iter().map(|i| num(i, "producao")).sum();
     let ordem = |s: &str| if s == "critico" { 0 } else { 1 };
@@ -124,9 +156,9 @@ pub async fn resumo_da_linha(db: &Db, prefixo: &str) -> Result<Value, ErroApi> {
     let produzido: Vec<Value> = sqlx::query(&format!(
         "SELECT substr(h.data_producao, 1, 7) AS mes, COALESCE(SUM(h.quantidade), 0)::bigint, COUNT(DISTINCT h.codigo)::bigint \
          FROM historico_producao h JOIN produtos p ON p.codigo = h.codigo LEFT JOIN overrides_produtos o ON o.codigo = p.codigo \
-         WHERE {LINHA_EFETIVA_SQL} = $1 AND h.data_producao >= $2 GROUP BY 1 ORDER BY 1"
+         WHERE {LINHA_EFETIVA_SQL} = ANY($1) AND h.data_producao >= $2 GROUP BY 1 ORDER BY 1"
     ))
-    .bind(prefixo)
+    .bind(prefixos)
     .bind(&desde)
     .fetch_all(pool)
     .await?
@@ -138,10 +170,10 @@ pub async fn resumo_da_linha(db: &Db, prefixo: &str) -> Result<Value, ErroApi> {
                 COALESCE(pp.unidade, 'kg'), pp.ordem_status \
          FROM producao_planejamento_semanal pp JOIN produtos p ON p.codigo = TRIM(pp.codigo_produto) \
          LEFT JOIN overrides_produtos o ON o.codigo = p.codigo \
-         WHERE {LINHA_EFETIVA_SQL} = $1 AND pp.ordem_status IN ('planejado', 'aprovado') AND pp.data_planejada >= CURRENT_DATE \
+         WHERE {LINHA_EFETIVA_SQL} = ANY($1) AND pp.ordem_status IN ('planejado', 'aprovado') AND pp.data_planejada >= CURRENT_DATE \
          ORDER BY pp.data_planejada, pp.codigo_produto LIMIT 200"
     ))
-    .bind(prefixo)
+    .bind(prefixos)
     .fetch_all(pool)
     .await?
     .iter()
@@ -150,10 +182,10 @@ pub async fn resumo_da_linha(db: &Db, prefixo: &str) -> Result<Value, ErroApi> {
     let na_fila: Vec<Value> = sqlx::query(&format!(
         "SELECT f.codigo_produto, COALESCE(p.descricao, f.descricao), f.quantidade::float8, f.unidade, f.origem_demanda \
          FROM producao_fila_demandas f JOIN produtos p ON p.codigo = TRIM(f.codigo_produto) \
-         LEFT JOIN overrides_produtos o ON o.codigo = p.codigo WHERE {LINHA_EFETIVA_SQL} = $1 \
+         LEFT JOIN overrides_produtos o ON o.codigo = p.codigo WHERE {LINHA_EFETIVA_SQL} = ANY($1) \
          ORDER BY f.prioridade, f.codigo_produto LIMIT 200"
     ))
-    .bind(prefixo)
+    .bind(prefixos)
     .fetch_all(pool)
     .await?
     .iter()
@@ -161,7 +193,7 @@ pub async fn resumo_da_linha(db: &Db, prefixo: &str) -> Result<Value, ErroApi> {
     .collect();
 
     Ok(json!({
-        "prefixo": prefixo,
+        "prefixo": prefixos[0],
         "nomeLinha": nome,
         "vendas": { "porMes": vendas_mensais, "total12m": total_12m, "maisVendem": mais_vendem },
         "estoque": {

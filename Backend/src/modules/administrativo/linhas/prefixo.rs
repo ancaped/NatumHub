@@ -121,8 +121,10 @@ pub async fn renomear_prefixo_linha(
 
             // A linha nova nasce como cópia da antiga (nome e parâmetros); a antiga some no fim, depois de soltar os produtos.
             sqlx::query(
-                "INSERT INTO config_linhas (linha_prefix, nome_linha, estoque_ideal_mult, abrir_ordem_mult, abrir_prod_mult, fator_seguranca_z, visivel, atendimento) \
-                 SELECT $2, nome_linha, estoque_ideal_mult, abrir_ordem_mult, abrir_prod_mult, fator_seguranca_z, visivel, atendimento \
+                "INSERT INTO config_linhas (linha_prefix, nome_linha, estoque_ideal_mult, abrir_ordem_mult, abrir_prod_mult, fator_seguranca_z, visivel, atendimento, \
+                    linha_principal, herda_estoque_ideal, herda_abrir_ordem, herda_abrir_prod, herda_fator_z, herda_atendimento, visivel_proprio) \
+                 SELECT $2, nome_linha, estoque_ideal_mult, abrir_ordem_mult, abrir_prod_mult, fator_seguranca_z, visivel, atendimento, \
+                    linha_principal, herda_estoque_ideal, herda_abrir_ordem, herda_abrir_prod, herda_fator_z, herda_atendimento, visivel_proprio \
                  FROM config_linhas WHERE linha_prefix = $1",
             )
             .bind(&a)
@@ -153,6 +155,8 @@ pub async fn renomear_prefixo_linha(
                 .execute(&mut *conn)
                 .await?
                 .rows_affected();
+            // As sublinhas da linha renomeada passam a apontar para o prefixo novo.
+            sqlx::query("UPDATE config_linhas SET linha_principal = $2 WHERE linha_principal = $1").bind(&a).bind(&n).execute(&mut *conn).await?;
             sqlx::query("DELETE FROM config_linhas WHERE linha_prefix = $1").bind(&a).execute(&mut *conn).await?;
             // Quem entrou ou saiu pode ter outro atendimento de linha: o status que Produção e Compras leem acompanha.
             let movidos: Vec<String> = troca.atualizar.iter().map(|x| x.0.clone()).collect();

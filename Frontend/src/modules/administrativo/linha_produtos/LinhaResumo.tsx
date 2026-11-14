@@ -12,6 +12,7 @@ interface Resumo {
     naFila: { codigo: string; descricao: string; quantidade: number; unidade: string; origem: string }[];
   };
   observacoes: string[];
+  sublinhas?: { prefixo: string; nome: string; propria: boolean; vendas12m: number; produtosNaDemanda: number; estoqueTotal: number; abaixoDoGatilho: number; faltasTotal: number }[];
 }
 
 const n = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
@@ -84,6 +85,28 @@ export default function LinhaResumo({ prefixo }: { prefixo: string }) {
 
   return (
     <div className="space-y-5">
+      {dados.sublinhas && dados.sublinhas.length > 0 && (
+        <Bloco titulo="Total com as sublinhas" nota="os números abaixo somam a principal e as sublinhas">
+          <table className="w-full text-left border-collapse min-w-[460px]">
+            <thead className="bg-zinc-50 border-b border-zinc-200"><tr>
+              <th className={TH}>Linha</th><th className={`${TH} text-right`}>Vendas 12m</th><th className={`${TH} text-right`}>Estoque</th>
+              <th className={`${TH} text-right`}>Abaixo do gatilho</th><th className={`${TH} text-right`}>Faltas</th>
+            </tr></thead>
+            <tbody className="divide-y divide-zinc-100">
+              {dados.sublinhas.map(l => (
+                <tr key={l.prefixo}>
+                  <td className={TD}><span className="block font-bold text-zinc-800">{l.nome}{l.propria ? ' (só a principal)' : ''}</span><span className="font-mono text-[11px] text-zinc-500">{l.prefixo}</span></td>
+                  <td className={`${TD} text-right tabular-nums`}>{n(l.vendas12m)}</td>
+                  <td className={`${TD} text-right tabular-nums`}>{n(l.estoqueTotal)}</td>
+                  <td className={`${TD} text-right tabular-nums`}>{l.abaixoDoGatilho}</td>
+                  <td className={`${TD} text-right tabular-nums`}>{n(l.faltasTotal)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Bloco>
+      )}
+
       <Bloco titulo="Vendas por mês (unidades)" nota={`${n(dados.vendas.total12m)} un. em 12 meses`}>
         <table className="w-full text-left border-collapse">
           <tbody className="divide-y divide-zinc-100">

@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Check, Edit, Loader2, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronRight, Edit, Loader2, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { apiFetch } from '../../geral/lib/http';
 import { cn } from '../../geral/lib/utils';
 import Drawer from '../../geral/components/ui/Drawer';
 import type { PreviaAcao } from '../../producao/gerenciamento/components/PreviaAcaoDrawer';
 import LinhaResumo from './LinhaResumo';
 import { useAtendimentos } from './useAtendimentos';
+import { useHeranca } from './useHeranca';
+import type { ParametroLinha } from './useHeranca';
 import { ATENDIMENTOS_UI, SITUACOES_UI } from './tipos';
 import type { LineConfig, PedirBulkOpts, ProductResult } from './tipos';
 
@@ -38,6 +40,10 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
   const [semLinhaVersao, setSemLinhaVersao] = useState(0);
   const [soAtivas, setSoAtivas] = useState(true);
   const [atendimentoForm, setAtendimentoForm] = useState('estoque');
+  const [herancaVersao, setHerancaVersao] = useState(0);
+  const heranca = useHeranca(configs, herancaVersao);
+  const [fechadas, setFechadas] = useState<Set<string>>(new Set());
+  const [principalForm, setPrincipalForm] = useState('');
   const atend = useAtendimentos(configs);
   const atendimentoDaLinha = (prefixo: string) => atend.linhas[prefixo]?.atendimento || 'estoque';
   const situacaoDe = (codigo: string, status: string | null) =>
@@ -65,20 +71,42 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
     return () => { cancelado = true; };
   }, [isLineModalOpen, semLinhaVersao]);
 
-  const configsFiltradas = useMemo(() => {
+  const principalDe = (prefixo: string) => heranca[prefixo]?.linhaPrincipal || null;
+  // Sublinhas de cada principal (todas, com o filtro de ativas aplicado na hora de mostrar).
+  const sublinhasPor = useMemo(() => {
+    const mapa = new Map<string, LineConfig[]>();
+    for (const c of configs) {
+      const pai = heranca[c.linha_prefix]?.linhaPrincipal;
+      if (pai) mapa.set(pai, [...(mapa.get(pai) || []), c]);
+    }
+    return mapa;
+  }, [configs, heranca]);
+  // Linhas da tabela: cada principal (ou linha própria) seguida das sublinhas dela, recuadas. A busca acha sublinha também
+  // (e mostra a principal dela); a principal que casa mostra todas as sublinhas.
+  const linhasTabela = useMemo(() => {
     const q = linhaSearch.trim().toLowerCase();
-    const base = soAtivas ? configs.filter(c => c.visivel !== 0) : configs;
-    const lista = q
-      ? base.filter(c => c.linha_prefix.toLowerCase().includes(q) || (c.nome_linha || '').toLowerCase().includes(q))
-      : base;
+    const casa = (c: LineConfig) => !q || c.linha_prefix.toLowerCase().includes(q) || (c.nome_linha || '').toLowerCase().includes(q);
+    const ativa = (c: LineConfig) => !soAtivas || c.visivel !== 0;
     // Prefixo em ordem numérica (9.15 depois de 9, antes de 10); DEFAULT por último.
     const chave = (prefixo: string) => (prefixo === 'DEFAULT' ? Infinity : parseFloat(prefixo));
-    return [...lista].sort((a, b) => {
+    const ordenar = (lista: LineConfig[]) => [...lista].sort((a, b) => {
       const ka = chave(a.linha_prefix);
       const kb = chave(b.linha_prefix);
       return ka === kb ? a.linha_prefix.localeCompare(b.linha_prefix) : (Number.isNaN(ka) ? Infinity : ka) - (Number.isNaN(kb) ? Infinity : kb);
     });
-  }, [configs, linhaSearch, soAtivas]);
+    const saida: { cfg: LineConfig; nivel: 0 | 1; temFilhas: boolean }[] = [];
+    for (const c of ordenar(configs.filter(x => !principalDe(x.linha_prefix)))) {
+      const filhas = ordenar(sublinhasPor.get(c.linha_prefix) || []);
+      const filhasQueCasam = filhas.filter(f => ativa(f) && casa(f));
+      const proprioCasa = ativa(c) && casa(c);
+      if (!proprioCasa && filhasQueCasam.length === 0) continue;
+      saida.push({ cfg: c, nivel: 0, temFilhas: filhas.length > 0 });
+      const mostrar = proprioCasa ? filhas.filter(ativa) : filhasQueCasam;
+      if (!fechadas.has(c.linha_prefix) || q) for (const f of mostrar) saida.push({ cfg: f, nivel: 1, temFilhas: false });
+    }
+    return saida;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configs, linhaSearch, soAtivas, heranca, fechadas, sublinhasPor]);
   const inativas = useMemo(() => configs.filter(c => c.visivel === 0).length, [configs]);
 
   const produtosPorLinha = useMemo(() => {
@@ -89,6 +117,8 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
     }
     return mapa;
   }, [products]);
+  const totalComSublinhas = (prefixo: string) =>
+    (produtosPorLinha.get(prefixo) || 0) + (sublinhasPor.get(prefixo) || []).reduce((t, f) => t + (produtosPorLinha.get(f.linha_prefix) || 0), 0);
 
   // Produtos ativos do prefixo que estão em Outros/Geral viram terceirizados (2 passos: prévia e OK).
   const marcarPrefixoTerceirizado = async (prefixo: string, codigos: string[]) => {
@@ -161,7 +191,9 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
       setFatorZForm(cfg.fator_seguranca_z.toString());
       setVisibleLineForm(cfg.visivel === 0 ? '0' : '1');
       setAtendimentoForm(atendimentoDaLinha(cfg.linha_prefix));
+      setPrincipalForm(principalDe(cfg.linha_prefix) || '');
     } else {
+      setPrincipalForm('');
       setLinePrefixForm('');
       setLineNameForm('');
       setIdealMultForm('3.0');
@@ -171,6 +203,122 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
       setVisibleLineForm('1');
     }
     setIsLineModalOpen(true);
+  };
+
+  // Depois de uma ação (principal, herdar, mudar) os dados recarregam: o painel aberto acompanha os valores novos.
+  useEffect(() => {
+    if (!isLineModalOpen || !editingLineConfig) return;
+    const novo = configs.find(c => c.linha_prefix === editingLineConfig.linha_prefix);
+    if (!novo || novo === editingLineConfig) return;
+    setEditingLineConfig(novo);
+    setIdealMultForm(novo.estoque_ideal_mult.toString());
+    setOrdemMultForm(novo.abrir_ordem_mult.toString());
+    setProdMultForm(novo.abrir_prod_mult.toString());
+    setFatorZForm(novo.fator_seguranca_z.toString());
+    setVisibleLineForm(novo.visivel === 0 ? '0' : '1');
+    setAtendimentoForm(atendimentoDaLinha(novo.linha_prefix));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configs, atend]);
+  useEffect(() => {
+    if (isLineModalOpen && editingLineConfig) setPrincipalForm(principalDe(editingLineConfig.linha_prefix) || '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heranca]);
+
+  const filhasDaEditada = editingLineConfig ? sublinhasPor.get(editingLineConfig.linha_prefix) || [] : [];
+  const eSublinhaEditada = !!editingLineConfig && !!principalDe(editingLineConfig.linha_prefix);
+  const herdaEditada = editingLineConfig ? heranca[editingLineConfig.linha_prefix] : undefined;
+  const configPrincipalEditada = editingLineConfig ? configs.find(c => c.linha_prefix === principalDe(editingLineConfig.linha_prefix)) : undefined;
+  const rotuloAtendimento = (v: unknown) => ATENDIMENTOS_UI.find(a => a.value === v)?.label || String(v ?? '');
+  const fmt = (v: unknown) => (typeof v === 'number' ? v.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : rotuloAtendimento(v));
+  const ROTULO_PARAM: Record<ParametroLinha, string> = { estoque_ideal: 'Estoque ideal', abrir_ordem: 'Abrir ordem', abrir_prod: 'Abrir produção', fator_z: 'Fator Z', atendimento: 'Atendimento' };
+
+  /** Chama uma ação da linha em 2 passos (sem `confirmar` só devolve a prévia). */
+  const chamarAcao = async (rota: string, corpo: Record<string, unknown>, confirmar: boolean) => {
+    const res = await apiFetch(`/admin/produtos-ativos/linhas/${rota}${confirmar ? '?confirmar=true' : ''}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Não foi possível concluir.');
+    return data.resultado || {};
+  };
+  const depoisDeAcao = async () => {
+    await onReload();
+    setHerancaVersao(v => v + 1);
+  };
+
+  // Define (ou tira) a linha principal: a prévia vem do servidor e só grava no OK.
+  const handlePrincipal = async () => {
+    if (!editingLineConfig) return;
+    const prefixo = editingLineConfig.linha_prefix;
+    const corpo = { prefixo, principal: principalForm || null };
+    try {
+      const r = await chamarAcao('principal', corpo, false);
+      setLineFormError(null);
+      const nomePai = (p: string | null) => (p ? configs.find(c => c.linha_prefix === p)?.nome_linha || p : 'nenhuma (linha própria)');
+      pedirPrevia({
+        titulo: principalForm ? `${editingLineConfig.nome_linha} vira sublinha de ${nomePai(principalForm)}` : `${editingLineConfig.nome_linha} deixa de ser sublinha`,
+        linhas: [
+          { titulo: 'Linha principal', detalhe: `${nomePai(r.linhaPrincipalAntes)} → ${nomePai(r.linhaPrincipalDepois)}` },
+          { titulo: 'Produtos na linha', detalhe: String(r.produtosNaLinha ?? 0) },
+        ],
+        avisos: r.avisos || [],
+        confirmarRotulo: principalForm ? 'Virar sublinha' : 'Tirar a principal',
+        executar: async () => {
+          await chamarAcao('principal', corpo, true);
+          await depoisDeAcao();
+          avisar(principalForm ? 'Linha agora é sublinha. Os valores atuais continuam próprios.' : 'Linha agora é própria.', 'sucesso');
+        },
+      });
+    } catch (err) {
+      setLineFormError(err instanceof Error ? err.message : 'Falha de conexão ao preparar a mudança.');
+    }
+  };
+
+  // Marca um parâmetro da sublinha como próprio (com valor) ou volta a herdar: prévia do servidor e grava no OK.
+  const handleParametro = async (chave: ParametroLinha, modo: 'proprio' | 'herdar', valor?: number | string) => {
+    if (!editingLineConfig) return;
+    const prefixo = editingLineConfig.linha_prefix;
+    const corpo: Record<string, unknown> = { prefixo, parametro: chave, modo };
+    if (valor !== undefined) corpo.valor = valor;
+    try {
+      const r = await chamarAcao('parametro', corpo, false);
+      setLineFormError(null);
+      const sublinhas: { prefixo: string; nome: string; produtos: number }[] = r.sublinhas || [];
+      pedirPrevia({
+        titulo: modo === 'herdar' ? `${ROTULO_PARAM[chave]} volta ao valor da principal` : `${ROTULO_PARAM[chave]}: valor próprio`,
+        linhas: [
+          { titulo: ROTULO_PARAM[chave], detalhe: `${fmt(r.antes?.[chave]?.valor)} → ${fmt(r.depois?.[chave]?.valor)}` },
+          { titulo: 'Produtos afetados', detalhe: String(r.produtosAfetados ?? 0) },
+          ...sublinhas.map(x => ({ titulo: `   ${x.nome}`, detalhe: `${x.produtos} produtos` })),
+        ],
+        avisos: r.valorMuda ? [] : ['O número não muda; só passa a ser valor próprio (a principal deixa de mandar nele).'],
+        confirmarRotulo: modo === 'herdar' ? 'Voltar a herdar' : 'Gravar valor próprio',
+        executar: async () => {
+          await chamarAcao('parametro', corpo, true);
+          await depoisDeAcao();
+          avisar('Parâmetro atualizado.', 'sucesso');
+        },
+      });
+    } catch (err) {
+      setLineFormError(err instanceof Error ? err.message : 'Falha de conexão ao preparar a mudança.');
+    }
+  };
+
+  const gravarConfig = async (cfg: LineConfig) => {
+    const res = await apiFetch(`/configs`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg)
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Erro ao salvar a configuração de linha.');
+    }
+    setIsLineModalOpen(false);
+    await depoisDeAcao();
+    avisar('Linha salva. Use "Recalcular linhas dos produtos" para aplicar aos produtos.', 'info');
   };
 
   const handleSaveLineConfig = async (e: React.FormEvent) => {
@@ -191,22 +339,43 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
         fator_seguranca_z: parseFloat(fatorZForm) || 1.65,
         visivel: visibleLineForm === '0' ? 0 : 1
       };
-      const res = await apiFetch(`/configs`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(cfg)
-      });
-      if (res.ok) {
-        setIsLineModalOpen(false);
-        await onReload();
-        avisar('Linha salva. Use "Recalcular linhas dos produtos" para aplicar aos produtos.', 'info');
-      } else {
-        const errData = await res.json();
-        setLineFormError(errData.error || "Erro ao salvar a configuração de linha.");
+      // Principal com sublinhas: mudar um parâmetro ou inativar mexe nas sublinhas; mostra o efeito antes de gravar.
+      const mudou: { chave: ParametroLinha; antes: number; depois: number }[] = [];
+      if (editingLineConfig && filhasDaEditada.length > 0) {
+        if (cfg.estoque_ideal_mult !== editingLineConfig.estoque_ideal_mult) mudou.push({ chave: 'estoque_ideal', antes: editingLineConfig.estoque_ideal_mult, depois: cfg.estoque_ideal_mult });
+        if (cfg.abrir_ordem_mult !== editingLineConfig.abrir_ordem_mult) mudou.push({ chave: 'abrir_ordem', antes: editingLineConfig.abrir_ordem_mult, depois: cfg.abrir_ordem_mult });
+        if (cfg.abrir_prod_mult !== editingLineConfig.abrir_prod_mult) mudou.push({ chave: 'abrir_prod', antes: editingLineConfig.abrir_prod_mult, depois: cfg.abrir_prod_mult });
+        if (cfg.fator_seguranca_z !== editingLineConfig.fator_seguranca_z) mudou.push({ chave: 'fator_z', antes: editingLineConfig.fator_seguranca_z, depois: cfg.fator_seguranca_z });
       }
+      const inativando = !!editingLineConfig && filhasDaEditada.length > 0 && cfg.visivel === 0 && editingLineConfig.visivel !== 0;
+      if (mudou.length > 0 || inativando) {
+        const linhas: { titulo: string; detalhe: string }[] = [];
+        for (const m of mudou) {
+          const r = await chamarAcao('parametro', { prefixo: cfg.linha_prefix, parametro: m.chave, modo: 'proprio', valor: m.depois }, false);
+          const afetadas: { nome: string; produtos: number }[] = r.sublinhas || [];
+          linhas.push({ titulo: ROTULO_PARAM[m.chave], detalhe: `${fmt(m.antes)} → ${fmt(m.depois)} · ${r.produtosAfetados ?? 0} produtos` });
+          for (const x of afetadas) linhas.push({ titulo: `   ${x.nome} (herda)`, detalhe: `${x.produtos} produtos` });
+        }
+        if (inativando) {
+          const r = await chamarAcao('classificacao', { prefixo: cfg.linha_prefix, ativa: false }, false);
+          const somem: { nome: string; produtos: number }[] = r.sublinhasEscondidas || [];
+          linhas.push({ titulo: 'Linha inativa: somem junto as sublinhas', detalhe: String(somem.length) });
+          for (const x of somem) linhas.push({ titulo: `   ${x.nome}`, detalhe: `${x.produtos} produtos` });
+        }
+        setLineFormError(null);
+        pedirPrevia({
+          titulo: `Salvar ${editingLineConfig?.nome_linha}`,
+          linhas,
+          avisos: ['As sublinhas que herdam o parâmetro mudam junto; as que têm valor próprio não.'],
+          confirmarRotulo: 'Salvar config',
+          executar: async () => { await gravarConfig(cfg); },
+        });
+        return;
+      }
+      await gravarConfig(cfg);
     } catch (err) {
       console.error(err);
-      setLineFormError("Falha de conexão ao salvar.");
+      setLineFormError(err instanceof Error ? err.message : "Falha de conexão ao salvar.");
     } finally {
       setLineSaving(false);
     }
@@ -386,6 +555,39 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
     }
   };
 
+  const BTN_LINK = 'text-[11px] font-bold text-zinc-700 underline underline-offset-2 hover:text-zinc-950 cursor-pointer min-h-[44px] sm:min-h-0 px-1';
+  /** Campo de parâmetro; em sublinha mostra se o valor é da principal ou próprio e deixa trocar. */
+  const campoParam = (chave: ParametroLinha, rotulo: string, dica: string, valor: string, setValor: (v: string) => void, placeholder: string, valorPrincipal?: number) => {
+    const herda = eSublinhaEditada && !!herdaEditada?.herda[chave];
+    return (
+      <div className="space-y-1">
+        <label className="text-[11px] font-bold text-zinc-650 block" title={dica}>{rotulo}</label>
+        <input
+          type="number"
+          step="any"
+          placeholder={placeholder}
+          value={valor}
+          disabled={herda}
+          onChange={(e) => setValor(e.target.value)}
+          className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium disabled:bg-zinc-100 disabled:text-zinc-500"
+        />
+        {eSublinhaEditada && (herda ? (
+          <span className="block text-[10px] font-semibold text-zinc-500">
+            Da principal{configPrincipalEditada ? ` (${configPrincipalEditada.nome_linha})` : ''} ·{' '}
+            <button type="button" className={BTN_LINK} onClick={() => void handleParametro(chave, 'proprio')}>mudar</button>
+          </span>
+        ) : (
+          <span className="block text-[10px] font-semibold text-zinc-500">
+            Próprio ·{' '}
+            <button type="button" className={BTN_LINK} onClick={() => void handleParametro(chave, 'herdar')}>
+              voltar para o valor da principal{valorPrincipal !== undefined ? ` (${fmt(valorPrincipal)})` : ''}
+            </button>
+          </span>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <>
             <div className="flex-1 flex flex-col space-y-4">
@@ -469,7 +671,8 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
 
               {/* Config Table Card */}
               <div className="table-card !rounded-2xl !mb-0 overflow-hidden flex flex-col">
-                <table className="w-full text-left text-xs border-collapse">
+                <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] text-left text-xs border-collapse">
                   <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500">
                     <tr>
                       <th className="px-6 py-3 w-28 text-[10px] uppercase tracking-wider">Prefixo</th>
@@ -484,35 +687,65 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100">
-                    {configsFiltradas.length === 0 ? (
+                    {linhasTabela.length === 0 ? (
                       <tr>
                         <td colSpan={9} className="p-8 text-center text-zinc-400">Nenhuma configuração de linha encontrada.</td>
                       </tr>
                     ) : (
-                      configsFiltradas.map(cfg => (
+                      linhasTabela.map(({ cfg, nivel, temFilhas }) => {
+                        const h = heranca[cfg.linha_prefix];
+                        const sub = nivel === 1;
+                        const aberta = !fechadas.has(cfg.linha_prefix);
+                        const nProprios = produtosPorLinha.get(cfg.linha_prefix) || 0;
+                        const nTotal = totalComSublinhas(cfg.linha_prefix);
+                        // Em sublinha, cada parâmetro diz se é próprio ou da principal.
+                        const marca = (p: ParametroLinha) => sub ? (
+                          <span className={cn('block text-[10px] font-semibold leading-tight whitespace-nowrap', h?.herda[p] ? 'text-zinc-400' : 'text-zinc-600')}>{h?.herda[p] ? 'da principal' : 'próprio'}</span>
+                        ) : null;
+                        return (
                         <tr
                           key={cfg.linha_prefix}
                           onClick={() => handleOpenLineModal(cfg)}
-                          className="hover:bg-zinc-50/70 transition-colors cursor-pointer"
+                          className={cn('hover:bg-zinc-50/70 transition-colors cursor-pointer', sub && 'bg-zinc-50/40')}
                         >
-                          <td className="px-6 py-2.5 font-mono font-bold text-zinc-500">{cfg.linha_prefix}</td>
+                          <td className={cn('px-6 py-2.5 font-mono font-bold text-zinc-500', sub && 'pl-12')}>{cfg.linha_prefix}</td>
                           <td className="px-6 py-2.5 font-bold text-zinc-800">
+                            {temFilhas && (
+                              <button
+                                type="button"
+                                aria-label={aberta ? 'Fechar sublinhas' : 'Abrir sublinhas'}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setFechadas(prev => { const n = new Set(prev); if (n.has(cfg.linha_prefix)) n.delete(cfg.linha_prefix); else n.add(cfg.linha_prefix); return n; });
+                                }}
+                                className="mr-1 -ml-1 p-1 align-middle text-zinc-400 hover:text-zinc-800 cursor-pointer"
+                              >
+                                {aberta ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                              </button>
+                            )}
                             {cfg.nome_linha}
+                            {sub && <span className="ml-2 align-middle text-[10px] font-semibold text-zinc-400">sublinha</span>}
                             {atendimentoDaLinha(cfg.linha_prefix) !== 'estoque' && (
                               <span className="ml-2 align-middle inline-flex items-center px-2 py-0.5 border border-zinc-300 bg-white text-zinc-600 text-[10px] font-bold rounded-full whitespace-nowrap">
                                 {atendimentoDaLinha(cfg.linha_prefix) === 'terceirizado' ? 'Terceirizada' : 'Por encomenda'}
                               </span>
                             )}
+                            {sub && marca('atendimento') && atendimentoDaLinha(cfg.linha_prefix) !== 'estoque' && (
+                              <span className="ml-1 align-middle text-[10px] font-semibold text-zinc-400">({h?.herda.atendimento ? 'da principal' : 'próprio'})</span>
+                            )}
                           </td>
-                          <td className="px-6 py-2.5 text-right tabular-nums text-zinc-700">{produtosPorLinha.get(cfg.linha_prefix) || 0}</td>
-                          <td className="px-6 py-2.5 text-right tabular-nums text-zinc-700">{cfg.estoque_ideal_mult.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} meses</td>
-                          <td className="px-6 py-2.5 text-right tabular-nums text-zinc-600">{cfg.abrir_ordem_mult.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}x</td>
-                          <td className="px-6 py-2.5 text-right tabular-nums text-zinc-600">{cfg.abrir_prod_mult.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}x</td>
-                          <td className="px-6 py-2.5 text-right tabular-nums text-zinc-600">{cfg.fator_seguranca_z.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-6 py-2.5 text-right tabular-nums text-zinc-700">
+                            {nProprios}
+                            {temFilhas && <span className="block text-[10px] font-semibold text-zinc-400">{nTotal} no total</span>}
+                          </td>
+                          <td className="px-6 py-2.5 text-right tabular-nums text-zinc-700">{cfg.estoque_ideal_mult.toLocaleString('pt-BR', { minimumFractionDigits: 1 })} meses{marca('estoque_ideal')}</td>
+                          <td className="px-6 py-2.5 text-right tabular-nums text-zinc-600">{cfg.abrir_ordem_mult.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}x{marca('abrir_ordem')}</td>
+                          <td className="px-6 py-2.5 text-right tabular-nums text-zinc-600">{cfg.abrir_prod_mult.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}x{marca('abrir_prod')}</td>
+                          <td className="px-6 py-2.5 text-right tabular-nums text-zinc-600">{cfg.fator_seguranca_z.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}{marca('fator_z')}</td>
                           <td className="px-6 py-2.5 text-center">
                             <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-zinc-600">
                               <span className={cn("h-1.5 w-1.5 rounded-full", cfg.visivel === 0 ? "bg-zinc-300" : "bg-zinc-900")} />
-                              {cfg.visivel === 0 ? "Inativa" : "Ativa"}
+                              {cfg.visivel === 0 ? (sub && h?.ativaPropria ? 'Inativa (principal)' : 'Inativa') : 'Ativa'}
                             </span>
                           </td>
                           <td className="px-6 py-2.5 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
@@ -534,10 +767,12 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                             )}
                           </td>
                         </tr>
-                      ))
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
+                </div>
               </div>
             </div>
 
@@ -548,7 +783,7 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
           size="xl"
           badge="Linha de produto"
           title={editingLineConfig ? editingLineConfig.nome_linha : 'Nova linha'}
-          subtitle={editingLineConfig ? `Prefixo ${editingLineConfig.linha_prefix}` : undefined}
+          subtitle={editingLineConfig ? `Prefixo ${editingLineConfig.linha_prefix}${eSublinhaEditada ? ` · sublinha de ${configPrincipalEditada?.nome_linha || principalDe(editingLineConfig.linha_prefix)}` : filhasDaEditada.length > 0 ? ` · ${filhasDaEditada.length} sublinha(s)` : ''}` : undefined}
           tabs={editingLineConfig ? [
             { id: 'produtos', label: 'Produtos', badge: produtosDaLinha.length },
             { id: 'resumo', label: 'Resumo' },
@@ -742,57 +977,47 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
               </div>
             </div>
 
+            {editingLineConfig && editingLineConfig.linha_prefix !== 'DEFAULT' && (
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-zinc-700 block">Linha principal</label>
+                <div className="flex gap-2">
+                  <select
+                    value={principalForm}
+                    disabled={filhasDaEditada.length > 0}
+                    onChange={(e) => setPrincipalForm(e.target.value)}
+                    className="min-w-0 flex-1 px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium disabled:bg-zinc-100 disabled:text-zinc-500"
+                  >
+                    <option value="">Nenhuma (linha própria)</option>
+                    {configs
+                      .filter(c => c.linha_prefix !== 'DEFAULT' && c.linha_prefix !== editingLineConfig.linha_prefix && !principalDe(c.linha_prefix))
+                      .map(c => <option key={c.linha_prefix} value={c.linha_prefix}>{c.nome_linha} ({c.linha_prefix})</option>)}
+                  </select>
+                  {principalForm !== (principalDe(editingLineConfig.linha_prefix) || '') && (
+                    <button
+                      type="button"
+                      onClick={() => void handlePrincipal()}
+                      className="px-3 min-h-[44px] sm:min-h-0 bg-zinc-900 hover:bg-zinc-950 text-white rounded-xl font-bold text-xs cursor-pointer whitespace-nowrap"
+                    >
+                      Ver mudança
+                    </button>
+                  )}
+                </div>
+                <span className="text-[10px] text-zinc-400 font-semibold block leading-tight">
+                  {filhasDaEditada.length > 0
+                    ? `Esta linha tem ${filhasDaEditada.length} sublinha(s) (${filhasDaEditada.map(f => f.nome_linha).join(', ')}); uma linha com sublinhas não pode virar sublinha.`
+                    : 'Sublinha herda da principal o que não tiver valor próprio e some junto quando a principal é inativada. Só um nível.'}
+                </span>
+              </div>
+            )}
+
             <div className="border-t border-zinc-150 pt-3 mt-3">
               <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-3">Multiplicadores & Segurança</span>
               
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-zinc-650 block" title="Calcula o estoque ideal em meses de venda média">Estoque Ideal (Meses)</label>
-                  <input
-                    type="number"
-                    step="any"
-                    placeholder="Ex: 3.0"
-                    value={idealMultForm}
-                    onChange={(e) => setIdealMultForm(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-zinc-650 block" title="Segurança estatística Z para cálculo de estoque mínimo">Fator de Segurança Z</label>
-                  <input
-                    type="number"
-                    step="any"
-                    placeholder="Ex: 1.65"
-                    value={fatorZForm}
-                    onChange={(e) => setFatorZForm(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 mt-3">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-zinc-650 block" title="Multiplicador do ponto de ressuprimento/abrir ordem">Mult. Abrir Ordem</label>
-                  <input
-                    type="number"
-                    step="any"
-                    placeholder="Ex: 1.5"
-                    value={ordemMultForm}
-                    onChange={(e) => setOrdemMultForm(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-zinc-650 block" title="Multiplicador da quantidade ideal a produzir/lote recomendado">Mult. Lote Produção</label>
-                  <input
-                    type="number"
-                    step="any"
-                    placeholder="Ex: 1.0"
-                    value={prodMultForm}
-                    onChange={(e) => setProdMultForm(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
-                  />
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {campoParam('estoque_ideal', 'Estoque Ideal (Meses)', 'Calcula o estoque ideal em meses de venda média', idealMultForm, setIdealMultForm, 'Ex: 3.0', configPrincipalEditada?.estoque_ideal_mult)}
+                {campoParam('fator_z', 'Fator de Segurança Z', 'Segurança estatística Z para cálculo de estoque mínimo', fatorZForm, setFatorZForm, 'Ex: 1.65', configPrincipalEditada?.fator_seguranca_z)}
+                {campoParam('abrir_ordem', 'Mult. Abrir Ordem', 'Multiplicador do ponto de ressuprimento/abrir ordem', ordemMultForm, setOrdemMultForm, 'Ex: 1.5', configPrincipalEditada?.abrir_ordem_mult)}
+                {campoParam('abrir_prod', 'Mult. Lote Produção', 'Multiplicador da quantidade ideal a produzir/lote recomendado', prodMultForm, setProdMultForm, 'Ex: 1.0', configPrincipalEditada?.abrir_prod_mult)}
               </div>
 
               <div className="space-y-1.5 mt-3">
@@ -805,6 +1030,9 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                   <option value="1">Ativa</option>
                   <option value="0">Inativa: esconde a linha e os produtos dela em todos os módulos</option>
                 </select>
+                {eSublinhaEditada && editingLineConfig && editingLineConfig.visivel === 0 && herdaEditada?.ativaPropria && (
+                  <span className="block text-[10px] font-semibold text-zinc-500">Escondida porque a principal está inativa.</span>
+                )}
               </div>
 
               {editingLineConfig && (
@@ -813,8 +1041,9 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                   <div className="flex gap-2">
                     <select
                       value={atendimentoForm}
+                      disabled={eSublinhaEditada && !!herdaEditada?.herda.atendimento}
                       onChange={(e) => setAtendimentoForm(e.target.value)}
-                      className="min-w-0 flex-1 px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
+                      className="min-w-0 flex-1 px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium disabled:bg-zinc-100 disabled:text-zinc-500"
                     >
                       {ATENDIMENTOS_UI.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
                     </select>
@@ -828,6 +1057,17 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                       </button>
                     )}
                   </div>
+                  {eSublinhaEditada && (herdaEditada?.herda.atendimento ? (
+                    <span className="block text-[10px] font-semibold text-zinc-500">
+                      Da principal{configPrincipalEditada ? ` (${configPrincipalEditada.nome_linha})` : ''} ·{' '}
+                      <button type="button" className={BTN_LINK} onClick={() => void handleParametro('atendimento', 'proprio')}>mudar</button>
+                    </span>
+                  ) : (
+                    <span className="block text-[10px] font-semibold text-zinc-500">
+                      Próprio ·{' '}
+                      <button type="button" className={BTN_LINK} onClick={() => void handleParametro('atendimento', 'herdar')}>voltar para o valor da principal</button>
+                    </span>
+                  ))}
                   <span className="text-[10px] text-zinc-400 font-semibold block leading-tight">
                     {ATENDIMENTOS_UI.find(a => a.value === atendimentoForm)?.description} Cada produto pode ter exceção própria.
                   </span>
