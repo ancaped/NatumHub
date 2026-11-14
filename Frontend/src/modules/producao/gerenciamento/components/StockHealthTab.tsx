@@ -50,6 +50,7 @@ interface ItemSaude {
   previsao_chegada: string | null;
   sugestao_compra: number;
   falta_agora_coberta: boolean;
+  base_movimento: 'venda' | 'consumo';
 }
 
 interface Retirado {
@@ -102,6 +103,8 @@ const ORDEM_PADRAO: Record<Exclude<Aba, 'retirados'>, { campo: string; dir: 'asc
   todos: { campo: 'codigo', dir: 'asc' },
 };
 
+/** Apoio é julgado pelo consumo (saída de estoque): o rótulo da coluna troca "venda" por "consumo" na linha dele. */
+const rot = (r: string, i: ItemSaude) => (i.base_movimento === 'consumo' ? r.replace('venda', 'consumo') : r);
 const num = (n: number) => n.toLocaleString('pt-BR');
 const dataBr = (iso: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
 const diasTxt = (d: number | null) => (d == null ? '—' : d >= 365 ? `${num(Math.round(d))} d (${(d / 365).toFixed(1).replace('.', ',')} a)` : `${num(Math.round(d))} d`);
@@ -307,7 +310,7 @@ tr { page-break-inside: avoid; }
         <span className="font-mono">{i.codigo}</span>
         {i.tipo === 'kit' && <span>Kit</span>}
         {i.tipo === 'coloracao' && <span>Coloração</span>}
-        {i.tipo === 'apoio' && <span>Apoio</span>}
+        {i.tipo === 'apoio' && <span>Apoio · consumo</span>}
         {i.papel_kit && <span style={{ fontWeight: 700 }} title={`Kits: ${i.kits_pais.join(', ')}`}>{i.papel_kit === 'so_kit' ? 'Só kit' : 'Também em kit'}</span>}
         {i.selo && <span style={{ fontWeight: 700 }}>{ROTULO_SELO[i.selo] ?? i.selo}</span>}
         {i.situacao_produto === 'saindo_de_linha' && <span style={{ fontWeight: 700 }}>Saindo de linha</span>}
@@ -319,7 +322,7 @@ tr { page-break-inside: avoid; }
       )}
       {i.papel_kit && (
         <div style={{ fontSize: '0.66rem', color: 'hsl(var(--text-secondary-hsl))' }}>
-          Vendas 12 m: {num(i.vendas_diretas_12m)} direto + {num(i.vendas_por_kits_12m)} por kits
+          {i.base_movimento === 'consumo' ? 'Consumo' : 'Vendas'} 12 m: {num(i.vendas_diretas_12m)} direto + {num(i.vendas_por_kits_12m)} por kits
         </div>
       )}
     </>
@@ -377,7 +380,7 @@ tr { page-break-inside: avoid; }
     const ideal = { campo: 'ideal', rotulo: 'Ideal', direita: true, valor: (i: ItemSaude) => num(i.ideal), texto: (i: ItemSaude) => num(i.ideal) };
     const cobDias = { campo: 'cobertura_dias', rotulo: 'Cobertura', direita: true, valor: (i: ItemSaude) => diasTxt(i.cobertura_dias), texto: (i: ItemSaude) => diasTxt(i.cobertura_dias) };
     const ultProd = { campo: 'ultima_producao', rotulo: 'Últ. produção', valor: (i: ItemSaude) => dataBr(i.ultima_producao), texto: (i: ItemSaude) => dataBr(i.ultima_producao) };
-    const ultVenda = { campo: 'ultima_venda', rotulo: 'Últ. venda', valor: (i: ItemSaude) => dataBr(i.ultima_venda), texto: (i: ItemSaude) => dataBr(i.ultima_venda) };
+    const ultVenda = { campo: 'ultima_venda', rotulo: 'Últ. venda/consumo', valor: (i: ItemSaude) => dataBr(i.ultima_venda), texto: (i: ItemSaude) => dataBr(i.ultima_venda) };
     if (a === 'disponibilidade') {
       return [
         sit, fut, ideal, cobDias,
@@ -397,7 +400,7 @@ tr { page-break-inside: avoid; }
     if (a === 'sem_giro') {
       return [
         { ...est, rotulo: 'Estoque parado' }, ultVenda,
-        { campo: 'dias_sem_venda', rotulo: 'Dias sem venda', direita: true, valor: (i) => (i.dias_sem_venda == null ? 'Nunca vendeu' : diasTxt(i.dias_sem_venda)), texto: (i) => (i.dias_sem_venda == null ? 'Nunca vendeu' : diasTxt(i.dias_sem_venda)) },
+        { campo: 'dias_sem_venda', rotulo: 'Dias sem venda/consumo', direita: true, valor: (i) => (i.dias_sem_venda == null ? (i.base_movimento === 'consumo' ? 'Nunca saiu' : 'Nunca vendeu') : diasTxt(i.dias_sem_venda)), texto: (i) => (i.dias_sem_venda == null ? (i.base_movimento === 'consumo' ? 'Nunca saiu' : 'Nunca vendeu') : diasTxt(i.dias_sem_venda)) },
         ultProd,
       ];
     }
@@ -549,7 +552,7 @@ tr { page-break-inside: avoid; }
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 14px', marginTop: 6, fontSize: '0.72rem', color: 'hsl(var(--text-secondary-hsl))' }}>
                     {colunas.filter((c) => c.campo !== 'situacao').map((c) => (
-                      <span key={c.campo + c.rotulo}>{c.rotulo}: <strong style={{ color: 'hsl(var(--text-primary-hsl))' }}>{c.texto(i)}</strong></span>
+                      <span key={c.campo + c.rotulo}>{rot(c.rotulo, i)}: <strong style={{ color: 'hsl(var(--text-primary-hsl))' }}>{c.texto(i)}</strong></span>
                     ))}
                   </div>
                   <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>

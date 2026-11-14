@@ -1,0 +1,8 @@
+-- 120_ficha_producao_saude_estoque_apoio_consumo.sql
+-- Ficha do Gerenciamento de Produção: Apoio pelo consumo na Saúde do Estoque. Aditiva e idempotente.
+
+UPDATE mapa_modules SET
+    detail = jsonb_set(detail, '{attention}', COALESCE(detail->'attention', '[]'::jsonb) || to_jsonb('Apoio na Saúde do Estoque é julgado pelo consumo (decisão do Edson, 2026-11-14): média, cobertura, tendência, última movimentação e os 180 dias do Sem giro usam a saída de estoque do item (stock_movements, produto/saída, os 12 meses fechados), não a venda; na tela o rótulo vira consumo. A saída do ERP existe para o Apoio, mas é a mesma saída da venda: o uso interno (flyers, caixas, reforços consumidos na montagem ou no envio) não gera saída registrada, então itens assim aparecem como Sem giro sem estarem parados. O ideal de Apoio segue o do Compras (média de vendas × dias objetivo)'::text)),
+    updated_at = NOW()
+WHERE module_key = 'producao'
+  AND NOT (COALESCE(detail->'attention', '[]'::jsonb) @> to_jsonb('Apoio na Saúde do Estoque é julgado pelo consumo (decisão do Edson, 2026-11-14): média, cobertura, tendência, última movimentação e os 180 dias do Sem giro usam a saída de estoque do item (stock_movements, produto/saída, os 12 meses fechados), não a venda; na tela o rótulo vira consumo. A saída do ERP existe para o Apoio, mas é a mesma saída da venda: o uso interno (flyers, caixas, reforços consumidos na montagem ou no envio) não gera saída registrada, então itens assim aparecem como Sem giro sem estarem parados. O ideal de Apoio segue o do Compras (média de vendas × dias objetivo)'::text));

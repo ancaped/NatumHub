@@ -199,6 +199,13 @@ pub struct Janela {
     pub ultima: Option<NaiveDate>,
 }
 
+/// Consumo de um item de Apoio: saídas de estoque (unidades por mês do calendário nos 12 meses fechados), no mesmo
+/// formato da janela de vendas. Média = 12 meses ÷ 12.
+pub fn janela_de_consumo(saidas_por_mes: &[i64], mes_atual: u32, ultima_saida: Option<NaiveDate>) -> Janela {
+    let (m3, m12) = vendas_3_e_12_meses(saidas_por_mes, mes_atual);
+    Janela { m3, m12, media: m12 as f64 / 12.0, ultima: ultima_saida }
+}
+
 /// Venda direta + venda dos kits que contêm o produto (cada kit × a quantidade dele no kit).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Combinado {
@@ -276,6 +283,8 @@ pub struct ItemSaude {
     pub sugestao_compra: i64,
     /// Falta agora (atual zerado ou abaixo do gatilho), mas o estoque futuro cobre.
     pub falta_agora_coberta: bool,
+    /// "venda" ou "consumo" (Apoio): de onde vêm média, vendas/consumo, última movimentação e dias sem movimento.
+    pub base_movimento: &'static str,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -320,12 +329,15 @@ struct Movimento {
     vendas_mes: HashMap<String, Vec<i64>>,
     ultima_venda: HashMap<String, NaiveDate>,
     ultima_producao: HashMap<String, String>,
+    /// Saídas de estoque do item (`stock_movements`, produto/saída): unidades por mês do calendário nos 12 meses fechados.
+    saidas_mes: HashMap<String, Vec<i64>>,
+    ultima_saida: HashMap<String, NaiveDate>,
     atendimento: HashMap<String, String>,
     /// Comprados prontos: data de previsão mais próxima entre os pedidos de compra em aberto.
     previsao_compra: HashMap<String, String>,
 }
 
-async fn carregar_movimento(db: &Db) -> Result<Movimento, String> {
+async fn carregar_movimento(db: &Db, hoje: NaiveDate) -> Result<Movimento, String> {
     let pool = db.pool();
     let e = |m: &str, err: sqlx::Error| format!("Erro ao ler {m}: {err}");
 
@@ -394,7 +406,35 @@ async fn carregar_movimento(db: &Db) -> Result<Movimento, String> {
     .map_err(|x| e("previsão de chegada", x))?;
     let previsao_compra = rows.into_iter().filter_map(|(c, d)| d.map(|d| (clean_product_code(&c), d))).collect();
 
-    Ok(Movimento { vendas_mes, ultima_venda, ultima_producao, atendimento, previsao_compra })
+    // Consumo dos itens de Apoio = saídas de estoque do ERP (a mesma janela dos 12 meses fechados do histórico de vendas).
+    let inicio = NaiveDate::from_ymd_opt(hoje.year() - 1, hoje.month(), 1).unwrap_or(hoje);
+    let fim = NaiveDate::from_ymd_opt(hoje.year(), hoje.month(), 1).unwrap_or(hoje);
+    let rows: Vec<(String, i32, i64)> = sqlx::query_as(
+        "SELECT item_code, EXTRACT(MONTH FROM LEFT(date, 10)::date)::int, ROUND(SUM(quantity))::bigint \
+         FROM stock_movements WHERE item_type = 'produto' AND movement_type = 'saida' \
+           AND LEFT(date, 10)::date >= $1 AND LEFT(date, 10)::date < $2 GROUP BY item_code, 2",
+    )
+    .bind(inicio)
+    .bind(fim)
+    .fetch_all(pool)
+    .await
+    .map_err(|x| e("saídas de estoque", x))?;
+    let mut saidas_mes: HashMap<String, Vec<i64>> = HashMap::new();
+    for (codigo, mes, qtd) in rows {
+        if (1..=12).contains(&mes) {
+            saidas_mes.entry(clean_product_code(&codigo)).or_insert_with(|| vec![0; 12])[(mes - 1) as usize] = qtd;
+        }
+    }
+    let rows: Vec<(String, NaiveDate)> = sqlx::query_as(
+        "SELECT item_code, MAX(LEFT(date, 10)::date) FROM stock_movements \
+         WHERE item_type = 'produto' AND movement_type = 'saida' AND quantity > 0 GROUP BY item_code",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|x| e("última saída", x))?;
+    let ultima_saida = rows.into_iter().map(|(c, d)| (clean_product_code(&c), d)).collect();
+
+    Ok(Movimento { vendas_mes, ultima_venda, ultima_producao, atendimento, previsao_compra, saidas_mes, ultima_saida })
 }
 
 /// Serviço: classifica os produtos acabados e kits (sem base, coloração, apoio nem inativos) na data `hoje`.
@@ -412,7 +452,7 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
     let produtos: Vec<ProductCalculationResult> =
         serde_json::from_value(lista.get("items").cloned().unwrap_or_else(|| json!([]))).map_err(|e| format!("Lista da Demanda inesperada: {e}"))?;
 
-    let mov = carregar_movimento(db).await?;
+    let mov = carregar_movimento(db, hoje).await?;
     let retirados_lista = listar_retirados(db.pool()).await?;
     let retirados: HashMap<String, ()> = retirados_lista.iter().map(|r| (clean_product_code(&r.codigo), ())).collect();
     let composicao = db.get_kit_composition().await.unwrap_or_default();
@@ -467,7 +507,14 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
             .map(|l| l.iter().filter_map(|(k, q)| por_codigo.get(k).map(|kp| (*kp, *q))).collect())
             .unwrap_or_default();
         let janelas_kits: Vec<(Janela, f64)> = pais_kit.iter().map(|(kp, q)| (janela_do(&clean_product_code(&kp.codigo), kp.media_vendas), *q)).collect();
-        let comb = combinar_vendas(janela_do(&chave, p.media_vendas), &janelas_kits);
+        let apoio = categoria == "cat_apoio";
+        // Apoio é julgado pelo consumo (saída de estoque), não pela venda; o resto, pela venda.
+        let direta = if apoio {
+            janela_de_consumo(mov.saidas_mes.get(&chave).map(Vec::as_slice).unwrap_or(&[]), hoje.month(), mov.ultima_saida.get(&chave).copied())
+        } else {
+            janela_do(&chave, p.media_vendas)
+        };
+        let comb = combinar_vendas(direta, &janelas_kits);
         let (vendas_3m, vendas_12m) = (comb.total.m3, comb.total.m12);
         let media_total = comb.total.media;
         let ideal = ideal_com_kits(p.estoque_ideal_qtd, &pais_kit.iter().map(|(kp, q)| (kp.estoque_ideal_qtd, *q)).collect::<Vec<_>>());
@@ -549,6 +596,7 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
             previsao_chegada: if comprado { mov.previsao_compra.get(&chave).cloned() } else { None },
             sugestao_compra: if comprado { sugestao_compra } else { 0 },
             falta_agora_coberta: falta_agora_coberta(p.estoque as f64, efp, gatilho),
+            base_movimento: if apoio { "consumo" } else { "venda" },
         });
     }
 
@@ -921,5 +969,34 @@ mod tests {
     #[test]
     fn ideal_com_kits_ignora_negativo() {
         assert_eq!(ideal_com_kits(10.0, &[(-5.0, 2.0), (3.0, 2.0)]), 16.0);
+    }
+
+    #[test]
+    fn janela_de_consumo_usa_as_saidas_e_a_ultima_saida() {
+        let saidas: Vec<i64> = (1..=12).collect();
+        let j = janela_de_consumo(&saidas, 11, dia("2026-10-20"));
+        assert_eq!((j.m3, j.m12), (10 + 9 + 8, 78));
+        assert_eq!(j.media, 6.5);
+        assert_eq!(j.ultima, dia("2026-10-20"));
+    }
+
+    #[test]
+    fn apoio_com_consumo_e_sem_venda_nao_e_sem_giro() {
+        // sem venda nenhuma, mas saiu do estoque há 30 dias
+        let consumo = janela_de_consumo(&[0, 0, 0, 0, 0, 0, 0, 40, 10, 20, 0, 0], 11, dia("2026-10-11"));
+        let (s, c) = classificar_componente(consumo, &[], 20.0, 30.0);
+        assert!(c.total.media > 0.0);
+        assert_eq!(s, Situacao::Adequado);
+    }
+
+    #[test]
+    fn apoio_parado_de_verdade_e_sem_giro() {
+        let consumo = janela_de_consumo(&[0; 12], 11, dia("2025-12-01"));
+        let (s, _) = classificar_componente(consumo, &[], 0.0, 500.0);
+        assert_eq!(s, Situacao::SemGiro);
+        // nunca saiu
+        let nunca = janela_de_consumo(&[], 11, None);
+        let (s, _) = classificar_componente(nunca, &[], 0.0, 500.0);
+        assert_eq!(s, Situacao::SemGiro);
     }
 }
