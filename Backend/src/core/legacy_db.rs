@@ -559,6 +559,115 @@ async fn load_hub_open_sales_order_keys(pool: &PgPool) -> Vec<(i32, String)> {
         .collect()
 }
 
+/// SQL dos cabeçalhos de pedido de compra (PedidoCpa1) com o filtro dado.
+fn sql_pedido_cpa1(filtro: &str) -> String {
+    format!(
+        "
+SELECT 
+    nRegistro,
+    nPedido,
+    CONVERT(varchar, dPedido, 120) COLLATE Latin1_General_CI_AS as dPedido,
+    nCodFornec,
+    cNomeF COLLATE Latin1_General_CI_AS as cNomeF,
+    cUsuario COLLATE Latin1_General_CI_AS as cUsuario,
+    cStatus COLLATE Latin1_General_CI_AS as cStatus,
+    cPrazoPgto COLLATE Latin1_General_CI_AS as cPrazoPgto,
+    cPrevEntrega COLLATE Latin1_General_CI_AS as cPrevEntrega,
+    CAST(nValor AS FLOAT) as nValor,
+    CONVERT(varchar, dPrevisao, 120) COLLATE Latin1_General_CI_AS as dPrevisao,
+    cEmail COLLATE Latin1_General_CI_AS as cEmail,
+    CAST(mObservac AS NVARCHAR(MAX)) COLLATE Latin1_General_CI_AS as mObservac
+FROM PedidoCpa1 WITH (NOLOCK)
+WHERE {filtro};
+"
+    )
+}
+
+fn linha_pedido_cpa1(row: &tiberius::Row) -> Option<PedidoCpa1Row> {
+    let n_registro: i32 = row.get(0).unwrap_or(0);
+    let n_pedido: i32 = row.get(1).unwrap_or(0);
+    if n_registro == 0 || n_pedido == 0 {
+        return None;
+    }
+    Some(PedidoCpa1Row {
+        n_registro,
+        n_pedido,
+        d_pedido: row.get(2).map(|s: &str| s.trim().to_string()),
+        n_cod_fornec: row.get(3),
+        c_nome_f: row.get(4).map(|s: &str| s.trim().to_string()),
+        c_usuario: row.get(5).map(|s: &str| s.trim().to_string()),
+        c_status: row.get(6).map(|s: &str| s.trim().to_string()),
+        c_prazo_pgto: row.get(7).map(|s: &str| s.trim().to_string()),
+        c_prev_entrega: row.get(8).map(|s: &str| s.trim().to_string()),
+        n_valor: row.get(9).unwrap_or(0.0),
+        d_previsao: row.get(10).map(|s: &str| s.trim().to_string()),
+        c_email: row.get(11).map(|s: &str| s.trim().to_string()),
+        m_observac: row.get(12).map(|s: &str| s.trim().to_string()),
+    })
+}
+
+/// SQL dos itens de pedido de compra (PedidoCpa2) com o filtro dado (sobre `p1`, o cabeçalho).
+/// PedidoCpa2.nRegistro = PedidoCpa1.nRegistro (FK do cabeçalho).
+/// NÃO juntar por nPedido+dPedido: o número do pedido se repete entre fornecedores
+/// no mesmo dia e multiplica itens (fan-out) — ex.: 9.15.003 com 3 POs fantasma.
+fn sql_pedido_cpa2(filtro: &str) -> String {
+    format!(
+        "
+SELECT 
+    p1.nRegistro as nPedidoRegistro,
+    c2.nPedido,
+    c2.cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
+    CAST(c2.nQtde AS FLOAT) as nQtde,
+    CAST(c2.nPreco AS FLOAT) as nPreco,
+    CAST(c2.nChegou AS FLOAT) as nChegou,
+    c2.cDescricao COLLATE Latin1_General_CI_AS as cDescricao,
+    c2.cUnidade COLLATE Latin1_General_CI_AS as cUnidade,
+    CAST(c2.VALOR_TOTAL AS FLOAT) as VALOR_TOTAL,
+    c2.nRegistro,
+    c2.cChegada COLLATE Latin1_General_CI_AS as cChegada
+FROM PedidoCpa2 c2 WITH (NOLOCK)
+INNER JOIN PedidoCpa1 p1 WITH (NOLOCK) ON p1.nRegistro = c2.nRegistro
+WHERE ({filtro});
+"
+    )
+}
+
+fn linha_pedido_cpa2(row: &tiberius::Row) -> Option<PedidoCpa2Row> {
+    let n_pedido_registro: i32 = row.get(0).unwrap_or(0);
+    let n_pedido: i32 = row.get(1).unwrap_or(0);
+    let c_referencia: &str = row.get(2).unwrap_or("");
+    let n_registro: i32 = row.get(9).unwrap_or(0);
+    if n_pedido_registro == 0 || n_pedido == 0 || c_referencia.is_empty() || n_registro == 0 {
+        return None;
+    }
+    Some(PedidoCpa2Row {
+        n_pedido_registro,
+        n_pedido,
+        c_referencia: c_referencia.trim().to_string(),
+        n_qtde: row.get(3).unwrap_or(0.0),
+        n_preco: row.get(4).unwrap_or(0.0),
+        n_chegou: row.get(5).unwrap_or(0.0),
+        c_descricao: row.get(6).map(|s: &str| s.trim().to_string()),
+        c_unidade: row.get(7).map(|s: &str| s.trim().to_string()),
+        n_valor_total: row.get(8).unwrap_or(0.0),
+        n_registro,
+        c_chegada: row.get(10).map(|s: &str| s.trim().to_string()),
+    })
+}
+
+/// Se a ordem já tem esse produto (outro slot da mesma ordem), soma quantidade e unidades nele e devolve true.
+/// Só olha os últimos 4 itens da lista: os slots de uma ordem são lidos em sequência.
+fn somar_item_repetido(lista: &mut [LoteRow], lote: i32, codigo: &str, qty: f64, unidades: f64) -> bool {
+    match lista.iter_mut().rev().take(4).find(|x| x.lote == lote && x.product_code == codigo) {
+        Some(ja) => {
+            ja.qty += qty;
+            ja.unidades = Some(ja.unidades.unwrap_or(0.0) + unidades);
+            true
+        }
+        None => false,
+    }
+}
+
 /// Lê do ERP os lotes (Lotes) da janela e os que o Nexus ainda trata como abertos: uma `LoteRow` por item
 /// (até 4 por ordem). Usado pelo sync completo (passo H) e pelo sync leve de lotes.
 async fn ler_lotes_erp(
@@ -716,6 +825,11 @@ WHERE (
                     .or(d_conf1.as_ref().filter(|s| s.len() >= 8))
                     .cloned();
 
+                // Mesmo produto em dois slots da ordem: soma a quantidade no primeiro, em vez de descartar o segundo.
+                if somar_item_repetido(&mut lotes_list, lote, &code_trimmed, qty, unidades) {
+                    continue;
+                }
+
                 lotes_list.push(LoteRow {
                     lote,
                     product_code: code_trimmed,
@@ -868,6 +982,24 @@ async fn gravar_laudos_lotes(
         .bind(&qtd_arr)
         .bind(&un_arr)
         .bind(&obs_arr)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // Item que saiu da ordem no ERP: apaga o laudo (lote, produto) que não está mais entre os itens atuais
+    // dos lotes lidos. Só mexe nos lotes presentes na leitura.
+    let lotes_lidos: Vec<String> = lotes_list.iter().map(|l| l.lote.to_string()).collect::<HashSet<_>>().into_iter().collect();
+    let pares_lote: Vec<String> = laudos_records.iter().map(|r| r.lote.to_string()).collect();
+    let pares_prod: Vec<String> = laudos_records.iter().map(|r| r.product_code.clone()).collect();
+    for chunk in lotes_lidos.chunks(3000) {
+        sqlx::query(
+            "DELETE FROM erp_lotes_laudos
+             WHERE lote = ANY($1)
+               AND (lote, product_code) NOT IN (SELECT * FROM UNNEST($2::text[], $3::text[]))",
+        )
+        .bind(chunk)
+        .bind(&pares_lote)
+        .bind(&pares_prod)
         .execute(&mut **tx)
         .await?;
     }
@@ -1654,7 +1786,7 @@ SELECT
     CAST(f.F_Valor_ICMS AS FLOAT) as FTE_ICMS
 FROM COMPRAS2 c WITH (NOLOCK)
 LEFT JOIN COMPRAS1 f WITH (NOLOCK) ON c.nCodFornec = f.nCodFornec AND c.NOTA = f.NOTA
-WHERE f.DATA_EMISSAO >= '{since_dt}'
+WHERE (f.DATA_EMISSAO >= '{since_dt}' OR f.DATA_SAIDA >= '{since_dt}')  -- DATA_SAIDA = data de entrada: nota lançada depois da emissão também entra
   AND c.CODIGO_PRODUTO IS NOT NULL AND c.CODIGO_PRODUTO <> '';
 "
         )
@@ -2024,6 +2156,9 @@ WHERE e.dRegistro >= '{since_compacto}'
     );
     println!("Step O: Querying ENTDEVINS - acertos/ajustes de insumos (since {since})");
     let mut movs_insumos: Vec<crate::modules::estoque::movimentos::MovimentoErp> = Vec::new();
+    // Só vira true se a leitura inteira deu certo: o passo grava como espelho da janela (apaga e regrava),
+    // então uma leitura falha não pode chegar lá com a lista vazia.
+    let mut movs_insumos_lidos = false;
     match client.query(query_movs_insumos, &[]).await {
         Ok(stream) => match stream.into_first_result().await {
             Ok(rows) => {
@@ -2053,6 +2188,7 @@ WHERE e.dRegistro >= '{since_compacto}'
                         lote_fornecedor: txt(8),
                     });
                 }
+                movs_insumos_lidos = true;
             }
             Err(e) => eprintln!("[ERP Sync] Step O: falha lendo ENTDEVINS: {e}"),
         },
@@ -2100,98 +2236,44 @@ WHERE v2.dVenda >= '{since_dt}'
     // K. Query PedidoCpa1 (Purchase Orders Header) — piso histórico + pedidos abertos
     let po_date_filter =
         format!("dPedido >= '{since_dt}' OR (cStatus <> 'T' AND cStatus IS NOT NULL)");
-    let query_pedido_cpa1 = format!(
-        "
-SELECT 
-    nRegistro,
-    nPedido,
-    CONVERT(varchar, dPedido, 120) COLLATE Latin1_General_CI_AS as dPedido,
-    nCodFornec,
-    cNomeF COLLATE Latin1_General_CI_AS as cNomeF,
-    cUsuario COLLATE Latin1_General_CI_AS as cUsuario,
-    cStatus COLLATE Latin1_General_CI_AS as cStatus,
-    cPrazoPgto COLLATE Latin1_General_CI_AS as cPrazoPgto,
-    cPrevEntrega COLLATE Latin1_General_CI_AS as cPrevEntrega,
-    CAST(nValor AS FLOAT) as nValor,
-    CONVERT(varchar, dPrevisao, 120) COLLATE Latin1_General_CI_AS as dPrevisao,
-    cEmail COLLATE Latin1_General_CI_AS as cEmail,
-    CAST(mObservac AS NVARCHAR(MAX)) COLLATE Latin1_General_CI_AS as mObservac
-FROM PedidoCpa1 WITH (NOLOCK)
-WHERE {po_date_filter};
-"
-    );
     println!("Step K: Querying PedidoCpa1 (since {since})");
-    let stream = client.query(query_pedido_cpa1, &[]).await?;
+    let stream = client.query(sql_pedido_cpa1(&po_date_filter), &[]).await?;
     let db_rows_pedido_cpa1 = stream.into_first_result().await?;
-    let mut pedido_cpa1_list = Vec::new();
-    for row in db_rows_pedido_cpa1 {
-        let n_registro: i32 = row.get(0).unwrap_or(0);
-        let n_pedido: i32 = row.get(1).unwrap_or(0);
-        if n_registro == 0 || n_pedido == 0 { continue; }
-        pedido_cpa1_list.push(PedidoCpa1Row {
-            n_registro,
-            n_pedido,
-            d_pedido: row.get(2).map(|s: &str| s.trim().to_string()),
-            n_cod_fornec: row.get(3),
-            c_nome_f: row.get(4).map(|s: &str| s.trim().to_string()),
-            c_usuario: row.get(5).map(|s: &str| s.trim().to_string()),
-            c_status: row.get(6).map(|s: &str| s.trim().to_string()),
-            c_prazo_pgto: row.get(7).map(|s: &str| s.trim().to_string()),
-            c_prev_entrega: row.get(8).map(|s: &str| s.trim().to_string()),
-            n_valor: row.get(9).unwrap_or(0.0),
-            d_previsao: row.get(10).map(|s: &str| s.trim().to_string()),
-            c_email: row.get(11).map(|s: &str| s.trim().to_string()),
-            m_observac: row.get(12).map(|s: &str| s.trim().to_string()),
-        });
-    }
+    let mut pedido_cpa1_list: Vec<PedidoCpa1Row> =
+        db_rows_pedido_cpa1.iter().filter_map(linha_pedido_cpa1).collect();
 
     let po2_date_filter =
         format!("p1.dPedido >= '{since_dt}' OR (p1.cStatus <> 'T' AND p1.cStatus IS NOT NULL)");
-    // PedidoCpa2.nRegistro = PedidoCpa1.nRegistro (FK do cabeçalho).
-    // NÃO juntar por nPedido+dPedido: o número do pedido se repete entre fornecedores
-    // no mesmo dia e multiplica itens (fan-out) — ex.: 9.15.003 com 3 POs fantasma.
-    let query_pedido_cpa2 = format!(
-        "
-SELECT 
-    p1.nRegistro as nPedidoRegistro,
-    c2.nPedido,
-    c2.cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
-    CAST(c2.nQtde AS FLOAT) as nQtde,
-    CAST(c2.nPreco AS FLOAT) as nPreco,
-    CAST(c2.nChegou AS FLOAT) as nChegou,
-    c2.cDescricao COLLATE Latin1_General_CI_AS as cDescricao,
-    c2.cUnidade COLLATE Latin1_General_CI_AS as cUnidade,
-    CAST(c2.VALOR_TOTAL AS FLOAT) as VALOR_TOTAL,
-    c2.nRegistro,
-    c2.cChegada COLLATE Latin1_General_CI_AS as cChegada
-FROM PedidoCpa2 c2 WITH (NOLOCK)
-INNER JOIN PedidoCpa1 p1 WITH (NOLOCK) ON p1.nRegistro = c2.nRegistro
-WHERE ({po2_date_filter});
-"
-    );
     println!("Step L: Querying PedidoCpa2 (since {since})");
-    let stream = client.query(query_pedido_cpa2, &[]).await?;
+    let stream = client.query(sql_pedido_cpa2(&po2_date_filter), &[]).await?;
     let db_rows_pedido_cpa2 = stream.into_first_result().await?;
-    let mut pedido_cpa2_list = Vec::new();
-    for row in db_rows_pedido_cpa2 {
-        let n_pedido_registro: i32 = row.get(0).unwrap_or(0);
-        let n_pedido: i32 = row.get(1).unwrap_or(0);
-        let c_referencia: &str = row.get(2).unwrap_or("");
-        let n_registro: i32 = row.get(9).unwrap_or(0);
-        if n_pedido_registro == 0 || n_pedido == 0 || c_referencia.is_empty() || n_registro == 0 { continue; }
-        pedido_cpa2_list.push(PedidoCpa2Row {
-            n_pedido_registro,
-            n_pedido,
-            c_referencia: c_referencia.trim().to_string(),
-            n_qtde: row.get(3).unwrap_or(0.0),
-            n_preco: row.get(4).unwrap_or(0.0),
-            n_chegou: row.get(5).unwrap_or(0.0),
-            c_descricao: row.get(6).map(|s: &str| s.trim().to_string()),
-            c_unidade: row.get(7).map(|s: &str| s.trim().to_string()),
-            n_valor_total: row.get(8).unwrap_or(0.0),
-            n_registro,
-            c_chegada: row.get(10).map(|s: &str| s.trim().to_string()),
-        });
+    let mut pedido_cpa2_list: Vec<PedidoCpa2Row> =
+        db_rows_pedido_cpa2.iter().filter_map(linha_pedido_cpa2).collect();
+
+    // Reconciliação de pedidos de compra: abertos no Nexus mas fora da janela do ERP (fechados lá depois de
+    // o Nexus ter lido, com pedido antigo). Sem reler, o cabeçalho fecha mas os itens ficam com n_chegou velho.
+    // Cabeçalho que sumiu do ERP não volta nada aqui e fica como está.
+    {
+        let abertos_hub: Vec<i32> = sqlx::query_scalar(
+            "SELECT n_registro FROM purchase_orders WHERE COALESCE(c_status, '') <> 'T'",
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+        let ja_lidos: HashSet<i32> = pedido_cpa1_list.iter().map(|p| p.n_registro).collect();
+        let faltam: Vec<i32> = abertos_hub.into_iter().filter(|r| !ja_lidos.contains(r)).collect();
+        if !faltam.is_empty() {
+            eprintln!("[ERP Sync] Reconciliando {} pedido(s) de compra abertos no Nexus fora da janela...", faltam.len());
+            for chunk in faltam.chunks(200) {
+                let lista = chunk.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",");
+                let stream = client.query(sql_pedido_cpa1(&format!("nRegistro IN ({lista})")), &[]).await?;
+                let rows = stream.into_first_result().await?;
+                pedido_cpa1_list.extend(rows.iter().filter_map(linha_pedido_cpa1));
+                let stream = client.query(sql_pedido_cpa2(&format!("p1.nRegistro IN ({lista})")), &[]).await?;
+                let rows = stream.into_first_result().await?;
+                pedido_cpa2_list.extend(rows.iter().filter_map(linha_pedido_cpa2));
+            }
+        }
     }
 
     // M. Query Sales Orders Header (Pedidos1) — piso histórico + pedidos abertos
@@ -3607,9 +3689,14 @@ WHERE {so2_date_filter};
     );
 
     // Passo O: grava os acertos/ajustes de insumos (tabela própria, fora da transação das movimentações)
-    match crate::modules::estoque::movimentos::gravar_movimentos(pool, movs_insumos).await {
-        Ok(n) => eprintln!("[ERP Sync] Passo O: {n} movimentos de insumos (ENTDEVINS) gravados."),
-        Err(e) => eprintln!("[ERP Sync] Aviso: falha ao gravar movimentos de insumos: {e}"),
+    if !movs_insumos_lidos {
+        eprintln!("[ERP Sync] Passo O: leitura da ENTDEVINS falhou; nada foi apagado nem gravado.");
+    } else {
+        let desde_o = NaiveDate::parse_from_str(&since, "%Y-%m-%d").unwrap_or_else(|_| NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
+        match crate::modules::estoque::movimentos::gravar_movimentos(pool, movs_insumos, desde_o).await {
+            Ok(n) => eprintln!("[ERP Sync] Passo O: {n} acertos de insumos (ENTDEVINS) espelhados desde {since}."),
+            Err(e) => eprintln!("[ERP Sync] Aviso: falha ao gravar acertos de insumos: {e}"),
+        }
     }
 
     // Passo Q: Recebimento de Insumos (Controle de Qualidade)
@@ -4603,6 +4690,22 @@ WHERE cCodProd IS NOT NULL AND cCodProd <> '' AND (cInativo = 'N' OR cInativo IS
     })
 }
 
+/// Filtro do passo Q: os últimos 50 registros, os dos últimos 90 dias (pela data de entrada) e todos os que o
+/// Nexus ainda tem em status não final. Sem registro no Nexus (`max_reg == 0`), lê tudo.
+fn filtro_recebimentos(max_reg: i32, abertos: &[i32]) -> String {
+    if max_reg <= 0 {
+        return String::new();
+    }
+    let min_reg = (max_reg - 50).max(0);
+    let mut f = format!("WHERE (Registro > {min_reg} OR dEntrada >= DATEADD(day, -90, GETDATE())");
+    if !abertos.is_empty() {
+        let lista = abertos.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(",");
+        f.push_str(&format!(" OR Registro IN ({lista})"));
+    }
+    f.push(')');
+    f
+}
+
 /// Passo Q: Sincronização de Recebimento de Insumos / Matéria-Prima (Recebe_Insumos)
 pub async fn sync_recebe_insumos(pool: &PgPool, force_full: bool) -> Result<(usize, usize), String> {
     let mut client = connect_sql_server(pool)
@@ -4618,12 +4721,16 @@ pub async fn sync_recebe_insumos(pool: &PgPool, force_full: bool) -> Result<(usi
         0
     };
 
-    let where_clause = if max_reg > 0 {
-        let min_reg = (max_reg - 50).max(0);
-        format!("WHERE Registro > {}", min_reg)
+    // Registros que no Nexus ainda não estão em status final (AP/CA): o ERP pode ter mudado (ex.: QU -> CA).
+    let abertos: Vec<i32> = if max_reg > 0 {
+        sqlx::query_scalar("SELECT registro FROM erp_recebimentos_insumos WHERE COALESCE(status_erp, '') NOT IN ('AP', 'CA')")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("Falha ao listar recebimentos não finais: {e}"))?
     } else {
-        String::new()
+        Vec::new()
     };
+    let where_clause = filtro_recebimentos(max_reg, &abertos);
 
     let q_receb = format!(
         r#"
@@ -4882,6 +4989,14 @@ mod lotes_leve_tests {
         }
     }
 
+    async fn laudos(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, lote: &str) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM erp_lotes_laudos WHERE lote = $1")
+            .bind(lote)
+            .fetch_one(&mut **tx)
+            .await
+            .unwrap()
+    }
+
     async fn itens(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, doc: &str) -> Vec<(String, String)> {
         sqlx::query_as::<_, (String, String)>(
             "SELECT item_code, substring(details from 'Status: ([A-Z]+)') FROM stock_movements
@@ -4925,6 +5040,50 @@ mod lotes_leve_tests {
         );
         assert_eq!(itens(&mut tx, "99909").await, vec![("2.13.023".into(), "FI".into())], "o status fechado vale");
         assert!(itens(&mut tx, "99910").await.is_empty(), "ordem que o ERP não tem mais some");
+
+        // Item que saiu da ordem (caso 15830 / 15908): o laudo dele some; o do item que ficou e o de outros lotes não.
+        assert_eq!(laudos(&mut tx, "99908").await, 2);
+        let sem_item = vec![lote(99908, "2.33.002", "EN", 80.0)];
+        gravar_laudos_lotes(&mut tx, &sem_item).await.unwrap();
+        assert_eq!(laudos(&mut tx, "99908").await, 1, "o laudo do item que saiu da ordem some");
+        assert_eq!(laudos(&mut tx, "99909").await, 1, "lote que não veio na leitura não é tocado");
         tx.rollback().await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod itens_repetidos_e_recebimentos_tests {
+    use super::{filtro_recebimentos, somar_item_repetido, LoteRow};
+
+    fn item(lote: i32, codigo: &str, qty: f64, un: f64) -> LoteRow {
+        LoteRow {
+            lote, product_code: codigo.into(), qty, date_str: "2026-11-03 00:00:00".into(), status: None, fab: None, aut: None,
+            unidades: Some(un), d_pesado: None, d_envase: None, ph: None, viscosidade: None, densidade: None,
+            viscosidade_24h: None, responsavel: None, resultado: None, data_inspecao: None, observacoes: None,
+        }
+    }
+
+    /// Caso real da ordem 14565: o mesmo produto em dois slots soma 500 kg, em vez de descartar o segundo.
+    #[test]
+    fn mesmo_produto_em_dois_slots_soma_a_quantidade() {
+        let mut l: Vec<LoteRow> = Vec::new();
+        for (cod, q, u) in [("1.13.065", 300.0, 30.0), ("2.33.002", 50.0, 5.0), ("1.13.065", 200.0, 20.0)] {
+            if !somar_item_repetido(&mut l, 14565, cod, q, u) {
+                l.push(item(14565, cod, q, u));
+            }
+        }
+        assert_eq!(l.len(), 2);
+        assert_eq!((l[0].qty, l[0].unidades), (500.0, Some(50.0)));
+        // Outra ordem com o mesmo produto não soma.
+        assert!(!somar_item_repetido(&mut l, 14566, "1.13.065", 1.0, 1.0));
+    }
+
+    #[test]
+    fn filtro_de_recebimentos_inclui_abertos_e_90_dias() {
+        assert_eq!(filtro_recebimentos(0, &[]), "");
+        let f = filtro_recebimentos(15700, &[]);
+        assert!(f.contains("Registro > 15650") && f.contains("-90") && !f.contains(" IN ("));
+        let f = filtro_recebimentos(15700, &[15137, 15139]);
+        assert!(f.contains("OR Registro IN (15137,15139)"));
     }
 }
