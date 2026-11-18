@@ -189,6 +189,15 @@ pub struct ProductCalculationResult {
     pub planejado_semana: Option<bool>,
     #[serde(default)]
     pub conflito_regra: Option<bool>,
+    /// Saindo de linha: unidades que a embalagem exclusiva que sobrou ainda permite produzir (`producao::saindo_de_linha`).
+    #[serde(default)]
+    pub ate_acabar_embalagem: Option<i64>,
+    /// Saindo de linha: item de embalagem exclusiva que limita (código — descrição).
+    #[serde(default)]
+    pub embalagem_limitante: Option<String>,
+    /// Saindo de linha sem embalagem exclusiva: segue pela venda, a decidir pelo Edson.
+    #[serde(default)]
+    pub saindo_sem_embalagem: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]

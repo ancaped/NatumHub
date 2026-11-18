@@ -363,6 +363,9 @@ pub fn calculate_products(
             na_fila: None,
             planejado_semana: None,
             conflito_regra: None,
+            ate_acabar_embalagem: None,
+            embalagem_limitante: None,
+            saindo_sem_embalagem: None,
         });
     }
 

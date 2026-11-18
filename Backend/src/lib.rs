@@ -53,6 +53,7 @@ pub mod modules {
         pub mod sequencia;
         pub mod fila_auto;
         pub mod prevista;
+        pub mod saindo_de_linha;
         pub mod saude_estoque;
     }
     pub mod compras;

@@ -849,6 +849,22 @@ export function InventoryTab({
                         }`}>
                           {p.status_label}
                         </span>
+                        {p.ate_acabar_embalagem != null && (
+                          <div
+                            className="mt-1 text-[10px] leading-tight text-zinc-500"
+                            title={`Saindo de linha: a sugestão é o que a embalagem exclusiva que sobrou ainda permite produzir. Limita: ${p.embalagem_limitante ?? ''}`}
+                          >
+                            {p.ate_acabar_embalagem > 0
+                              ? <>até acabar a embalagem: <span className="font-mono font-semibold text-zinc-700">{p.ate_acabar_embalagem} un</span></>
+                              : 'embalagem exclusiva acabou'}
+                            {p.embalagem_limitante && <div className="truncate max-w-[220px] text-zinc-400">{p.embalagem_limitante}</div>}
+                          </div>
+                        )}
+                        {p.saindo_sem_embalagem && (
+                          <div className="mt-1 text-[10px] leading-tight text-zinc-400" title="Saindo de linha sem embalagem exclusiva: a sugestão segue pela venda, a decidir.">
+                            sem embalagem exclusiva
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 border-b border-zinc-100 align-middle text-right font-bold font-mono text-zinc-900">
                         {p.producao_recomendada > 0 ? (

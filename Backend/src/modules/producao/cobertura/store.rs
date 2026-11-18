@@ -419,7 +419,7 @@ pub async fn carregar_ordens(pool: &PgPool, ini: NaiveDate, fim: NaiveDate) -> R
 // Estoque, reserva, calibração
 // ---------------------------------------------------------------------------------------------
 
-pub(super) async fn carregar_estoque(
+pub(crate) async fn carregar_estoque(
     pool: &PgPool,
     codigos: &[String],
     formulas: &Formulas,
