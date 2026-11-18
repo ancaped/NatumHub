@@ -2,7 +2,6 @@
 //! (ENTDEVINS = acertos/ajustes, Lotes_Baixas = reservas por lote, Recebe_Insumos = entrada por NF)
 //! e confere acertos suspeitos. Serviço reutilizável (tela e agentes); o handler só valida e chama.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::core::catalogo::{param, Acao};
@@ -209,7 +208,7 @@ pub async fn consultar_movimentos(
 
     let rows = sqlx::query(
         "SELECT data_mov::text, COALESCE(hora,''), COALESCE(es::text,''), tipo, qtde::float8, motivo, operador, lote_fornecedor, n_registro
-         FROM erp_movimentos_insumos
+         FROM erp_acertos_insumos
          WHERE TRIM(referencia) = $1 AND data_mov BETWEEN $2::date AND $3::date",
     )
     .bind(codigo)
@@ -330,13 +329,18 @@ pub struct MovimentoErp {
     pub lote_fornecedor: String,
 }
 
-/// Grava (upsert) os movimentos lidos da ENTDEVINS. Devolve quantas linhas distintas foram gravadas.
-pub async fn gravar_movimentos(pool: &PgPool, lista: Vec<MovimentoErp>) -> Result<usize, sqlx::Error> {
-    let mut unicos: HashMap<(i64, String), MovimentoErp> = HashMap::new();
-    for m in lista {
-        unicos.insert((m.n_registro, m.referencia.clone()), m);
-    }
-    let linhas: Vec<MovimentoErp> = unicos.into_values().collect();
+/// Espelha a janela do sync na tabela `erp_acertos_insumos`: numa transação apaga `data_mov >= desde`
+/// e regrava todas as linhas lidas da ENTDEVINS. `nRegistro` do ERP não é único (varias linhas por
+/// registro, até com a mesma referência), por isso não há chave de negócio: o espelho da janela é exato,
+/// e acerto editado ou apagado no ERP acompanha. Só chamar quando a leitura do ERP deu certo.
+/// Devolve quantas linhas foram gravadas.
+pub async fn gravar_movimentos(pool: &PgPool, lista: Vec<MovimentoErp>, desde: NaiveDate) -> Result<usize, sqlx::Error> {
+    let linhas: Vec<MovimentoErp> = lista.into_iter().filter(|m| m.data_mov >= desde).collect();
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM erp_acertos_insumos WHERE data_mov >= $1")
+        .bind(desde)
+        .execute(&mut *tx)
+        .await?;
     for chunk in linhas.chunks(1000) {
         let nulo = |s: &str| (!s.is_empty()).then(|| s.to_string());
         let reg: Vec<i64> = chunk.iter().map(|m| m.n_registro).collect();
@@ -350,17 +354,14 @@ pub async fn gravar_movimentos(pool: &PgPool, lista: Vec<MovimentoErp>) -> Resul
         let ops: Vec<Option<String>> = chunk.iter().map(|m| nulo(&m.operador)).collect();
         let lotes: Vec<Option<String>> = chunk.iter().map(|m| nulo(&m.lote_fornecedor)).collect();
         sqlx::query(
-            "INSERT INTO erp_movimentos_insumos (n_registro, referencia, data_mov, hora, es, qtde, tipo, motivo, operador, lote_fornecedor)
-             SELECT * FROM UNNEST($1::bigint[], $2::text[], $3::date[], $4::text[], $5::text[], $6::float8[], $7::text[], $8::text[], $9::text[], $10::text[])
-             ON CONFLICT (n_registro, referencia) DO UPDATE SET
-               data_mov = EXCLUDED.data_mov, hora = EXCLUDED.hora, es = EXCLUDED.es, qtde = EXCLUDED.qtde,
-               tipo = EXCLUDED.tipo, motivo = EXCLUDED.motivo, operador = EXCLUDED.operador,
-               lote_fornecedor = EXCLUDED.lote_fornecedor, importado_em = NOW()",
+            "INSERT INTO erp_acertos_insumos (n_registro, referencia, data_mov, hora, es, qtde, tipo, motivo, operador, lote_fornecedor)
+             SELECT * FROM UNNEST($1::bigint[], $2::text[], $3::date[], $4::text[], $5::text[], $6::float8[], $7::text[], $8::text[], $9::text[], $10::text[])",
         )
         .bind(reg).bind(refs).bind(datas).bind(horas).bind(es).bind(qtdes).bind(tipos).bind(motivos).bind(ops).bind(lotes)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     }
+    tx.commit().await?;
     Ok(linhas.len())
 }
 
@@ -448,7 +449,7 @@ mod tests {
         let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
         let pool = PgPool::connect(&url).await.unwrap();
         let limpar = |p: PgPool| async move {
-            sqlx::query("DELETE FROM erp_movimentos_insumos WHERE referencia = 'TESTE.H1'").execute(&p).await.unwrap();
+            sqlx::query("DELETE FROM erp_acertos_insumos WHERE referencia = 'TESTE.H1'").execute(&p).await.unwrap();
             sqlx::query("DELETE FROM lotes_baixas WHERE registro = 2147000101").execute(&p).await.unwrap();
             sqlx::query("DELETE FROM erp_recebimentos_insumos WHERE registro = 2147000102").execute(&p).await.unwrap();
         };
@@ -462,6 +463,7 @@ mod tests {
                 MovimentoErp { n_registro: 900001, referencia: "TESTE.H1".into(), data_mov: d(5), hora: "10:00".into(), es: "S".into(), qtde: 30.0, motivo: "ACERTO DE ESTOQUE".into(), operador: "ana".into(), lote_fornecedor: String::new() },
                 MovimentoErp { n_registro: 900002, referencia: "TESTE.H1".into(), data_mov: d(2), hora: "08:30".into(), es: "E".into(), qtde: 200.0, motivo: "ajuste: contagem refeita".into(), operador: "bia".into(), lote_fornecedor: "LF1".into() },
             ],
+            d(30),
         )
         .await
         .unwrap();
@@ -505,7 +507,7 @@ mod tests {
         let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
         let pool = PgPool::connect(&url).await.unwrap();
         let limpar = |p: PgPool| async move {
-            sqlx::query("DELETE FROM erp_movimentos_insumos WHERE referencia = 'TESTE.H2M'").execute(&p).await.unwrap();
+            sqlx::query("DELETE FROM erp_acertos_insumos WHERE referencia = 'TESTE.H2M'").execute(&p).await.unwrap();
             sqlx::query("DELETE FROM estoque_diario WHERE codigo = 'TESTE.H2M'").execute(&p).await.unwrap();
         };
         limpar(pool.clone()).await;
@@ -515,6 +517,7 @@ mod tests {
         gravar_movimentos(
             &pool,
             vec![MovimentoErp { n_registro: 900011, referencia: "TESTE.H2M".into(), data_mov: d(3), hora: "09:00".into(), es: "E".into(), qtde: 40.0, motivo: "recebimento".into(), operador: "ana".into(), lote_fornecedor: String::new() }],
+            d(30),
         )
         .await
         .unwrap();
@@ -532,5 +535,38 @@ mod tests {
         assert_eq!(r.resumo.estoque_inicio, Some(10.0));
         assert_eq!(r.resumo.estoque_fim, Some(55.0));
         assert_eq!(r.resumo.diferenca, Some(5.0)); // 55 - (10 + 40)
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn espelha_janela_sem_perder_registro_repetido() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        sqlx::query("DELETE FROM erp_acertos_insumos WHERE referencia LIKE 'TESTE.ESP%'").execute(&pool).await.unwrap();
+        // Datas bem no futuro: a janela do espelho apaga tudo com data_mov >= desde, então não pode tocar
+        // nas linhas dos outros testes (que usam datas de hoje para trás).
+        let base = Local::now().date_naive() + Duration::days(4000);
+        let d = |n: i64| base - Duration::days(n);
+        let m = |reg: i64, r: &str, dia: NaiveDate, q: f64| MovimentoErp {
+            n_registro: reg, referencia: r.into(), data_mov: dia, hora: String::new(), es: "S".into(), qtde: q,
+            motivo: "acerto".into(), operador: "ana".into(), lote_fornecedor: String::new(),
+        };
+        // Mesmo nRegistro em itens diferentes e até na mesma referência: nada pode ser sobrescrito.
+        let n = gravar_movimentos(
+            &pool,
+            vec![m(5, "TESTE.ESP1", d(2), 1.0), m(5, "TESTE.ESP2", d(2), 2.0), m(5, "TESTE.ESP1", d(2), 3.0), m(6, "TESTE.ESP1", d(100), 9.0)],
+            d(10),
+        )
+        .await
+        .unwrap();
+        assert_eq!(n, 3); // a de 100 dias fica fora da janela
+        let cont = |p: PgPool| async move {
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM erp_acertos_insumos WHERE referencia LIKE 'TESTE.ESP%'").fetch_one(&p).await.unwrap()
+        };
+        assert_eq!(cont(pool.clone()).await, 3);
+        // Regravar a mesma janela não duplica; acerto apagado no ERP some.
+        gravar_movimentos(&pool, vec![m(5, "TESTE.ESP1", d(2), 1.0), m(5, "TESTE.ESP2", d(2), 2.0)], d(10)).await.unwrap();
+        assert_eq!(cont(pool.clone()).await, 2);
+        sqlx::query("DELETE FROM erp_acertos_insumos WHERE referencia LIKE 'TESTE.ESP%'").execute(&pool).await.unwrap();
     }
 }
