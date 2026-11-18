@@ -25,6 +25,8 @@ interface Props {
   /** Abre o painel de composição do kit (mora no arquivo principal). */
   /** Abre Produção > Kits (a composição não se edita aqui); ausente se o operador não tem acesso. */
   onAbrirKits?: () => void;
+  /** Leva à aba Linhas: mover produto de linha só se faz pelo painel da linha. */
+  onIrParaLinhas?: () => void;
   /** Códigos dos produtos que têm ajuste manual (visão "Ajuste manual"). */
   codigosComAjuste: Set<string>;
 }
@@ -42,7 +44,7 @@ const VISTAS: { id: Vista; label: string }[] = [
 ];
 
 /** Aba Produtos da Linha de Produtos: tabela com filtros, paginação, ações em lote e painel de edição do produto. */
-export default function StatusTab({ products, categories, configs, kitComposicao, graduationCandidates, loading, pedirBulk, avisar, onReload, onAbrirKits, codigosComAjuste }: Props) {
+export default function StatusTab({ onIrParaLinhas, products, categories, configs, kitComposicao, graduationCandidates, loading, pedirBulk, avisar, onReload, onAbrirKits, codigosComAjuste }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [lineFilter, setLineFilter] = useState('ALL');
@@ -80,7 +82,6 @@ export default function StatusTab({ products, categories, configs, kitComposicao
   const [baseCodigoForm, setBaseCodigoForm] = useState('');
   const [bulkStatus, setBulkStatus] = useState('');
   const [bulkCategory, setBulkCategory] = useState('');
-  const [bulkLine, setBulkLine] = useState('');
 
   // Filtered Products
   const isCategoryMatch = (prodCat: string | null, filterCat: string) => {
@@ -344,13 +345,11 @@ export default function StatusTab({ products, categories, configs, kitComposicao
         setBulkStatus('');
         setBulkAtendimento('');
         setBulkCategory('');
-        setBulkLine('');
         await onReload();
       },
       aoCancelar: () => {
         setBulkStatus('');
         setBulkAtendimento('');
-        setBulkLine('');
         setBulkCategory('');
       },
     });
@@ -700,18 +699,16 @@ export default function StatusTab({ products, categories, configs, kitComposicao
                     <option value="AUTO">Herdar da linha</option>
                     {ATENDIMENTOS_UI.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
                   </select>
-                  <select
-                    aria-label="Mudar linha"
-                    value={bulkLine}
-                    onChange={(e) => { setBulkLine(e.target.value); if (e.target.value) handleBulkAction('set_line', e.target.value); }}
-                    className="h-8 bg-zinc-800 text-white border border-zinc-700 rounded-xl text-xs font-bold px-2 max-w-[220px] focus:outline-none cursor-pointer"
-                  >
-                    <option value="">Mudar linha…</option>
-                    <option value="AUTO">Automática (pelo prefixo)</option>
-                    {configs.map(c => (
-                      <option key={c.linha_prefix} value={c.linha_prefix}>{c.nome_linha}</option>
-                    ))}
-                  </select>
+                  {onIrParaLinhas && (
+                    <button
+                      type="button"
+                      onClick={onIrParaLinhas}
+                      title="Mover produto de linha é feito no painel da linha"
+                      className="h-8 px-3 rounded-xl border border-zinc-700 bg-zinc-800 text-white text-xs font-bold cursor-pointer hover:bg-zinc-700 transition-colors"
+                    >
+                      Mover de linha: em Linhas →
+                    </button>
+                  )}
                   <select
                     aria-label="Mudar categoria ou subcategoria"
                     value={bulkCategory}
