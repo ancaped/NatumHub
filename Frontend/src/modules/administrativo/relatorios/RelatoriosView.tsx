@@ -49,7 +49,7 @@ export default function RelatoriosView({
       onTabChange={(id) => setActiveTab(id as any)}
     >
       {activeTab === 'saude_estoque' && (
-        <div className="p-6">
+        <div className="md:p-6">
           <StockHealthTab setView={setView} />
         </div>
       )}

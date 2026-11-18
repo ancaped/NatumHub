@@ -1,26 +1,27 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, ChevronRight, Loader2, Plus, Printer, RefreshCw } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronLeft, Printer, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../../../geral/lib/http';
-import { BotaoAcao, FilterBar, FiltroSelect, ReportHeader, ReportTabs, StatusBadge, TabelaPainel } from '../../../geral/components/ui/ReportKit';
+import { BotaoAcao, FilterBar, ReportHeader, ReportTabs, StatusBadge } from '../../../geral/components/ui/ReportKit';
 import type { VarianteBadge } from '../../../geral/components/ui/ReportKit';
-import { unidadesParaKg, ehBaseProduto } from '../../lib/unitConversion';
+import { agruparLinhas, prefixosDaLinha } from '../../../geral/lib/linhas';
 import { ProductDetailsDrawer } from './ProductDetailsDrawer';
-import { linhaCasa, rotuloLinhaProducao, sublinhasSobPrincipal, RECUO_SUBLINHA } from '../../lib/linhasProducao';
 
 /**
- * Saúde do Estoque: a classificação vem pronta do servidor (`GET /api/producao/saude-estoque`),
- * na mesma base da Demanda de Produção. A tela só lista, filtra, ordena e imprime.
+ * Saúde do Estoque: quão longe o estoque está do objetivo (o estoque ideal) e onde há estoque parado.
+ * Tudo vem calculado do servidor (`GET /api/producao/saude-estoque`, mesma base da Demanda de Produção);
+ * a tela só agrupa por linha, lista, ordena e imprime. Não diz o que produzir: isso é a Demanda.
  */
 
-type Situacao = 'ruptura' | 'baixo' | 'adequado' | 'excesso' | 'sem_giro' | 'especial';
+type Tipo = 'produto' | 'kit' | 'coloracao' | 'apoio';
+type Faixa = 'abaixo' | 'no_objetivo' | 'acima' | 'parado' | 'sem_objetivo';
+type Aba = Tipo | 'retirados';
 
 interface ItemSaude {
   codigo: string;
   descricao: string;
   linha_prefix: string;
   nome_linha: string;
-  tipo: 'produto' | 'kit' | 'coloracao' | 'apoio';
-  situacao: Situacao;
+  tipo: Tipo;
   selo: string | null;
   situacao_produto: string | null;
   estoque: number;
@@ -28,30 +29,37 @@ interface ItemSaude {
   pedidos_aberto: number;
   estoque_demanda: number;
   ideal: number;
-  gatilho: number;
   media_mensal: number;
   cobertura_dias: number | null;
-  excedente: number;
-  vendas_3m: number;
-  vendas_12m: number;
-  tendencia_pct: number | null;
-  ultima_venda: string | null;
   dias_sem_venda: number | null;
-  ultima_producao: string | null;
-  planejado: boolean;
-  na_fila: boolean;
-  faltas_venda: number;
-  status_demanda: string;
-  producao_recomendada: number;
   papel_kit: 'so_kit' | 'em_kit' | null;
-  kits_pais: string[];
-  vendas_diretas_12m: number;
-  vendas_por_kits_12m: number;
   em_transito: number;
-  previsao_chegada: string | null;
-  sugestao_compra: number;
-  falta_agora_coberta: boolean;
   base_movimento: 'venda' | 'consumo';
+  pct_objetivo: number | null;
+  distancia: number;
+  faixa: Faixa;
+  estoque_negativo: boolean;
+}
+
+interface Agregado {
+  itens: number;
+  objetivo_atingido_pct: number | null;
+  abaixo: number;
+  no_objetivo: number;
+  acima: number;
+  parado: number;
+  sem_objetivo: number;
+  faltam_un: number;
+  a_mais_un: number;
+  parado_un: number;
+}
+
+interface LinhaResumo {
+  linha_prefix: string;
+  nome_linha: string;
+  linha_principal: string | null;
+  proprio: Agregado;
+  total: Agregado;
 }
 
 interface Retirado {
@@ -66,90 +74,77 @@ interface RespostaSaude {
   retirados: Retirado[];
   gerado_em: string;
   regras: { fator_excesso: number; dias_sem_giro: number };
-  contagens: Record<string, number>;
+  por_tipo: Record<Tipo, { resumo: Agregado; linhas: LinhaResumo[] }>;
   itens: ItemSaude[];
 }
 
-type Aba = 'disponibilidade' | 'excesso' | 'sem_giro' | 'todos' | 'retirados';
+const ABAS_TIPO: { id: Tipo; label: string }[] = [
+  { id: 'produto', label: 'Produtos' },
+  { id: 'kit', label: 'Kits' },
+  { id: 'coloracao', label: 'Coloração' },
+  { id: 'apoio', label: 'Apoio' },
+];
 
-const ROTULO: Record<Situacao, string> = {
-  ruptura: 'Ruptura',
-  baixo: 'Baixo',
-  adequado: 'Adequado',
-  excesso: 'Excesso',
-  sem_giro: 'Sem giro',
-  especial: 'Especial',
+const ROTULO_FAIXA: Record<Faixa, string> = { abaixo: 'Abaixo do objetivo', no_objetivo: 'No objetivo', acima: 'Acima de 2×', parado: 'Parado', sem_objetivo: 'Fora da conta' };
+const VARIANTE_FAIXA: Record<Faixa, VarianteBadge> = { abaixo: 'critico', no_objetivo: 'saudavel', acima: 'abundante', parado: 'descontinuado', sem_objetivo: 'aguardando' };
+const COR_FAIXA: Record<Faixa, string> = {
+  abaixo: 'hsl(var(--danger-hsl))',
+  no_objetivo: 'hsl(var(--success-hsl))',
+  acima: 'hsl(var(--info-hsl))',
+  parado: 'hsl(var(--text-secondary-hsl))',
+  sem_objetivo: 'hsl(var(--text-secondary-hsl))',
 };
-const VARIANTE: Record<Situacao, VarianteBadge> = {
-  ruptura: 'critico',
-  baixo: 'ordem',
-  adequado: 'saudavel',
-  excesso: 'abundante',
-  sem_giro: 'descontinuado',
-  especial: 'apoio',
-};
-const ROTULO_SELO: Record<string, string> = { lancamento: 'Lançamento', encomenda: 'Encomenda', terceirizado: 'Terceirizado' };
+const SEC = 'hsl(var(--text-secondary-hsl))';
+const BORDA = '1px solid hsl(var(--card-border-hsl))';
 
-const ABAS_SITUACOES: Record<Exclude<Aba, 'retirados'>, Situacao[] | null> = {
-  disponibilidade: ['ruptura', 'baixo'],
-  excesso: ['excesso'],
-  sem_giro: ['sem_giro'],
-  todos: null,
-};
-
-const ORDEM_PADRAO: Record<Exclude<Aba, 'retirados'>, { campo: string; dir: 'asc' | 'desc' }> = {
-  disponibilidade: { campo: 'cobertura_dias', dir: 'asc' },
-  excesso: { campo: 'excedente', dir: 'desc' },
-  sem_giro: { campo: 'dias_sem_venda', dir: 'desc' },
-  todos: { campo: 'codigo', dir: 'asc' },
-};
-
-/** Apoio é julgado pelo consumo (saída de estoque): o rótulo da coluna troca "venda" por "consumo" na linha dele. */
-const rot = (r: string, i: ItemSaude) => (i.base_movimento === 'consumo' ? r.replace('venda', 'consumo') : r);
 const num = (n: number) => n.toLocaleString('pt-BR');
-const dataBr = (iso: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
-const diasTxt = (d: number | null) => (d == null ? '—' : d >= 365 ? `${num(Math.round(d))} d (${(d / 365).toFixed(1).replace('.', ',')} a)` : `${num(Math.round(d))} d`);
-const mesesTxt = (d: number | null) => (d == null ? '—' : `${(d / 30).toFixed(1).replace('.', ',')} m`);
-/** A caminho = fabricados: em produção. Comprados prontos: pedido de compra em trânsito e a previsão de chegada. */
-const entrada = (i: ItemSaude) =>
-  i.tipo === 'coloracao' || i.tipo === 'apoio'
-    ? i.em_transito > 0 ? `+${num(i.em_transito)} un${i.previsao_chegada ? ` · chega ${dataBr(i.previsao_chegada)}` : ''}` : '—'
-    : i.em_producao > 0 ? num(i.em_producao) : '—';
-const tendenciaTxt = (t: number | null) => (t == null ? '—' : `${t > 0 ? '+' : ''}${t.toLocaleString('pt-BR')}%`);
+const pctTxt = (p: number | null) => (p == null ? '—' : `${Math.round(p).toLocaleString('pt-BR')}%`);
+const distTxt = (d: number) => (d === 0 ? '0' : d > 0 ? `+${num(d)}` : `−${num(Math.abs(d))}`);
+const nomeCurto = (n: string) => n.replace(/^[\s ]+/, '');
 
-/** Valor de ordenação; sem valor vai para o fim (sem giro: quem nunca vendeu vem primeiro). */
-function valorOrdem(i: ItemSaude, campo: string): number | string {
-  switch (campo) {
-    case 'codigo': return i.codigo;
-    case 'descricao': return i.descricao.toLowerCase();
-    case 'situacao': return ['ruptura', 'baixo', 'sem_giro', 'excesso', 'adequado', 'especial'].indexOf(i.situacao);
-    case 'cobertura_dias': return i.cobertura_dias ?? Number.POSITIVE_INFINITY;
-    case 'dias_sem_venda': return i.dias_sem_venda ?? Number.POSITIVE_INFINITY;
-    case 'tendencia_pct': return i.tendencia_pct ?? Number.NEGATIVE_INFINITY;
-    case 'ultima_producao': return i.ultima_producao ?? '';
-    case 'ultima_venda': return i.ultima_venda ?? '';
-    default: return (i as any)[campo] ?? 0;
-  }
+/** Cobertura por extenso: dias até 60, depois meses. */
+function coberturaTxt(i: ItemSaude): string {
+  if (i.cobertura_dias == null) return i.base_movimento === 'consumo' ? 'sem consumo' : 'sem venda';
+  if (i.cobertura_dias <= 0) return 'sem estoque';
+  if (i.cobertura_dias <= 60) return `${Math.round(i.cobertura_dias)} dias`;
+  return `${(i.cobertura_dias / 30).toFixed(1).replace('.', ',')} meses`;
 }
+
+function paradoTxt(i: ItemSaude): string | null {
+  if (i.faixa !== 'parado') return null;
+  if (i.dias_sem_venda == null) return i.base_movimento === 'consumo' ? 'nunca saiu' : 'nunca vendeu';
+  return `parado ${num(i.dias_sem_venda)} dias`;
+}
+
+/** Barra de progresso com a marca do objetivo (100%). `max` = fim da escala em % (200 nos itens, 100 nas linhas). */
+function Barra({ pct, max, cor, titulo }: { pct: number | null; max: number; cor: string; titulo?: string }) {
+  const valor = Math.min(Math.max(pct ?? 0, 0), max);
+  const marca = (100 / max) * 100;
+  return (
+    <div title={titulo} style={{ position: 'relative', height: 8, borderRadius: 4, background: 'hsl(var(--background-hsl))', border: BORDA, width: '100%', minWidth: 60 }}>
+      <div style={{ width: `${(valor / max) * 100}%`, height: '100%', background: cor, borderRadius: 4 }} />
+      <div style={{ position: 'absolute', top: -2, bottom: -2, left: `calc(${Math.min(marca, 100)}% - 1px)`, width: 2, background: 'hsl(var(--text-primary-hsl))', opacity: 0.55, ...(marca >= 100 ? { left: 'auto', right: 0 } : {}) }} />
+    </div>
+  );
+}
+
+const corObjetivo = (p: number | null) => (p == null ? SEC : p >= 90 ? COR_FAIXA.no_objetivo : p >= 60 ? 'hsl(var(--warning-hsl))' : COR_FAIXA.abaixo);
 
 interface Props {
   setView?: (view: string) => void;
 }
 
-export function StockHealthTab({ setView }: Props) {
+export function StockHealthTab(_props: Props) {
   const [dados, setDados] = useState<RespostaSaude | null>(null);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const [aba, setAba] = useState<Aba>('disponibilidade');
+  const [aba, setAba] = useState<Aba>('produto');
   const [busca, setBusca] = useState('');
-  const [tipo, setTipo] = useState('todos');
-  const [linha, setLinha] = useState('todas');
-  // Linhas e sublinhas (só para agrupar o filtro; sem elas a tela segue como antes).
-  const [configs, setConfigs] = useState<any[]>([]);
-  const [ordem, setOrdem] = useState(ORDEM_PADRAO.disponibilidade);
-  const [filtroSituacao, setFiltroSituacao] = useState<Situacao | null>(null);
+  const [linhaSel, setLinhaSel] = useState<string | null>(null);
+  const [faixaSel, setFaixaSel] = useState<Faixa | null>(null);
+  const [ordem, setOrdem] = useState<{ campo: string; dir: 'asc' | 'desc' }>({ campo: 'distancia', dir: 'asc' });
   const [detalhe, setDetalhe] = useState<string | null>(null);
-  const [enfileirando, setEnfileirando] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -164,108 +159,56 @@ export function StockHealthTab({ setView }: Props) {
       setCarregando(false);
     }
   }, []);
-
   useEffect(() => { carregar(); }, [carregar]);
-  useEffect(() => {
-    apiFetch('/configs').then((r) => (r.ok ? r.json() : [])).then((d) => setConfigs(Array.isArray(d) ? d : [])).catch(() => setConfigs([]));
-  }, []);
+
+  const tipo: Tipo = aba === 'retirados' ? 'produto' : aba;
+  const bloco = dados?.por_tipo?.[tipo];
+  const linhas = bloco?.linhas ?? [];
 
   const trocarAba = (a: string) => {
     setAba(a as Aba);
-    setFiltroSituacao(null);
-    if (a !== 'retirados') setOrdem(ORDEM_PADRAO[a as Exclude<Aba, 'retirados'>]);
+    setLinhaSel(null);
+    setFaixaSel(null);
   };
 
   const ordenarPor = (campo: string) =>
-    setOrdem((o) => (o.campo === campo ? { campo, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { campo, dir: campo === 'codigo' || campo === 'descricao' ? 'asc' : 'desc' }));
+    setOrdem((o) => (o.campo === campo ? { campo, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { campo, dir: campo === 'descricao' ? 'asc' : 'desc' }));
 
-  const linhas = useMemo(() => {
-    const m = new Map<string, string>();
-    (dados?.itens ?? []).forEach((i) => m.set(i.linha_prefix, i.nome_linha || i.linha_prefix));
-    const ordenadas = [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-    // Ordem alfabética de sempre; só as sublinhas vão para logo abaixo da principal (quando as duas aparecem).
-    const porPrefixo = new Map(configs.map((c: any) => [c.linha_prefix, c]));
-    const agrupadas = sublinhasSobPrincipal(ordenadas.map(([k, n]) => ({ linha_prefix: k, nome_linha: n, linha_principal: porPrefixo.get(k)?.linha_principal ?? null })));
-    return agrupadas.map((l): [string, string] => [l.linha_prefix, rotuloLinhaProducao(configs, l.linha_prefix, l.nome_linha).includes(' › ') ? RECUO_SUBLINHA + l.nome_linha : l.nome_linha]);
-  }, [dados, configs]);
+  // Cartões: o tipo todo, ou só a linha escolhida (com as sublinhas).
+  const resumo: Agregado | undefined = linhaSel ? linhas.find((l) => l.linha_prefix === linhaSel)?.total : bloco?.resumo;
 
-  // Busca, tipo e linha valem para as contagens e para a lista; a aba escolhe as situações.
-  const base = useMemo(() => {
+  const prefixos = useMemo(() => (linhaSel ? new Set(prefixosDaLinha(linhas, linhaSel)) : null), [linhaSel, linhas]);
+  const mostrarItens = !!(linhaSel || busca.trim() || faixaSel);
+
+  const itens = useMemo(() => {
+    if (!dados || aba === 'retirados' || !mostrarItens) return [];
     const t = busca.trim().toLowerCase();
-    return (dados?.itens ?? []).filter(
-      (i) =>
-        (!t || i.codigo.toLowerCase().includes(t) || i.descricao.toLowerCase().includes(t)) &&
-        (tipo === 'todos' || i.tipo === tipo) &&
-        linhaCasa(configs, linha, i.linha_prefix),
+    const lista = dados.itens.filter(
+      (i) => i.tipo === aba && (!prefixos || prefixos.has(i.linha_prefix)) && (!faixaSel || i.faixa === faixaSel) && (!t || i.codigo.toLowerCase().includes(t) || i.descricao.toLowerCase().includes(t)),
     );
-  }, [dados, busca, tipo, linha, configs]);
-
-  const contar = (a: Exclude<Aba, 'retirados'>) => {
-    const s = ABAS_SITUACOES[a];
-    return s ? base.filter((i) => s.includes(i.situacao)).length : base.length;
-  };
-
-  const lista = useMemo(() => {
-    if (aba === 'retirados') return [];
-    const s = ABAS_SITUACOES[aba];
-    const sel = (s ? base.filter((i) => s.includes(i.situacao)) : [...base]).filter((i) => !filtroSituacao || i.situacao === filtroSituacao);
     const f = ordem.dir === 'asc' ? 1 : -1;
-    sel.sort((a, b) => {
-      const va = valorOrdem(a, ordem.campo);
-      const vb = valorOrdem(b, ordem.campo);
+    const valor = (i: ItemSaude): number | string => {
+      switch (ordem.campo) {
+        case 'descricao': return i.descricao.toLowerCase();
+        case 'ideal': return i.ideal;
+        case 'estoque': return Math.max(i.estoque_demanda, 0);
+        case 'pct': return i.pct_objetivo ?? Number.POSITIVE_INFINITY;
+        case 'cobertura': return i.cobertura_dias ?? Number.POSITIVE_INFINITY;
+        default: return i.distancia;
+      }
+    };
+    return [...lista].sort((a, b) => {
+      const va = valor(a);
+      const vb = valor(b);
       const r = typeof va === 'string' || typeof vb === 'string' ? String(va).localeCompare(String(vb)) : (va as number) - (vb as number);
-      return (Number.isNaN(r) ? 0 : r) * f || a.codigo.localeCompare(b.codigo);
+      return (r || a.codigo.localeCompare(b.codigo)) * (r ? f : 1);
     });
-    return sel;
-  }, [base, aba, ordem, filtroSituacao]);
+  }, [dados, aba, mostrarItens, prefixos, faixaSel, busca, ordem]);
 
-  /**
-   * Imprime a lista em uso em A4 em pé, numa janela própria (sem o menu e a rolagem do app, que cortavam tudo
-   * depois da primeira página). O padrão global de impressão do Nexus é paisagem; este relatório é retrato.
-   */
-  const imprimir = () => {
-    const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const titulo = abas.find((x) => x.id === aba)?.label ?? 'Saúde do Estoque';
-    const cab = colunas.map((c) => `<th class="${c.direita ? 'd' : ''}">${esc(c.rotulo)}</th>`).join('');
-    const linhasHtml = lista
-      .map((i) => {
-        const marcas = [i.tipo === 'kit' ? 'Kit' : i.tipo === 'coloracao' ? 'Coloração' : i.tipo === 'apoio' ? 'Apoio' : '', i.papel_kit === 'so_kit' ? 'Só kit' : i.papel_kit === 'em_kit' ? 'Também em kit' : '', i.selo ? (ROTULO_SELO[i.selo] ?? i.selo) : '', i.falta_agora_coberta ? 'falta agora, coberto' : ''].filter(Boolean).join(' · ');
-        const cels = colunas.map((c) => `<td class="${c.direita ? 'd' : ''}">${esc(c.texto(i))}</td>`).join('');
-        return `<tr><td class="m">${esc(i.codigo)}</td><td>${esc(i.descricao)}${marcas ? `<div class="s">${esc(marcas)}</div>` : ''}</td>${cels}</tr>`;
-      })
-      .join('');
-    const regra = regras ? `Excesso: acima de ${regras.fator_excesso}× o ideal · Sem giro: ${regras.dias_sem_giro} dias sem venda · ` : '';
-    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Saúde do Estoque — ${esc(titulo)}</title>
-<style>
-@page { size: A4 portrait; margin: 10mm; }
-* { box-sizing: border-box; }
-body { font-family: Arial, Helvetica, sans-serif; color: #18181b; font-size: 9pt; margin: 0; }
-h1 { font-size: 12pt; margin: 0 0 2px; }
-.sub { font-size: 8pt; color: #52525b; margin-bottom: 8px; }
-table { width: 100%; border-collapse: collapse; table-layout: auto; }
-th { text-align: left; font-size: 7.5pt; text-transform: uppercase; color: #52525b; border-bottom: 1.5px solid #18181b; padding: 3px 4px; }
-td { padding: 3px 4px; border-bottom: 1px solid #e4e4e7; vertical-align: top; }
-thead { display: table-header-group; }
-tr { page-break-inside: avoid; }
-.d { text-align: right; white-space: nowrap; }
-.m { font-family: monospace; font-size: 8pt; white-space: nowrap; }
-.s { font-size: 7pt; color: #71717a; }
-</style></head><body>
-<h1>Natum Cosméticos — Saúde do Estoque: ${esc(titulo)}</h1>
-<div class="sub">${esc(regra)}Itens: <b>${lista.length}</b> · Emissão: ${esc(new Date().toLocaleString('pt-BR'))}</div>
-<table><thead><tr><th>Código</th><th>Produto</th>${cab}</tr></thead><tbody>${linhasHtml}</tbody></table>
-</body></html>`;
-    const w = window.open('', '_blank');
-    if (!w) { setErro('O navegador bloqueou a janela de impressão. Libere pop-ups para o Nexus.'); return; }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    w.focus();
-    setTimeout(() => w.print(), 300);
-  };
+  const negativos = useMemo(() => itens.filter((i) => i.estoque_negativo).length, [itens]);
 
   const alterarRetirado = async (codigo: string, retirar: boolean) => {
-    setEnfileirando(codigo);
+    setOcupado(codigo);
     try {
       const res = await apiFetch(`/producao/saude-estoque/${retirar ? 'retirar' : 'restaurar'}?confirmar=true`, {
         method: 'POST',
@@ -277,169 +220,57 @@ tr { page-break-inside: avoid; }
     } catch (e: any) {
       setErro(e?.message || 'Falha ao alterar a lista de retirados');
     } finally {
-      setEnfileirando(null);
+      setOcupado(null);
     }
   };
 
-  const enfileirar = async (i: ItemSaude) => {
-    const sugerido = i.producao_recomendada > 0 ? i.producao_recomendada : Math.max(Math.round(i.ideal - i.estoque_demanda), 1);
-    const kgBruto = unidadesParaKg(sugerido, i.descricao, ehBaseProduto({ codigo: i.codigo, descricao: i.descricao }));
-    setEnfileirando(i.codigo);
-    try {
-      const res = await apiFetch('/producao/fila-demandas?confirmar=true', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          codigoProduto: i.codigo,
-          descricao: i.descricao,
-          quantidade: sugerido,
-          unidade: 'un',
-          quantidadeKg: kgBruto == null ? null : Math.round(kgBruto * 10) / 10,
-          origemDemanda: 'sugestao_estoque',
-        }),
-      });
-      if (res.ok) await carregar();
-    } catch (e) {
-      console.error('Erro ao adicionar à fila de demandas:', e);
-    } finally {
-      setEnfileirando(null);
+  /** Imprime a visão em uso (linhas ou itens) em A4 em pé, numa janela própria. */
+  const imprimir = () => {
+    const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const rotuloTipo = ABAS_TIPO.find((a) => a.id === tipo)?.label ?? '';
+    const rotuloLinha = linhaSel ? nomeCurto(linhas.find((l) => l.linha_prefix === linhaSel)?.nome_linha ?? linhaSel) : '';
+    let cab: string[];
+    let corpo: string[][];
+    if (mostrarItens) {
+      cab = ['Código', 'Produto', 'Objetivo', 'Estoque', '% do objetivo', 'Distância', 'Cobertura'];
+      corpo = itens.map((i) => [i.codigo, i.descricao + (paradoTxt(i) ? ` (${paradoTxt(i)})` : ''), num(i.ideal), num(Math.max(i.estoque_demanda, 0)), pctTxt(i.pct_objetivo), distTxt(i.distancia), coberturaTxt(i)]);
+    } else {
+      cab = ['Linha', 'Objetivo atingido', 'Abaixo', 'No objetivo', 'Acima de 2×', 'Parado', 'Unid. a mais'];
+      corpo = agruparLinhas(linhas).map(({ linha: l, nivel }) => [(nivel === 1 ? '   ' : '') + nomeCurto(l.nome_linha), pctTxt(l.total.objetivo_atingido_pct), num(l.total.abaixo), num(l.total.no_objetivo), num(l.total.acima), num(l.total.parado), num(l.total.a_mais_un)]);
     }
+    const th = cab.map((c, k) => `<th class="${k > 1 || (!mostrarItens && k > 0) ? 'd' : ''}">${esc(c)}</th>`).join('');
+    const tr = corpo.map((r) => `<tr>${r.map((c, k) => `<td class="${k > 1 || (!mostrarItens && k > 0) ? 'd' : ''}">${esc(c)}</td>`).join('')}</tr>`).join('');
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Saúde do Estoque — ${esc(rotuloTipo)}</title>
+<style>
+@page { size: A4 portrait; margin: 10mm; }
+* { box-sizing: border-box; }
+body { font-family: Arial, Helvetica, sans-serif; color: #18181b; font-size: 9pt; margin: 0; }
+h1 { font-size: 12pt; margin: 0 0 2px; }
+.sub { font-size: 8pt; color: #52525b; margin-bottom: 8px; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 7.5pt; text-transform: uppercase; color: #52525b; border-bottom: 1.5px solid #18181b; padding: 3px 4px; }
+td { padding: 3px 4px; border-bottom: 1px solid #e4e4e7; vertical-align: top; }
+thead { display: table-header-group; }
+tr { page-break-inside: avoid; }
+.d { text-align: right; white-space: nowrap; }
+</style></head><body>
+<h1>Natum Cosméticos — Saúde do Estoque: ${esc(rotuloTipo)}${rotuloLinha ? ` · ${esc(rotuloLinha)}` : ''}</h1>
+<div class="sub">Objetivo = estoque ideal; estoque = o futuro (com produção ou compra a caminho e pedidos em aberto) · Emissão: ${esc(new Date().toLocaleString('pt-BR'))}</div>
+<table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>
+</body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) { setErro('O navegador bloqueou a janela de impressão. Libere pop-ups para o Nexus.'); return; }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 300);
   };
-
-  const Th = ({ campo, children, dir }: { campo: string; children: React.ReactNode; dir?: 'right' }) => (
-    <th style={{ textAlign: dir ?? 'left', cursor: 'pointer', whiteSpace: 'nowrap' }} onClick={() => ordenarPor(campo)}>
-      {children}
-      {ordem.campo === campo && (ordem.dir === 'asc' ? <ArrowUp size={11} style={{ marginLeft: 3, display: 'inline' }} /> : <ArrowDown size={11} style={{ marginLeft: 3, display: 'inline' }} />)}
-    </th>
-  );
-
-  const Produto = ({ i }: { i: ItemSaude }) => (
-    <>
-      <div style={{ fontWeight: 700, fontSize: '0.78rem' }}>{i.descricao}</div>
-      <div style={{ fontSize: '0.68rem', color: 'hsl(var(--text-secondary-hsl))', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span className="font-mono">{i.codigo}</span>
-        {i.tipo === 'kit' && <span>Kit</span>}
-        {i.tipo === 'coloracao' && <span>Coloração</span>}
-        {i.tipo === 'apoio' && <span>Apoio · consumo</span>}
-        {i.papel_kit && <span style={{ fontWeight: 700 }} title={`Kits: ${i.kits_pais.join(', ')}`}>{i.papel_kit === 'so_kit' ? 'Só kit' : 'Também em kit'}</span>}
-        {i.selo && <span style={{ fontWeight: 700 }}>{ROTULO_SELO[i.selo] ?? i.selo}</span>}
-        {i.situacao_produto === 'saindo_de_linha' && <span style={{ fontWeight: 700 }}>Saindo de linha</span>}
-      </div>
-      {i.falta_agora_coberta && (
-        <div style={{ fontSize: '0.66rem', color: 'hsl(var(--text-secondary-hsl))', fontStyle: 'italic' }}>
-          {i.estoque <= 0 ? 'Zerado agora' : 'Abaixo do gatilho agora'}, coberto {i.tipo === 'coloracao' || i.tipo === 'apoio' ? 'pelo pedido de compra' : 'pela produção'}
-        </div>
-      )}
-      {i.papel_kit && (
-        <div style={{ fontSize: '0.66rem', color: 'hsl(var(--text-secondary-hsl))' }}>
-          {i.base_movimento === 'consumo' ? 'Consumo' : 'Vendas'} 12 m: {num(i.vendas_diretas_12m)} direto + {num(i.vendas_por_kits_12m)} por kits
-        </div>
-      )}
-    </>
-  );
-
-  const AcaoFila = ({ i }: { i: ItemSaude }) =>
-    i.tipo === 'coloracao' || i.tipo === 'apoio' ? (
-      i.sugestao_compra > 0 ? <span style={{ fontSize: '0.72rem', fontWeight: 700 }}>Comprar {num(i.sugestao_compra)}</span> : null
-    ) : i.na_fila || i.planejado ? (
-      <StatusBadge variante="aguardando">{i.planejado ? 'Planejado' : 'Na fila'}</StatusBadge>
-    ) : (
-      <button
-        type="button"
-        className="tab-btn"
-        disabled={enfileirando === i.codigo}
-        onClick={(e) => { e.stopPropagation(); enfileirar(i); }}
-        style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontSize: '0.72rem', minHeight: 44 }}
-      >
-        {enfileirando === i.codigo ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Fila
-      </button>
-    );
-
-  const AcaoLinha = () => (
-    <button
-      type="button"
-      className="tab-btn"
-      onClick={(e) => { e.stopPropagation(); setView?.('admin_linha_produtos'); }}
-      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontSize: '0.72rem', minHeight: 44 }}
-      title="A situação do produto (inativar) é mudada em Administrativo > Linha de Produtos"
-    >
-      Linha de Produtos <ChevronRight size={12} />
-    </button>
-  );
-
-  const AcaoTirar = ({ i }: { i: ItemSaude }) => (
-    <button
-      type="button"
-      className="tab-btn"
-      disabled={enfileirando === i.codigo}
-      title="Tirar do relatório (volta pela aba Retirados)"
-      onClick={(e) => { e.stopPropagation(); alterarRetirado(i.codigo, true); }}
-      style={{ padding: '4px 10px', fontSize: '0.72rem', minHeight: 44 }}
-    >
-      Tirar
-    </button>
-  );
-
-  const colunas = aba === 'retirados' ? [] : colunasDaAba(aba);
-
-  /** Texto de cada célula da aba (usado nas linhas do celular e na impressão). */
-  function colunasDaAba(a: Exclude<Aba, 'retirados'>): { campo: string; rotulo: string; direita?: boolean; valor: (i: ItemSaude) => React.ReactNode; texto: (i: ItemSaude) => string }[] {
-    const sit = { campo: 'situacao', rotulo: 'Situação', valor: (i: ItemSaude) => <StatusBadge variante={VARIANTE[i.situacao]}>{ROTULO[i.situacao]}</StatusBadge>, texto: (i: ItemSaude) => ROTULO[i.situacao] };
-    const est = { campo: 'estoque', rotulo: 'Estoque atual', direita: true, valor: (i: ItemSaude) => num(i.estoque), texto: (i: ItemSaude) => num(i.estoque) };
-    const fut = { campo: 'estoque_demanda', rotulo: 'Atual → futuro', direita: true, valor: (i: ItemSaude) => `${num(i.estoque)} → ${num(i.estoque_demanda)}`, texto: (i: ItemSaude) => `${num(i.estoque)} → ${num(i.estoque_demanda)}` };
-    const ideal = { campo: 'ideal', rotulo: 'Ideal', direita: true, valor: (i: ItemSaude) => num(i.ideal), texto: (i: ItemSaude) => num(i.ideal) };
-    const cobDias = { campo: 'cobertura_dias', rotulo: 'Cobertura', direita: true, valor: (i: ItemSaude) => diasTxt(i.cobertura_dias), texto: (i: ItemSaude) => diasTxt(i.cobertura_dias) };
-    const ultProd = { campo: 'ultima_producao', rotulo: 'Últ. produção', valor: (i: ItemSaude) => dataBr(i.ultima_producao), texto: (i: ItemSaude) => dataBr(i.ultima_producao) };
-    const ultVenda = { campo: 'ultima_venda', rotulo: 'Últ. venda/consumo', valor: (i: ItemSaude) => dataBr(i.ultima_venda), texto: (i: ItemSaude) => dataBr(i.ultima_venda) };
-    if (a === 'disponibilidade') {
-      return [
-        sit, fut, ideal, cobDias,
-        { campo: 'faltas_venda', rotulo: 'Faltas', direita: true, valor: (i) => (i.faltas_venda > 0 ? num(i.faltas_venda) : '—'), texto: (i) => (i.faltas_venda > 0 ? num(i.faltas_venda) : '—') },
-        { campo: 'em_producao', rotulo: 'A caminho', direita: true, valor: (i) => entrada(i), texto: (i) => entrada(i) },
-      ];
-    }
-    if (a === 'excesso') {
-      return [
-        fut, ideal,
-        { campo: 'excedente', rotulo: 'Excedente', direita: true, valor: (i) => num(i.excedente), texto: (i) => num(i.excedente) },
-        { campo: 'cobertura_dias', rotulo: 'Cobertura', direita: true, valor: (i) => mesesTxt(i.cobertura_dias), texto: (i) => mesesTxt(i.cobertura_dias) },
-        { campo: 'tendencia_pct', rotulo: 'Tendência', direita: true, valor: (i) => tendenciaTxt(i.tendencia_pct), texto: (i) => tendenciaTxt(i.tendencia_pct) },
-        ultProd,
-      ];
-    }
-    if (a === 'sem_giro') {
-      return [
-        { ...est, rotulo: 'Estoque parado' }, ultVenda,
-        { campo: 'dias_sem_venda', rotulo: 'Dias sem venda/consumo', direita: true, valor: (i) => (i.dias_sem_venda == null ? (i.base_movimento === 'consumo' ? 'Nunca saiu' : 'Nunca vendeu') : diasTxt(i.dias_sem_venda)), texto: (i) => (i.dias_sem_venda == null ? (i.base_movimento === 'consumo' ? 'Nunca saiu' : 'Nunca vendeu') : diasTxt(i.dias_sem_venda)) },
-        ultProd,
-      ];
-    }
-    return [sit, fut, ideal, cobDias, ultVenda];
-  }
-
-  // Cartões: contagens do que o endpoint devolveu, respeitando busca, tipo e linha (e sem os retirados, que o servidor já tirou).
-  const porSituacao = (s: Situacao) => base.filter((i) => i.situacao === s).length;
-  const escolherSituacao = (s: Situacao | null) => {
-    if (s === null) { setAba('todos'); setFiltroSituacao(null); setOrdem(ORDEM_PADRAO.todos); return; }
-    if (aba !== 'todos' && !(aba === 'disponibilidade' && (s === 'ruptura' || s === 'baixo'))) {
-      setAba(s === 'ruptura' || s === 'baixo' ? 'disponibilidade' : s === 'excesso' ? 'excesso' : s === 'sem_giro' ? 'sem_giro' : 'todos');
-    }
-    setFiltroSituacao((atual) => (atual === s ? null : s));
-    setOrdem(ORDEM_PADRAO[s === 'ruptura' || s === 'baixo' ? 'disponibilidade' : s === 'excesso' ? 'excesso' : s === 'sem_giro' ? 'sem_giro' : 'todos']);
-  };
-  const totalCartoes = base.length;
-  const adequados = porSituacao('adequado');
-  const pctAdequado = totalCartoes ? Math.round((adequados / totalCartoes) * 100) : 0;
 
   const abas = [
-    { id: 'disponibilidade', label: 'Disponibilidade', contagem: contar('disponibilidade') },
-    { id: 'excesso', label: 'Excesso', contagem: contar('excesso') },
-    { id: 'sem_giro', label: 'Sem giro', contagem: contar('sem_giro') },
-    { id: 'todos', label: 'Todos', contagem: contar('todos') },
+    ...ABAS_TIPO.map((a) => ({ id: a.id, label: a.label, contagem: dados?.por_tipo?.[a.id]?.resumo.itens ?? 0 })),
     { id: 'retirados', label: 'Retirados', contagem: dados?.retirados.length ?? 0 },
   ];
-  const tituloAba = abas.find((a) => a.id === aba)?.label ?? '';
-  const regras = dados?.regras;
 
   if (aba === 'retirados') {
     const rs = dados?.retirados ?? [];
@@ -452,14 +283,14 @@ tr { page-break-inside: avoid; }
         ) : (
           <div className="panel-card" style={{ padding: 0 }}>
             {rs.map((r) => (
-              <div key={r.codigo} style={{ padding: '10px 12px', borderBottom: '1px solid hsl(var(--border-hsl, 240 6% 90%))', display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div key={r.codigo} style={{ padding: '10px 12px', borderBottom: BORDA, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: '0.78rem' }}>{r.descricao ?? r.codigo}</div>
-                  <div style={{ fontSize: '0.68rem', color: 'hsl(var(--text-secondary-hsl))' }}>
-                    <span className="font-mono">{r.codigo}</span> · tirado por {r.retirado_por || '—'} em {dataBr(r.retirado_em)}{r.motivo ? ` · ${r.motivo}` : ''}
+                  <div style={{ fontSize: '0.68rem', color: SEC }}>
+                    <span className="font-mono">{r.codigo}</span> · tirado por {r.retirado_por || '—'} em {r.retirado_em.slice(0, 10).split('-').reverse().join('/')}{r.motivo ? ` · ${r.motivo}` : ''}
                   </div>
                 </div>
-                <button type="button" className="tab-btn" disabled={enfileirando === r.codigo} onClick={() => alterarRetirado(r.codigo, false)} style={{ padding: '4px 12px', fontSize: '0.72rem', minHeight: 44 }}>
+                <button type="button" className="tab-btn" disabled={ocupado === r.codigo} onClick={() => alterarRetirado(r.codigo, false)} style={{ padding: '4px 12px', fontSize: '0.72rem', minHeight: 44 }}>
                   Restaurar
                 </button>
               </div>
@@ -470,114 +301,245 @@ tr { page-break-inside: avoid; }
     );
   }
 
+  const Th = ({ campo, children, direita }: { campo: string; children: React.ReactNode; direita?: boolean }) => (
+    <th style={{ textAlign: direita ? 'right' : 'left', cursor: 'pointer', whiteSpace: 'nowrap' }} onClick={() => ordenarPor(campo)}>
+      {children}
+      {ordem.campo === campo && (ordem.dir === 'asc' ? <ArrowUp size={11} style={{ marginLeft: 3, display: 'inline' }} /> : <ArrowDown size={11} style={{ marginLeft: 3, display: 'inline' }} />)}
+    </th>
+  );
+
+  const Cartao = ({ faixa, titulo, valor, detalhe: det }: { faixa: Faixa | null; titulo: string; valor: string; detalhe?: string }) => {
+    const ativo = faixa != null && faixaSel === faixa;
+    return (
+      <button
+        type="button"
+        className="panel-card"
+        onClick={() => faixa && setFaixaSel(ativo ? null : faixa)}
+        style={{ flex: '1 1 140px', minHeight: 44, padding: '8px 12px', textAlign: 'left', cursor: faixa ? 'pointer' : 'default', outline: ativo ? '2px solid hsl(var(--primary-hsl))' : 'none' }}
+      >
+        <div style={{ fontSize: '0.66rem', fontWeight: 700, textTransform: 'uppercase', color: SEC }}>{titulo}</div>
+        <div style={{ fontSize: '1.25rem', fontWeight: 800, lineHeight: 1.25 }}>{valor}</div>
+        {det && <div style={{ fontSize: '0.7rem', color: SEC }}>{det}</div>}
+      </button>
+    );
+  };
+
+  // Colunas da tabela por linha que vêm vazias não aparecem.
+  const temParado = linhas.some((l) => l.total.parado > 0);
+  const temAcima = linhas.some((l) => l.total.acima > 0);
+
+  const unidades = (n: number, singular: string) => `${num(n)} ${singular}`;
+  const linhaNome = linhaSel ? nomeCurto(linhas.find((l) => l.linha_prefix === linhaSel)?.nome_linha ?? linhaSel) : '';
+
   return (
     <div>
       <div className="no-print">
         <ReportHeader
           titulo="Saúde do Estoque"
-          subtitulo={regras ? `Produtos, kits, coloração e apoio · excesso: acima de ${regras.fator_excesso}× o ideal · sem giro: ${regras.dias_sem_giro} dias sem venda` : 'Produtos, kits, coloração e apoio'}
+          subtitulo="Quão longe o estoque está do objetivo e onde há estoque parado"
           acoes={
             <>
               <BotaoAcao onClick={carregar} disabled={carregando} title="Atualizar">
                 <RefreshCw size={13} className={carregando ? 'animate-spin' : ''} /> Atualizar
               </BotaoAcao>
-              <BotaoAcao primario onClick={imprimir} disabled={!lista.length}>
+              <BotaoAcao primario onClick={imprimir} disabled={!bloco || (mostrarItens ? itens.length === 0 : linhas.length === 0)}>
                 <Printer size={13} /> Imprimir
               </BotaoAcao>
             </>
           }
         />
-        {/* Cartões do estado do estoque (exceção do Edson à regra "sem cards de KPI": só nesta tela; ver ai-memory) */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-          <button
-            type="button"
-            className="panel-card"
-            onClick={() => escolherSituacao(null)}
-            title="Parcela dos produtos em situação adequada; clique para ver todos"
-            style={{ flex: '1 1 150px', minHeight: 44, padding: '8px 12px', textAlign: 'left', cursor: 'pointer', outline: aba === 'todos' && !filtroSituacao ? '2px solid hsl(var(--primary-hsl))' : 'none' }}
-          >
-            <div style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', color: 'hsl(var(--text-secondary-hsl))' }}>Visão geral</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 800 }}>{pctAdequado}% <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'hsl(var(--text-secondary-hsl))' }}>adequados · {num(totalCartoes)} itens</span></div>
-          </button>
-          {(['ruptura', 'baixo', 'adequado', 'excesso', 'sem_giro'] as Situacao[]).map((s) => (
-            <button
-              key={s}
-              type="button"
-              className="panel-card"
-              onClick={() => escolherSituacao(s)}
-              style={{ flex: '1 1 96px', minHeight: 44, padding: '8px 12px', textAlign: 'left', cursor: 'pointer', outline: filtroSituacao === s ? '2px solid hsl(var(--primary-hsl))' : 'none' }}
-            >
-              <div style={{ marginBottom: 2 }}><StatusBadge variante={VARIANTE[s]}>{ROTULO[s]}</StatusBadge></div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 800 }}>{num(porSituacao(s))}</div>
-            </button>
-          ))}
-        </div>
+
         <ReportTabs abas={abas} ativa={aba} onChange={trocarAba} />
+
+        {/* Cartões do estado do estoque (exceção do Edson à regra "sem cards de KPI": só nesta tela; ver ai-memory) */}
+        {resumo && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+            <Cartao faixa={null} titulo="Objetivo atingido" valor={pctTxt(resumo.objetivo_atingido_pct)} detalhe={`${num(resumo.itens)} itens${linhaSel ? ` · ${linhaNome}` : ''}`} />
+            <Cartao faixa="abaixo" titulo="Abaixo do objetivo" valor={num(resumo.abaixo)} detalhe={resumo.abaixo ? `faltam ${unidades(resumo.faltam_un, 'un')}` : undefined} />
+            <Cartao faixa="no_objetivo" titulo="No objetivo" valor={num(resumo.no_objetivo)} detalhe="de 100% a 200%" />
+            <Cartao faixa="acima" titulo="Acima de 2×" valor={num(resumo.acima)} detalhe={resumo.acima ? `${unidades(resumo.a_mais_un, 'un')} a mais` : undefined} />
+            <Cartao faixa="parado" titulo="Parado 180 dias" valor={num(resumo.parado)} detalhe={resumo.parado ? `${unidades(resumo.parado_un, 'un')} paradas` : undefined} />
+          </div>
+        )}
+
         <FilterBar busca={busca} onBusca={setBusca} placeholder="Buscar por código ou descrição...">
-          <FiltroSelect value={tipo} onChange={setTipo} opcoes={[{ valor: 'todos', rotulo: 'Todos os tipos' }, { valor: 'produto', rotulo: 'Só produtos' }, { valor: 'kit', rotulo: 'Só kits' }, { valor: 'coloracao', rotulo: 'Coloração' }, { valor: 'apoio', rotulo: 'Apoio' }]} />
-          <FiltroSelect value={linha} onChange={setLinha} opcoes={[{ valor: 'todas', rotulo: 'Todas as linhas' }, ...linhas.map(([k, n]) => ({ valor: k, rotulo: n }))]} />
+          {(linhaSel || faixaSel) && (
+            <button type="button" className="tab-btn" onClick={() => { setLinhaSel(null); setFaixaSel(null); }} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontSize: '0.75rem', minHeight: 36 }}>
+              <ChevronLeft size={13} /> {linhaSel ? `Todas as linhas · ${linhaNome}` : ROTULO_FAIXA[faixaSel as Faixa]}
+            </button>
+          )}
         </FilterBar>
 
-        {erro && <div className="panel-card" style={{ padding: 12, fontSize: '0.8rem' }}>{erro}</div>}
+        {erro && <div className="panel-card" style={{ padding: 12, fontSize: '0.8rem', marginBottom: 8 }}>{erro}</div>}
         {!erro && carregando && !dados && <div className="panel-card" style={{ padding: 16, fontSize: '0.8rem' }}>Carregando…</div>}
-        {!erro && dados && lista.length === 0 && <div className="panel-card" style={{ padding: 16, fontSize: '0.8rem' }}>Nenhum produto nesta lista.</div>}
+        {!erro && dados && !mostrarItens && linhas.length === 0 && <div className="panel-card" style={{ padding: 16, fontSize: '0.8rem' }}>Nenhum item nesta aba.</div>}
 
-        {lista.length > 0 && (
+        {/* Visão principal: por linha, sublinhas recuadas */}
+        {!mostrarItens && linhas.length > 0 && (
           <>
-            {/* Tela larga: tabela */}
-            <div className="hidden md:block">
-              <TabelaPainel>
+            <div className="hidden md:block panel-card" style={{ padding: 0, overflowX: 'auto' }}>
+              <table className="data-table compacta">
                 <thead>
                   <tr>
-                    <Th campo="descricao">Produto</Th>
-                    {colunas.map((c) => <Th key={c.campo + c.rotulo} campo={c.campo} dir={c.direita ? 'right' : undefined}>{c.rotulo}</Th>)}
-                    <th style={{ textAlign: 'right' }}>Ação</th>
+                    <th>Linha</th>
+                    <th style={{ minWidth: 190 }}>Objetivo atingido</th>
+                    <th style={{ textAlign: 'right' }}>Abaixo</th>
+                    <th style={{ textAlign: 'right' }}>No objetivo</th>
+                    {temAcima && <th style={{ textAlign: 'right' }}>Acima de 2×</th>}
+                    {temParado && <th style={{ textAlign: 'right' }}>Parado</th>}
+                    {temAcima && <th style={{ textAlign: 'right' }}>Un. a mais</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {lista.map((i) => (
-                    <tr key={i.codigo} style={{ cursor: 'pointer' }} onClick={() => setDetalhe(i.codigo)}>
-                      <td><Produto i={i} /></td>
-                      {colunas.map((c) => <td key={c.campo + c.rotulo} style={{ textAlign: c.direita ? 'right' : 'left', whiteSpace: c.campo === 'em_producao' ? 'normal' : 'nowrap', maxWidth: c.campo === 'em_producao' ? 130 : undefined }}>{c.valor(i)}</td>)}
-                      <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
-                          {aba === 'disponibilidade' && <AcaoFila i={i} />}
-                          {aba === 'sem_giro' && <AcaoLinha />}
-                          <AcaoTirar i={i} />
+                  {agruparLinhas(linhas).map(({ linha: l, nivel }) => (
+                    <tr key={l.linha_prefix} style={{ cursor: 'pointer' }} onClick={() => setLinhaSel(l.linha_prefix)}>
+                      <td style={{ paddingLeft: nivel === 1 ? 28 : undefined, fontWeight: nivel === 0 ? 700 : 500, fontSize: '0.8rem' }}>{nomeCurto(l.nome_linha)}</td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ flex: 1 }}><Barra pct={l.total.objetivo_atingido_pct} max={100} cor={corObjetivo(l.total.objetivo_atingido_pct)} /></div>
+                          <strong style={{ fontSize: '0.8rem', minWidth: 38, textAlign: 'right' }}>{pctTxt(l.total.objetivo_atingido_pct)}</strong>
                         </div>
                       </td>
+                      <td style={{ textAlign: 'right', color: l.total.abaixo ? COR_FAIXA.abaixo : SEC, fontWeight: l.total.abaixo ? 700 : 400 }} title={l.total.abaixo ? `faltam ${num(l.total.faltam_un)} un` : undefined}>{num(l.total.abaixo)}</td>
+                      <td style={{ textAlign: 'right' }}>{num(l.total.no_objetivo)}</td>
+                      {temAcima && <td style={{ textAlign: 'right' }}>{num(l.total.acima)}</td>}
+                      {temParado && <td style={{ textAlign: 'right' }} title={l.total.parado ? `${num(l.total.parado_un)} un paradas` : undefined}>{num(l.total.parado)}</td>}
+                      {temAcima && <td style={{ textAlign: 'right' }}>{l.total.a_mais_un ? num(l.total.a_mais_un) : '—'}</td>}
                     </tr>
                   ))}
                 </tbody>
-              </TabelaPainel>
+              </table>
             </div>
 
-            {/* Celular: linhas compactas */}
             <div className="md:hidden panel-card" style={{ padding: 0 }}>
-              {lista.map((i) => (
-                <div key={i.codigo} onClick={() => setDetalhe(i.codigo)} style={{ padding: '10px 12px', borderBottom: '1px solid hsl(var(--border-hsl, 240 6% 90%))', cursor: 'pointer' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
-                    <div style={{ minWidth: 0 }}><Produto i={i} /></div>
-                    <div style={{ flexShrink: 0 }}><StatusBadge variante={VARIANTE[i.situacao]}>{ROTULO[i.situacao]}</StatusBadge></div>
+              {agruparLinhas(linhas).map(({ linha: l, nivel }) => (
+                <div key={l.linha_prefix} onClick={() => setLinhaSel(l.linha_prefix)} style={{ padding: '10px 12px', paddingLeft: nivel === 1 ? 28 : 12, borderBottom: BORDA, cursor: 'pointer', minHeight: 44 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: '0.8rem' }}>
+                    <span style={{ fontWeight: nivel === 0 ? 700 : 500, minWidth: 0 }}>{nomeCurto(l.nome_linha)}</span>
+                    <strong>{pctTxt(l.total.objetivo_atingido_pct)}</strong>
                   </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 14px', marginTop: 6, fontSize: '0.72rem', color: 'hsl(var(--text-secondary-hsl))' }}>
-                    {colunas.filter((c) => c.campo !== 'situacao').map((c) => (
-                      <span key={c.campo + c.rotulo}>{rot(c.rotulo, i)}: <strong style={{ color: 'hsl(var(--text-primary-hsl))' }}>{c.texto(i)}</strong></span>
-                    ))}
-                  </div>
-                  <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {aba === 'disponibilidade' && <AcaoFila i={i} />}
-                    {aba === 'sem_giro' && <AcaoLinha />}
-                    <AcaoTirar i={i} />
+                  <div style={{ margin: '5px 0' }}><Barra pct={l.total.objetivo_atingido_pct} max={100} cor={corObjetivo(l.total.objetivo_atingido_pct)} /></div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', fontSize: '0.7rem', color: SEC }}>
+                    <span style={l.total.abaixo ? { color: COR_FAIXA.abaixo, fontWeight: 700 } : undefined}>{num(l.total.abaixo)} abaixo</span>
+                    <span>{num(l.total.no_objetivo)} no objetivo</span>
+                    {l.total.acima > 0 && <span>{num(l.total.acima)} acima de 2×</span>}
+                    {l.total.parado > 0 && <span>{num(l.total.parado)} parados</span>}
                   </div>
                 </div>
               ))}
             </div>
           </>
         )}
+
+        {/* Itens da linha (ou da busca / do cartão escolhido) */}
+        {mostrarItens && !erro && itens.length === 0 && dados && <div className="panel-card" style={{ padding: 16, fontSize: '0.8rem' }}>Nenhum item nesta lista.</div>}
+        {mostrarItens && itens.length > 0 && (
+          <>
+            <div className="hidden md:block panel-card" style={{ padding: 0, overflowX: 'auto' }}>
+              <table className="data-table compacta">
+                <thead>
+                  <tr>
+                    <Th campo="descricao">Produto</Th>
+                    <Th campo="ideal" direita>Objetivo</Th>
+                    <Th campo="estoque" direita>Estoque</Th>
+                    <Th campo="pct">% do objetivo</Th>
+                    <Th campo="distancia" direita>Distância</Th>
+                    <Th campo="cobertura" direita>Cobertura</Th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {itens.map((i) => (
+                    <tr key={i.codigo} style={{ cursor: 'pointer' }} onClick={() => setDetalhe(i.codigo)}>
+                      <td><Produto i={i} /></td>
+                      <td style={{ textAlign: 'right' }}>{num(i.ideal)}</td>
+                      <td style={{ textAlign: 'right' }} title={dicaEstoque(i)}>{num(Math.max(i.estoque_demanda, 0))}{i.estoque_negativo ? '*' : ''}</td>
+                      <td style={{ minWidth: 150 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ flex: 1 }}><Barra pct={i.pct_objetivo} max={200} cor={COR_FAIXA[i.faixa]} titulo="A marca é o objetivo (100%); a barra vai até 200%" /></div>
+                          <span style={{ fontSize: '0.75rem', minWidth: 40, textAlign: 'right' }}>{pctTxt(i.pct_objetivo)}</span>
+                        </div>
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: i.distancia < 0 ? COR_FAIXA.abaixo : i.faixa === 'acima' ? COR_FAIXA.acima : undefined }}>{distTxt(i.distancia)}</td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontSize: '0.75rem' }}>{coberturaTxt(i)}</td>
+                      <td style={{ textAlign: 'right' }}><AcaoTirar i={i} ocupado={ocupado} onTirar={() => alterarRetirado(i.codigo, true)} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="md:hidden panel-card" style={{ padding: 0 }}>
+              {itens.map((i) => (
+                <div key={i.codigo} onClick={() => setDetalhe(i.codigo)} style={{ padding: '10px 12px', borderBottom: BORDA, cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                    <div style={{ minWidth: 0 }}><Produto i={i} /></div>
+                    <strong style={{ flexShrink: 0, fontSize: '0.85rem', color: i.distancia < 0 ? COR_FAIXA.abaixo : i.faixa === 'acima' ? COR_FAIXA.acima : undefined }}>{distTxt(i.distancia)}</strong>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '6px 0 4px' }}>
+                    <div style={{ flex: 1 }}><Barra pct={i.pct_objetivo} max={200} cor={COR_FAIXA[i.faixa]} /></div>
+                    <span style={{ fontSize: '0.72rem', minWidth: 38, textAlign: 'right' }}>{pctTxt(i.pct_objetivo)}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', fontSize: '0.7rem', color: SEC }}>
+                    <span>objetivo {num(i.ideal)}</span>
+                    <span title={dicaEstoque(i)}>estoque {num(Math.max(i.estoque_demanda, 0))}{i.estoque_negativo ? '*' : ''}</span>
+                    <span>{coberturaTxt(i)}</span>
+                    <span style={{ marginLeft: 'auto' }}><AcaoTirar i={i} ocupado={ocupado} onTirar={() => alterarRetirado(i.codigo, true)} /></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {negativos > 0 && <div style={{ fontSize: '0.7rem', color: SEC, marginTop: 6 }}>* Estoque negativo no ERP ({negativos} {negativos === 1 ? 'item' : 'itens'}): aparece como 0.</div>}
+          </>
+        )}
+
+        <div style={{ fontSize: '0.7rem', color: SEC, marginTop: 12, lineHeight: 1.5 }}>
+          <strong>Como ler.</strong> Objetivo = estoque ideal. Estoque = o futuro (com a produção ou a compra a caminho, menos os pedidos em aberto); o atual aparece ao passar o mouse.
+          {' '}<strong>Objetivo atingido</strong> = média de min(estoque ÷ ideal, 100%) dos itens com ideal, sem os parados: o excesso de um item não esconde a falta de outro.
+          {' '}No objetivo = de 100% a {dados?.regras.fator_excesso ?? 2}× o ideal. Parado = {dados?.regras.dias_sem_giro ?? 180} dias sem {tipo === 'apoio' ? 'consumo' : 'venda'} e com estoque (entra só na contagem de parados). Unidades a mais = estoque − ideal nos itens acima de 2×.
+        </div>
       </div>
 
       <ProductDetailsDrawer productCode={detalhe} isOpen={!!detalhe} onClose={() => setDetalhe(null)} />
     </div>
+  );
+}
+
+function dicaEstoque(i: ItemSaude): string {
+  const partes = [`Atual: ${num(i.estoque)}`];
+  const caminho = i.tipo === 'coloracao' || i.tipo === 'apoio' ? i.em_transito : i.em_producao;
+  if (caminho > 0) partes.push(`${i.tipo === 'coloracao' || i.tipo === 'apoio' ? 'em trânsito' : 'em produção'}: +${num(caminho)}`);
+  if (i.pedidos_aberto > 0) partes.push(`pedidos em aberto: −${num(i.pedidos_aberto)}`);
+  return partes.join(' · ');
+}
+
+function Produto({ i }: { i: ItemSaude }) {
+  const parado = paradoTxt(i);
+  return (
+    <>
+      <div style={{ fontWeight: 700, fontSize: '0.78rem' }}>{i.descricao}</div>
+      <div style={{ fontSize: '0.68rem', color: SEC, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span className="font-mono">{i.codigo}</span>
+        {i.papel_kit && <span style={{ fontWeight: 700 }}>{i.papel_kit === 'so_kit' ? 'Só kit' : 'Também em kit'}</span>}
+        {i.selo && <span style={{ fontWeight: 700 }}>Lançamento</span>}
+        {i.situacao_produto === 'saindo_de_linha' && <span style={{ fontWeight: 700 }}>Saindo de linha</span>}
+        {parado && <StatusBadge variante={VARIANTE_FAIXA.parado}>{parado}</StatusBadge>}
+      </div>
+    </>
+  );
+}
+
+function AcaoTirar({ i, ocupado, onTirar }: { i: ItemSaude; ocupado: string | null; onTirar: () => void }) {
+  return (
+    <button
+      type="button"
+      className="tab-btn"
+      disabled={ocupado === i.codigo}
+      title="Tirar do relatório (volta pela aba Retirados)"
+      onClick={(e) => { e.stopPropagation(); onTirar(); }}
+      style={{ padding: '4px 10px', fontSize: '0.72rem', minHeight: 44 }}
+    >
+      Tirar
+    </button>
   );
 }

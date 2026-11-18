@@ -45,7 +45,7 @@ pub fn acoes() -> Vec<Acao> {
     vec![Acao::leitura(
         "classificar_saude_estoque",
         "producao",
-        "Classifica cada produto acabado e kit em ruptura, baixo, adequado, excesso ou sem giro (sem giro = 180 dias sem venda; excesso = acima de 2x o estoque ideal), com cobertura em dias, excedente, vendas de 3 e 12 meses, última venda e última produção. Usa a mesma base da Demanda de Produção. Só leitura.",
+        "Classifica cada produto acabado e kit em ruptura, baixo, adequado, excesso ou sem giro (sem giro = 180 dias sem venda; excesso = acima de 2x o estoque ideal), com cobertura em dias, % do objetivo e distância em unidades, vendas de 3 e 12 meses, última venda e última produção, mais o resumo por tipo e por linha (objetivo atingido = média de min(estoque futuro ÷ ideal, 1) dos itens com ideal que não são sem giro). Usa a mesma base da Demanda de Produção. Só leitura.",
         "/api/producao/saude-estoque",
         vec![
             param("situacao", "query", "texto", false, "ruptura, baixo, adequado, excesso, sem_giro ou especial (lançamento/encomenda/terceirizado)."),
@@ -238,6 +238,199 @@ pub fn ideal_com_kits(ideal: f64, kits: &[(f64, f64)]) -> f64 {
     ideal + kits.iter().map(|(i, q)| i.max(0.0) * q).sum::<f64>()
 }
 
+/// Onde o item está em relação ao objetivo (o estoque ideal), pelo estoque futuro.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Faixa {
+    /// Menos que o ideal (abaixo de 100%).
+    Abaixo,
+    /// Do ideal até 2× o ideal (100% a 200%).
+    NoObjetivo,
+    /// Acima de 2× o ideal (ou sem ideal e com estoque).
+    Acima,
+    /// Sem giro (180 dias sem venda) e com estoque: dinheiro parado.
+    Parado,
+    /// Fica fora da conta: sem giro e sem estoque, ou sem ideal e sem estoque.
+    SemObjetivo,
+}
+
+/// Faixa do item pelo estoque futuro (`efp`, negativo conta como 0) e pelo ideal.
+/// Sem giro com estoque é Parado (julgado pelo dinheiro parado, não pelo objetivo).
+pub fn faixa(situacao: Situacao, efp: f64, ideal: f64) -> Faixa {
+    let estoque = efp.max(0.0);
+    if situacao == Situacao::SemGiro {
+        return if estoque > 0.0 { Faixa::Parado } else { Faixa::SemObjetivo };
+    }
+    if ideal <= 0.0 {
+        return if estoque > 0.0 { Faixa::Acima } else { Faixa::SemObjetivo };
+    }
+    let razao = estoque / ideal;
+    if razao < 1.0 {
+        Faixa::Abaixo
+    } else if razao <= FATOR_EXCESSO {
+        Faixa::NoObjetivo
+    } else {
+        Faixa::Acima
+    }
+}
+
+/// % do objetivo sem teto (estoque futuro ÷ ideal; negativo conta como 0). `None` sem ideal.
+pub fn pct_objetivo(efp: f64, ideal: f64) -> Option<f64> {
+    if ideal <= 0.0 {
+        return None;
+    }
+    Some((efp.max(0.0) / ideal * 1000.0).round() / 10.0)
+}
+
+/// Distância do objetivo em unidades: estoque futuro (negativo conta como 0) − ideal. Negativo = falta.
+pub fn distancia(efp: f64, ideal: f64) -> i64 {
+    (efp.max(0.0) - ideal.max(0.0)).round() as i64
+}
+
+/// Soma dos itens de um grupo (tipo, linha ou linha com sublinhas).
+///
+/// **Objetivo atingido** = média, sobre os itens com ideal > 0 que não são sem giro, de min(estoque futuro ÷ ideal, 1):
+/// o excesso de um item não esconde a falta de outro. Sem giro fica fora da média (é julgado como Parado).
+/// Unidades: `faltam` = ideal − estoque nos Abaixo; `a_mais` = estoque − ideal nos Acima (a mesma distância da lista);
+/// `parado_un` = estoque dos Parado.
+#[derive(Debug, Clone, Default)]
+pub struct Acumulador {
+    itens: usize,
+    abaixo: usize,
+    no_objetivo: usize,
+    acima: usize,
+    parado: usize,
+    sem_objetivo: usize,
+    faltam: f64,
+    a_mais: f64,
+    parado_un: f64,
+    soma_atingido: f64,
+    n_atingido: usize,
+}
+
+impl Acumulador {
+    pub fn somar(&mut self, f: Faixa, efp: f64, ideal: f64) {
+        let estoque = efp.max(0.0);
+        self.itens += 1;
+        match f {
+            Faixa::Abaixo => {
+                self.abaixo += 1;
+                self.faltam += ideal - estoque;
+            }
+            Faixa::NoObjetivo => self.no_objetivo += 1,
+            Faixa::Acima => {
+                self.acima += 1;
+                self.a_mais += estoque - ideal.max(0.0);
+            }
+            Faixa::Parado => {
+                self.parado += 1;
+                self.parado_un += estoque;
+            }
+            Faixa::SemObjetivo => self.sem_objetivo += 1,
+        }
+        if matches!(f, Faixa::Abaixo | Faixa::NoObjetivo | Faixa::Acima) && ideal > 0.0 {
+            self.soma_atingido += (estoque / ideal).min(1.0);
+            self.n_atingido += 1;
+        }
+    }
+
+    pub fn juntar(&mut self, o: &Acumulador) {
+        self.itens += o.itens;
+        self.abaixo += o.abaixo;
+        self.no_objetivo += o.no_objetivo;
+        self.acima += o.acima;
+        self.parado += o.parado;
+        self.sem_objetivo += o.sem_objetivo;
+        self.faltam += o.faltam;
+        self.a_mais += o.a_mais;
+        self.parado_un += o.parado_un;
+        self.soma_atingido += o.soma_atingido;
+        self.n_atingido += o.n_atingido;
+    }
+
+    pub fn resumo(&self) -> Agregado {
+        Agregado {
+            itens: self.itens,
+            objetivo_atingido_pct: if self.n_atingido > 0 { Some((self.soma_atingido / self.n_atingido as f64 * 1000.0).round() / 10.0) } else { None },
+            abaixo: self.abaixo,
+            no_objetivo: self.no_objetivo,
+            acima: self.acima,
+            parado: self.parado,
+            sem_objetivo: self.sem_objetivo,
+            faltam_un: self.faltam.round() as i64,
+            a_mais_un: self.a_mais.round() as i64,
+            parado_un: self.parado_un.round() as i64,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct Agregado {
+    pub itens: usize,
+    /// 0 a 100; `None` sem nenhum item com ideal.
+    pub objetivo_atingido_pct: Option<f64>,
+    pub abaixo: usize,
+    pub no_objetivo: usize,
+    pub acima: usize,
+    pub parado: usize,
+    pub sem_objetivo: usize,
+    pub faltam_un: i64,
+    pub a_mais_un: i64,
+    pub parado_un: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LinhaResumo {
+    pub linha_prefix: String,
+    pub nome_linha: String,
+    /// Prefixo da principal quando é sublinha (e a principal existe).
+    pub linha_principal: Option<String>,
+    /// Só os itens da própria linha.
+    pub proprio: Agregado,
+    /// A linha com as sublinhas (numa sublinha ou linha sem sublinhas, igual a `proprio`).
+    pub total: Agregado,
+}
+
+/// Agregado por linha de um tipo. A principal entra mesmo sem itens próprios quando alguma sublinha tem.
+/// `config`: (prefixo, nome, principal) de todas as linhas cadastradas.
+pub fn resumir_linhas(por_linha: &HashMap<String, Acumulador>, nomes: &HashMap<String, String>, config: &[(String, String, Option<String>)]) -> Vec<LinhaResumo> {
+    let existe: std::collections::HashSet<&str> = config.iter().map(|(p, _, _)| p.as_str()).collect();
+    let principal_de = |prefixo: &str| -> Option<String> {
+        config
+            .iter()
+            .find(|(p, _, _)| p == prefixo)
+            .and_then(|(_, _, pr)| pr.clone())
+            .filter(|pr| pr != prefixo && existe.contains(pr.as_str()))
+    };
+    let mut prefixos: Vec<String> = por_linha.keys().cloned().collect();
+    for p in por_linha.keys() {
+        if let Some(pr) = principal_de(p) {
+            if !prefixos.contains(&pr) {
+                prefixos.push(pr);
+            }
+        }
+    }
+    prefixos.sort();
+    prefixos
+        .into_iter()
+        .map(|prefixo| {
+            let proprio = por_linha.get(&prefixo).cloned().unwrap_or_default();
+            let mut total = proprio.clone();
+            for (p, a) in por_linha {
+                if principal_de(p).as_deref() == Some(prefixo.as_str()) {
+                    total.juntar(a);
+                }
+            }
+            let nome = nomes
+                .get(&prefixo)
+                .cloned()
+                .or_else(|| config.iter().find(|(p, _, _)| *p == prefixo).map(|(_, n, _)| n.clone()))
+                .unwrap_or_else(|| prefixo.clone());
+            LinhaResumo { linha_principal: principal_de(&prefixo), linha_prefix: prefixo, nome_linha: nome, proprio: proprio.resumo(), total: total.resumo() }
+        })
+        .collect()
+}
+
 #[derive(Debug, Serialize)]
 pub struct ItemSaude {
     pub codigo: String,
@@ -285,6 +478,13 @@ pub struct ItemSaude {
     pub falta_agora_coberta: bool,
     /// "venda" ou "consumo" (Apoio): de onde vêm média, vendas/consumo, última movimentação e dias sem movimento.
     pub base_movimento: &'static str,
+    /// Estoque futuro ÷ ideal em % (sem teto; negativo conta como 0). `None` sem ideal.
+    pub pct_objetivo: Option<f64>,
+    /// Estoque futuro (negativo conta como 0) − ideal, em unidades. Negativo = falta.
+    pub distancia: i64,
+    pub faixa: Faixa,
+    /// O estoque (atual ou futuro) está negativo no ERP; a tela mostra 0 com uma nota.
+    pub estoque_negativo: bool,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -478,6 +678,8 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
     let termo = filtro.search.as_deref().map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty());
     let mut contagens = Contagens::default();
     let mut itens = Vec::new();
+    let mut por_tipo: HashMap<&'static str, (Acumulador, HashMap<String, Acumulador>)> = HashMap::new();
+    let mut nomes_linha: HashMap<String, String> = HashMap::new();
 
     for p in &produtos {
         let categoria = categoria_raiz(p.categoria_produto.as_deref().unwrap_or(""), &pais);
@@ -552,6 +754,14 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
         }
         // As contagens respeitam a busca, mas não o filtro de situação (as abas mostram todas).
         contagens.somar(situacao);
+        let tipo: &'static str = if categoria == "cat_coloracao" { "coloracao" } else if categoria == "cat_apoio" { "apoio" } else if p.is_kit == Some(true) { "kit" } else { "produto" };
+        let faixa_item = faixa(situacao, efp, ideal);
+        {
+            let (geral, linhas) = por_tipo.entry(tipo).or_default();
+            geral.somar(faixa_item, efp, ideal);
+            linhas.entry(p.linha_prefix.clone()).or_default().somar(faixa_item, efp, ideal);
+            nomes_linha.entry(p.linha_prefix.clone()).or_insert_with(|| p.nome_linha.clone());
+        }
         if let Some(s) = filtro.situacao.as_deref().filter(|s| !s.is_empty() && *s != "todos") {
             if s != situacao.chave() {
                 continue;
@@ -564,7 +774,7 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
             descricao: p.descricao.clone(),
             linha_prefix: p.linha_prefix.clone(),
             nome_linha: p.nome_linha.clone(),
-            tipo: if categoria == "cat_coloracao" { "coloracao" } else if categoria == "cat_apoio" { "apoio" } else if p.is_kit == Some(true) { "kit" } else { "produto" },
+            tipo,
             situacao,
             selo,
             situacao_produto: p.status_produto.clone(),
@@ -597,13 +807,29 @@ pub async fn classificar_saude(db: &Db, filtro: &Filtro, hoje: NaiveDate) -> Res
             sugestao_compra: if comprado { sugestao_compra } else { 0 },
             falta_agora_coberta: falta_agora_coberta(p.estoque as f64, efp, gatilho),
             base_movimento: if apoio { "consumo" } else { "venda" },
+            pct_objetivo: pct_objetivo(efp, ideal),
+            distancia: distancia(efp, ideal),
+            faixa: faixa_item,
+            estoque_negativo: efp < 0.0 || p.estoque < 0,
         });
+    }
+
+    let linhas_config: Vec<(String, String, Option<String>)> =
+        sqlx::query_as("SELECT linha_prefix, COALESCE(nome_linha, linha_prefix), NULLIF(linha_principal, '') FROM config_linhas")
+            .fetch_all(db.pool())
+            .await
+            .map_err(|e| format!("Erro ao ler as linhas: {e}"))?;
+    let mut resumo_tipos = serde_json::Map::new();
+    for tipo in ["produto", "kit", "coloracao", "apoio"] {
+        let (geral, linhas) = por_tipo.remove(tipo).unwrap_or_default();
+        resumo_tipos.insert(tipo.to_string(), json!({ "resumo": geral.resumo(), "linhas": resumir_linhas(&linhas, &nomes_linha, &linhas_config) }));
     }
 
     Ok(json!({
         "gerado_em": hoje.to_string(),
         "regras": { "fator_excesso": FATOR_EXCESSO, "dias_sem_giro": DIAS_SEM_GIRO },
         "contagens": contagens,
+        "por_tipo": resumo_tipos,
         "retirados": retirados_lista,
         "itens": itens,
     }))
@@ -998,5 +1224,100 @@ mod tests {
         let nunca = janela_de_consumo(&[], 11, None);
         let (s, _) = classificar_componente(nunca, &[], 0.0, 500.0);
         assert_eq!(s, Situacao::SemGiro);
+    }
+
+    #[test]
+    fn faixas_pelo_estoque_futuro_e_o_ideal() {
+        assert_eq!(faixa(Situacao::Baixo, 99.0, 100.0), Faixa::Abaixo);
+        assert_eq!(faixa(Situacao::Adequado, 100.0, 100.0), Faixa::NoObjetivo);
+        assert_eq!(faixa(Situacao::Adequado, 200.0, 100.0), Faixa::NoObjetivo, "exatamente 2x ainda está no objetivo");
+        assert_eq!(faixa(Situacao::Excesso, 201.0, 100.0), Faixa::Acima);
+        assert_eq!(faixa(Situacao::Ruptura, -5.0, 100.0), Faixa::Abaixo, "negativo conta como 0");
+    }
+
+    #[test]
+    fn sem_giro_com_estoque_e_parado_e_sem_estoque_fica_fora() {
+        assert_eq!(faixa(Situacao::SemGiro, 40.0, 100.0), Faixa::Parado);
+        assert_eq!(faixa(Situacao::SemGiro, 0.0, 100.0), Faixa::SemObjetivo);
+        assert_eq!(faixa(Situacao::SemGiro, -3.0, 0.0), Faixa::SemObjetivo);
+    }
+
+    #[test]
+    fn sem_ideal_com_estoque_e_acima_e_sem_estoque_fica_fora() {
+        assert_eq!(faixa(Situacao::Excesso, 5.0, 0.0), Faixa::Acima);
+        assert_eq!(faixa(Situacao::Adequado, 0.0, 0.0), Faixa::SemObjetivo);
+        assert_eq!(pct_objetivo(5.0, 0.0), None);
+    }
+
+    #[test]
+    fn pct_e_distancia_sem_teto_e_sem_negativo() {
+        assert_eq!(pct_objetivo(350.0, 100.0), Some(350.0));
+        assert_eq!(pct_objetivo(-6.0, 100.0), Some(0.0));
+        assert_eq!(pct_objetivo(1.0, 3.0), Some(33.3));
+        assert_eq!(distancia(40.0, 300.0), -260);
+        assert_eq!(distancia(950.0, 100.0), 850);
+        assert_eq!(distancia(-5.0, 20.0), -20);
+    }
+
+    fn acum(itens: &[(Situacao, f64, f64)]) -> Acumulador {
+        let mut a = Acumulador::default();
+        for (s, efp, ideal) in itens {
+            a.somar(faixa(*s, *efp, *ideal), *efp, *ideal);
+        }
+        a
+    }
+
+    #[test]
+    fn objetivo_atingido_nao_deixa_o_excesso_esconder_a_falta() {
+        // um item com 0% e outro com 300%: média de min(razao,1) = (0 + 1) / 2 = 50%
+        let r = acum(&[(Situacao::Ruptura, 0.0, 100.0), (Situacao::Excesso, 300.0, 100.0)]).resumo();
+        assert_eq!(r.objetivo_atingido_pct, Some(50.0));
+        assert_eq!((r.abaixo, r.no_objetivo, r.acima, r.parado), (1, 0, 1, 0));
+        assert_eq!(r.faltam_un, 100);
+        assert_eq!(r.a_mais_un, 200, "estoque − ideal nos acima de 2x");
+    }
+
+    #[test]
+    fn objetivo_atingido_ignora_sem_giro_e_sem_ideal() {
+        let r = acum(&[
+            (Situacao::Adequado, 100.0, 100.0),
+            (Situacao::Baixo, 50.0, 100.0),
+            (Situacao::SemGiro, 900.0, 100.0), // parado: fora da média
+            (Situacao::Excesso, 7.0, 0.0),     // sem ideal: fora da média
+        ])
+        .resumo();
+        assert_eq!(r.objetivo_atingido_pct, Some(75.0));
+        assert_eq!((r.parado, r.parado_un), (1, 900));
+        assert_eq!(r.acima, 1);
+        assert_eq!(r.itens, 4);
+        assert_eq!(acum(&[(Situacao::SemGiro, 0.0, 10.0)]).resumo().objetivo_atingido_pct, None);
+    }
+
+    #[test]
+    fn principal_soma_as_sublinhas_e_aparece_sem_itens_proprios() {
+        let mut por_linha = HashMap::new();
+        por_linha.insert("2".to_string(), acum(&[(Situacao::Baixo, 50.0, 100.0)]));
+        por_linha.insert("2.5".to_string(), acum(&[(Situacao::Adequado, 100.0, 100.0)]));
+        let config = vec![("1".to_string(), "Natum".to_string(), None), ("2".to_string(), "Perfect".to_string(), Some("1".to_string())), ("2.5".to_string(), "Extra".to_string(), Some("1".to_string()))];
+        let nomes: HashMap<String, String> = HashMap::new();
+        let linhas = resumir_linhas(&por_linha, &nomes, &config);
+        let natum = linhas.iter().find(|l| l.linha_prefix == "1").unwrap();
+        assert_eq!(natum.proprio.itens, 0);
+        assert_eq!(natum.total.itens, 2);
+        assert_eq!(natum.total.objetivo_atingido_pct, Some(75.0));
+        assert_eq!(natum.nome_linha, "Natum");
+        let sub = linhas.iter().find(|l| l.linha_prefix == "2").unwrap();
+        assert_eq!(sub.linha_principal.as_deref(), Some("1"));
+        assert_eq!(sub.total.objetivo_atingido_pct, Some(50.0));
+    }
+
+    #[test]
+    fn principal_inexistente_vira_linha_propria() {
+        let mut por_linha = HashMap::new();
+        por_linha.insert("2".to_string(), acum(&[(Situacao::Adequado, 100.0, 100.0)]));
+        let config = vec![("2".to_string(), "Perfect".to_string(), Some("99".to_string()))];
+        let linhas = resumir_linhas(&por_linha, &HashMap::new(), &config);
+        assert_eq!(linhas.len(), 1);
+        assert_eq!(linhas[0].linha_principal, None);
     }
 }
