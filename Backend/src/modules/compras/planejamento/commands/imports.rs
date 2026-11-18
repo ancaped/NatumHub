@@ -696,20 +696,10 @@ pub async fn get_nf_import_control_query(pool: PgPool) -> Result<Option<serde_js
     }
 }
 
-pub async fn get_ignored_product_statuses_query(pool: PgPool) -> Result<Vec<String>, String> {
-    let row = sqlx::query("SELECT value FROM settings WHERE key = 'ignored_product_statuses'")
-        .fetch_optional(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    match row {
-        Some(row) => {
-            let val: String = row.get(0);
-            Ok(serde_json::from_str(&val)
-                .unwrap_or_else(|_| crate::core::regras_produto::status_ignorados_padrao()))
-        }
-        None => Ok(crate::core::regras_produto::status_ignorados_padrao()),
-    }
+/// Status que tiram o produto do planejamento: regra fixa (descontinuado + terceirizado).
+/// A setting `ignored_product_statuses` deixou de ser lida (decisão do Edson, 2026-11-18).
+pub async fn get_ignored_product_statuses_query(_pool: PgPool) -> Result<Vec<String>, String> {
+    Ok(crate::core::regras_produto::status_ignorados_padrao())
 }
 
 pub async fn get_auto_ignored_ingredients_query(
@@ -843,4 +833,43 @@ pub async fn get_auto_ignored_ingredients_query(
     }
 
     Ok(auto_ignored_map)
+}
+
+#[cfg(test)]
+mod testes_status_fixo {
+    use super::*;
+
+    /// Com a setting no padrão ou fora dele, a regra é a fixa; o resultado dos insumos auto-ignorados não muda.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn status_ignorados_segue_regra_fixa_mesmo_com_setting_diferente() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        let padrao = crate::core::regras_produto::status_ignorados_padrao();
+
+        let antes = get_auto_ignored_ingredients_query(pool.clone()).await.unwrap();
+
+        let original: Option<String> =
+            sqlx::query_scalar("SELECT value FROM settings WHERE key = 'ignored_product_statuses'")
+                .fetch_optional(&pool).await.unwrap();
+        sqlx::query("INSERT INTO settings (key, value) VALUES ('ignored_product_statuses', '[\"ativo\",\"lancamento\"]') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+            .execute(&pool).await.unwrap();
+        let lido = get_ignored_product_statuses_query(pool.clone()).await.unwrap();
+        let depois_fora_do_padrao = get_auto_ignored_ingredients_query(pool.clone()).await.unwrap();
+        match original {
+            Some(v) => { sqlx::query("UPDATE settings SET value = $1 WHERE key = 'ignored_product_statuses'").bind(v).execute(&pool).await.unwrap(); }
+            None => { sqlx::query("DELETE FROM settings WHERE key = 'ignored_product_statuses'").execute(&pool).await.unwrap(); }
+        }
+        assert_eq!(lido, padrao);
+        assert_eq!(antes, depois_fora_do_padrao);
+    }
+
+    #[tokio::test]
+    async fn status_ignorados_e_o_padrao_sem_banco() {
+        let pool = PgPool::connect_lazy("postgres://x:x@127.0.0.1:1/x").unwrap();
+        assert_eq!(
+            get_ignored_product_statuses_query(pool).await.unwrap(),
+            vec!["descontinuado".to_string(), "terceirizado".to_string()]
+        );
+    }
 }
