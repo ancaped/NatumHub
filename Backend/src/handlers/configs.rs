@@ -1021,6 +1021,17 @@ mod testes_regras_pcp {
         .unwrap()
     }
 
+    fn ctx() -> AuthContext {
+        AuthContext {
+            operator_id: "t1".into(),
+            display_name: "Teste".into(),
+            role: crate::modules::geral::auth::models::OperatorRole::Supervisor,
+            modules: vec![],
+            permissions: HashMap::new(),
+            origem: crate::modules::geral::auth::models::Origem::Tela,
+        }
+    }
+
     #[test]
     fn get_configs_so_acrescenta_linha_principal_ao_json() {
         let c = crate::models::LineConfigComPrincipal { config: linha(), linha_principal: Some("PP".into()) };
@@ -1061,6 +1072,22 @@ mod testes_regras_pcp {
         let lista = db.get_line_configs_com_principal().await.unwrap();
         assert_eq!(acha(&lista, "ZZGS")["linha_principal"], "ZZGP");
         assert_eq!(acha(&lista, "ZZGS")["nome_linha"], "Sub renomeada");
+
+        // fluxo do botão Salvar: vira sublinha (ação em 2 passos) e depois grava nome/parâmetros pelo PUT; a principal e os valores ficam
+        sqlx::query("UPDATE config_linhas SET linha_principal = NULL WHERE linha_prefix = 'ZZGS'").execute(&pool).await.unwrap();
+        let previa = crate::modules::administrativo::linhas::heranca::definir_linha_principal(&pool, &ctx(), "ZZGS", Some("ZZGP".into()), false).await.unwrap();
+        assert!(previa.previa);
+        assert!(db.get_line_configs_com_principal().await.unwrap().iter().filter(|c| c.config.linha_prefix == "ZZGS").all(|c| c.linha_principal.is_none()), "prévia não grava");
+        crate::modules::administrativo::linhas::heranca::definir_linha_principal(&pool, &ctx(), "ZZGS", Some("ZZGP".into()), true).await.unwrap();
+        let corpo: LineConfig = serde_json::from_value(json!({
+            "linha_prefix": "ZZGS", "nome_linha": "Sub de novo",
+            "estoque_ideal_mult": 7.0, "abrir_ordem_mult": 1.0, "abrir_prod_mult": 1.0, "fator_seguranca_z": 1.65
+        })).unwrap();
+        db.update_line_config(&corpo).await.unwrap();
+        let lista = db.get_line_configs_com_principal().await.unwrap();
+        let sub = serde_json::to_value(lista.iter().find(|c| c.config.linha_prefix == "ZZGS").unwrap()).unwrap();
+        assert_eq!(sub["linha_principal"], "ZZGP");
+        assert_eq!(sub["estoque_ideal_mult"], 7.0);
 
         sqlx::query("DELETE FROM config_linhas WHERE linha_prefix IN ('ZZGP', 'ZZGS')").execute(&pool).await.unwrap();
     }
