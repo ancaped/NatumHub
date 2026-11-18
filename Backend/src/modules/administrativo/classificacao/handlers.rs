@@ -120,7 +120,7 @@ async fn validar(conn: &mut sqlx::PgConnection, codigo: &str, pedido: &Pedido) -
                 return Err(ErroApi::regra(format!("Situação desconhecida: {v}. Use uma de: {}.", SITUACOES.join(", "))));
             }
             "atendimento" if !ATENDIMENTOS.contains(&v.as_str()) => {
-                return Err(ErroApi::regra(format!("Atendimento desconhecido: {v}. Use um de: {}.", ATENDIMENTOS.join(", "))));
+                return Err(ErroApi::regra(crate::core::regras_produto::erro_atendimento(v)));
             }
             "linha_prefix_manual" => {
                 let existe: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM config_linhas WHERE linha_prefix = $1)")
@@ -320,11 +320,11 @@ mod tests {
         let ctx = supervisor();
 
         // prévia da linha não grava
-        let r = classificar_linha(&pool, &ctx, "ZZL1", Some("encomenda".into()), None, false).await.unwrap();
+        let r = classificar_linha(&pool, &ctx, "ZZL1", Some("terceirizado".into()), None, false).await.unwrap();
         assert!(r.previa);
         assert_eq!(status_de(&pool, "ZZL1.1").await, None);
         // confirma: todos que herdam passam a ler "terceirizado"; ZZL1.3 tem exceção própria (terceirizado) e segue igual
-        classificar_linha(&pool, &ctx, "ZZL1", Some("encomenda".into()), None, true).await.unwrap();
+        classificar_linha(&pool, &ctx, "ZZL1", Some("terceirizado".into()), None, true).await.unwrap();
         assert_eq!(status_de(&pool, "ZZL1.1").await.as_deref(), Some("terceirizado"));
         assert_eq!(status_de(&pool, "ZZL1.2").await.as_deref(), Some("terceirizado"));
         // exceção do produto: ZZL1.2 volta a ser fabricado para estoque e lê a situação lançamento

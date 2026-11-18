@@ -42,14 +42,14 @@ pub fn acoes() -> Vec<Acao> {
         Acao::gravacao(
             "classificar_linha",
             M,
-            "Muda o atendimento padrão de uma linha (estoque, encomenda ou terceirizado) e/ou a deixa ativa ou inativa. Só o atendimento `estoque` gera demanda automática de produção e de insumo; produto com exceção própria de atendimento não muda. Linha inativa esconde a linha e os produtos dela em todos os módulos (o histórico fica guardado). Sem `confirmar=true` devolve só a prévia (quantos produtos mudam de efeito); com `confirmar=true` grava e audita antes e depois.",
+            "Muda o atendimento padrão de uma linha (estoque ou terceirizado) e/ou a deixa ativa ou inativa. Só o atendimento `estoque` gera demanda automática de produção e de insumo; produto com exceção própria de atendimento não muda. Linha inativa esconde a linha e os produtos dela em todos os módulos (o histórico fica guardado). Sem `confirmar=true` devolve só a prévia (quantos produtos mudam de efeito); com `confirmar=true` grava e audita antes e depois.",
             "POST",
             "/api/admin/produtos-ativos/linhas/classificacao",
             true,
             vec![
                 param("confirmar", "query", "booleano", false, "true grava; ausente só mostra a prévia."),
                 param("prefixo", "corpo", "texto", true, "Prefixo da linha."),
-                param("atendimento", "corpo", "texto", false, "estoque, encomenda ou terceirizado."),
+                param("atendimento", "corpo", "texto", false, "estoque ou terceirizado."),
                 param("ativa", "corpo", "booleano", false, "false inativa a linha; true a reativa."),
             ],
         ),

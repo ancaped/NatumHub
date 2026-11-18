@@ -56,7 +56,7 @@ pub fn acoes_linha_produtos() -> Vec<Acao> {
             vec![
                 param("confirmar", "query", "booleano", false, "true grava; ausente só mostra a prévia."),
                 param("codigos", "corpo", "lista de texto", true, "Códigos dos produtos."),
-                param("action", "corpo", "texto", true, "hide, show, set_launch_auto, set_launch_yes, set_launch_no, sair_producao_fixa, graduar_lancamento, set_obs, set_line, set_status, set_atendimento (estoque, encomenda, terceirizado ou AUTO para herdar da linha), set_category ou clear."),
+                param("action", "corpo", "texto", true, "hide, show, set_launch_auto, set_launch_yes, set_launch_no, sair_producao_fixa, graduar_lancamento, set_obs, set_line, set_status, set_atendimento (estoque, terceirizado ou AUTO para herdar da linha), set_category ou clear."),
                 param("value_str", "corpo", "texto", false, "Valor da ação (status, linha, categoria ou observação)."),
             ],
         ),
@@ -423,10 +423,7 @@ pub fn validar_bulk(req: &BulkOverrideRequest) -> Result<(), ErroApi> {
     if req.action == "set_atendimento" {
         if let Some(v) = req.value_str.as_deref().map(str::trim).filter(|s| !s.is_empty() && *s != "AUTO") {
             if !crate::core::regras_produto::ATENDIMENTOS.contains(&v) {
-                return Err(ErroApi::regra(format!(
-                    "Atendimento desconhecido: {v}. Use um de: {}.",
-                    crate::core::regras_produto::ATENDIMENTOS.join(", ")
-                )));
+                return Err(ErroApi::regra(crate::core::regras_produto::erro_atendimento(v)));
             }
         }
     }

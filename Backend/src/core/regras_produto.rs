@@ -69,18 +69,29 @@ where
 
 // --- Situação × atendimento (L1 do plano da Linha de Produtos, decisão do Edson 2026-11-10) ---
 // Situação: o produto está no catálogo? ativo, lançamento, saindo de linha, inativo (guardado como "descontinuado").
-// Atendimento: o produto gera demanda automática? estoque (sim), encomenda e terceirizado (não).
+// Atendimento: o produto gera demanda automática? estoque (sim), terceirizado (não).
+// "Por encomenda" foi removido (Edson, 2026-11-18: "por encomenda é basicamente terceirizado"); o que sobrou gravado
+// como "encomenda" lê "terceirizado" e a migração 125 converte os dados.
 // O atendimento tem padrão na linha (`config_linhas.atendimento`) e exceção no produto (`overrides_produtos.atendimento`).
 // Produção e Compras ainda leem `overrides_produtos.status_produto`; ele é mantido como espelho da regra abaixo
 // (`status_de_consumo`), por isso nada muda para eles: quem era "terceirizado" continua lendo "terceirizado".
 
-pub const ATENDIMENTOS: [&str; 3] = ["estoque", "encomenda", "terceirizado"];
+pub const ATENDIMENTOS: [&str; 2] = ["estoque", "terceirizado"];
 pub const SITUACOES: [&str; 4] = ["ativo", "lancamento", "saindo_de_linha", "descontinuado"];
 
 /// Atendimento efetivo: exceção do produto, senão o da linha, senão "estoque". Valor desconhecido vale "estoque".
 pub fn atendimento_efetivo(produto: Option<&str>, linha: Option<&str>) -> &'static str {
-    let valido = |v: Option<&str>| ATENDIMENTOS.iter().copied().find(|a| Some(*a) == v.map(str::trim));
+    let valido = |v: Option<&str>| {
+        let v = v.map(str::trim).map(|s| if s == "encomenda" { "terceirizado" } else { s });
+        ATENDIMENTOS.iter().copied().find(|a| Some(*a) == v)
+    };
     valido(produto).or_else(|| valido(linha)).unwrap_or("estoque")
+}
+
+/// Mensagem de recusa para um atendimento que não existe (inclui o aviso sobre "encomenda").
+pub fn erro_atendimento(valor: &str) -> String {
+    let dica = if valor == "encomenda" { " (\"por encomenda\" não existe mais: use terceirizado)" } else { "" };
+    format!("Atendimento desconhecido: {valor}{dica}. Use um de: {}.", ATENDIMENTOS.join(", "))
 }
 
 /// Só "estoque" gera demanda automática de produção e de insumo.
@@ -249,9 +260,11 @@ mod tests {
         assert_eq!(atendimento_efetivo(None, None), "estoque");
         assert_eq!(atendimento_efetivo(None, Some("terceirizado")), "terceirizado");
         assert_eq!(atendimento_efetivo(Some("estoque"), Some("terceirizado")), "estoque");
-        assert_eq!(atendimento_efetivo(Some("encomenda"), Some("estoque")), "encomenda");
-        assert_eq!(atendimento_efetivo(Some("lixo"), Some("encomenda")), "encomenda");
-        assert!(gera_demanda("estoque") && !gera_demanda("encomenda") && !gera_demanda("terceirizado"));
+        // Resto gravado como "encomenda" lê terceirizado (não gera demanda), nunca estoque.
+        assert_eq!(atendimento_efetivo(Some("encomenda"), Some("estoque")), "terceirizado");
+        assert_eq!(atendimento_efetivo(Some("lixo"), Some("encomenda")), "terceirizado");
+        assert!(gera_demanda("estoque") && !gera_demanda("terceirizado"));
+        assert!(erro_atendimento("encomenda").contains("use terceirizado"));
     }
 
     #[test]
@@ -267,7 +280,7 @@ mod tests {
         }
         assert_eq!(status_de_consumo("ativo", "estoque"), "ativo");
         assert_eq!(status_de_consumo("descontinuado", "terceirizado"), "descontinuado");
-        assert_eq!(status_de_consumo("lancamento", "encomenda"), "terceirizado");
+        assert_eq!(status_de_consumo("lancamento", "terceirizado"), "terceirizado");
         assert_eq!(situacao_do_status_legado(None).0, "ativo");
     }
 }

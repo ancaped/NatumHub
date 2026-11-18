@@ -41,7 +41,7 @@ pub async fn classificar_linha(
     }
     if let Some(a) = atendimento.as_deref() {
         if !ATENDIMENTOS.contains(&a) {
-            return Err(ErroApi::regra(format!("Atendimento desconhecido: {a}. Use um de: {}.", ATENDIMENTOS.join(", "))));
+            return Err(ErroApi::regra(crate::core::regras_produto::erro_atendimento(a)));
         }
     }
     let p = prefixo.clone();

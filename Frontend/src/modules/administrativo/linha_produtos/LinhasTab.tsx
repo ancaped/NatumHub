@@ -703,7 +703,7 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                             {sub && <span className="ml-2 align-middle inline-flex items-center px-1.5 py-0.5 rounded bg-zinc-200/70 text-zinc-600 text-[10px] font-bold">sublinha</span>}
                             {atendimentoDaLinha(cfg.linha_prefix) !== 'estoque' && (
                               <span className="ml-2 align-middle inline-flex items-center px-2 py-0.5 border border-zinc-300 bg-white text-zinc-600 text-[10px] font-bold rounded-full whitespace-nowrap">
-                                {atendimentoDaLinha(cfg.linha_prefix) === 'terceirizado' ? 'Terceirizada' : 'Por encomenda'}
+                                Terceirizada
                               </span>
                             )}
                             {sub && marca('atendimento') && atendimentoDaLinha(cfg.linha_prefix) !== 'estoque' && (

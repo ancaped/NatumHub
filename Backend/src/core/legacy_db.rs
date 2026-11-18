@@ -2555,7 +2555,7 @@ WHERE {so2_date_filter};
     .execute(&mut *tx)
     .await?;
 
-    // Produto novo numa linha que não gera demanda (encomenda/terceirizado) nasce já com o status espelho certo.
+    // Produto novo numa linha que não gera demanda (terceirizado) nasce já com o status espelho certo.
     crate::modules::administrativo::classificacao::atendimento::sincronizar_status(
         &mut tx,
         crate::modules::administrativo::classificacao::atendimento::Alvo::Todos,

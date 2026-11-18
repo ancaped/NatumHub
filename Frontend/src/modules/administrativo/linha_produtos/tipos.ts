@@ -85,7 +85,6 @@ export const SITUACOES_UI: { value: string; label: string; description: string }
 /** Atendimento: só "estoque" gera demanda automática de produção e de insumo. */
 export const ATENDIMENTOS_UI: { value: string; label: string; selo: string; description: string }[] = [
   { value: 'estoque', label: 'Fabricado para estoque', selo: 'Estoque', description: 'Gera demanda de produção e de insumo.' },
-  { value: 'encomenda', label: 'Por encomenda', selo: 'Por encomenda', description: 'Fabricado aqui só com pedido; sem demanda automática de produção nem de insumo.' },
   { value: 'terceirizado', label: 'Terceirizado', selo: 'Terceirizado', description: 'Fabricado por terceiro; ativo, sem demanda de insumo.' },
 ];
 

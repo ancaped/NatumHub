@@ -80,7 +80,7 @@ pub fn validar_valor(chave: &str, valor: &Value) -> Result<Value, String> {
         if ATENDIMENTOS.contains(&a) {
             return Ok(json!(a));
         }
-        return Err(format!("Atendimento desconhecido: {a}. Use um de: {}.", ATENDIMENTOS.join(", ")));
+        return Err(crate::core::regras_produto::erro_atendimento(a));
     }
     match valor.as_f64() {
         Some(v) if v.is_finite() && v > 0.0 => Ok(json!(v)),
@@ -461,7 +461,7 @@ mod testes {
     fn heranca_usa_valor_da_principal_so_quando_herda() {
         assert_eq!(valor_efetivo(2.0, 3.0, true), 3.0);
         assert_eq!(valor_efetivo(2.0, 3.0, false), 2.0);
-        assert_eq!(valor_efetivo("encomenda", "estoque", true), "estoque");
+        assert_eq!(valor_efetivo("terceirizado", "estoque", true), "estoque");
     }
 
     #[test]
@@ -480,7 +480,8 @@ mod testes {
         assert!(validar_valor("estoque_ideal", &json!(1.5)).is_ok());
         assert!(validar_valor("fator_z", &json!(0)).is_err());
         assert!(validar_valor("fator_z", &json!(-1)).is_err());
-        assert!(validar_valor("atendimento", &json!("encomenda")).is_ok());
+        assert!(validar_valor("atendimento", &json!("encomenda")).is_err());
+        assert!(validar_valor("atendimento", &json!("terceirizado")).is_ok());
         assert!(validar_valor("atendimento", &json!("outro")).is_err());
     }
 

@@ -457,7 +457,6 @@ export default function StatusTab({ products, categories, configs, kitComposicao
                   >
                     <option value="ALL">Todas as situações</option>
                     {SITUACOES_UI.map(sit => <option key={sit.value} value={sit.value}>{sit.label}</option>)}
-                    <option value="at:encomenda">Por encomenda</option>
                     <option value="at:terceirizado">Terceirizado</option>
                   </select>
                   <select
