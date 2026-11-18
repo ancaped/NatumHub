@@ -10,7 +10,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { apiFetch } from '../../geral/lib/http';
 import { usePreviaServidor } from '../lib/usePreviaServidor';
-import { STATUS_IGNORADOS_PADRAO, DIAS_COMERCIAIS_PADRAO, LIMITE_POR_PAGINA_PADRAO, resolverSettingNumerica } from '../../geral/lib/regrasProduto';
+import { DIAS_COMERCIAIS_PADRAO, LIMITE_POR_PAGINA_PADRAO, resolverSettingNumerica } from '../../geral/lib/regrasProduto';
 import { salesOrderStatusLabel } from '../../geral/lib/salesOrderStatus';
 
 
@@ -68,7 +68,6 @@ export default function ProducaoView({
   const [stats, setStats] = useState({ critico: 0, ordem: 0, saudavel: 0, abundante: 0, lancamentos: 0 });
   const [bases, setBases] = useState([]);
   const [configs, setConfigs] = useState([]);
-  const [ignoredStatuses, setIgnoredStatuses] = useState<string[]>([...STATUS_IGNORADOS_PADRAO]);
   
   // Filtering & Pagination State
   const [activeTab, setActiveTab] = useState('ALL');
@@ -519,44 +518,6 @@ export default function ProducaoView({
       return false;
     }).length;
   }, [importStatus, watchConfig]);
-
-  // Fetch ignored product statuses for items
-  const fetchIgnoredStatuses = async () => {
-    try {
-      const res = await apiFetch(`/settings/ignored_product_statuses`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.value) {
-          try {
-            setIgnoredStatuses(JSON.parse(data.value));
-          } catch (e) {
-            console.error("Error parsing ignored product statuses:", e);
-          }
-        }
-      }
-    } catch (e) {
-      console.error("Error fetching ignored statuses:", e);
-    }
-  };
-
-  const handleSaveIgnoredStatuses = async (newStatuses) => {
-    try {
-      const res = await apiFetch(`/settings/ignored_product_statuses`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value: JSON.stringify(newStatuses) })
-      });
-      if (res.ok) {
-        setIgnoredStatuses(newStatuses);
-        showToast("Status ignorados atualizados com sucesso!", "success");
-      } else {
-        showToast("Erro ao salvar status ignorados", "error");
-      }
-    } catch (e) {
-      console.error("Error saving ignored statuses:", e);
-      showToast("Falha de conexão ao salvar status", "error");
-    }
-  };
 
   // Fetch configs from API
   const fetchConfigs = async () => {
@@ -1459,7 +1420,6 @@ export default function ProducaoView({
     fetchImportHistory();
     fetchWatchConfig();
     fetchKitComposicao();
-    fetchIgnoredStatuses();
     carregarSettingsGlobais();
   }, []);
 

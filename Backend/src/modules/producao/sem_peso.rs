@@ -47,9 +47,7 @@ pub fn sem_medida(produtos: Vec<(String, String, String)>) -> Vec<ProdutoSemPeso
 
 pub async fn listar(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, ErroApi> {
     let pool = state.db.pool();
-    let ignorados = crate::modules::compras::planejamento::commands::get_ignored_product_statuses_query(pool.clone())
-        .await
-        .unwrap_or_else(|_| status_ignorados_padrao());
+    let ignorados = status_ignorados_padrao();
     let sql = format!(
         r#"
         SELECT p.codigo, COALESCE(p.descricao, '') AS descricao, {linha} AS linha,
