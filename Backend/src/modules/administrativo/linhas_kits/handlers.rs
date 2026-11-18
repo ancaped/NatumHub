@@ -116,9 +116,7 @@ async fn carregar_linhas(pool: &PgPool) -> Result<Vec<LinhaKit>, ErroApi> {
 /// Serviço: linhas de kits e kits ativos com a linha sugerida, a manual e a final. Reutilizável por agentes.
 pub async fn listar_linhas_kits(pool: &PgPool) -> Result<Value, ErroApi> {
     let mut linhas = carregar_linhas(pool).await?;
-    let ignorados = crate::modules::compras::planejamento::commands::get_ignored_product_statuses_query(pool.clone())
-        .await
-        .unwrap_or_else(|_| status_ignorados_padrao());
+    let ignorados = status_ignorados_padrao();
 
     // Kit = tem composição no ERP, está marcado como kit, já tem linha ligada ou a descrição começa com KIT.
     let rows = sqlx::query(

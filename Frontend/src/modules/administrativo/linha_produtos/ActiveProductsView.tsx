@@ -204,7 +204,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false, on
     { id: 'linhas' as const, label: 'Linhas', icon: Layers, sub: 'Linhas de produto por prefixo do código. Abra uma linha para ver e mover seus produtos.' },
     { id: 'linhaskits' as const, label: 'Linhas de Kits', icon: Tags, sub: 'Classificação própria dos kits, no mesmo desenho das linhas de produto. Abra uma linha para ver e mover seus kits.' },
     { id: 'overrides' as const, label: 'Audit de Overrides', icon: ShieldAlert, sub: 'Ajustes manuais por produto sobre as regras automáticas.' },
-    { id: 'configuracoes' as const, label: 'Configurações', icon: SlidersHorizontal, sub: 'Parâmetros globais, status ignorados e subcategorias.' },
+    { id: 'configuracoes' as const, label: 'Configurações', icon: SlidersHorizontal, sub: 'Parâmetros globais e subcategorias.' },
   ];
   const secaoAtual = SECOES.find(x => x.id === activeAtivosTab) || SECOES[0];
 

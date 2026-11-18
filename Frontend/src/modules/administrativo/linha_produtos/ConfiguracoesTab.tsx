@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Filter, Layers, Settings, Trash2 } from 'lucide-react';
+import { Layers, Settings, Trash2 } from 'lucide-react';
 import { apiFetch } from '../../geral/lib/http';
 import { api } from '../../geral/lib/api';
 import { cn, randomId } from '../../geral/lib/utils';
 import { Category, PRODUCT_LINE_STATUSES, PRODUCT_ROUTING_CATEGORIES } from '../../geral/lib/types';
-import { DIAS_COMERCIAIS_PADRAO, LIMITE_POR_PAGINA_PADRAO, STATUS_IGNORADOS_PADRAO } from '../../geral/lib/regrasProduto';
+import { DIAS_COMERCIAIS_PADRAO, LIMITE_POR_PAGINA_PADRAO } from '../../geral/lib/regrasProduto';
 import type { PreviaAcao } from '../../producao/gerenciamento/components/PreviaAcaoDrawer';
 
 interface Props {
@@ -18,18 +18,17 @@ interface Props {
   onSettingsSaved: () => Promise<void> | void;
 }
 
-/** Aba Configurações da Linha de Produtos: parâmetros globais, status ignorados e subcategorias. */
+/** Aba Configurações da Linha de Produtos: parâmetros globais e subcategorias. */
 export default function ConfiguracoesTab({ products, categories, setCategories, pedirPrevia, avisar, onSettingsSaved }: Props) {
   const [configNewCatName, setConfigNewCatName] = useState('');
   const [configNewCatParent, setConfigNewCatParent] = useState('');
-  const [configIgnoredStatuses, setConfigIgnoredStatuses] = useState<string[]>([]);
   const [globalDiasComerciais, setGlobalDiasComerciais] = useState(String(DIAS_COMERCIAIS_PADRAO));
   const [globalLimitPerPage, setGlobalLimitPerPage] = useState(String(LIMITE_POR_PAGINA_PADRAO));
   const [globalLancamentoMeta, setGlobalLancamentoMeta] = useState('6');
   const [globalSettingsSaving, setGlobalSettingsSaving] = useState(false);
-  const [configSubTab, setConfigSubTab] = useState<'parametros' | 'status' | 'categorias'>('parametros');
+  const [configSubTab, setConfigSubTab] = useState<'parametros' | 'categorias'>('parametros');
 
-  // Valores atuais dos parâmetros e dos status ignorados, lidos ao abrir a aba.
+  // Valores atuais dos parâmetros, lidos ao abrir a aba.
   useEffect(() => {
     let cancelado = false;
     const ler = async (chave: string): Promise<string | null> => {
@@ -43,25 +42,15 @@ export default function ConfiguracoesTab({ products, categories, setCategories, 
       }
     };
     (async () => {
-      const [dias, limite, meta, ignorados] = await Promise.all([
+      const [dias, limite, meta] = await Promise.all([
         ler('dias_comerciais'),
         ler('limit_per_page'),
         ler('lancamento_meta_meses_global'),
-        ler('ignored_product_statuses'),
       ]);
       if (cancelado) return;
       if (dias) setGlobalDiasComerciais(dias);
       if (limite) setGlobalLimitPerPage(limite);
       if (meta) setGlobalLancamentoMeta(meta);
-      let lista = [...STATUS_IGNORADOS_PADRAO];
-      if (ignorados) {
-        try {
-          lista = JSON.parse(ignorados);
-        } catch (e) {
-          console.error('Erro ao fazer parse dos status suspensos:', e);
-        }
-      }
-      setConfigIgnoredStatuses(lista);
     })();
     return () => { cancelado = true; };
   }, []);
@@ -141,45 +130,8 @@ export default function ConfiguracoesTab({ products, categories, setCategories, 
     });
   };
 
-  // Status ignorado vale para todas as telas que consideram produto ativo: mostra quantos produtos mudam e só grava no OK.
-  const handleToggleIgnoredStatus = (status: string) => {
-    const isIgnored = configIgnoredStatuses.includes(status);
-    const updated = isIgnored
-      ? configIgnoredStatuses.filter(s => s !== status)
-      : [...configIgnoredStatuses, status];
-    const rotulo = PRODUCT_LINE_STATUSES.find(st => st.value === status)?.label || status;
-    const n = products.filter(p => (p.status_produto || 'ativo') === status).length;
-    pedirPrevia({
-      titulo: isIgnored ? `Voltar a considerar "${rotulo}"` : `Ignorar "${rotulo}" no planejamento`,
-      linhas: [
-        {
-          titulo: rotulo,
-          detalhe: `${n} produto(s) afetado(s)`,
-        },
-      ],
-      avisos: [
-        isIgnored
-          ? 'Os produtos com esse status passam a entrar nas demandas e nas estimativas de dias de estoque.'
-          : 'Os produtos com esse status deixam de entrar nas demandas e nas estimativas de dias de estoque.',
-        'Ajuste global: vale para todas as telas que consideram produto ativo.',
-      ],
-      confirmarRotulo: isIgnored ? 'Voltar a considerar' : 'Ignorar status',
-      executar: async () => {
-        const res = await apiFetch(`/settings/ignored_product_statuses`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value: JSON.stringify(updated) }),
-        });
-        if (!res.ok) throw new Error('Não foi possível salvar os status ignorados.');
-        setConfigIgnoredStatuses(updated);
-        avisar('Status ignorados atualizados.', 'sucesso');
-      },
-    });
-  };
-
   const SUBABAS = [
     { id: 'parametros' as const, label: 'Parâmetros', icon: Settings },
-    { id: 'status' as const, label: 'Status ignorados', icon: Filter, badge: configIgnoredStatuses.length },
     { id: 'categorias' as const, label: 'Subcategorias', icon: Layers },
   ];
   const campo = 'w-full min-h-[44px] md:min-h-0 px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-sm md:text-xs font-semibold text-zinc-800';
@@ -207,9 +159,6 @@ export default function ConfiguracoesTab({ products, categories, setCategories, 
             >
               <Icon className="w-3.5 h-3.5" />
               {a.label}
-              {a.badge !== undefined && (
-                <span className={cn('rounded-full px-1.5 text-[10px] tabular-nums', ativa ? 'bg-zinc-700' : 'bg-zinc-100 text-zinc-600')}>{a.badge}</span>
-              )}
             </button>
           );
         })}
@@ -268,42 +217,6 @@ export default function ConfiguracoesTab({ products, categories, setCategories, 
             <p className="text-[11px] text-zinc-600 leading-relaxed bg-zinc-50 border border-zinc-200 rounded-xl px-3.5 py-3">
               <strong className="text-zinc-800">Fim de linha:</strong> embalagens exclusivas suspendem na hora; MPs seguem enquanto houver saldo de embalagem, para escoar o acabado.
             </p>
-          </div>
-        </div>
-      )}
-
-      {configSubTab === 'status' && (
-        <div className={cn(painel, 'space-y-3 text-left')}>
-          <div>
-            <h3 className={titulo}>Status ignorados no planejamento</h3>
-            <p className="text-[11px] text-zinc-500 leading-relaxed mt-1.5">
-              Status marcado sai das planilhas de demanda e das estimativas de dias de estoque (evita alertas falsos de itens fora de catálogo ou terceirizados). Saindo de Linha continua dinâmico para MPs, para consumir as embalagens que sobram. Cada mudança mostra a prévia antes de gravar.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {PRODUCT_LINE_STATUSES.map(st => {
-              const ignorado = configIgnoredStatuses.includes(st.value);
-              return (
-                <label
-                  key={st.value}
-                  className={cn(
-                    'flex items-start gap-3 px-3.5 py-3 min-h-[44px] rounded-xl border cursor-pointer transition-colors',
-                    ignorado ? 'bg-zinc-900 border-zinc-900 text-white' : 'bg-white border-zinc-200 hover:bg-zinc-50'
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    checked={ignorado}
-                    onChange={() => handleToggleIgnoredStatus(st.value)}
-                    className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
-                  />
-                  <span className="min-w-0">
-                    <span className="text-xs font-bold block">{st.label}{ignorado && ' · ignorado'}</span>
-                    <span className={cn('text-[11px] leading-snug block', ignorado ? 'text-zinc-300' : 'text-zinc-500')}>{st.description}</span>
-                  </span>
-                </label>
-              );
-            })}
           </div>
         </div>
       )}
