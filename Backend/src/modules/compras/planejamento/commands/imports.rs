@@ -8,15 +8,6 @@ fn is_unique_violation(err: &sqlx::Error) -> bool {
     matches!(err, sqlx::Error::Database(e) if e.code().as_deref() == Some("23505"))
 }
 
-const ITEM_CATEGORY_STOCK_SQL: &str = "
-    SELECT i.code,
-           COALESCE(pc.name, c.name, 'Matéria Prima') AS categoria_principal,
-           COALESCE(e.estoque, 0) AS estoque_atual
-    FROM items i
-    LEFT JOIN categories c ON i.category_id = c.id
-    LEFT JOIN categories pc ON c.parent_id = pc.id
-    LEFT JOIN estoque_atual e ON i.code = e.codigo
-";
 
 pub async fn get_compras_config_query(
     pool: PgPool,
@@ -702,44 +693,27 @@ pub async fn get_ignored_product_statuses_query(_pool: PgPool) -> Result<Vec<Str
     Ok(crate::core::regras_produto::status_ignorados_padrao())
 }
 
+/// Códigos de insumo que são embalagem exclusiva de produto saindo de linha (reusa o serviço da Produção).
+async fn embalagem_exclusiva_saindo(pool: &PgPool) -> Result<std::collections::BTreeSet<String>, String> {
+    use crate::modules::producao::{calculo, saindo_de_linha};
+    let db = crate::core::db::Db::new(pool.clone());
+    let (products, stocks, fat_map, configs, overrides, _) = calculo::fetch_calculation_data(&db)
+        .await
+        .map_err(|e| format!("Erro ao ler os dados da Demanda: {e}"))?;
+    let mut calculados = crate::modules::producao::gerenciamento::calculations::calculate_products(
+        &products, &stocks, &fat_map, &configs, &overrides,
+    );
+    let kits = db.get_kit_composition().await.unwrap_or_default();
+    calculo::post_process_kit_only_production(&mut calculados, &kits);
+    let vendas = saindo_de_linha::vendas_mensais(&calculados, &kits);
+    let lev = saindo_de_linha::levantar(pool, &calculados, &vendas).await?;
+    Ok(lev.embalagem_exclusiva())
+}
+
 pub async fn get_auto_ignored_ingredients_query(
     pool: PgPool,
 ) -> Result<HashMap<String, String>, String> {
     let ignored_statuses = get_ignored_product_statuses_query(pool.clone()).await?;
-
-    let mut item_info_map: HashMap<String, (String, f64)> = HashMap::new();
-    if let Ok(rows) = sqlx::query(ITEM_CATEGORY_STOCK_SQL).fetch_all(&pool).await {
-        for row in rows {
-            let code: String = row.get(0);
-            let cat: String = row.get(1);
-            let est: f64 = row.get(2);
-            item_info_map.insert(code, (cat, est));
-        }
-    }
-
-    let mut product_ingredients_map: HashMap<String, Vec<(String, String, f64)>> = HashMap::new();
-    let query_form = "
-        SELECT f.product_code, f.ingredient_code,
-               COALESCE(pc.name, c.name, 'Matéria Prima'),
-               COALESCE(e.estoque, 0)
-        FROM formulations f
-        JOIN items i ON f.ingredient_code = i.code
-        LEFT JOIN categories c ON i.category_id = c.id
-        LEFT JOIN categories pc ON c.parent_id = pc.id
-        LEFT JOIN estoque_atual e ON i.code = e.codigo
-    ";
-    if let Ok(rows) = sqlx::query(query_form).fetch_all(&pool).await {
-        for row in rows {
-            let prod_code: String = row.get(0);
-            let ing_code: String = row.get(1);
-            let cat: String = row.get(2);
-            let est: f64 = row.get(3);
-            product_ingredients_map
-                .entry(prod_code)
-                .or_default()
-                .push((ing_code, cat, est));
-        }
-    }
 
     let mut item_products_map: HashMap<String, Vec<(String, String, String)>> = HashMap::new();
     let query = format!(
@@ -767,68 +741,47 @@ pub async fn get_auto_ignored_ingredients_query(
         }
     }
 
+    // Embalagem exclusiva dos saindo de linha: serviço da Produção (mesma conta da Demanda).
+    // Sem nenhum produto saindo de linha não calcula nada e a regra fica como a dos demais status.
+    let tem_saindo = item_products_map.values().flatten().any(|(_, _, s)| s == "saindo_de_linha");
+    let embalagem_exclusiva: std::collections::BTreeSet<String> = if tem_saindo {
+        embalagem_exclusiva_saindo(&pool).await?
+    } else {
+        Default::default()
+    };
+
     let mut auto_ignored_map = HashMap::new();
     for (ing_code, products_info) in item_products_map {
         if products_info.is_empty() {
             continue;
         }
 
+        // Saindo de linha continua sendo produzido até acabar a embalagem exclusiva (Produção, SL1):
+        // só a embalagem exclusiva fica ignorada; os demais insumos seguem sendo comprados.
+        let exclusiva = embalagem_exclusiva.contains(&ing_code);
         let all_ignored = products_info.iter().all(|(_, _, status)| {
-            ignored_statuses.contains(status) || status == "saindo_de_linha"
+            ignored_statuses.contains(status) || (status == "saindo_de_linha" && exclusiva)
         });
 
         if all_ignored {
-            let has_saindo = products_info
-                .iter()
-                .any(|(_, _, status)| status == "saindo_de_linha");
-            let mut should_ignore = true;
-
-            if has_saindo {
-                let (ing_cat, _) = item_info_map
-                    .get(&ing_code)
-                    .cloned()
-                    .unwrap_or(("Matéria Prima".to_string(), 0.0));
-
-                if ing_cat == "Matéria Prima" {
-                    let mut has_packaging_stock = false;
-                    for (prod_code, _, prod_status) in &products_info {
-                        if prod_status == "saindo_de_linha" {
-                            if let Some(ingredients) = product_ingredients_map.get(prod_code) {
-                                for (_, sub_cat, sub_est) in ingredients {
-                                    if sub_cat != "Matéria Prima" && *sub_est > 0.1 {
-                                        has_packaging_stock = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if has_packaging_stock {
-                        should_ignore = false;
-                    }
-                }
+            let mut list_parts = Vec::new();
+            for (_code, desc, status) in &products_info {
+                let status_label = match status.as_str() {
+                    "descontinuado" => "Saiu de Linha",
+                    "saindo_de_linha" => "Saindo de Linha",
+                    "terceirizado" => "Terceirizado",
+                    "coloracao" => "Coloração",
+                    "apoio" => "Material de Apoio",
+                    "bases" => "Bases",
+                    s => s,
+                };
+                list_parts.push(format!("{} ({})", desc, status_label));
             }
-
-            if should_ignore {
-                let mut list_parts = Vec::new();
-                for (_code, desc, status) in &products_info {
-                    let status_label = match status.as_str() {
-                        "descontinuado" => "Saiu de Linha",
-                        "saindo_de_linha" => "Saindo de Linha",
-                        "terceirizado" => "Terceirizado",
-                        "coloracao" => "Coloração",
-                        "apoio" => "Material de Apoio",
-                        "bases" => "Bases",
-                        s => s,
-                    };
-                    list_parts.push(format!("{} ({})", desc, status_label));
-                }
-                let reason = format!(
-                    "Suspenso por Linha/Produto ({})",
-                    list_parts.join(", ")
-                );
-                auto_ignored_map.insert(ing_code, reason);
-            }
+            let reason = format!(
+                "Suspenso por Linha/Produto ({})",
+                list_parts.join(", ")
+            );
+            auto_ignored_map.insert(ing_code, reason);
         }
     }
 
