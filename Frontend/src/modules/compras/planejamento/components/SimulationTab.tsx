@@ -10,6 +10,7 @@ import {
   Sliders, ArrowUpRight
 } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
+import { useLinhas, useLinhasPorNome, opcoesComSublinhas } from '../useLinhas';
 
 interface SimulatedProduct {
   codigo: string;
@@ -66,6 +67,8 @@ function trimCode(code: string): string {
 
 export function SimulationTab({ active = false, activeTab }: SimulationTabProps) {
   const [allProducts, setAllProducts] = useState<any[]>([]);
+  const linhasCfg = useLinhas();
+  const { prefixoPorNome, nomesDoFiltro, rotuloPorNome } = useLinhasPorNome(linhasCfg);
   const [demands, setDemands] = useState<DemandResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchProduct, setSearchProduct] = useState('');
@@ -275,7 +278,10 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     let list = allProducts;
     
     if (selectedLine !== 'ALL') {
-      list = list.filter(p => p.nome_linha === selectedLine);
+      {
+      const nomes = nomesDoFiltro(selectedLine);
+      list = list.filter(p => nomes.includes(p.nome_linha));
+    }
     }
 
     if (searchProduct.trim() !== '') {
@@ -288,7 +294,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
 
     const selectedCodes = new Set(simulatedProducts.map(p => p.codigo));
     return list.filter(p => !selectedCodes.has(trimCode(p.codigo))).slice(0, 15);
-  }, [allProducts, selectedLine, searchProduct, simulatedProducts]);
+  }, [allProducts, selectedLine, searchProduct, simulatedProducts, nomesDoFiltro]);
 
   const handleAddProduct = (product: any) => {
     const nextList = [
@@ -321,7 +327,8 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
   const handleAddEntireLine = (lineName: string = selectedLine) => {
     if (lineName === 'ALL') return;
 
-    const productsInLine = allProducts.filter(p => p.nome_linha === lineName);
+    const nomesLinha = nomesDoFiltro(lineName);
+    const productsInLine = allProducts.filter(p => nomesLinha.includes(p.nome_linha));
     if (productsInLine.length === 0) return;
 
     const currentSelectedCodes = new Set(simulatedProducts.map(p => p.codigo));
@@ -368,8 +375,9 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
   const handleAdjustLinePercentage = (lineName: string, pct: number) => {
     if (lineName === 'ALL') return;
     const factor = 1 + (pct / 100);
+    const nomesLinha = nomesDoFiltro(lineName);
     const nextList = simulatedProducts.map(p => {
-      if (p.nome_linha === lineName) {
+      if (nomesLinha.includes(p.nome_linha)) {
         return {
           ...p,
           quantity: Math.max(0, Math.round(p.quantity * factor))
@@ -383,8 +391,9 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
 
   const handleSetLineCoverage = (lineName: string, months: number) => {
     if (lineName === 'ALL' || months <= 0) return;
+    const nomesLinha = nomesDoFiltro(lineName);
     const nextList = simulatedProducts.map(p => {
-      if (p.nome_linha === lineName) {
+      if (nomesLinha.includes(p.nome_linha)) {
         const avg = p.media_vendas || 0;
         const target = Math.max(0, Math.round(avg * months));
         return {
@@ -400,8 +409,9 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
 
   const handleFillLineIdealDemand = (lineName: string) => {
     if (lineName === 'ALL') return;
+    const nomesLinha = nomesDoFiltro(lineName);
     const nextList = simulatedProducts.map(p => {
-      if (p.nome_linha === lineName) {
+      if (nomesLinha.includes(p.nome_linha)) {
         const ideal = Math.round(p.estoque_ideal_qtd || 0);
         return {
           ...p,
@@ -419,7 +429,8 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       handleClearAll();
       return;
     }
-    const nextList = simulatedProducts.filter(p => p.nome_linha !== lineName);
+    const nomesLinha = nomesDoFiltro(lineName);
+    const nextList = simulatedProducts.filter(p => !nomesLinha.includes(p.nome_linha));
     setSimulatedProducts(nextList);
     saveToLocalStorage(nextList);
   };
@@ -654,7 +665,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
 
     if (insumoLineFilter !== 'ALL') {
       list = list.filter(item => 
-        item.contributions.some(c => c.productLine === insumoLineFilter)
+        item.contributions.some(c => nomesDoFiltro(insumoLineFilter).includes(c.productLine))
       );
     }
 
@@ -678,7 +689,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     }
 
     return list.sort((a, b) => a.code.localeCompare(b.code));
-  }, [productsForRequirements, formulations, demandsByCode, insumoTypeFilter, insumoLineFilter, searchInsumo, onlyDeficit, kitBom, autoProducts, allProducts]);
+  }, [productsForRequirements, formulations, demandsByCode, insumoTypeFilter, insumoLineFilter, nomesDoFiltro, searchInsumo, onlyDeficit, kitBom, autoProducts, allProducts]);
 
   const handleUpdateAutoQty = (codigo: string, quantity: number) => {
     setAutoProducts((prev) =>
@@ -755,7 +766,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       <tr>
         <td style="font-family: monospace; font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px; text-align: left;">${p.codigo}</td>
         <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px; text-align: left; font-weight: 600;">${p.descricao}</td>
-        <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px; text-align: left; color: #4b5563;">${p.nome_linha}</td>
+        <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px; text-align: left; color: #4b5563;">${rotuloPorNome(p.nome_linha)}</td>
         <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px; text-align: right; font-weight: bold;">${p.quantity.toLocaleString('pt-BR')} un</td>
       </tr>
     `).join('');
@@ -858,8 +869,9 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
 
   const displayedSimulatedProducts = useMemo(() => {
     if (selectedLine === 'ALL') return simulatedProducts;
-    return simulatedProducts.filter(p => p.nome_linha === selectedLine);
-  }, [simulatedProducts, selectedLine]);
+    const nomes = nomesDoFiltro(selectedLine);
+    return simulatedProducts.filter(p => nomes.includes(p.nome_linha));
+  }, [simulatedProducts, selectedLine, nomesDoFiltro]);
 
   return (
     <div className="space-y-4 text-zinc-900">
@@ -981,7 +993,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
                             )}
                           </td>
                           <td className="py-2.5 px-4 font-semibold text-zinc-900">{product.descricao}</td>
-                          <td className="py-2.5 px-4 text-zinc-500">{product.nome_linha}</td>
+                          <td className="py-2.5 px-4 text-zinc-500">{rotuloPorNome(product.nome_linha)}</td>
                           <td className="py-2.5 px-4">
                             <span className="inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
                               {product.status_label || 'Crítico'}
@@ -1071,8 +1083,8 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
                   className="bg-zinc-50 hover:bg-zinc-100 text-zinc-800 border border-zinc-200 rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-zinc-900 cursor-pointer"
                 >
                   <option value="ALL">Todas as Linhas</option>
-                  {productLines.map(line => (
-                    <option key={line} value={line}>{line}</option>
+                  {opcoesComSublinhas(linhasCfg, productLines, prefixoPorNome).map(({ item: line, nivel }) => (
+                    <option key={line} value={line}>{nivel === 1 ? `\u00A0\u00A0\u21B3 ${line}` : line}</option>
                   ))}
                 </select>
               </div>
@@ -1112,9 +1124,9 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-zinc-800 flex items-center gap-1.5">
                   <Sliders className="w-4 h-4 text-zinc-600" />
-                  Simulação da Linha: <strong className="text-zinc-950 underline">{selectedLine}</strong>
+                  Simulação da Linha: <strong className="text-zinc-950 underline">{rotuloPorNome(selectedLine)}</strong>
                   <span className="text-[10px] text-zinc-400 font-normal ml-1">
-                    ({allProducts.filter(p => p.nome_linha === selectedLine).length} produtos no catálogo)
+                    ({allProducts.filter(p => nomesDoFiltro(selectedLine).includes(p.nome_linha)).length} produtos no catálogo)
                   </span>
                 </span>
                 <button
@@ -1198,7 +1210,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
                     <div>
                       <span className="font-mono font-bold text-zinc-900 block">{product.codigo}</span>
                       <span className="text-zinc-800 font-semibold">{product.descricao}</span>
-                      <span className="text-[10px] text-zinc-400 block">{product.nome_linha}</span>
+                      <span className="text-[10px] text-zinc-400 block">{rotuloPorNome(product.nome_linha)}</span>
                     </div>
                     <Plus className="h-4 w-4 text-zinc-400" />
                   </button>
@@ -1245,7 +1257,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
                           )}
                         </td>
                         <td className="py-2.5 px-4 font-bold text-zinc-900">{product.descricao}</td>
-                        <td className="py-2.5 px-4 text-zinc-500 font-medium">{product.nome_linha}</td>
+                        <td className="py-2.5 px-4 text-zinc-500 font-medium">{rotuloPorNome(product.nome_linha)}</td>
                         <td className="py-2.5 px-4">
                           {isFetching ? (
                             <span className="text-[10px] text-zinc-400 flex items-center gap-1">
@@ -1358,8 +1370,8 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
                 className="bg-zinc-50 text-zinc-700 border border-zinc-200 rounded-lg px-2.5 py-1 text-xs font-semibold focus:outline-none cursor-pointer"
               >
                 <option value="ALL">Todas as Linhas de Origem</option>
-                {productLines.map(l => (
-                  <option key={l} value={l}>Origem: {l}</option>
+                {opcoesComSublinhas(linhasCfg, productLines, prefixoPorNome).map(({ item: l, nivel }) => (
+                  <option key={l} value={l}>{nivel === 1 ? `\u00A0\u00A0\u21B3 ${l}` : `Origem: ${l}`}</option>
                 ))}
               </select>
             </div>
@@ -1529,7 +1541,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
                                               </span>
                                             )}
                                           </td>
-                                          <td className="py-1.5 px-3 text-zinc-500">{c.productLine}</td>
+                                          <td className="py-1.5 px-3 text-zinc-500">{rotuloPorNome(c.productLine)}</td>
                                           <td className="py-1.5 px-3 text-right font-mono font-medium">{c.qtyProduct.toLocaleString('pt-BR')} un</td>
                                           <td className="py-1.5 px-3 text-right font-mono text-zinc-500">
                                             <span className="block">

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshCw, ShoppingBag } from 'lucide-react';
-import { apiFetch } from '../../../geral/lib/http';
+import { apiFetch, apiJson } from '../../../geral/lib/http';
+import { agruparLinhas, prefixosDaLinha, rotuloLinha, type LinhaBase } from '../../../geral/lib/linhas';
 import { FilterBar, FiltroSelect, StatusBadge, TabelaPainel } from '../../../geral/components/ui/ReportKit';
 import type { ProductSalesInfo } from '../lib/types';
 
@@ -14,6 +15,11 @@ export function ProdutosTab({ onOpenProduct, refreshToken }: ProdutosTabProps) {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [linhaFilter, setLinhaFilter] = useState('ALL');
+  const [configs, setConfigs] = useState<LinhaBase[]>([]);
+
+  useEffect(() => {
+    apiJson<LinhaBase[]>('/api/configs').then(setConfigs).catch(() => setConfigs([]));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,18 +54,22 @@ export function ProdutosTab({ onOpenProduct, refreshToken }: ProdutosTabProps) {
     };
   }, [refreshToken]);
 
+  // Linhas presentes nos produtos; sublinhas ficam logo abaixo da principal (a principal entra se ela ou uma sublinha tem produto).
   const lines = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of products) {
       if (p.linha_prefix) map.set(p.linha_prefix, p.nome_linha || p.linha_prefix);
     }
-    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
-  }, [products]);
+    const presentes = configs.filter(c => prefixosDaLinha(configs, c.linha_prefix).some(x => map.has(x)));
+    const ordem = agruparLinhas(presentes).map(g => g.linha.linha_prefix);
+    const fora = Array.from(map.keys()).filter(k => !ordem.includes(k)).sort((a, b) => (map.get(a) || '').localeCompare(map.get(b) || ''));
+    return [...ordem, ...fora].map(k => [k, rotuloLinha(configs, k) === k ? map.get(k) || k : rotuloLinha(configs, k)] as [string, string]);
+  }, [products, configs]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return products.filter((p) => {
-      if (linhaFilter !== 'ALL' && p.linha_prefix !== linhaFilter) return false;
+      if (linhaFilter !== 'ALL' && !prefixosDaLinha(configs, linhaFilter).includes(p.linha_prefix)) return false;
       if (!q) return true;
       return (
         p.codigo.toLowerCase().includes(q) ||
@@ -67,7 +77,7 @@ export function ProdutosTab({ onOpenProduct, refreshToken }: ProdutosTabProps) {
         (p.nome_linha || '').toLowerCase().includes(q)
       );
     });
-  }, [products, search, linhaFilter]);
+  }, [products, search, linhaFilter, configs]);
 
   return (
     <div>
@@ -114,7 +124,7 @@ export function ProdutosTab({ onOpenProduct, refreshToken }: ProdutosTabProps) {
                     </>
                   )}
                 </td>
-                <td>{p.nome_linha}</td>
+                <td>{rotuloLinha(configs, p.linha_prefix) === p.linha_prefix ? p.nome_linha : rotuloLinha(configs, p.linha_prefix)}</td>
                 <td style={{ textAlign: 'right' }}>{p.estoque.toLocaleString('pt-BR')}</td>
                 <td style={{ textAlign: 'right', fontWeight: 700 }}>
                   {Math.round(p.media_vendas).toLocaleString('pt-BR')}

@@ -13,6 +13,7 @@ import Drawer from '../../../geral/components/ui/Drawer';
 import { useListaCompra } from '../useListaCompra';
 import { HistoricoPedidosTable, type PedidoCompraHistorico } from './HistoricoPedidosTable';
 import { ultimoRecebimento } from '../ultimoRecebimento';
+import { useLinhas, opcoesComSublinhas, prefixosDoFiltro, rotuloSeSublinha } from '../useLinhas';
 import { MarcaCalibrado } from './EstoqueCalibrado';
 import { FiltroFornecedor, LinhaGrupoFornecedor, compararFornecedor, nomeFornecedor, opcoesFornecedor, passaFornecedor } from './FornecedorGrupo';
 
@@ -500,6 +501,8 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     setCurrentPage(1);
   }, [searchTerm, selectedLine, urgencyFilter, fornecedorFiltro, agruparFornecedor]);
 
+  const linhasCfg = useLinhas();
+
   // Extract lines dynamically for filters
   const availableLines = useMemo(() => {
     const linesMap = new Map<string, string>();
@@ -652,7 +655,10 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     }
 
     if (selectedLine && selectedLine !== 'ALL') {
-      result = result.filter(p => p.linha_prefix === selectedLine);
+      {
+      const aceitos = prefixosDoFiltro(linhasCfg, selectedLine);
+      result = result.filter(p => aceitos.includes(p.linha_prefix));
+    }
     }
 
     if (urgencyFilter) {
@@ -701,7 +707,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     });
 
     return result;
-  }, [computedProducts, searchTerm, selectedLine, urgencyFilter, fornecedorFiltro, agruparFornecedor, fornecedorDe, sortKey, sortDir, initialCategoryFilter, categories, statusFilter]);
+  }, [computedProducts, linhasCfg, searchTerm, selectedLine, urgencyFilter, fornecedorFiltro, agruparFornecedor, fornecedorDe, sortKey, sortDir, initialCategoryFilter, categories, statusFilter]);
 
   const opcoesForn = useMemo(() => opcoesFornecedor(computedProducts.map(p => fornecedorDe(p.codigo))), [computedProducts, fornecedorDe]);
 
@@ -963,7 +969,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
           <tr>
             <td style="font-family: monospace; font-size: 10px;">${p.codigo}</td>
             <td style="text-align: left; font-weight: 500; font-size: 10px;">${p.descricao}</td>
-            ${isColor ? '' : `<td>${p.nome_linha || '-'}</td>`}
+            ${isColor ? '' : `<td>${p.nome_linha ? rotuloSeSublinha(linhasCfg, p.linha_prefix, p.nome_linha) : '-'}</td>`}
             <td style="text-align: right;">${p.estoque.toLocaleString('pt-BR')} un</td>
             <td style="text-align: right;">${(p.media_vendas || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} un</td>
             ${isColor ? '' : `
@@ -1279,8 +1285,8 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                 className="text-xs border border-zinc-300 rounded-md px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none shadow-sm"
               >
                 <option value="ALL">Todas as Linhas</option>
-                {availableLines.map(line => (
-                  <option key={line.prefix} value={line.prefix}>{line.name}</option>
+                {opcoesComSublinhas(linhasCfg, availableLines, l => l.prefix).map(({ item: line, nivel }) => (
+                  <option key={line.prefix} value={line.prefix}>{nivel === 1 ? `\u00A0\u00A0\u21B3 ${line.name}` : line.name}</option>
                 ))}
               </select>
             </div>
@@ -1513,7 +1519,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                         })()}
                         {p.nome_linha && (
                           <span className="inline-block px-1.5 py-0.5 bg-zinc-100 text-zinc-600 rounded text-[9px] font-extrabold uppercase mt-0.5">
-                            {p.nome_linha}
+                            {rotuloSeSublinha(linhasCfg, p.linha_prefix, p.nome_linha)}
                           </span>
                         )}
                         {p.observacao && (

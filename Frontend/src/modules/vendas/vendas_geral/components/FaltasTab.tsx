@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshCw, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
-import { apiFetch } from '../../../geral/lib/http';
+import { apiFetch, apiJson } from '../../../geral/lib/http';
+import { rotuloLinha, type LinhaBase } from '../../../geral/lib/linhas';
 import { FilterBar, ReportTabs, StatusBadge, TabelaPainel } from '../../../geral/components/ui/ReportKit';
 import type { ProductFaltaGroup } from '../lib/types';
 import {
@@ -37,6 +38,17 @@ export function FaltasTab({
   const [subTab, setSubTab] = useState<'ativas' | 'historicas'>('ativas');
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [linhas, setLinhas] = useState<LinhaBase[]>([]);
+
+  useEffect(() => {
+    apiJson<LinhaBase[]>('/api/configs').then(setLinhas).catch(() => setLinhas([]));
+  }, []);
+
+  // A falta só traz o nome da linha; acha a linha pelo nome para mostrar "Principal › Sublinha".
+  const rotuloDaLinha = (nome: string) => {
+    const l = linhas.find(x => x.nome_linha === nome);
+    return l ? rotuloLinha(linhas, l.linha_prefix) : nome;
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -143,7 +155,7 @@ export function FaltasTab({
                         >
                           <span className="font-bold text-zinc-900 block">{g.c_nome_prod}</span>
                           <span className="font-mono text-[10px] text-zinc-400">
-                            {g.c_cod_prod} · {g.c_nome_linha}
+                            {g.c_cod_prod} · {rotuloDaLinha(g.c_nome_linha)}
                           </span>
                         </button>
                         {(g.lotes_abertos ?? []).map((l) => (
