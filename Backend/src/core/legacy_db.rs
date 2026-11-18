@@ -155,6 +155,20 @@ fn d1_insumos_stock_sql(por_codigo: bool) -> String {
     sql.replace("/*FILTRO_CODIGO*/", filtro)
 }
 
+/// SQL do passo D7 (estoque de produtos acabados recalculado dos movimentos, não o cache
+/// `Produtos.nQtdeEstoque`). Colunas: 0 código, 1 saldo calculado, 2 produção, 3 pedidos,
+/// 4 cache (diagnóstico), 5 cNomeTipo. `por_codigo` restringe a `@P1` (código já trimado) e não
+/// aplica o filtro de inativo; em lote, produto inativo continua fora.
+fn d7_produtos_stock_sql(por_codigo: bool) -> String {
+    let sql = include_str!("../../../erp-import/sql/D7-estoque-produtos.sql");
+    let filtro = if por_codigo {
+        "AND LTRIM(RTRIM(cCodProd)) = @P1"
+    } else {
+        "AND (cInativo = 'N' OR cInativo IS NULL)"
+    };
+    sql.replace("/*FILTRO_CODIGO*/", filtro)
+}
+
 /// Lê FLOAT/REAL/INT do SQL Server via Tiberius sem cair em 0 silencioso à toa.
 fn mssql_f64(row: &tiberius::Row, idx: usize) -> f64 {
     if let Ok(Some(v)) = row.try_get::<f64, _>(idx) {
@@ -1544,7 +1558,7 @@ pub async fn sync_from_sql_server(pool: &PgPool, requested: SyncMode) -> anyhow:
 SELECT 
     p.cCodProd COLLATE Latin1_General_CI_AS as cCodProd,
     p.cNomeProd COLLATE Latin1_General_CI_AS as cNomeProd,
-    CAST(p.nQtdeEstoque AS FLOAT) as nQtdeEstoque,
+    CAST(p.nQtdeEstoque AS FLOAT) as nQtdeEstoque, -- cache; o saldo gravado vem do D7 (passo A2)
     CAST(p.nQtdeProducao AS FLOAT) as nQtdeProducao,
     CAST(p.nPedidos AS FLOAT) as nPedidos,
     p.cBase COLLATE Latin1_General_CI_AS as cBase,
@@ -1615,6 +1629,26 @@ WHERE p.cInativo = 'N' OR p.cInativo IS NULL;
             codigo_barras,
             qtde_cx: row.get(20).unwrap_or(0),
         });
+    }
+
+    // A2. Estoque dos produtos = recálculo dos movimentos (D7), não o cache Produtos.nQtdeEstoque
+    // lido acima (fica só como reserva se o D7 não devolver o código).
+    println!("Step D7: Querying Produtos Stocks (saldo recalculado)");
+    let query_d7 = d7_produtos_stock_sql(false);
+    let stream = client.query(query_d7.as_str(), &[]).await?;
+    let saldo_produtos: std::collections::HashMap<String, f64> = stream
+        .into_first_result()
+        .await?
+        .iter()
+        .filter_map(|row| {
+            let code: &str = row.get(0)?;
+            Some((code.trim().to_string(), mssql_f64(row, 1)))
+        })
+        .collect();
+    for p in products_list.iter_mut() {
+        if let Some(saldo) = saldo_produtos.get(&p.codigo) {
+            p.estoque = *saldo;
+        }
     }
 
     // B. Query Suppliers
@@ -3839,12 +3873,12 @@ pub async fn create_database_dump(pool: &PgPool) -> anyhow::Result<crate::models
 pub struct ErpStockLive {
     pub source: String,
     pub code: String,
-    /// Saldo usado pelo Hub. Insumos, materiais e produtos: `nQtdeEstoque` da tela do ERP.
+    /// Saldo usado pelo Hub. Insumos e produtos: recálculo dos movimentos (D1/D7); materiais: `nQtdeEstoque`.
     pub stock_qty: f64,
     pub reserved_qty: f64,
     pub in_production: f64,
     pub in_orders: f64,
-    /// Só insumos: mesma coluna `nQtdeEstoque` da tela, repetida para a conferência.
+    /// Insumos e produtos: cache `nQtdeEstoque` do ERP, para a conferência.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stock_qty_raw: Option<f64>,
     /// Só insumos: `nQtdeEstoqueA` (diagnóstico).
@@ -3905,27 +3939,19 @@ ORDER BY cReferencia
         }));
     }
 
-    let query_prod = "
-SELECT TOP 1
-    CAST(nQtdeEstoque AS FLOAT),
-    CAST(0.0 AS FLOAT),
-    CAST(nQtdeProducao AS FLOAT),
-    CAST(nPedidos AS FLOAT)
-FROM Produtos
-WHERE LTRIM(RTRIM(cCodProd)) = @P1
-ORDER BY cCodProd
-";
-    let stream = client.query(query_prod, &[&code]).await?;
+    // D7 por código: coluna 1 = saldo recalculado, 4 = cache nQtdeEstoque (diagnóstico).
+    let query_prod = d7_produtos_stock_sql(true);
+    let stream = client.query(query_prod.as_str(), &[&code]).await?;
     let rows = stream.into_first_result().await?;
     if let Some(row) = rows.first() {
         return Ok(Some(ErpStockLive {
             source: "Produtos".into(),
             code: code.to_string(),
-            stock_qty: mssql_f64(row, 0),
+            stock_qty: mssql_f64(row, 1),
             reserved_qty: 0.0,
             in_production: mssql_f64(row, 2),
             in_orders: mssql_f64(row, 3),
-            stock_qty_raw: None,
+            stock_qty_raw: Some(mssql_f64(row, 4)),
             stock_qty_a: None,
         }));
     }
@@ -4036,16 +4062,6 @@ FROM Materiais
 WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInativo IS NULL)
 "#;
 
-const PRODUTOS_STOCKS_SQL_CLEAN: &str = r#"
-SELECT 
-    RTRIM(cCodProd) COLLATE Latin1_General_CI_AS as cCodProd,
-    CAST(nQtdeEstoque AS FLOAT) as nQtdeEstoque,
-    CAST(nQtdeProducao AS FLOAT) as nQtdeProducao,
-    CAST(nPedidos AS FLOAT) as nPedidos
-FROM Produtos
-WHERE cCodProd IS NOT NULL AND cCodProd <> '' AND (cInativo = 'N' OR cInativo IS NULL)
-"#;
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StockVerifySample {
@@ -4071,7 +4087,7 @@ pub struct VerifyRepairResult {
     pub repaired: usize,
     pub samples: Vec<StockVerifySample>,
     pub by_source: VerifyRepairBySource,
-    /// Insumos em que o cache `nQtdeEstoque` diverge do recálculo. Não é correção.
+    /// Insumos e produtos em que o cache `nQtdeEstoque` diverge do recálculo. Não é correção.
     pub erp_cache_drift: usize,
     pub erp_cache_drift_samples: Vec<StockVerifySample>,
 }
@@ -4152,9 +4168,11 @@ pub async fn verify_and_repair_all_stocks(
     // Insumos ganha de Materiais no mesmo código (regra do sync D1/D2).
     materiais_map.retain(|code, _| !insumos_map.contains_key(code));
 
-    let stream = client.query(PRODUTOS_STOCKS_SQL_CLEAN, &[]).await?;
+    let query_d7 = d7_produtos_stock_sql(false);
+    let stream = client.query(query_d7.as_str(), &[]).await?;
     let prod_rows = stream.into_first_result().await?;
-    let mut produtos: Vec<(String, f64, f64, f64)> = Vec::with_capacity(prod_rows.len());
+    // (código, saldo recalculado, produção, pedidos, cache nQtdeEstoque)
+    let mut produtos: Vec<(String, f64, f64, f64, f64)> = Vec::with_capacity(prod_rows.len());
     let mut prod_seen = std::collections::HashSet::new();
     for row in prod_rows {
         let code: &str = row.get(0).unwrap_or("");
@@ -4167,6 +4185,7 @@ pub async fn verify_and_repair_all_stocks(
             mssql_f64(&row, 1),
             mssql_f64(&row, 2),
             mssql_f64(&row, 3),
+            mssql_f64(&row, 4),
         ));
     }
 
@@ -4417,8 +4436,19 @@ pub async fn verify_and_repair_all_stocks(
     )
     .await;
 
-    for (code, stock, prod, ped) in &produtos {
+    for (code, stock, prod, ped, cache) in &produtos {
         processed += 1;
+        if (cache - stock).abs() > STOCK_VERIFY_EPS {
+            erp_cache_drift += 1;
+            if erp_cache_drift_samples.len() < 50 {
+                erp_cache_drift_samples.push(StockVerifySample {
+                    code: code.clone(),
+                    hub: *cache,
+                    erp: *stock,
+                    source: Some("produtos_cache".into()),
+                });
+            }
+        }
         let hub = hub_prod.get(code).copied();
         let needs = match hub {
             None => true,
@@ -4575,22 +4605,13 @@ pub struct ProdutoStockResyncResult {
     pub sample_before_after: Vec<serde_json::Value>,
 }
 
-/// Regrava estoque_atual a partir de Produtos.nQtdeEstoque (espelho passo A).
+/// Regrava estoque_atual a partir do saldo recalculado dos produtos (D7, espelho do passo A).
 pub async fn resync_all_produto_stocks_from_erp(
     pool: &PgPool,
 ) -> anyhow::Result<ProdutoStockResyncResult> {
     let mut client = connect_sql_server(pool).await?;
-    let query = "
-SELECT 
-    RTRIM(cCodProd) COLLATE Latin1_General_CI_AS as cCodProd,
-    CAST(nQtdeEstoque AS FLOAT) as nQtdeEstoque,
-    CAST(nQtdeProducao AS FLOAT) as nQtdeProducao,
-    CAST(nPedidos AS FLOAT) as nPedidos,
-    cNomeTipo COLLATE Latin1_General_CI_AS as cNomeTipo
-FROM Produtos WITH (NOLOCK)
-WHERE cCodProd IS NOT NULL AND cCodProd <> '' AND (cInativo = 'N' OR cInativo IS NULL);
-";
-    let stream = client.query(query, &[]).await?;
+    let query = d7_produtos_stock_sql(false);
+    let stream = client.query(query.as_str(), &[]).await?;
     let rows = stream.into_first_result().await?;
 
     let mut codes: Vec<String> = Vec::new();
@@ -4614,7 +4635,7 @@ WHERE cCodProd IS NOT NULL AND cCodProd <> '' AND (cInativo = 'N' OR cInativo IS
         prods.push(row.get(2).unwrap_or(0.0));
         orders.push(row.get(3).unwrap_or(0.0));
         fases.push(
-            row.get(4)
+            row.get(5)
                 .map(|s: &str| s.trim().to_string())
                 .filter(|s| !s.is_empty()),
         );
@@ -4924,6 +4945,35 @@ mod d1_sql_tests {
         assert!(!sql.to_uppercase().contains("DECLARE"));
         // Lotes cancelados não descontam do saldo.
         assert!(sql.contains("l.cStatus <> 'CA'"));
+    }
+}
+
+#[cfg(test)]
+mod d7_sql_tests {
+    use super::d7_produtos_stock_sql;
+
+    #[test]
+    fn d7_filtro_aparece_uma_vez_e_inativo_so_no_lote() {
+        let lote = d7_produtos_stock_sql(false);
+        let um = d7_produtos_stock_sql(true);
+        assert!(!lote.contains("FILTRO_CODIGO") && !lote.contains("@P1"));
+        assert!(lote.contains("cInativo = 'N' OR cInativo IS NULL"));
+        assert_eq!(um.matches("@P1").count(), 1);
+        assert!(!um.contains("cInativo = 'N'"));
+    }
+
+    #[test]
+    fn d7_devolve_saldo_calculado_em_float_sem_declare() {
+        let sql = d7_produtos_stock_sql(false);
+        // O leitor mssql_f64 devolve 0 para DECIMAL: a saída precisa ser FLOAT.
+        assert!(sql.contains("END AS FLOAT) AS nQtdeEstoque,"));
+        assert!(sql.contains("AS nQtdeEstoqueCache"));
+        assert!(!sql.to_uppercase().contains("DECLARE"));
+        // Venda cancelada e lote cancelado não entram no saldo.
+        assert!(sql.contains("v1.CSTATUS, '') <> 'CA'"));
+        assert!(sql.contains("s.cStatus <> 'CA'"));
+        // Sem dEstoque o ERP só considera o saldo inicial.
+        assert!(sql.contains("WHEN prod.dEstoque IS NULL THEN prod.nQtdeInicial"));
     }
 }
 

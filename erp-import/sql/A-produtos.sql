@@ -1,6 +1,7 @@
 -- Passo A: Produtos acabados + médias mensais de venda (ano corrente)
 -- Destino: produtos, estoque_atual
 -- Estoque: nQtdeEstoque / nQtdeProducao / nPedidos como FLOAT (não truncar decimais)
+-- Atenção: o saldo gravado em estoque_atual NÃO é este nQtdeEstoque (cache do ERP): vem do D7-estoque-produtos.sql.
 -- Código de barras: Produtos.cCodBarras (EAN unitário). CX/CX2 = caixas (fora do escopo).
 
 SELECT 
