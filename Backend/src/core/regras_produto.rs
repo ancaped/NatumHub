@@ -10,8 +10,8 @@ pub const LINHA_EFETIVA_SQL: &str = "COALESCE(NULLIF(o.linha_prefix_manual, ''),
 pub const JOIN_LINHA_EFETIVA_SQL: &str = "LEFT JOIN overrides_produtos o ON o.codigo = p.codigo \
      LEFT JOIN config_linhas cl ON cl.linha_prefix = COALESCE(NULLIF(o.linha_prefix_manual, ''), p.linha_prefix)";
 
-/// Status que tiram o produto da lista de ativos quando a setting
-/// `ignored_product_statuses` não existe.
+/// Status que tiram o produto da lista de ativos: regra fixa (a setting
+/// `ignored_product_statuses` não é mais lida).
 pub const STATUS_IGNORADOS_PADRAO: [&str; 2] = ["descontinuado", "terceirizado"];
 
 pub fn status_ignorados_padrao() -> Vec<String> {
