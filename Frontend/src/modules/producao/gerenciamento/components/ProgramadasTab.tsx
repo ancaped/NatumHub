@@ -4,6 +4,7 @@ import {
   AlertTriangle, ChevronLeft, ChevronRight, Edit3, CheckCircle2,
   CalendarClock, Zap, CheckCircle, Package, Layers, Info
 } from 'lucide-react';
+import { rotuloLinhaProducao, linhaCasa } from '../../lib/linhasProducao';
 
 function DuracaoEstoque({ dias }: { dias: number }) {
   const semConsumo = !Number.isFinite(dias) || dias >= 900;
@@ -333,7 +334,7 @@ export function ProgramadasTab({
                           </button>
                         </div>
                         <div className="product-subinfo flex flex-wrap gap-1.5 mt-1 items-center">
-                          <span className="text-[10px] text-zinc-500 font-semibold bg-zinc-100 px-1.5 py-0.5 rounded">Linha: {p.nome_linha}</span>
+                          <span className="text-[10px] text-zinc-500 font-semibold bg-zinc-100 px-1.5 py-0.5 rounded">Linha: {rotuloLinhaProducao(configs, p.linha_prefix, p.nome_linha)}</span>
                           <span className="text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded flex items-center gap-1">
                             <CalendarClock size={10} /> Programada
                           </span>

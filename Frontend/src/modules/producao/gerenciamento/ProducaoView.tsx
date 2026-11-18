@@ -28,6 +28,8 @@ import { LotesCalendarTab } from './components/LotesCalendarTab';
 import { LoteDetailsDrawer } from './components/LoteDetailsDrawer';
 import KitCompositionDrawer from '../components/KitCompositionDrawer';
 import Drawer from '../../geral/components/ui/Drawer';
+import { prefixosDaLinha, rotuloLinha } from '../../geral/lib/linhas';
+import { sublinhasSobPrincipal } from '../lib/linhasProducao';
 
 type ProducaoLockedView = 'bases' | 'lotes';
 
@@ -575,7 +577,7 @@ export default function ProducaoView({
     try {
       const params = new URLSearchParams();
       if (search.trim()) params.append('search', search.trim());
-      if (activeTab !== 'ALL') params.append('linha', activeTab);
+      if (activeTab !== 'ALL') params.append('linha', prefixosDaLinha(configs, activeTab).join(','));
       if (selectedStatus !== 'ALL') params.append('status', selectedStatus);
       if (selectedBase !== 'ALL') params.append('base', selectedBase);
       if (showHidden) params.append('show_hidden', 'true');
@@ -613,7 +615,7 @@ export default function ProducaoView({
     } finally {
       setLoading(false);
     }
-  }, [search, activeTab, selectedStatus, selectedBase, page, limitPerPage, showHidden, sortField, sortDir, inventorySegment]);
+  }, [configs, search, activeTab, selectedStatus, selectedBase, page, limitPerPage, showHidden, sortField, sortDir, inventorySegment]);
 
   // Fetch kits from API
   const fetchKits = useCallback(async () => {
@@ -621,7 +623,7 @@ export default function ProducaoView({
     try {
       const params = new URLSearchParams();
       if (kitsSearch.trim()) params.append('search', kitsSearch.trim());
-      if (kitsActiveTab !== 'ALL') params.append('linha', kitsActiveTab);
+      if (kitsActiveTab !== 'ALL') params.append('linha', prefixosDaLinha(configs, kitsActiveTab).join(','));
       if (kitsSelectedStatus !== 'ALL') params.append('status', kitsSelectedStatus);
       if (showHidden) params.append('show_hidden', 'true');
       params.append('page', kitsPage.toString());
@@ -647,7 +649,7 @@ export default function ProducaoView({
     } finally {
       setLoading(false);
     }
-  }, [kitsSearch, kitsActiveTab, kitsSelectedStatus, kitsPage, limitPerPage, showHidden, kitSortField, kitSortDir]);
+  }, [configs, kitsSearch, kitsActiveTab, kitsSelectedStatus, kitsPage, limitPerPage, showHidden, kitSortField, kitSortDir]);
 
   useEffect(() => {
     if (currentView === 'kits') {
@@ -662,7 +664,7 @@ export default function ProducaoView({
       const params = new URLSearchParams();
       params.append('programadas_only', 'true');
       if (programadasSearch.trim()) params.append('search', programadasSearch.trim());
-      if (programadasActiveTab !== 'ALL') params.append('linha', programadasActiveTab);
+      if (programadasActiveTab !== 'ALL') params.append('linha', prefixosDaLinha(configs, programadasActiveTab).join(','));
       if (programadasSelectedStatus !== 'ALL') params.append('status', programadasSelectedStatus);
       params.append('page', programadasPage.toString());
       params.append('limit', limitPerPage.toString());
@@ -686,7 +688,7 @@ export default function ProducaoView({
     } finally {
       setProgramadasLoading(false);
     }
-  }, [programadasSearch, programadasActiveTab, programadasSelectedStatus, programadasPage, limitPerPage, programadasSortField, programadasSortDir]);
+  }, [configs, programadasSearch, programadasActiveTab, programadasSelectedStatus, programadasPage, limitPerPage, programadasSortField, programadasSortDir]);
 
   useEffect(() => {
     if (currentView === 'programadas') {
@@ -700,7 +702,7 @@ export default function ProducaoView({
     try {
       const params = new URLSearchParams();
       if (historySearch.trim()) params.append('search', historySearch.trim());
-      if (historyActiveTab !== 'ALL') params.append('linha', historyActiveTab);
+      if (historyActiveTab !== 'ALL') params.append('linha', prefixosDaLinha(configs, historyActiveTab).join(','));
       if (historyDateFilter) params.append('data', historyDateFilter);
       if (historySortField) {
         params.append('sort', historySortField);
@@ -720,7 +722,7 @@ export default function ProducaoView({
     } finally {
       setLoading(false);
     }
-  }, [historySearch, historyActiveTab, historyDateFilter, historySortField, historySortDir]);
+  }, [configs, historySearch, historyActiveTab, historyDateFilter, historySortField, historySortDir]);
 
   useEffect(() => {
     if (currentView === 'history') {
@@ -1465,12 +1467,13 @@ export default function ProducaoView({
     fetchProducts();
   }, [fetchProducts]);
 
+  // Ordem original das linhas; só as sublinhas saem do lugar e vão para logo abaixo da principal.
+  const linhasVisiveisAgrupadas = sublinhasSobPrincipal(configs.filter(c => c.visivel !== 0));
+
   const tabOptions = [
     { id: 'ALL', name: 'Todos' },
     ...(configs.length > 0
-      ? configs
-          .filter(c => c.visivel !== 0)
-          .map(c => ({ id: c.linha_prefix, name: c.nome_linha }))
+      ? linhasVisiveisAgrupadas.map(c => ({ id: c.linha_prefix, name: rotuloLinha(configs, c.linha_prefix) }))
       : [
           { id: '1', name: 'Natum' },
           { id: '2', name: 'Hair Extrattus' },
@@ -1621,6 +1624,7 @@ export default function ProducaoView({
           {currentView === 'lancamentos' && (
             <ProducoesFixasTab
               tabOptions={tabOptions}
+              configs={configs}
               reloadToken={lancamentosTick}
               onEditOverrides={openEditModal}
               onShowDetails={fetchProductDetails}

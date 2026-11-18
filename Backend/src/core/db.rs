@@ -667,7 +667,7 @@ impl Db {
                     query.push_str(" AND (p.descricao ILIKE '%kit%' OR h.codigo IN (SELECT DISTINCT kit_codigo FROM kit_composicao))");
                 } else {
                     query.push_str(&format!(
-                        " AND COALESCE(o.linha_prefix_manual, p.linha_prefix) = ${}",
+                        " AND COALESCE(o.linha_prefix_manual, p.linha_prefix) = ANY(string_to_array(${}, ','))",
                         idx
                     ));
                     binds.push(linha.trim().to_string());

@@ -39,7 +39,7 @@ pub fn acoes() -> Vec<Acao> {
             "/api/kits",
             vec![
                 param("search", "query", "texto", false, "Busca por código ou descrição."),
-                param("linha", "query", "texto", false, "Linha de produto."),
+                param("linha", "query", "texto", false, "Linha de produto (vários prefixos separados por vírgula: a principal e as sublinhas)."),
                 param("status", "query", "texto", false, "Status calculado."),
                 param("page", "query", "inteiro", false, "Página."),
                 param("limit", "query", "inteiro", false, "Itens por página."),
@@ -570,7 +570,9 @@ pub async fn list_kits(
 
     if let Some(ref line) = params.linha {
         if !line.is_empty() && line != "ALL" {
-            kit_results.retain(|k| k.kit_detalhes.linha_prefix == *line);
+            // Aceita vários prefixos separados por vírgula (a principal mais as sublinhas dela).
+            let prefixos: Vec<&str> = line.split(',').map(str::trim).collect();
+            kit_results.retain(|k| prefixos.contains(&k.kit_detalhes.linha_prefix.as_str()));
         }
     }
 

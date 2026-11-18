@@ -6,6 +6,7 @@ import {
 import { apiFetch } from '../../../geral/lib/http';
 import { useAviso } from '../../../geral/components/ui/Aviso';
 import { usePreviaServidor, linhasAjusteFila, linhasExclusaoFila } from '../../lib/usePreviaServidor';
+import { rotuloLinhaProducao, linhaCasa } from '../../lib/linhasProducao';
 
 export function BasesTab({
   configs,
@@ -216,7 +217,7 @@ export function BasesTab({
     }
 
     if (selectedLine !== 'ALL') {
-      result = result.filter((b) => b.linha_prefix === selectedLine);
+      result = result.filter((b) => linhaCasa(configs, selectedLine, b.linha_prefix));
     }
 
     if (searchTerm.trim()) {
@@ -480,7 +481,7 @@ export function BasesTab({
                           </div>
                           <div className="flex flex-wrap gap-1.5 mt-1 items-center">
                             <span className="text-[10px] text-zinc-500 font-semibold bg-zinc-100 px-1.5 py-0.5 rounded">
-                              Linha: {b.nome_linha}
+                              Linha: {rotuloLinhaProducao(configs, b.linha_prefix, b.nome_linha)}
                             </span>
                             {form.length > 0 ? (
                               <span className="text-[10px] text-zinc-600 bg-zinc-100 px-1.5 py-0.5 rounded font-mono">

@@ -5,6 +5,7 @@ import {
   Search, RefreshCw, X, ArrowUpDown, ArrowUp, ArrowDown, HelpCircle, 
   ChevronDown, Eye, Trash2, Package, History, Layers, Check, Edit3 
 } from 'lucide-react';
+import { rotuloLinhaProducao, sublinhasSobPrincipal, RECUO_SUBLINHA } from '../../lib/linhasProducao';
 
 export function HistoryTab({
   historyRecords,
@@ -102,8 +103,8 @@ export function HistoryTab({
           >
             <option value="ALL">Todas as Linhas</option>
             <option value="KITS">📦 Kits Comerciais</option>
-            {configs.filter(c => c.visivel !== 0).map(c => (
-              <option key={c.linha_prefix} value={c.linha_prefix}>{c.nome_linha}</option>
+            {sublinhasSobPrincipal(configs.filter(c => c.visivel !== 0)).map(c => (
+              <option key={c.linha_prefix} value={c.linha_prefix}>{rotuloLinhaProducao(configs, c.linha_prefix, c.nome_linha).includes(' › ') ? RECUO_SUBLINHA + c.nome_linha : c.nome_linha}</option>
             ))}
           </select>
 
@@ -248,7 +249,7 @@ export function HistoryTab({
                         <td>
                           <div className="product-desc">{r.descricao}</div>
                           <div className="product-subinfo">
-                            <span>Linha: {r.nome_linha}</span>
+                            <span>Linha: {rotuloLinhaProducao(configs, r.linha_prefix, r.nome_linha)}</span>
                           </div>
                         </td>
                         <td className="numeric-col" style={{ fontWeight: '700', fontSize: '0.9rem' }}>

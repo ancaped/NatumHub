@@ -41,7 +41,7 @@ pub fn acoes() -> Vec<Acao> {
         "/api/products",
         vec![
             param("search", "query", "texto", false, "Busca por código ou descrição."),
-            param("linha", "query", "texto", false, "Linha de produto."),
+            param("linha", "query", "texto", false, "Linha de produto (vários prefixos separados por vírgula: a principal e as sublinhas)."),
             param("status", "query", "texto", false, "Status calculado do produto."),
             param("categoria", "query", "texto", false, "Categoria."),
             param("base", "query", "texto", false, "Código da base."),
@@ -809,7 +809,9 @@ pub async fn listar_produtos(db: &Db, params: &QueryParams) -> Result<serde_json
 
     if let Some(ref line) = params.linha {
         if !line.is_empty() && line != "ALL" {
-            computed.retain(|p| p.linha_prefix == *line);
+            // Aceita vários prefixos separados por vírgula (a principal mais as sublinhas dela).
+            let prefixos: Vec<&str> = line.split(',').map(str::trim).collect();
+            computed.retain(|p| prefixos.contains(&p.linha_prefix.as_str()));
         }
     }
 

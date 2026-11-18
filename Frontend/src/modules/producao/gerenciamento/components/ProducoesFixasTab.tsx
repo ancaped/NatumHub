@@ -8,6 +8,7 @@ import { apiFetch } from '../../../geral/lib/http';
 import { eBase } from '../../../geral/lib/regrasProduto';
 import { useAviso } from '../../../geral/components/ui/Aviso';
 import { usePreviaServidor } from '../../lib/usePreviaServidor';
+import { rotuloLinhaProducao, linhaCasa } from '../../lib/linhasProducao';
 
 function DuracaoEstoque({ dias }: { dias: number }) {
   const semConsumo = !Number.isFinite(dias) || dias >= 900;
@@ -105,6 +106,7 @@ function capacidadeKit(comps: any[]) {
 }
 
 interface Props {
+  configs?: any[];
   tabOptions?: { id: string; name: string }[];
   reloadToken?: number;
   onEditOverrides: (p: any) => void;
@@ -114,6 +116,7 @@ interface Props {
 const POR_PAGINA = 50;
 
 export function ProducoesFixasTab({
+  configs = [],
   tabOptions = [],
   reloadToken = 0,
   onEditOverrides,
@@ -169,7 +172,7 @@ export function ProducoesFixasTab({
     return map;
   }, [composicao]);
 
-  const daLinha = useMemo(() => items.filter((p) => linha === 'ALL' || p.linha_prefix === linha), [items, linha]);
+  const daLinha = useMemo(() => items.filter((p) => linha === 'ALL' || linhaCasa(configs, linha, p.linha_prefix)), [items, linha, configs]);
 
   const familias = useMemo(() => {
     const nomes = new Set<string>();
@@ -431,7 +434,7 @@ export function ProducoesFixasTab({
                             </button>
                           </div>
                           <div className="flex flex-wrap gap-1.5 mt-1 items-center">
-                            <span className="text-[10px] text-zinc-500 font-semibold bg-zinc-100 px-1.5 py-0.5 rounded">Linha: {p.nome_linha || '—'}</span>
+                            <span className="text-[10px] text-zinc-500 font-semibold bg-zinc-100 px-1.5 py-0.5 rounded">Linha: {rotuloLinhaProducao(configs, p.linha_prefix, p.nome_linha) || '—'}</span>
                             <span className="text-[10px] text-zinc-600 font-semibold bg-zinc-100 px-1.5 py-0.5 rounded">Família: {familiaDe(p)}</span>
                             <span className="text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
                               <Target size={10} /> Fixa

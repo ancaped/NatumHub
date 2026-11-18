@@ -9,6 +9,7 @@ import { useAviso } from '../../../geral/components/ui/Aviso';
 import { usePreviaServidor, linhasAjusteFila } from '../../lib/usePreviaServidor';
 import { unidadesParaKg, formatUnitsToKg, ehBaseProduto } from '../../lib/unitConversion';
 import { BatchOpportunityModal } from './BatchOpportunityModal';
+import { rotuloLinhaProducao, linhaCasa } from '../../lib/linhasProducao';
 
 function inferFamily(p: any): string {
   const manual = String(p?.familia_produto || '').trim();
@@ -752,7 +753,7 @@ export function InventoryTab({
                           </button>
                         </div>
                         <div className="product-subinfo flex flex-wrap gap-1.5 mt-1 items-center">
-                          <span className="text-[10px] text-zinc-500 font-semibold bg-zinc-100 px-1.5 py-0.5 rounded">Linha: {p.nome_linha}</span>
+                          <span className="text-[10px] text-zinc-500 font-semibold bg-zinc-100 px-1.5 py-0.5 rounded">Linha: {rotuloLinhaProducao(configs, p.linha_prefix, p.nome_linha)}</span>
                           {p.base && <span className="text-[10px] text-zinc-600 bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded">Base: {p.base}</span>}
                           {p.is_kit_component ? (
                             p.produzir_apenas_kit === 1 ? (

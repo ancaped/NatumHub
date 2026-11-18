@@ -5,6 +5,7 @@ import { BotaoAcao, FilterBar, FiltroSelect, ReportHeader, ReportTabs, StatusBad
 import type { VarianteBadge } from '../../../geral/components/ui/ReportKit';
 import { unidadesParaKg, ehBaseProduto } from '../../lib/unitConversion';
 import { ProductDetailsDrawer } from './ProductDetailsDrawer';
+import { linhaCasa, rotuloLinhaProducao, sublinhasSobPrincipal, RECUO_SUBLINHA } from '../../lib/linhasProducao';
 
 /**
  * Saúde do Estoque: a classificação vem pronta do servidor (`GET /api/producao/saude-estoque`),
@@ -143,6 +144,8 @@ export function StockHealthTab({ setView }: Props) {
   const [busca, setBusca] = useState('');
   const [tipo, setTipo] = useState('todos');
   const [linha, setLinha] = useState('todas');
+  // Linhas e sublinhas (só para agrupar o filtro; sem elas a tela segue como antes).
+  const [configs, setConfigs] = useState<any[]>([]);
   const [ordem, setOrdem] = useState(ORDEM_PADRAO.disponibilidade);
   const [filtroSituacao, setFiltroSituacao] = useState<Situacao | null>(null);
   const [detalhe, setDetalhe] = useState<string | null>(null);
@@ -163,6 +166,9 @@ export function StockHealthTab({ setView }: Props) {
   }, []);
 
   useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => {
+    apiFetch('/configs').then((r) => (r.ok ? r.json() : [])).then((d) => setConfigs(Array.isArray(d) ? d : [])).catch(() => setConfigs([]));
+  }, []);
 
   const trocarAba = (a: string) => {
     setAba(a as Aba);
@@ -176,8 +182,12 @@ export function StockHealthTab({ setView }: Props) {
   const linhas = useMemo(() => {
     const m = new Map<string, string>();
     (dados?.itens ?? []).forEach((i) => m.set(i.linha_prefix, i.nome_linha || i.linha_prefix));
-    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [dados]);
+    const ordenadas = [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+    // Ordem alfabética de sempre; só as sublinhas vão para logo abaixo da principal (quando as duas aparecem).
+    const porPrefixo = new Map(configs.map((c: any) => [c.linha_prefix, c]));
+    const agrupadas = sublinhasSobPrincipal(ordenadas.map(([k, n]) => ({ linha_prefix: k, nome_linha: n, linha_principal: porPrefixo.get(k)?.linha_principal ?? null })));
+    return agrupadas.map((l): [string, string] => [l.linha_prefix, rotuloLinhaProducao(configs, l.linha_prefix, l.nome_linha).includes(' › ') ? RECUO_SUBLINHA + l.nome_linha : l.nome_linha]);
+  }, [dados, configs]);
 
   // Busca, tipo e linha valem para as contagens e para a lista; a aba escolhe as situações.
   const base = useMemo(() => {
@@ -186,9 +196,9 @@ export function StockHealthTab({ setView }: Props) {
       (i) =>
         (!t || i.codigo.toLowerCase().includes(t) || i.descricao.toLowerCase().includes(t)) &&
         (tipo === 'todos' || i.tipo === tipo) &&
-        (linha === 'todas' || i.linha_prefix === linha),
+        linhaCasa(configs, linha, i.linha_prefix),
     );
-  }, [dados, busca, tipo, linha]);
+  }, [dados, busca, tipo, linha, configs]);
 
   const contar = (a: Exclude<Aba, 'retirados'>) => {
     const s = ABAS_SITUACOES[a];
