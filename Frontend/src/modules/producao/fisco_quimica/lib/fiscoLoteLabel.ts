@@ -26,12 +26,6 @@ function formatDateBr(raw?: string | null): string {
   return clean;
 }
 
-function formatQty(n: number): string {
-  const rounded = Math.round(n * 10) / 10;
-  const digits = Math.abs(rounded - Math.round(rounded)) < 0.05 ? 0 : 1;
-  return rounded.toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
-}
-
 function bulkUnit(productName: string, pattern: FiscoQuimicaPattern | null): 'L' | 'kg' {
   const unit = (pattern?.packageUnit || '').trim().toLowerCase();
   if (unit === 'g' || unit === 'kg') return 'kg';
@@ -87,13 +81,25 @@ export function buildFiscoVolumeLine(
   return approx;
 }
 
+/** Peso do envase por extenso: abaixo de 1 kg em gramas inteiras (905 g, não 0,9 kg); a partir de 1 kg com até 3 casas. */
+function formatEnvase(valor: number, unidade: string): string {
+  const u = (unidade || 'g').trim().toLowerCase();
+  const gramas = u === 'kg' ? valor * 1000 : valor;
+  if (gramas < 1000) {
+    const g = Math.round(gramas * 10) / 10;
+    return `${g.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} g`;
+  }
+  const kg = Math.round(gramas) / 1000;
+  return `${kg.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} kg`;
+}
+
 function envaseLine(analysis: FiscoQuimicaAnalysis, pattern: FiscoQuimicaPattern | null): string {
   if (analysis.envaseTargetWeight > 0) {
-    return `Envase: ${formatQty(analysis.envaseTargetWeight)} ${analysis.envaseTargetUnit || 'g'}`;
+    return `Envase: ${formatEnvase(analysis.envaseTargetWeight, analysis.envaseTargetUnit || 'g')}`;
   }
   const filling = calculateFillingTargets(pattern, analysis.densityMeasured, analysis.productName);
   if (filling.weight.value > 0) {
-    return `Envase: ${formatQty(filling.weight.value)} ${filling.weight.unit}`;
+    return `Envase: ${formatEnvase(filling.weight.value, filling.weight.unit)}`;
   }
   return '';
 }
