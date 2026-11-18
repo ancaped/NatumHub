@@ -310,6 +310,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false, on
               avisar={avisar}
               onReload={loadData}
               onAbrirKits={irParaKits}
+              onIrParaLinhas={() => setActiveAtivosTab('linhas')}
             />
           )}
 
@@ -321,6 +322,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false, on
               pedirPrevia={(p) => setPrevia(p)}
               avisar={avisar}
               onReload={loadData}
+              onIrParaProdutos={() => setActiveAtivosTab('status')}
             />
           )}
 

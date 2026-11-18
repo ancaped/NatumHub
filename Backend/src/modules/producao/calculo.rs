@@ -730,10 +730,7 @@ pub async fn listar_produtos(db: &Db, params: &QueryParams) -> Result<serde_json
     });
 
     // Extract stats for metadata based on visible products (excluding hidden ones and ignored statuses)
-    let ignored_statuses =
-        crate::modules::compras::planejamento::commands::get_ignored_product_statuses_query(pool.clone())
-            .await
-            .unwrap_or_else(|_| crate::core::regras_produto::status_ignorados_padrao());
+    let ignored_statuses = crate::core::regras_produto::status_ignorados_padrao();
     let visible_products: Vec<&crate::models::ProductCalculationResult> = computed
         .iter()
         .filter(|p| {
@@ -1245,5 +1242,66 @@ pub async fn apply_recalculation_adjustment(
                 .into_response()
         }
         Err(e) => e.into_response(),
+    }
+}
+
+#[cfg(test)]
+mod testes_status_fixo {
+    use super::*;
+    use crate::models::QueryParams;
+
+    /// A lista de status ignorados é regra fixa: gravar outra lista em `ignored_product_statuses` não muda
+    /// a Demanda nem os suspensos. Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn setting_fora_do_padrao_nao_muda_a_demanda() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = sqlx::PgPool::connect(&url).await.unwrap();
+        let db = Db::new(pool.clone());
+        sqlx::query("INSERT INTO config_linhas (linha_prefix, nome_linha) VALUES ('ZZSF', 'teste') ON CONFLICT DO NOTHING")
+            .execute(&pool).await.unwrap();
+        for (cod, status) in [("ZZSF1", "ativo"), ("ZZSF2", "descontinuado"), ("ZZSF3", "terceirizado")] {
+            sqlx::query("DELETE FROM overrides_produtos WHERE codigo = $1").bind(cod).execute(&pool).await.unwrap();
+            sqlx::query("DELETE FROM produtos WHERE codigo = $1").bind(cod).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO produtos (codigo, descricao, linha_prefix, media_levantamento) VALUES ($1, 'teste', 'ZZSF', 0)")
+                .bind(cod).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO overrides_produtos (codigo, status_produto) VALUES ($1, $2)")
+                .bind(cod).bind(status).execute(&pool).await.unwrap();
+        }
+        let anterior: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'ignored_product_statuses'")
+            .fetch_optional(&pool).await.unwrap().flatten();
+
+        let codigos = |v: &serde_json::Value| -> Vec<String> {
+            let mut c: Vec<String> = v["items"].as_array().unwrap().iter()
+                .map(|i| i["codigo"].as_str().unwrap().to_string()).filter(|c| c.starts_with("ZZSF")).collect();
+            c.sort();
+            c
+        };
+        let rodar = || async {
+            let visiveis = listar_produtos(&db, &QueryParams { linha: Some("ZZSF".into()), limit: Some(1000), ..Default::default() }).await.unwrap();
+            let suspensos = listar_produtos(&db, &QueryParams { linha: Some("ZZSF".into()), suspended_only: Some(true), limit: Some(1000), ..Default::default() }).await.unwrap();
+            (codigos(&visiveis), codigos(&suspensos))
+        };
+
+        let mut resultados = Vec::new();
+        for valor in [None, Some(r#"["descontinuado","terceirizado"]"#), Some(r#"["ativo","lancamento"]"#), Some("[]")] {
+            match valor {
+                Some(v) => { sqlx::query("INSERT INTO settings (key, value) VALUES ('ignored_product_statuses', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")
+                    .bind(v).execute(&pool).await.unwrap(); }
+                None => { sqlx::query("DELETE FROM settings WHERE key = 'ignored_product_statuses'").execute(&pool).await.unwrap(); }
+            }
+            resultados.push(rodar().await);
+        }
+        // restaura a setting
+        match anterior {
+            Some(v) => { sqlx::query("INSERT INTO settings (key, value) VALUES ('ignored_product_statuses', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value").bind(v).execute(&pool).await.unwrap(); }
+            None => { sqlx::query("DELETE FROM settings WHERE key = 'ignored_product_statuses'").execute(&pool).await.unwrap(); }
+        }
+        let (visiveis, suspensos) = &resultados[0];
+        assert_eq!(visiveis, &vec!["ZZSF1".to_string()]);
+        assert_eq!(suspensos, &vec!["ZZSF2".to_string(), "ZZSF3".to_string()]);
+        for r in &resultados {
+            assert_eq!(r, &resultados[0], "a setting não pode mudar o resultado");
+        }
     }
 }
