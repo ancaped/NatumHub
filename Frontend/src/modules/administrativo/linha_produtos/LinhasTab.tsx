@@ -241,33 +241,7 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
     setHerancaVersao(v => v + 1);
   };
 
-  // Define (ou tira) a linha principal: a prévia vem do servidor e só grava no OK.
-  const handlePrincipal = async () => {
-    if (!editingLineConfig) return;
-    const prefixo = editingLineConfig.linha_prefix;
-    const corpo = { prefixo, principal: principalForm || null };
-    try {
-      const r = await chamarAcao('principal', corpo, false);
-      setLineFormError(null);
-      const nomePai = (p: string | null) => (p ? configs.find(c => c.linha_prefix === p)?.nome_linha || p : 'nenhuma (linha própria)');
-      pedirPrevia({
-        titulo: principalForm ? `${editingLineConfig.nome_linha} vira sublinha de ${nomePai(principalForm)}` : `${editingLineConfig.nome_linha} deixa de ser sublinha`,
-        linhas: [
-          { titulo: 'Linha principal', detalhe: `${nomePai(r.linhaPrincipalAntes)} → ${nomePai(r.linhaPrincipalDepois)}` },
-          { titulo: 'Produtos na linha', detalhe: String(r.produtosNaLinha ?? 0) },
-        ],
-        avisos: r.avisos || [],
-        confirmarRotulo: principalForm ? 'Virar sublinha' : 'Tirar a principal',
-        executar: async () => {
-          await chamarAcao('principal', corpo, true);
-          await depoisDeAcao();
-          avisar(principalForm ? 'Linha agora é sublinha. Os valores atuais continuam próprios.' : 'Linha agora é própria.', 'sucesso');
-        },
-      });
-    } catch (err) {
-      setLineFormError(err instanceof Error ? err.message : 'Falha de conexão ao preparar a mudança.');
-    }
-  };
+  const nomeDaLinha = (p: string | null | undefined) => (p ? configs.find(c => c.linha_prefix === p)?.nome_linha || p : 'nenhuma (linha própria)');
 
   // Marca um parâmetro da sublinha como próprio (com valor) ou volta a herdar: prévia do servidor e grava no OK.
   const handleParametro = async (chave: ParametroLinha, modo: 'proprio' | 'herdar', valor?: number | string) => {
@@ -299,21 +273,10 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
     }
   };
 
-  const gravarConfig = async (cfg: LineConfig) => {
-    const res = await apiFetch(`/configs`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cfg)
-    });
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error || 'Erro ao salvar a configuração de linha.');
-    }
-    setIsLineModalOpen(false);
-    await depoisDeAcao();
-    avisar('Linha salva. Use "Recalcular linhas dos produtos" para aplicar aos produtos.', 'info');
-  };
+  // Valor do campo: se continua igual ao gravado, fica o gravado (0 é válido e não vira o padrão); senão o digitado, ou o padrão se vazio.
+  const numOu = (v: string, gravado: number | undefined, padrao: number) => { const n = parseFloat(v); return gravado !== undefined && n === gravado ? gravado : n || padrao; };
 
+  /** Salvar: tudo o que mudou no painel (linha principal, atendimento, parâmetros, nome, visibilidade) entra numa prévia só e é gravado em sequência; falha aparece, nada se perde em silêncio. */
   const handleSaveLineConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!linePrefixForm.trim() || !lineNameForm.trim()) {
@@ -326,46 +289,110 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
       const cfg: LineConfig = {
         linha_prefix: editingLineConfig ? editingLineConfig.linha_prefix : linePrefixForm.trim(),
         nome_linha: lineNameForm.trim(),
-        estoque_ideal_mult: parseFloat(idealMultForm) || 3.0,
-        abrir_ordem_mult: parseFloat(ordemMultForm) || 1.5,
-        abrir_prod_mult: parseFloat(prodMultForm) || 1.0,
-        fator_seguranca_z: parseFloat(fatorZForm) || 1.65,
+        estoque_ideal_mult: numOu(idealMultForm, editingLineConfig?.estoque_ideal_mult, 3.0),
+        abrir_ordem_mult: numOu(ordemMultForm, editingLineConfig?.abrir_ordem_mult, 1.5),
+        abrir_prod_mult: numOu(prodMultForm, editingLineConfig?.abrir_prod_mult, 1.0),
+        fator_seguranca_z: numOu(fatorZForm, editingLineConfig?.fator_seguranca_z, 1.65),
         visivel: visibleLineForm === '0' ? 0 : 1
       };
+      const ed = editingLineConfig;
+      const camposMudaram = !ed
+        || cfg.nome_linha !== ed.nome_linha
+        || cfg.estoque_ideal_mult !== ed.estoque_ideal_mult
+        || cfg.abrir_ordem_mult !== ed.abrir_ordem_mult
+        || cfg.abrir_prod_mult !== ed.abrir_prod_mult
+        || cfg.fator_seguranca_z !== ed.fator_seguranca_z
+        || (cfg.visivel ?? 1) !== (ed.visivel ?? 1);
+      const principalMudou = !!ed && ed.linha_prefix !== 'DEFAULT' && principalForm !== (principalDe(ed.linha_prefix) || '');
+      const atendimentoMudou = !!ed && atendimentoForm !== atendimentoDaLinha(ed.linha_prefix) && !(eSublinhaEditada && herdaEditada?.herda.atendimento);
+
+      const linhas: { titulo: string; detalhe: string }[] = [];
+      const avisos: string[] = [];
+      const passos: { rotulo: string; gravar: () => Promise<void> }[] = [];
+
+      if (ed && principalMudou) {
+        const corpo = { prefixo: ed.linha_prefix, principal: principalForm || null };
+        const r = await chamarAcao('principal', corpo, false);
+        linhas.push({ titulo: 'Linha principal', detalhe: `${nomeDaLinha(r.linhaPrincipalAntes)} → ${nomeDaLinha(r.linhaPrincipalDepois)}` });
+        linhas.push({ titulo: 'Produtos na linha', detalhe: String(r.produtosNaLinha ?? 0) });
+        avisos.push(...(r.avisos || []));
+        passos.push({ rotulo: 'linha principal', gravar: async () => { await chamarAcao('principal', corpo, true); } });
+      }
+      if (ed && atendimentoMudou) {
+        const corpo = { prefixo: ed.linha_prefix, atendimento: atendimentoForm };
+        const r = await chamarAcao('classificacao', corpo, false);
+        linhas.push({ titulo: 'Atendimento padrão', detalhe: `${rotuloAtendimento(r.antes?.atendimento)} → ${rotuloAtendimento(r.depois?.atendimento)}` });
+        linhas.push({ titulo: '   Produtos que mudam de efeito', detalhe: String(r.produtosQueMudamDeEfeito ?? 0) });
+        avisos.push(...(r.avisos || []));
+        passos.push({ rotulo: 'atendimento', gravar: async () => { await chamarAcao('classificacao', corpo, true); } });
+      }
       // Principal com sublinhas: mudar um parâmetro ou inativar mexe nas sublinhas; mostra o efeito antes de gravar.
       const mudou: { chave: ParametroLinha; antes: number; depois: number }[] = [];
-      if (editingLineConfig && filhasDaEditada.length > 0) {
-        if (cfg.estoque_ideal_mult !== editingLineConfig.estoque_ideal_mult) mudou.push({ chave: 'estoque_ideal', antes: editingLineConfig.estoque_ideal_mult, depois: cfg.estoque_ideal_mult });
-        if (cfg.abrir_ordem_mult !== editingLineConfig.abrir_ordem_mult) mudou.push({ chave: 'abrir_ordem', antes: editingLineConfig.abrir_ordem_mult, depois: cfg.abrir_ordem_mult });
-        if (cfg.abrir_prod_mult !== editingLineConfig.abrir_prod_mult) mudou.push({ chave: 'abrir_prod', antes: editingLineConfig.abrir_prod_mult, depois: cfg.abrir_prod_mult });
-        if (cfg.fator_seguranca_z !== editingLineConfig.fator_seguranca_z) mudou.push({ chave: 'fator_z', antes: editingLineConfig.fator_seguranca_z, depois: cfg.fator_seguranca_z });
+      if (ed && filhasDaEditada.length > 0) {
+        if (cfg.estoque_ideal_mult !== ed.estoque_ideal_mult) mudou.push({ chave: 'estoque_ideal', antes: ed.estoque_ideal_mult, depois: cfg.estoque_ideal_mult });
+        if (cfg.abrir_ordem_mult !== ed.abrir_ordem_mult) mudou.push({ chave: 'abrir_ordem', antes: ed.abrir_ordem_mult, depois: cfg.abrir_ordem_mult });
+        if (cfg.abrir_prod_mult !== ed.abrir_prod_mult) mudou.push({ chave: 'abrir_prod', antes: ed.abrir_prod_mult, depois: cfg.abrir_prod_mult });
+        if (cfg.fator_seguranca_z !== ed.fator_seguranca_z) mudou.push({ chave: 'fator_z', antes: ed.fator_seguranca_z, depois: cfg.fator_seguranca_z });
       }
-      const inativando = !!editingLineConfig && filhasDaEditada.length > 0 && cfg.visivel === 0 && editingLineConfig.visivel !== 0;
-      if (mudou.length > 0 || inativando) {
-        const linhas: { titulo: string; detalhe: string }[] = [];
-        for (const m of mudou) {
-          const r = await chamarAcao('parametro', { prefixo: cfg.linha_prefix, parametro: m.chave, modo: 'proprio', valor: m.depois }, false);
-          const afetadas: { nome: string; produtos: number }[] = r.sublinhas || [];
-          linhas.push({ titulo: ROTULO_PARAM[m.chave], detalhe: `${fmt(m.antes)} → ${fmt(m.depois)} · ${r.produtosAfetados ?? 0} produtos` });
-          for (const x of afetadas) linhas.push({ titulo: `   ${x.nome} (herda)`, detalhe: `${x.produtos} produtos` });
+      const inativando = !!ed && filhasDaEditada.length > 0 && cfg.visivel === 0 && ed.visivel !== 0;
+      for (const m of mudou) {
+        const r = await chamarAcao('parametro', { prefixo: cfg.linha_prefix, parametro: m.chave, modo: 'proprio', valor: m.depois }, false);
+        const afetadas: { nome: string; produtos: number }[] = r.sublinhas || [];
+        linhas.push({ titulo: ROTULO_PARAM[m.chave], detalhe: `${fmt(m.antes)} → ${fmt(m.depois)} · ${r.produtosAfetados ?? 0} produtos` });
+        for (const x of afetadas) linhas.push({ titulo: `   ${x.nome} (herda)`, detalhe: `${x.produtos} produtos` });
+      }
+      if (inativando) {
+        const r = await chamarAcao('classificacao', { prefixo: cfg.linha_prefix, ativa: false }, false);
+        const somem: { nome: string; produtos: number }[] = r.sublinhasEscondidas || [];
+        linhas.push({ titulo: 'Linha inativa: somem junto as sublinhas', detalhe: String(somem.length) });
+        for (const x of somem) linhas.push({ titulo: `   ${x.nome}`, detalhe: `${x.produtos} produtos` });
+      }
+      if (mudou.length > 0 || inativando) avisos.push('As sublinhas que herdam o parâmetro mudam junto; as que têm valor próprio não.');
+
+      // Grava em sequência; se um passo falha, mostra qual e o que já foi gravado, e recarrega a tela.
+      const gravarTudo = async () => {
+        const feitos: string[] = [];
+        try {
+          for (const passo of passos) {
+            await passo.gravar();
+            feitos.push(passo.rotulo);
+          }
+          if (camposMudaram) {
+            const res = await apiFetch(`/configs`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(cfg)
+            });
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              throw new Error(errData.error || 'Erro ao salvar a configuração de linha.');
+            }
+          }
+        } catch (err) {
+          if (feitos.length > 0) await depoisDeAcao();
+          const msg = err instanceof Error ? err.message : 'Falha ao salvar.';
+          throw new Error(feitos.length > 0 ? `${msg} Já gravado: ${feitos.join(', ')}. O resto não foi salvo.` : msg);
         }
-        if (inativando) {
-          const r = await chamarAcao('classificacao', { prefixo: cfg.linha_prefix, ativa: false }, false);
-          const somem: { nome: string; produtos: number }[] = r.sublinhasEscondidas || [];
-          linhas.push({ titulo: 'Linha inativa: somem junto as sublinhas', detalhe: String(somem.length) });
-          for (const x of somem) linhas.push({ titulo: `   ${x.nome}`, detalhe: `${x.produtos} produtos` });
+        setIsLineModalOpen(false);
+        await depoisDeAcao();
+        avisar(camposMudaram && passos.length === 0 ? 'Linha salva. Use "Recalcular linhas dos produtos" para aplicar aos produtos.' : 'Linha salva.', passos.length > 0 ? 'sucesso' : 'info');
+      };
+
+      if (passos.length === 0 && mudou.length === 0 && !inativando) {
+        if (!camposMudaram) {
+          setIsLineModalOpen(false);
+          return;
         }
-        setLineFormError(null);
-        pedirPrevia({
-          titulo: `Salvar ${editingLineConfig?.nome_linha}`,
-          linhas,
-          avisos: ['As sublinhas que herdam o parâmetro mudam junto; as que têm valor próprio não.'],
-          confirmarRotulo: 'Salvar config',
-          executar: async () => { await gravarConfig(cfg); },
-        });
+        await gravarTudo();
         return;
       }
-      await gravarConfig(cfg);
+      pedirPrevia({
+        titulo: `Salvar ${ed?.nome_linha}`,
+        linhas,
+        avisos,
+        confirmarRotulo: 'Salvar config',
+        executar: gravarTudo,
+      });
     } catch (err) {
       console.error(err);
       setLineFormError(err instanceof Error ? err.message : "Falha de conexão ao salvar.");
@@ -428,52 +455,6 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
     } catch (err) {
       console.error(err);
       setLineFormError('Falha de conexão ao preparar a troca.');
-    }
-  };
-
-  // Atendimento padrão da linha: prévia do servidor (quantos produtos mudam de efeito) e só grava no OK.
-  const handleAtendimentoLinha = async () => {
-    if (!editingLineConfig) return;
-    const prefixo = editingLineConfig.linha_prefix;
-    const corpo = JSON.stringify({ prefixo, atendimento: atendimentoForm });
-    const chamar = (confirmar: boolean) => apiFetch(`/admin/produtos-ativos/linhas/classificacao${confirmar ? '?confirmar=true' : ''}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: corpo,
-    });
-    try {
-      const res = await chamar(false);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setLineFormError(data.error || 'Não foi possível calcular a mudança.');
-        return;
-      }
-      setLineFormError(null);
-      const r = data.resultado || {};
-      const rotulo = (v: string) => ATENDIMENTOS_UI.find(a => a.value === v)?.label || v;
-      pedirPrevia({
-        titulo: `Atendimento da linha ${editingLineConfig.nome_linha}`,
-        linhas: [
-          { titulo: 'Atendimento padrão', detalhe: `${rotulo(r.antes?.atendimento)} → ${rotulo(r.depois?.atendimento)}` },
-          { titulo: 'Produtos na linha', detalhe: String(r.produtosNaLinha ?? 0) },
-          { titulo: 'Produtos que mudam de efeito', detalhe: String(r.produtosQueMudamDeEfeito ?? 0) },
-          { titulo: 'Produtos com exceção própria (não mudam)', detalhe: String(r.produtosComExcecaoDeAtendimento ?? 0) },
-        ],
-        avisos: r.avisos || [],
-        confirmarRotulo: 'Mudar atendimento',
-        executar: async () => {
-          const r2 = await chamar(true);
-          if (!r2.ok) {
-            const e = await r2.json().catch(() => ({}));
-            throw new Error(e.error || 'Erro ao mudar o atendimento.');
-          }
-          await onReload();
-          avisar('Atendimento da linha atualizado.', 'sucesso');
-        },
-      });
-    } catch (err) {
-      console.error(err);
-      setLineFormError('Falha de conexão ao preparar a mudança.');
     }
   };
 
@@ -987,20 +968,11 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                       .filter(c => c.linha_prefix !== 'DEFAULT' && c.linha_prefix !== editingLineConfig.linha_prefix && !principalDe(c.linha_prefix))
                       .map(c => <option key={c.linha_prefix} value={c.linha_prefix}>{c.nome_linha} ({c.linha_prefix})</option>)}
                   </select>
-                  {principalForm !== (principalDe(editingLineConfig.linha_prefix) || '') && (
-                    <button
-                      type="button"
-                      onClick={() => void handlePrincipal()}
-                      className="px-3 min-h-[44px] sm:min-h-0 bg-zinc-900 hover:bg-zinc-950 text-white rounded-xl font-bold text-xs cursor-pointer whitespace-nowrap"
-                    >
-                      Ver mudança
-                    </button>
-                  )}
                 </div>
                 <span className="text-[10px] text-zinc-400 font-semibold block leading-tight">
                   {filhasDaEditada.length > 0
                     ? `Esta linha tem ${filhasDaEditada.length} sublinha(s) (${filhasDaEditada.map(f => f.nome_linha).join(', ')}); uma linha com sublinhas não pode virar sublinha.`
-                    : 'Sublinha herda da principal o que não tiver valor próprio e some junto quando a principal é inativada. Só um nível.'}
+                    : 'Sublinha herda da principal o que não tiver valor próprio e some junto quando a principal é inativada. Só um nível. Vale ao clicar em Salvar.'}
                 </span>
               </div>
             )}
@@ -1042,15 +1014,6 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                     >
                       {ATENDIMENTOS_UI.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
                     </select>
-                    {atendimentoForm !== atendimentoDaLinha(editingLineConfig.linha_prefix) && (
-                      <button
-                        type="button"
-                        onClick={() => void handleAtendimentoLinha()}
-                        className="px-3 min-h-[44px] sm:min-h-0 bg-zinc-900 hover:bg-zinc-950 text-white rounded-xl font-bold text-xs cursor-pointer whitespace-nowrap"
-                      >
-                        Ver mudança
-                      </button>
-                    )}
                   </div>
                   {eSublinhaEditada && (herdaEditada?.herda.atendimento ? (
                     <span className="block text-[10px] font-semibold text-zinc-500">
