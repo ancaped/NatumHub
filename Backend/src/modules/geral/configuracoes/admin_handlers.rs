@@ -306,7 +306,7 @@ pub async fn audit_stock(
             "eps": crate::core::legacy_db::STOCK_VERIFY_EPS,
             "warnings": warnings,
             "notes": {
-                "estoqueExibidoProdutos": "nQtdeEstoque (cadastro Produtos)",
+                "estoqueExibidoProdutos": "saldo recalculado dos movimentos (D7); nQtdeEstoque do cadastro só como cache",
                 "estoqueExibidoInsumos": "nQtdeEstoque (campo da tela do ERP)",
                 "prevFutura": "cálculo interno Hub — não comparar com estoque ERP",
                 "efpProducao": "estoque + produção − pedidos (não é o estoque ERP)"
@@ -458,7 +458,7 @@ pub async fn resync_insumo_stocks(State(state): State<Arc<AppState>>) -> impl In
     }
 }
 
-/// POST /api/admin/audit/stock/resync-produtos — regrava estoque_atual com Produtos.nQtdeEstoque.
+/// POST /api/admin/audit/stock/resync-produtos — regrava estoque_atual com o saldo recalculado (D7).
 pub async fn resync_produto_stocks(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match crate::core::legacy_db::resync_all_produto_stocks_from_erp(state.db.pool()).await {
         Ok(r) => (
