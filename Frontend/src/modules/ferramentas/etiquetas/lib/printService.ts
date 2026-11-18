@@ -100,6 +100,22 @@ function renderElementHtml(
   pageWidthMm: number,
   pageHeightMm: number
 ): string {
+  const html = renderElementHtmlBase(el, seqIndex, totalCount, startSeq, padding, pageWidthMm, pageHeightMm);
+  const giro = (((Number(el.rotation) || 0) % 360) + 360) % 360;
+  if (!giro || !html) return html;
+  // Rotação do campo em torno do próprio centro
+  return html.replace('position:absolute;', `position:absolute; transform:rotate(${giro}deg); transform-origin:center center;`);
+}
+
+function renderElementHtmlBase(
+  el: LabelElement,
+  seqIndex: number,
+  totalCount: number,
+  startSeq: number,
+  padding: number,
+  pageWidthMm: number,
+  pageHeightMm: number
+): string {
   const left = pctOf(el.x_mm, pageWidthMm);
   const top = pctOf(el.y_mm, pageHeightMm);
   const width = pctOf(el.width_mm, pageWidthMm);

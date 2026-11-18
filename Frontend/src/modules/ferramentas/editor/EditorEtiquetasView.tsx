@@ -76,6 +76,8 @@ export default function EditorEtiquetasView({
     typeof window !== 'undefined' && window.innerWidth < 640 ? 0.6 : 1.25
   ); // 125% no desktop; menor no celular
   const [showGrid, setShowGrid] = useState<boolean>(true);
+  // giro só da visão de edição; o que imprime não muda
+  const [viewRotation, setViewRotation] = useState<number>(0);
   const [snapToGrid, setSnapToGrid] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -812,6 +814,20 @@ export default function EditorEtiquetasView({
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
+                  onClick={() => setViewRotation((v) => (v + 90) % 360)}
+                  className={`p-3 lg:p-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors ${
+                    viewRotation
+                      ? 'bg-zinc-900 text-white border-zinc-900'
+                      : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
+                  }`}
+                  title="Girar a visão de edição 90° (não muda o que imprime)"
+                >
+                  <RotateCw className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline text-[11px]">Girar visão{viewRotation ? ` ${viewRotation}°` : ''}</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setShowGrid(!showGrid)}
                   className={`p-3 lg:p-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors ${
                     showGrid
@@ -861,6 +877,7 @@ export default function EditorEtiquetasView({
               zoomScale={zoomScale}
               showGrid={showGrid}
               snapToGrid={snapToGrid}
+              viewRotation={viewRotation}
             />
           </div>
         </div>

@@ -15,6 +15,16 @@ interface LabelCanvasProps {
   zoomScale: number;
   showGrid?: boolean;
   snapToGrid?: boolean;
+  /** Giro só da visão de edição (0/90/180/270): não muda o que imprime. */
+  viewRotation?: number;
+}
+
+/** Gira o vetor (dx, dy) por -deg: converte movimento do mouse na tela para o plano girado. */
+function desgirar(dx: number, dy: number, deg: number): [number, number] {
+  const a = (deg * Math.PI) / 180;
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  return [dx * c + dy * s, -dx * s + dy * c];
 }
 
 // 1mm equals ~3.7795px at 96 DPI screen
@@ -38,6 +48,7 @@ export default function LabelCanvas({
   zoomScale,
   showGrid = true,
   snapToGrid = true,
+  viewRotation = 0,
 }: LabelCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -135,8 +146,9 @@ export default function LabelCanvas({
       }
 
       dragState.hasMoved = true;
-      let rawDxMm = dxPx / mmToPx;
-      let rawDyMm = dyPx / mmToPx;
+      const [vdx, vdy] = desgirar(dxPx, dyPx, viewRotation);
+      let rawDxMm = vdx / mmToPx;
+      let rawDyMm = vdy / mmToPx;
 
       const otherElements = template.elements_json.filter(
         (el) => !selectedIds.includes(el.id)
@@ -262,6 +274,12 @@ export default function LabelCanvas({
         let newW = dragState.initialElemW;
         let newH = dragState.initialElemH;
 
+        // Campo girado: o arrasto da alça é medido no eixo do próprio campo
+        const giroEl = Number(template.elements_json.find((e) => e.id === dragState.elementId)?.rotation) || 0;
+        const [ldx, ldy] = desgirar(dxPx, dyPx, viewRotation + giroEl);
+        rawDxMm = ldx / mmToPx;
+        rawDyMm = ldy / mmToPx;
+
         if (dragState.handle.includes('e')) {
           newW = Math.max(3, snapToGrid ? Math.round(dragState.initialElemW + rawDxMm) : dragState.initialElemW + rawDxMm);
         }
@@ -277,6 +295,21 @@ export default function LabelCanvas({
           const delta = snapToGrid ? Math.round(rawDyMm) : rawDyMm;
           newH = Math.max(2, dragState.initialElemH - delta);
           newY = dragState.initialElemY + (dragState.initialElemH - newH);
+        }
+
+        if (giroEl % 360 !== 0) {
+          // o campo gira em torno do centro: mantém a borda oposta parada na tela
+          const a = (giroEl * Math.PI) / 180;
+          const dcx = newX + newW / 2 - (dragState.initialElemX + dragState.initialElemW / 2);
+          const dcy = newY + newH / 2 - (dragState.initialElemY + dragState.initialElemH / 2);
+          const cx = dragState.initialElemX + dragState.initialElemW / 2 + dcx * Math.cos(a) - dcy * Math.sin(a);
+          const cy = dragState.initialElemY + dragState.initialElemH / 2 + dcx * Math.sin(a) + dcy * Math.cos(a);
+          onUpdateElement(
+            dragState.elementId,
+            { x_mm: cx - newW / 2, y_mm: cy - newH / 2, width_mm: newW, height_mm: newH },
+            false
+          );
+          return;
         }
 
         onUpdateElement(
@@ -320,6 +353,7 @@ export default function LabelCanvas({
     selectedIds,
     template.elements_json,
     snapToGrid,
+    viewRotation,
   ]);
 
   const handleStartMove = (e: React.MouseEvent, el: LabelElement) => {
@@ -410,6 +444,8 @@ export default function LabelCanvas({
           width: `${width}px`,
           height: `${height}px`,
           zIndex: el.zIndex || 1,
+          transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
+          transformOrigin: 'center center',
           cursor: isSelected ? 'move' : 'pointer',
           touchAction: isSelected ? 'none' : 'auto',
         }}
@@ -661,7 +697,26 @@ export default function LabelCanvas({
       }}
       className="flex-1 flex items-center justify-center p-8 bg-zinc-200/70 overflow-auto relative select-none"
     >
-      <div className="flex flex-col items-start shadow-xl rounded-lg bg-zinc-300 p-6 border border-zinc-400/40">
+      <div
+        style={
+          viewRotation % 360 !== 0
+            ? {
+                position: 'relative',
+                flexShrink: 0,
+                width: `${(viewRotation % 180 !== 0 ? canvasHeightPx + 22 : canvasWidthPx + 24) + 56}px`,
+                height: `${(viewRotation % 180 !== 0 ? canvasWidthPx + 24 : canvasHeightPx + 22) + 56}px`,
+              }
+            : undefined
+        }
+      >
+      <div
+        style={
+          viewRotation % 360 !== 0
+            ? { position: 'absolute', left: '50%', top: '50%', transform: `translate(-50%, -50%) rotate(${viewRotation}deg)` }
+            : undefined
+        }
+        className="flex flex-col items-start shadow-xl rounded-lg bg-zinc-300 p-6 border border-zinc-400/40"
+      >
         {/* Horizontal Top Ruler */}
         <div
           style={{ width: `${canvasWidthPx}px`, height: '22px' }}
@@ -765,6 +820,7 @@ export default function LabelCanvas({
             })}
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

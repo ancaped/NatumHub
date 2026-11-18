@@ -109,8 +109,10 @@ export async function montarPaginasNativas(
   dpiImagem: number,
   amostragem: number,
 ): Promise<PaginaNativa[]> {
-  const graficos = template.elements_json.filter((el) => !TIPOS_NATIVOS.has(el.type));
-  const nativos = template.elements_json.filter((el) => TIPOS_NATIVOS.has(el.type));
+  // Campo girado não vai como texto/barra nativo da Zebra: entra na imagem, que já respeita a rotação.
+  const girado = (el: LabelElement) => (Number(el.rotation) || 0) % 360 !== 0;
+  const graficos = template.elements_json.filter((el) => !TIPOS_NATIVOS.has(el.type) || girado(el));
+  const nativos = template.elements_json.filter((el) => TIPOS_NATIVOS.has(el.type) && !girado(el));
   const resultado: PaginaNativa[] = [];
   for (let i = 0; i < paginas; i++) {
     const pag = paginaNativa(nativos, i, total, inicio, padding);

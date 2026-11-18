@@ -610,6 +610,20 @@ export default function ElementPropertiesPanel({
             onChange={(v) => onUpdateElement(element.id, { height_mm: Math.max(1, parseFloat(v) || 1) })}
           />
         </div>
+        <Field label="Girar o campo">
+          <Segmented cols={4}>
+            {[0, 90, 180, 270].map((g) => (
+              <SegBtn
+                key={g}
+                title={`Girar ${g}° (em torno do centro do campo)`}
+                active={(((Number(element.rotation) || 0) % 360) + 360) % 360 === g}
+                onClick={() => onUpdateElement(element.id, { rotation: g })}
+              >
+                {g}°
+              </SegBtn>
+            ))}
+          </Segmented>
+        </Field>
       </Section>
 
       {/* Aparência */}

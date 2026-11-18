@@ -205,6 +205,14 @@ function drawElement(
 
   ctx.save();
 
+  // Rotação do campo (graus, em torno do centro do próprio campo)
+  const giro = (((Number(el.rotation) || 0) % 360) + 360) % 360;
+  if (giro) {
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.rotate((giro * Math.PI) / 180);
+    ctx.translate(-(x + w / 2), -(y + h / 2));
+  }
+
   switch (el.type) {
     case 'box': {
       // Traço e posição em pontos inteiros: borda fracionária vira cinza e a impressora térmica a quebra.
