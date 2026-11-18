@@ -22,10 +22,12 @@ interface Props {
   avisar: (mensagem: string, tipo?: 'sucesso' | 'erro' | 'info') => void;
   /** Recarrega os dados da tela depois de gravar. */
   onReload: () => Promise<void> | void;
+  /** Leva à lista Produtos: situação e atendimento do produto se mudam só lá. */
+  onIrParaProdutos?: () => void;
 }
 
 /** Aba Definição de Linhas da Linha de Produtos: linhas por prefixo, aviso de prefixos sem linha e painel de edição. */
-export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, avisar, onReload }: Props) {
+export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, avisar, onReload, onIrParaProdutos }: Props) {
   const [editingLineConfig, setEditingLineConfig] = useState<LineConfig | null>(null);
   const [isLineModalOpen, setIsLineModalOpen] = useState(false);
   const [abaLinha, setAbaLinha] = useState<'produtos' | 'resumo' | 'parametros'>('produtos');
@@ -144,16 +146,16 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
     setMarcados(n);
   };
 
-  // Mover produtos de linha ou mudar o status dos selecionados: prévia do servidor e só grava no OK.
-  const pedirMudancaEmLote = async (action: 'set_line' | 'set_status' | 'set_atendimento', value: string) => {
+  // Mover os selecionados de linha: prévia do servidor e só grava no OK.
+  const pedirMudancaEmLote = async (action: 'set_line', value: string) => {
     if (!value || marcados.size === 0) return;
     const rotuloLinha = value === 'AUTO' ? 'a linha do prefixo' : configs.find(c => c.linha_prefix === value)?.nome_linha || value;
     await pedirBulk({
-      titulo: action === 'set_line' ? `Mover ${marcados.size} produto(s) para ${rotuloLinha}` : action === 'set_atendimento' ? `Mudar o atendimento de ${marcados.size} produto(s)` : `Mudar a situação de ${marcados.size} produto(s)`,
+      titulo: `Mover ${marcados.size} produto(s) para ${rotuloLinha}`,
       codigos: Array.from(marcados),
       action,
       value,
-      confirmarRotulo: action === 'set_line' ? 'Mover produtos' : 'Aplicar',
+      confirmarRotulo: 'Mover produtos',
       aoConcluir: async () => {
         setMarcados(new Set());
         await onReload();
@@ -841,25 +843,16 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                       <option key={c.linha_prefix} value={c.linha_prefix}>{c.nome_linha}</option>
                     ))}
                   </select>
-                  <select
-                    aria-label="Mudar status"
-                    value=""
-                    onChange={(e) => void pedirMudancaEmLote('set_status', e.target.value)}
-                    className="h-8 rounded-xl border border-zinc-700 bg-zinc-800 text-white text-xs font-bold px-2 cursor-pointer"
-                  >
-                    <option value="">Mudar situação…</option>
-                    {SITUACOES_UI.map(sit => <option key={sit.value} value={sit.value}>{sit.label}</option>)}
-                  </select>
-                  <select
-                    aria-label="Mudar atendimento"
-                    value=""
-                    onChange={(e) => void pedirMudancaEmLote('set_atendimento', e.target.value)}
-                    className="h-8 rounded-xl border border-zinc-700 bg-zinc-800 text-white text-xs font-bold px-2 cursor-pointer"
-                  >
-                    <option value="">Mudar atendimento…</option>
-                    <option value="AUTO">Herdar da linha</option>
-                    {ATENDIMENTOS_UI.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
-                  </select>
+                  {onIrParaProdutos && (
+                    <button
+                      type="button"
+                      onClick={onIrParaProdutos}
+                      title="Situação e atendimento do produto se mudam na lista Produtos"
+                      className="h-8 px-3 rounded-xl border border-zinc-700 bg-zinc-800 text-white text-xs font-bold cursor-pointer hover:bg-zinc-700 transition-colors"
+                    >
+                      Situação: em Produtos →
+                    </button>
+                  )}
                   <button type="button" onClick={() => setMarcados(new Set())} className="text-xs text-zinc-400 hover:text-white px-2 cursor-pointer">Limpar</button>
                 </div>
               )}
