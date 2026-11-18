@@ -263,29 +263,75 @@ export default function EditorEtiquetasView({
     [template.elements_json, handleElementsChange]
   );
 
+  /**
+   * Alinhamento trabalha na caixa VISUAL do campo (um campo girado 90°/270° ocupa largura×altura trocadas,
+   * em torno do mesmo centro) e no espaço da TELA (com "Girar visão", esquerda/topo são os da tela).
+   */
+  const alinharNaTela = useCallback(
+    (
+      alvos: LabelElement[],
+      aplicar: (caixas: { x: number; y: number; w: number; h: number }[], telaW: number, telaH: number) => void
+    ) => {
+      if (alvos.length === 0) return;
+      const retrato = template.orientation === 'portrait';
+      const W = retrato ? template.height_mm : template.width_mm;
+      const H = retrato ? template.width_mm : template.height_mm;
+      const v = ((viewRotation % 360) + 360) % 360;
+      const impar = v === 90 || v === 270;
+      const telaW = impar ? H : W;
+      const telaH = impar ? W : H;
+
+      const visual = (el: LabelElement) => {
+        const g = (((Number(el.rotation) || 0) % 360) + 360) % 360;
+        const troca = g === 90 || g === 270;
+        const w = troca ? el.height_mm : el.width_mm;
+        const h = troca ? el.width_mm : el.height_mm;
+        return { x: el.x_mm + el.width_mm / 2 - w / 2, y: el.y_mm + el.height_mm / 2 - h / 2, w, h };
+      };
+      const paraTela = (b: { x: number; y: number; w: number; h: number }) => {
+        if (v === 90) return { x: H - b.y - b.h, y: b.x, w: b.h, h: b.w };
+        if (v === 180) return { x: W - b.x - b.w, y: H - b.y - b.h, w: b.w, h: b.h };
+        if (v === 270) return { x: b.y, y: W - b.x - b.w, w: b.h, h: b.w };
+        return b;
+      };
+      const daTela = (b: { x: number; y: number; w: number; h: number }) => {
+        if (v === 90) return { x: b.y, y: H - b.x - b.w, w: b.h, h: b.w };
+        if (v === 180) return { x: W - b.x - b.w, y: H - b.y - b.h, w: b.w, h: b.h };
+        if (v === 270) return { x: W - b.y - b.h, y: b.x, w: b.h, h: b.w };
+        return b;
+      };
+
+      const caixas = alvos.map((el) => paraTela(visual(el)));
+      aplicar(caixas, telaW, telaH);
+      handleUpdateMultipleElements(
+        alvos.map((el, i) => {
+          const d = daTela(caixas[i]);
+          return {
+            id: el.id,
+            updates: { x_mm: d.x + d.w / 2 - el.width_mm / 2, y_mm: d.y + d.h / 2 - el.height_mm / 2 },
+          };
+        }),
+        true
+      );
+    },
+    [template.orientation, template.width_mm, template.height_mm, viewRotation, handleUpdateMultipleElements]
+  );
+
   // Align single element
   const handleAlignElement = useCallback(
     (id: string, alignment: 'left' | 'center_h' | 'right' | 'top' | 'center_v' | 'bottom') => {
       const el = template.elements_json.find((item) => item.id === id);
       if (!el) return;
-
-      const isPortrait = template.orientation === 'portrait';
-      const labelW = isPortrait ? template.height_mm : template.width_mm;
-      const labelH = isPortrait ? template.width_mm : template.height_mm;
-
-      let newX = el.x_mm;
-      let newY = el.y_mm;
-
-      if (alignment === 'left') newX = 1;
-      else if (alignment === 'center_h') newX = Math.max(0, (labelW - el.width_mm) / 2);
-      else if (alignment === 'right') newX = Math.max(0, labelW - el.width_mm - 1);
-      else if (alignment === 'top') newY = 1;
-      else if (alignment === 'center_v') newY = Math.max(0, (labelH - el.height_mm) / 2);
-      else if (alignment === 'bottom') newY = Math.max(0, labelH - el.height_mm - 1);
-
-      handleUpdateElement(id, { x_mm: newX, y_mm: newY }, true);
+      alinharNaTela([el], ([c], telaW, telaH) => {
+        if (alignment === 'left') c.x = 1;
+        else if (alignment === 'center_h') c.x = (telaW - c.w) / 2;
+        else if (alignment === 'right') c.x = telaW - c.w - 1;
+        else if (alignment === 'top') c.y = 1;
+        else if (alignment === 'center_v') c.y = (telaH - c.h) / 2;
+        else if (alignment === 'bottom') c.y = telaH - c.h - 1;
+      });
     },
-    [template, handleUpdateElement]
+    [template.elements_json, alinharNaTela]
   );
 
   // Align Group
@@ -311,47 +357,37 @@ export default function EditorEtiquetasView({
 
       if (targets.length === 0) return;
 
-      if (alignment === 'stack_column') {
-        const sorted = [...targets].sort((a, b) => a.y_mm - b.y_mm);
-        let currY = 2;
-        const updates = sorted.map((el) => {
-          const u = { id: el.id, updates: { x_mm: 3, y_mm: currY } };
-          currY += el.height_mm + 1.5;
-          return u;
-        });
-        handleUpdateMultipleElements(updates, true);
-        return;
-      }
-
-      if (alignment === 'left') {
-        const minX = Math.min(...targets.map((el) => el.x_mm));
-        handleUpdateMultipleElements(targets.map((el) => ({ id: el.id, updates: { x_mm: minX } })), true);
-      } else if (alignment === 'top') {
-        const minY = Math.min(...targets.map((el) => el.y_mm));
-        handleUpdateMultipleElements(targets.map((el) => ({ id: el.id, updates: { y_mm: minY } })), true);
-      } else if (alignment === 'center_h') {
-        const minX = Math.min(...targets.map((el) => el.x_mm));
-        const maxX = Math.max(...targets.map((el) => el.x_mm + el.width_mm));
-        const mid = (minX + maxX) / 2;
-        handleUpdateMultipleElements(
-          targets.map((el) => ({ id: el.id, updates: { x_mm: Math.max(0, mid - el.width_mm / 2) } })),
-          true
-        );
-      } else if (alignment === 'right') {
-        const maxX = Math.max(...targets.map((el) => el.x_mm + el.width_mm));
-        handleUpdateMultipleElements(
-          targets.map((el) => ({ id: el.id, updates: { x_mm: maxX - el.width_mm } })),
-          true
-        );
-      } else if (alignment === 'bottom') {
-        const maxY = Math.max(...targets.map((el) => el.y_mm + el.height_mm));
-        handleUpdateMultipleElements(
-          targets.map((el) => ({ id: el.id, updates: { y_mm: maxY - el.height_mm } })),
-          true
-        );
-      }
+      alinharNaTela(targets, (caixas) => {
+        if (alignment === 'stack_column') {
+          const ordem = caixas.map((_, i) => i).sort((i, j) => caixas[i].y - caixas[j].y);
+          let currY = 2;
+          for (const i of ordem) {
+            caixas[i].x = 3;
+            caixas[i].y = currY;
+            currY += caixas[i].h + 1.5;
+          }
+        } else if (alignment === 'left') {
+          const minX = Math.min(...caixas.map((c) => c.x));
+          caixas.forEach((c) => (c.x = minX));
+        } else if (alignment === 'top') {
+          const minY = Math.min(...caixas.map((c) => c.y));
+          caixas.forEach((c) => (c.y = minY));
+        } else if (alignment === 'center_h') {
+          const mid = (Math.min(...caixas.map((c) => c.x)) + Math.max(...caixas.map((c) => c.x + c.w))) / 2;
+          caixas.forEach((c) => (c.x = mid - c.w / 2));
+        } else if (alignment === 'right') {
+          const maxX = Math.max(...caixas.map((c) => c.x + c.w));
+          caixas.forEach((c) => (c.x = maxX - c.w));
+        } else if (alignment === 'bottom') {
+          const maxY = Math.max(...caixas.map((c) => c.y + c.h));
+          caixas.forEach((c) => (c.y = maxY - c.h));
+        } else if (alignment === 'center_v') {
+          const mid = (Math.min(...caixas.map((c) => c.y)) + Math.max(...caixas.map((c) => c.y + c.h))) / 2;
+          caixas.forEach((c) => (c.y = mid - c.h / 2));
+        }
+      });
     },
-    [selectedIds, template.elements_json, handleUpdateMultipleElements]
+    [selectedIds, template.elements_json, alinharNaTela]
   );
 
   // Undo
