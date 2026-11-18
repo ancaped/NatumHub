@@ -398,7 +398,7 @@ pub async fn listar_produtos(db: &Db, params: &QueryParams) -> Result<serde_json
     let kit_composition = db.get_kit_composition().await.unwrap_or_default();
     post_process_kit_only_production(&mut computed, &kit_composition);
     // Saindo de linha: a sugestão passa a ser o que a embalagem exclusiva que sobrou permite produzir.
-    crate::modules::producao::saindo_de_linha::aplicar_na_demanda(db.pool(), &mut computed).await;
+    crate::modules::producao::saindo_de_linha::aplicar_na_demanda(db, &mut computed).await;
 
     let mut kit_components_set = std::collections::HashSet::new();
     for components in kit_composition.values() {

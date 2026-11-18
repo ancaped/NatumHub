@@ -265,7 +265,7 @@ pub async fn sugestao_automatica(db: &Db) -> Result<Vec<SugestaoProduto>, ErroAp
         crate::modules::producao::gerenciamento::calculations::calculate_products(&products, &stocks, &fat_map, &configs, &overrides);
     let kits = db.get_kit_composition().await.unwrap_or_default();
     calculo::post_process_kit_only_production(&mut computed, &kits);
-    crate::modules::producao::saindo_de_linha::aplicar_na_demanda(db.pool(), &mut computed).await;
+    crate::modules::producao::saindo_de_linha::aplicar_na_demanda(db, &mut computed).await;
     Ok(computed
         .iter()
         .filter(|p| p.producao_recomendada > 0 && matches!(p.status.as_str(), "critico" | "ordem" | "saindo_de_linha"))

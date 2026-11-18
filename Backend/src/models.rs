@@ -198,6 +198,12 @@ pub struct ProductCalculationResult {
     /// Saindo de linha sem embalagem exclusiva: segue pela venda, a decidir pelo Edson.
     #[serde(default)]
     pub saindo_sem_embalagem: Option<bool>,
+    /// Saindo de linha: teto de 6 meses de venda, em unidades.
+    #[serde(default)]
+    pub saindo_teto_meses: Option<i64>,
+    /// Saindo de linha: o que limitou a sugestão, "embalagem" ou "teto".
+    #[serde(default)]
+    pub saindo_limite: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]

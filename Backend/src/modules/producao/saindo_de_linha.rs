@@ -16,12 +16,16 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use serde::Serialize;
 use sqlx::PgPool;
 
+use crate::core::db::Db;
 use crate::models::ProductCalculationResult;
 use crate::modules::producao::cobertura::calc::{linha_e_embalagem, BaseFonte, LinhaFormula, Necessidade};
 use crate::modules::producao::cobertura::reserva;
 use crate::modules::producao::cobertura::store::{self, canon, Quantidade};
 
 pub const SAINDO: &str = "saindo_de_linha";
+
+/// Teto da sugestão do saindo de linha, em meses de venda (decisão do Edson, 2026-11-18).
+pub const TETO_MESES: f64 = 6.0;
 
 /// Item de embalagem exclusiva de um produto saindo de linha.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -81,8 +85,10 @@ fn e_embalagem(n: &Necessidade) -> bool {
 }
 
 /// Núcleo puro. `usos`: consumo por unidade de todo produto que importa (saindo de linha e ativos). `saindo`: códigos
-/// canônicos saindo de linha. `livre`: estoque − reserva por item. Item compartilhado = usado por contribuinte fora de `saindo`.
-pub fn calcular(usos: &[Uso], saindo: &HashSet<String>, livre: &HashMap<String, f64>) -> Levantamento {
+/// canônicos saindo de linha. `livre`: estoque − reserva por item. Item compartilhado com produto ativo = não é exclusivo.
+/// Item exclusivo de mais de um saindo de linha: o saldo livre é repartido na proporção da venda mensal (`vendas`);
+/// sem venda em nenhum deles, em partes iguais.
+pub fn calcular(usos: &[Uso], saindo: &HashSet<String>, livre: &HashMap<String, f64>, vendas: &HashMap<String, f64>) -> Levantamento {
     let mut usado_por_ativo: HashSet<&str> = HashSet::new();
     for u in usos {
         if saindo.contains(&u.contribuinte) {
@@ -107,6 +113,28 @@ pub fn calcular(usos: &[Uso], saindo: &HashSet<String>, livre: &HashMap<String, 
             e.por_unidade += n.quantidade;
         }
     }
+    // Divisão do saldo de cada item entre os saindo de linha que o usam.
+    let mut donos: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (p, m) in &itens_por_produto {
+        for c in m.keys() {
+            donos.entry(*c).or_default().push(*p);
+        }
+    }
+    let venda = |p: &str| vendas.get(p).copied().unwrap_or(0.0).max(0.0);
+    for (p, m) in itens_por_produto.iter_mut() {
+        for (c, item) in m.iter_mut() {
+            let d = &donos[c];
+            let soma: f64 = d.iter().map(|x| venda(x)).sum();
+            let parte = if d.len() == 1 {
+                1.0
+            } else if soma > 0.0 {
+                venda(p) / soma
+            } else {
+                1.0 / d.len() as f64
+            };
+            item.livre *= parte;
+        }
+    }
     let mut out = Levantamento::default();
     for p in saindo {
         match itens_por_produto.remove(p.as_str()) {
@@ -128,7 +156,7 @@ pub fn calcular(usos: &[Uso], saindo: &HashSet<String>, livre: &HashMap<String, 
 /// Lê fórmulas e estoque (motor da Cobertura) e calcula o levantamento dos produtos saindo de linha da Demanda.
 /// Sem nenhum saindo de linha não lê nada. Produto fora da Demanda ativa (descontinuado, terceirizado, linha inativa)
 /// não conta como usuário da embalagem.
-pub async fn levantar(pool: &PgPool, calculados: &[ProductCalculationResult]) -> Result<Levantamento, String> {
+pub async fn levantar(pool: &PgPool, calculados: &[ProductCalculationResult], vendas: &HashMap<String, f64>) -> Result<Levantamento, String> {
     let saindo: HashSet<String> = calculados
         .iter()
         .filter(|p| p.status_produto.as_deref() == Some(SAINDO) && p.visivel != Some(0))
@@ -165,17 +193,45 @@ pub async fn levantar(pool: &PgPool, calculados: &[ProductCalculationResult]) ->
         .iter()
         .map(|(c, e)| (c.clone(), (e.estoque - reservas.get(c).copied().unwrap_or(0.0)).max(0.0)))
         .collect();
-    Ok(calcular(&usos, &saindo, &livre))
+    Ok(calcular(&usos, &saindo, &livre, vendas))
 }
 
-/// Troca a sugestão dos produtos saindo de linha pelas unidades que a embalagem exclusiva ainda permite.
-/// Só mexe em quem a Demanda classificou como saindo de linha; o resto fica intacto.
-pub fn aplicar(calculados: &mut [ProductCalculationResult], lev: &Levantamento) {
+/// Venda mensal de cada produto saindo de linha: a média da Demanda (`media_vendas`) mais a dos kits pais × quantidade
+/// no kit, como a Saúde do Estoque soma a via kit. Chave = código canônico.
+pub fn vendas_mensais(
+    calculados: &[ProductCalculationResult],
+    kits: &HashMap<String, Vec<(String, f64, Option<f64>, Option<i32>)>>,
+) -> HashMap<String, f64> {
+    use crate::handlers::imports::clean_product_code as limpo;
+    let media: HashMap<String, f64> = calculados.iter().map(|p| (limpo(&p.codigo), p.media_vendas)).collect();
+    let mut via_kit: HashMap<String, f64> = HashMap::new();
+    for (kit, comps) in kits {
+        let m_kit = media.get(&limpo(kit)).copied().unwrap_or(0.0);
+        for (comp, q, _, _) in comps {
+            *via_kit.entry(limpo(comp)).or_insert(0.0) += m_kit * q;
+        }
+    }
+    calculados
+        .iter()
+        .filter(|p| p.status == SAINDO)
+        .map(|p| {
+            let v = p.media_vendas.max(0.0) + via_kit.get(&limpo(&p.codigo)).copied().unwrap_or(0.0);
+            (canon(&p.codigo), v)
+        })
+        .collect()
+}
+
+/// Sugestão do saindo de linha = mínimo entre as unidades que a embalagem exclusiva permite e o teto de
+/// `TETO_MESES` de venda; sem venda, 0. Só mexe em quem a Demanda classificou como saindo de linha.
+pub fn aplicar(calculados: &mut [ProductCalculationResult], lev: &Levantamento, vendas: &HashMap<String, f64>) {
     for p in calculados.iter_mut().filter(|p| p.status == SAINDO) {
         let chave = canon(&p.codigo);
         if let Some(r) = lev.com_embalagem.get(&chave) {
-            p.producao_recomendada = r.unidades;
+            let teto = (vendas.get(&chave).copied().unwrap_or(0.0) * TETO_MESES + 1e-9).floor().max(0.0) as i64;
+            p.producao_recomendada = r.unidades.min(teto);
             p.ate_acabar_embalagem = Some(r.unidades);
+            p.saindo_teto_meses = Some(teto);
+            p.saindo_limite = Some(if teto < r.unidades { "teto" } else { "embalagem" }.to_string());
             p.embalagem_limitante = Some(format!("{} — {}", r.limitante.codigo, r.limitante.descricao.trim()));
         } else if lev.sem_embalagem.iter().any(|c| c == &chave) {
             p.saindo_sem_embalagem = Some(true);
@@ -184,9 +240,11 @@ pub fn aplicar(calculados: &mut [ProductCalculationResult], lev: &Levantamento) 
 }
 
 /// Atalho: levanta e aplica. Falha de leitura não derruba a Demanda: mantém a sugestão antiga e avisa no log.
-pub async fn aplicar_na_demanda(pool: &PgPool, calculados: &mut [ProductCalculationResult]) {
-    match levantar(pool, calculados).await {
-        Ok(lev) => aplicar(calculados, &lev),
+pub async fn aplicar_na_demanda(db: &Db, calculados: &mut [ProductCalculationResult]) {
+    let kits = db.get_kit_composition().await.unwrap_or_default();
+    let vendas = vendas_mensais(calculados, &kits);
+    match levantar(db.pool(), calculados, &vendas).await {
+        Ok(lev) => aplicar(calculados, &lev, &vendas),
         Err(e) => eprintln!("[saindo de linha] embalagem exclusiva não calculada: {e}"),
     }
 }
@@ -214,7 +272,7 @@ mod tests {
             uso("B", vec![n("FRASCO", "UN", 1.0), n("ROT-B", "UN", 1.0)]),
         ];
         let livre: HashMap<String, f64> = [("ROT-A", 500.0), ("FRASCO", 99999.0), ("CX-A", 120.0)].iter().map(|(k, v)| (k.to_string(), *v)).collect();
-        let r = calcular(&usos, &s(&["A"]), &livre);
+        let r = calcular(&usos, &s(&["A"]), &livre, &HashMap::new());
         let a = &r.com_embalagem["A"];
         assert_eq!(a.itens.len(), 2, "frasco compartilhado e massa fora");
         assert_eq!(a.unidades, 240, "caixa 120 ÷ 0,5 = 240 limita (rótulo dá 500)");
@@ -231,17 +289,21 @@ mod tests {
             uso("B", vec![n("FRASCO", "UN", 1.0)]),
         ];
         let livre: HashMap<String, f64> = HashMap::new();
-        let r = calcular(&usos, &s(&["A", "C"]), &livre);
+        let r = calcular(&usos, &s(&["A", "C"]), &livre, &HashMap::new());
         assert_eq!(r.com_embalagem["A"].unidades, 0, "rótulo sem estoque");
         assert_eq!(r.sem_embalagem, vec!["C".to_string()], "frasco é de B (ativo): sem exclusiva");
     }
 
     #[test]
-    fn dois_saindo_dividindo_o_mesmo_item_contam_o_item_nos_dois() {
+    fn dois_saindo_dividindo_o_mesmo_item_repartem_pela_venda_e_sem_venda_em_partes_iguais() {
         let usos = vec![uso("A", vec![n("ROT", "UN", 1.0)]), uso("C", vec![n("ROT", "UN", 1.0)])];
         let livre: HashMap<String, f64> = [("ROT".to_string(), 100.0)].into_iter().collect();
-        let r = calcular(&usos, &s(&["A", "C"]), &livre);
-        assert_eq!(r.com_embalagem["A"].unidades, 100);
-        assert_eq!(r.com_embalagem["C"].unidades, 100);
+        let vendas: HashMap<String, f64> = [("A".to_string(), 30.0), ("C".to_string(), 10.0)].into_iter().collect();
+        let r = calcular(&usos, &s(&["A", "C"]), &livre, &vendas);
+        assert_eq!(r.com_embalagem["A"].unidades, 75);
+        assert_eq!(r.com_embalagem["C"].unidades, 25);
+        let r = calcular(&usos, &s(&["A", "C"]), &livre, &HashMap::new());
+        assert_eq!(r.com_embalagem["A"].unidades, 50);
+        assert_eq!(r.com_embalagem["C"].unidades, 50);
     }
 }

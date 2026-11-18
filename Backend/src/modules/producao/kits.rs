@@ -373,6 +373,8 @@ pub async fn list_kits(
                     ate_acabar_embalagem: None,
                     embalagem_limitante: None,
                     saindo_sem_embalagem: None,
+                    saindo_teto_meses: None,
+                    saindo_limite: None,
                 }
             }
         };

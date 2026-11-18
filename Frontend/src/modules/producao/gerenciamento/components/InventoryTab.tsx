@@ -852,12 +852,14 @@ export function InventoryTab({
                         {p.ate_acabar_embalagem != null && (
                           <div
                             className="mt-1 text-[10px] leading-tight text-zinc-500"
-                            title={`Saindo de linha: a sugestão é o que a embalagem exclusiva que sobrou ainda permite produzir. Limita: ${p.embalagem_limitante ?? ''}`}
+                            title={`Saindo de linha: a sugestão é o menor entre o que a embalagem exclusiva que sobrou permite (${p.ate_acabar_embalagem} un) e 6 meses de venda (${p.saindo_teto_meses ?? 0} un). Embalagem que limita: ${p.embalagem_limitante ?? ''}`}
                           >
-                            {p.ate_acabar_embalagem > 0
-                              ? <>até acabar a embalagem: <span className="font-mono font-semibold text-zinc-700">{p.ate_acabar_embalagem} un</span></>
-                              : 'embalagem exclusiva acabou'}
-                            {p.embalagem_limitante && <div className="truncate max-w-[220px] text-zinc-400">{p.embalagem_limitante}</div>}
+                            {p.saindo_limite === 'teto'
+                              ? <>teto de 6 meses: <span className="font-mono font-semibold text-zinc-700">{p.saindo_teto_meses ?? 0} un</span></>
+                              : p.ate_acabar_embalagem > 0
+                                ? <>até acabar a embalagem: <span className="font-mono font-semibold text-zinc-700">{p.ate_acabar_embalagem} un</span></>
+                                : 'embalagem exclusiva acabou'}
+                            {p.saindo_limite !== 'teto' && p.embalagem_limitante && <div className="truncate max-w-[220px] text-zinc-400">{p.embalagem_limitante}</div>}
                           </div>
                         )}
                         {p.saindo_sem_embalagem && (
