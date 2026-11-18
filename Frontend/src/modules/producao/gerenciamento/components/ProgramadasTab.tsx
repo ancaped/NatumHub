@@ -156,7 +156,7 @@ export function ProgramadasTab({
           {tabOptions.map((opt) => (
             <button 
               key={opt.id}
-              className={`tab-btn ${activeTab === opt.id ? 'active' : ''}`}
+              className={`tab-btn ${activeTab === opt.id ? 'active' : ''}`} style={opt.sub ? { marginLeft: '0.75rem', fontWeight: 500 } : undefined}
               onClick={() => handleTabChange(opt.id)}
             >
               {opt.name}

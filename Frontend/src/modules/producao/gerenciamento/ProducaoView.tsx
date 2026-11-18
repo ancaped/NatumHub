@@ -1473,7 +1473,11 @@ export default function ProducaoView({
   const tabOptions = [
     { id: 'ALL', name: 'Todos' },
     ...(configs.length > 0
-      ? linhasVisiveisAgrupadas.map(c => ({ id: c.linha_prefix, name: rotuloLinha(configs, c.linha_prefix) }))
+      ? linhasVisiveisAgrupadas.map(c => {
+          const sub = rotuloLinha(configs, c.linha_prefix).includes(' › ');
+          // Dentro do agrupamento a sublinha mostra só o próprio nome, recuada sob a principal.
+          return { id: c.linha_prefix, name: c.nome_linha, sub };
+        })
       : [
           { id: '1', name: 'Natum' },
           { id: '2', name: 'Hair Extrattus' },

@@ -332,7 +332,7 @@ export function BasesTab({
           <button
             key={opt.id}
             type="button"
-            className={`tab-btn ${selectedLine === opt.id ? 'active' : ''}`}
+            className={`tab-btn ${selectedLine === opt.id ? 'active' : ''}`} style={opt.sub ? { marginLeft: '0.75rem', fontWeight: 500 } : undefined}
             onClick={() => {
               setSelectedLine(opt.id);
               setCurrentPage(1);

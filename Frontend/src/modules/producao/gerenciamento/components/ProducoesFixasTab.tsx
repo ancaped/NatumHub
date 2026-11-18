@@ -107,7 +107,7 @@ function capacidadeKit(comps: any[]) {
 
 interface Props {
   configs?: any[];
-  tabOptions?: { id: string; name: string }[];
+  tabOptions?: { id: string; name: string; sub?: boolean }[];
   reloadToken?: number;
   onEditOverrides: (p: any) => void;
   onShowDetails?: (code: string) => void;
@@ -309,7 +309,7 @@ export function ProducoesFixasTab({
             <button
               key={opt.id}
               type="button"
-              className={`tab-btn ${linha === opt.id ? 'active' : ''}`}
+              className={`tab-btn ${linha === opt.id ? 'active' : ''}`} style={opt.sub ? { marginLeft: '0.75rem', fontWeight: 500 } : undefined}
               onClick={() => { setLinha(opt.id); setFamilia('ALL'); setPage(1); }}
             >
               {opt.name}

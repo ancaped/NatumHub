@@ -211,13 +211,13 @@ export function BatchOpportunityModal({
                       .filter((ing: any) => ing.is_missing)
                       .slice(0, 5)
                       .map((ing: any) => (
-                        <div key={ing.code} className="flex items-center justify-between p-2 rounded bg-white border border-zinc-200">
+                        <div key={ing.ingredient_code} className="flex items-center justify-between p-2 rounded bg-white border border-zinc-200">
                           <div>
-                            <span className="font-mono text-zinc-600 font-bold mr-1.5">{ing.code}</span>
+                            <span className="font-mono text-zinc-600 font-bold mr-1.5">{ing.ingredient_code}</span>
                             <span className="text-zinc-800">{ing.description}</span>
                             <div className="text-[10px] text-zinc-500 mt-0.5">
-                              Estoque: <span className="font-mono">{ing.current_stock.toFixed(1)}</span> {ing.unit} | 
-                              Necessário: <span className="font-mono">{ing.required_qty.toFixed(1)}</span> {ing.unit}
+                              Estoque: <span className="font-mono">{Number(ing.current_stock ?? 0).toFixed(1)}</span> {ing.unit} | 
+                              Necessário: <span className="font-mono">{Number(ing.total_required ?? 0).toFixed(1)}</span> {ing.unit}
                             </div>
                           </div>
                           {ing.next_delivery_date ? (
