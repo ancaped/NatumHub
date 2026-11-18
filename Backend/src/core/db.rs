@@ -3,7 +3,7 @@ use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 
 use crate::core::pg_row::{pg_f64, pg_i64, pg_opt_f64, pg_opt_i32, pg_opt_i64};
-use crate::models::{BulkOverrideRequest, LineConfig, ProductOverride};
+use crate::models::{BulkOverrideRequest, LineConfig, LineConfigComPrincipal, ProductOverride};
 
 pub struct Db {
     pool: PgPool,
@@ -36,6 +36,26 @@ impl Db {
                 abrir_prod_mult: row.get(4),
                 fator_seguranca_z: row.get(5),
                 visivel: pg_opt_i32(&row, 6),
+            })
+            .collect())
+    }
+
+    /// Mesmas linhas de `get_line_configs`, cada uma com a `linha_principal` (nula para linha própria).
+    pub async fn get_line_configs_com_principal(&self) -> Result<Vec<LineConfigComPrincipal>, String> {
+        let principais: HashMap<String, Option<String>> =
+            sqlx::query_as::<_, (String, Option<String>)>("SELECT linha_prefix, linha_principal FROM config_linhas")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .collect();
+        Ok(self
+            .get_line_configs()
+            .await?
+            .into_iter()
+            .map(|config| {
+                let linha_principal = principais.get(&config.linha_prefix).cloned().flatten();
+                LineConfigComPrincipal { config, linha_principal }
             })
             .collect())
     }

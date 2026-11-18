@@ -6,6 +6,7 @@ import Drawer from '../../geral/components/ui/Drawer';
 import type { PreviaAcao } from '../../producao/gerenciamento/components/PreviaAcaoDrawer';
 import LinhaResumo from './LinhaResumo';
 import { useAtendimentos } from './useAtendimentos';
+import { agruparLinhas, sublinhasPorPrincipal } from '../../geral/lib/linhas';
 import { useHeranca } from './useHeranca';
 import type { ParametroLinha } from './useHeranca';
 import { ATENDIMENTOS_UI, SITUACOES_UI } from './tipos';
@@ -72,41 +73,33 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
   }, [isLineModalOpen, semLinhaVersao]);
 
   const principalDe = (prefixo: string) => heranca[prefixo]?.linhaPrincipal || null;
+  // Linhas com a principal já resolvida (a herança recarrega antes de `configs` depois de uma ação).
+  const configsComPrincipal = useMemo(
+    () => configs.map(c => ({ ...c, linha_principal: heranca[c.linha_prefix]?.linhaPrincipal ?? null })),
+    [configs, heranca],
+  );
   // Sublinhas de cada principal (todas, com o filtro de ativas aplicado na hora de mostrar).
-  const sublinhasPor = useMemo(() => {
-    const mapa = new Map<string, LineConfig[]>();
-    for (const c of configs) {
-      const pai = heranca[c.linha_prefix]?.linhaPrincipal;
-      if (pai) mapa.set(pai, [...(mapa.get(pai) || []), c]);
-    }
-    return mapa;
-  }, [configs, heranca]);
+  const sublinhasPor = useMemo(() => sublinhasPorPrincipal(configsComPrincipal), [configsComPrincipal]);
   // Linhas da tabela: cada principal (ou linha própria) seguida das sublinhas dela, recuadas. A busca acha sublinha também
   // (e mostra a principal dela); a principal que casa mostra todas as sublinhas.
   const linhasTabela = useMemo(() => {
     const q = linhaSearch.trim().toLowerCase();
     const casa = (c: LineConfig) => !q || c.linha_prefix.toLowerCase().includes(q) || (c.nome_linha || '').toLowerCase().includes(q);
     const ativa = (c: LineConfig) => !soAtivas || c.visivel !== 0;
-    // Prefixo em ordem numérica (9.15 depois de 9, antes de 10); DEFAULT por último.
-    const chave = (prefixo: string) => (prefixo === 'DEFAULT' ? Infinity : parseFloat(prefixo));
-    const ordenar = (lista: LineConfig[]) => [...lista].sort((a, b) => {
-      const ka = chave(a.linha_prefix);
-      const kb = chave(b.linha_prefix);
-      return ka === kb ? a.linha_prefix.localeCompare(b.linha_prefix) : (Number.isNaN(ka) ? Infinity : ka) - (Number.isNaN(kb) ? Infinity : kb);
-    });
     const saida: { cfg: LineConfig; nivel: 0 | 1; temFilhas: boolean }[] = [];
-    for (const c of ordenar(configs.filter(x => !principalDe(x.linha_prefix)))) {
-      const filhas = ordenar(sublinhasPor.get(c.linha_prefix) || []);
+    for (const g of agruparLinhas(configsComPrincipal)) {
+      if (g.nivel !== 0) continue;
+      const c = g.linha;
+      const filhas = sublinhasPor.get(c.linha_prefix) || [];
       const filhasQueCasam = filhas.filter(f => ativa(f) && casa(f));
       const proprioCasa = ativa(c) && casa(c);
       if (!proprioCasa && filhasQueCasam.length === 0) continue;
-      saida.push({ cfg: c, nivel: 0, temFilhas: filhas.length > 0 });
+      saida.push({ cfg: c, nivel: 0, temFilhas: g.temSublinhas });
       const mostrar = proprioCasa ? filhas.filter(ativa) : filhasQueCasam;
       if (!fechadas.has(c.linha_prefix) || q) for (const f of mostrar) saida.push({ cfg: f, nivel: 1, temFilhas: false });
     }
     return saida;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [configs, linhaSearch, soAtivas, heranca, fechadas, sublinhasPor]);
+  }, [configsComPrincipal, linhaSearch, soAtivas, fechadas, sublinhasPor]);
   const inativas = useMemo(() => configs.filter(c => c.visivel === 0).length, [configs]);
 
   const produtosPorLinha = useMemo(() => {
@@ -706,10 +699,12 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                         <tr
                           key={cfg.linha_prefix}
                           onClick={() => handleOpenLineModal(cfg)}
-                          className={cn('hover:bg-zinc-50/70 transition-colors cursor-pointer', sub && 'bg-zinc-50/40')}
+                          className={cn('hover:bg-zinc-50/70 transition-colors cursor-pointer', sub && 'bg-zinc-50')}
                         >
-                          <td className={cn('px-6 py-2.5 font-mono font-bold text-zinc-500', sub && 'pl-12')}>{cfg.linha_prefix}</td>
-                          <td className="px-6 py-2.5 font-bold text-zinc-800">
+                          <td className="px-6 py-2.5 font-mono font-bold text-zinc-500">
+                            {sub ? <span className="ml-5 inline-flex items-center gap-1.5 font-semibold text-zinc-400"><span aria-hidden className="text-zinc-300">└</span>{cfg.linha_prefix}</span> : cfg.linha_prefix}
+                          </td>
+                          <td className={cn('py-2.5 font-bold text-zinc-800', sub ? 'pl-10 pr-6 font-semibold text-zinc-700' : 'px-6')}>
                             {temFilhas && (
                               <button
                                 type="button"
@@ -724,7 +719,7 @@ export default function LinhasTab({ products, configs, pedirBulk, pedirPrevia, a
                               </button>
                             )}
                             {cfg.nome_linha}
-                            {sub && <span className="ml-2 align-middle text-[10px] font-semibold text-zinc-400">sublinha</span>}
+                            {sub && <span className="ml-2 align-middle inline-flex items-center px-1.5 py-0.5 rounded bg-zinc-200/70 text-zinc-600 text-[10px] font-bold">sublinha</span>}
                             {atendimentoDaLinha(cfg.linha_prefix) !== 'estoque' && (
                               <span className="ml-2 align-middle inline-flex items-center px-2 py-0.5 border border-zinc-300 bg-white text-zinc-600 text-[10px] font-bold rounded-full whitespace-nowrap">
                                 {atendimentoDaLinha(cfg.linha_prefix) === 'terceirizado' ? 'Terceirizada' : 'Por encomenda'}

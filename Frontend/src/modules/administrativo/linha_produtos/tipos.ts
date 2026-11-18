@@ -26,6 +26,8 @@ export interface LineConfig {
   abrir_prod_mult: number;
   fator_seguranca_z: number;
   visivel: number | null;
+  /** Prefixo da linha principal (GET /api/configs); nulo = linha própria. */
+  linha_principal?: string | null;
 }
 
 /** Opções do pedido de ação em lote em 2 passos (prévia no painel, grava no OK). */

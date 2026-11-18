@@ -86,7 +86,7 @@ pub fn acoes_linha_produtos() -> Vec<Acao> {
 
 // 1. GET /api/configs
 pub async fn get_configs(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match state.db.get_line_configs().await {
+    match state.db.get_line_configs_com_principal().await {
         Ok(configs) => (StatusCode::OK, Json(configs)).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1011,5 +1011,57 @@ mod testes_regras_pcp {
         sqlx::query("DELETE FROM overrides_produtos WHERE codigo = $1").bind(cod).execute(&pool).await.unwrap();
         sqlx::query("DELETE FROM produtos WHERE codigo = $1").bind(cod).execute(&pool).await.unwrap();
         sqlx::query("DELETE FROM config_linhas WHERE linha_prefix = 'ZZPCP'").execute(&pool).await.unwrap();
+    }
+
+    fn linha() -> LineConfig {
+        serde_json::from_value(json!({
+            "linha_prefix": "AB", "nome_linha": "Linha AB",
+            "estoque_ideal_mult": 1.0, "abrir_ordem_mult": 1.0, "abrir_prod_mult": 1.0, "fator_seguranca_z": 1.65
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn get_configs_so_acrescenta_linha_principal_ao_json() {
+        let c = crate::models::LineConfigComPrincipal { config: linha(), linha_principal: Some("PP".into()) };
+        let v = serde_json::to_value(&c).unwrap();
+        let mut antigo = serde_json::to_value(linha()).unwrap();
+        assert_eq!(v["linha_principal"], "PP");
+        antigo["linha_principal"] = json!("PP");
+        assert_eq!(v, antigo, "só ganha o campo novo");
+        let propria = crate::models::LineConfigComPrincipal { config: linha(), linha_principal: None };
+        assert!(serde_json::to_value(&propria).unwrap()["linha_principal"].is_null());
+        // o corpo do PUT segue sem o campo
+        assert!(serde_json::from_value::<LineConfig>(serde_json::to_value(linha()).unwrap()).is_ok());
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn configs_devolve_principal_e_put_sem_o_campo_nao_apaga() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = sqlx::PgPool::connect(&url).await.unwrap();
+        let db = Db::new(pool.clone());
+        sqlx::query("DELETE FROM config_linhas WHERE linha_prefix IN ('ZZGP', 'ZZGS')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO config_linhas (linha_prefix, nome_linha) VALUES ('ZZGP', 'Principal'), ('ZZGS', 'Sub')").execute(&pool).await.unwrap();
+        sqlx::query("UPDATE config_linhas SET linha_principal = 'ZZGP' WHERE linha_prefix = 'ZZGS'").execute(&pool).await.unwrap();
+
+        let acha = |v: &[crate::models::LineConfigComPrincipal], p: &str| {
+            serde_json::to_value(v.iter().find(|c| c.config.linha_prefix == p).unwrap()).unwrap()
+        };
+        let lista = db.get_line_configs_com_principal().await.unwrap();
+        assert_eq!(acha(&lista, "ZZGS")["linha_principal"], "ZZGP");
+        assert!(acha(&lista, "ZZGP")["linha_principal"].is_null());
+
+        // salvar pelo formulário antigo (sem linha_principal) não tira a principal
+        let corpo: LineConfig = serde_json::from_value(json!({
+            "linha_prefix": "ZZGS", "nome_linha": "Sub renomeada",
+            "estoque_ideal_mult": 2.0, "abrir_ordem_mult": 1.0, "abrir_prod_mult": 1.0, "fator_seguranca_z": 1.65
+        })).unwrap();
+        db.update_line_config(&corpo).await.unwrap();
+        let lista = db.get_line_configs_com_principal().await.unwrap();
+        assert_eq!(acha(&lista, "ZZGS")["linha_principal"], "ZZGP");
+        assert_eq!(acha(&lista, "ZZGS")["nome_linha"], "Sub renomeada");
+
+        sqlx::query("DELETE FROM config_linhas WHERE linha_prefix IN ('ZZGP', 'ZZGS')").execute(&pool).await.unwrap();
     }
 }

@@ -11,6 +11,15 @@ pub struct LineConfig {
     pub visivel: Option<i32>,
 }
 
+/// Linha como o `GET /api/configs` devolve: os campos de `LineConfig` + a linha principal (nula = linha própria).
+/// Struct à parte para o `PUT /api/configs` seguir aceitando o corpo sem `linha_principal` (que só muda pela ação própria).
+#[derive(Debug, Serialize, Clone)]
+pub struct LineConfigComPrincipal {
+    #[serde(flatten)]
+    pub config: LineConfig,
+    pub linha_principal: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Product {
     pub codigo: String,
