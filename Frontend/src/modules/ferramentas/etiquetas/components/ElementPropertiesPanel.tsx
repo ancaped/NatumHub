@@ -578,6 +578,24 @@ export default function ElementPropertiesPanel({
         </Section>
       )}
 
+      {/* Girar o campo: seção própria e sempre aberta (antes ficava escondida em "Posição e tamanho") */}
+      <Section title="Girar" defaultOpen>
+        <Field label="Rotação do campo">
+          <Segmented cols={4}>
+            {[0, 90, 180, 270].map((g) => (
+              <SegBtn
+                key={g}
+                title={`Girar ${g}° (em torno do centro do campo)`}
+                active={(((Number(element.rotation) || 0) % 360) + 360) % 360 === g}
+                onClick={() => onUpdateElement(element.id, { rotation: g })}
+              >
+                {g}°
+              </SegBtn>
+            ))}
+          </Segmented>
+        </Field>
+      </Section>
+
       {/* Posição e tamanho */}
       <Section title="Posição e tamanho" defaultOpen={!hasContent}>
         <div className="grid grid-cols-2 gap-2">
@@ -610,20 +628,6 @@ export default function ElementPropertiesPanel({
             onChange={(v) => onUpdateElement(element.id, { height_mm: Math.max(1, parseFloat(v) || 1) })}
           />
         </div>
-        <Field label="Girar o campo">
-          <Segmented cols={4}>
-            {[0, 90, 180, 270].map((g) => (
-              <SegBtn
-                key={g}
-                title={`Girar ${g}° (em torno do centro do campo)`}
-                active={(((Number(element.rotation) || 0) % 360) + 360) % 360 === g}
-                onClick={() => onUpdateElement(element.id, { rotation: g })}
-              >
-                {g}°
-              </SegBtn>
-            ))}
-          </Segmented>
-        </Field>
       </Section>
 
       {/* Aparência */}
