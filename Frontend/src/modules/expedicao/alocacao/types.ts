@@ -225,3 +225,38 @@ export interface SugestaoResultado {
   naoAlocados: SugestaoNaoAlocado[];
   resumo: SugestaoResumo;
 }
+
+export interface MoverAlocacaoInput {
+  alocacaoId: string;
+  destinoPosicaoId: string;
+  copiar?: boolean;
+  fileirasLargura?: number | null;
+  camadasAltura?: number | null;
+}
+
+export interface ProdutoCaixaLoteInput {
+  produtoCodigos: string[];
+  caixaId?: string | null;
+  limparCaixa?: boolean;
+  qtdeCxManual?: number | null;
+  limparQtdeCx?: boolean;
+}
+
+export interface ImportarMapaItemInput {
+  posicaoCodigo: string;
+  produtoCodigo: string;
+  fileirasLargura: number;
+  camadasAltura?: number | null;
+  fixado?: boolean;
+}
+
+export interface ImportarMapaLoteResultado {
+  previa?: boolean;
+  estruturaId: string;
+  substituirEstrutura: boolean;
+  validos: number;
+  ignoradosPosicao: number;
+  ignoradosProduto: number;
+  removidosAtuais: number;
+  exemplosIgnorados: string[];
+}

@@ -236,3 +236,36 @@ pub async fn post_sugerir(
     let r = service::aplicar_sugestao(state.db.pool(), &ctx, body, c.confirmar).await?;
     Ok((StatusCode::OK, Json(service::resposta_json(r))).into_response())
 }
+
+pub async fn post_mover_alocacao(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<MoverAlocacaoInput>,
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    let r = service::mover_alocacao(state.db.pool(), &ctx, body, c.confirmar).await?;
+    Ok((StatusCode::OK, Json(service::resposta_json(r))).into_response())
+}
+
+pub async fn post_produtos_caixa_lote(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<ProdutoCaixaLoteInput>,
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    let r = service::vincular_produtos_caixa_lote(state.db.pool(), &ctx, body, c.confirmar).await?;
+    Ok((StatusCode::OK, Json(service::resposta_json(r))).into_response())
+}
+
+pub async fn post_importar_lote(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<ImportarMapaLoteInput>,
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    let r = service::importar_mapa_lote(state.db.pool(), &ctx, body, c.confirmar).await?;
+    Ok((StatusCode::OK, Json(service::resposta_json(r))).into_response())
+}

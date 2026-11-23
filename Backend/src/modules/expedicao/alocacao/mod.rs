@@ -48,6 +48,12 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/expedicao/alocacao/alocacoes", post(handlers::post_alocacao))
         .route("/api/expedicao/alocacao/alocacoes/:id", delete(handlers::delete_alocacao))
         .route("/api/expedicao/alocacao/sugerir", post(handlers::post_sugerir))
+        .route("/api/expedicao/alocacao/mover", post(handlers::post_mover_alocacao))
+        .route(
+            "/api/expedicao/alocacao/produtos-lote",
+            post(handlers::post_produtos_caixa_lote),
+        )
+        .route("/api/expedicao/alocacao/importar-lote", post(handlers::post_importar_lote))
 }
 
 pub fn acoes() -> Vec<Acao> {

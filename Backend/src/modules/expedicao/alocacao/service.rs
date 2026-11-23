@@ -11,9 +11,9 @@ use crate::modules::geral::audit;
 use crate::modules::geral::auth::models::AuthContext;
 
 use super::calculo::{
-    agrupar_insumos_caixa_nao_vinculados, aplicar_curva_abc, calcular_geometria_alocacao,
-    calcular_necessidades_caixas, e_cliente_atacadista, situacao_alocacao_produto, sugerir_alocacao,
-    AlocacaoExistente,
+    agrupar_insumos_caixa_nao_vinculados, aplicar_curva_abc, calcular_camadas_compat_vao,
+    calcular_geometria_alocacao, calcular_necessidades_caixas, e_cliente_atacadista,
+    situacao_alocacao_produto, sugerir_alocacao, AlocacaoExistente,
 };
 use super::models::*;
 
@@ -934,7 +934,7 @@ pub async fn excluir_estrutura(
 ) -> Result<RespostaAcao<Value>, ErroApi> {
     if id == "estante_principal" {
         return Err(ErroApi::regra(
-            "A estrutura principal não pode ser removida (edite seus andares ou crie outra estante).",
+            "A estrutura principal não pode ser removida (edite suas prateleiras ou crie outra estante).",
         ));
     }
     excluir_em_2_passos(
@@ -968,11 +968,11 @@ pub async fn gerar_grade_estrutura(
         .filter(|c| !c.is_empty())
         .collect();
     if cols.is_empty() || input.andares.is_empty() {
-        return Err(ErroApi::invalido("Informe pelo menos 1 coluna e 1 andar."));
+        return Err(ErroApi::invalido("Informe pelo menos 1 coluna e 1 prateleira."));
     }
     for a in &input.andares {
         if a.andar <= 0 || a.altura_cm <= 0.0 {
-            return Err(ErroApi::invalido("Andar e altura (cm) devem ser positivos."));
+            return Err(ErroApi::invalido("Prateleira e altura (cm) devem ser positivos."));
         }
         validar_papel(&a.papel)?;
     }
@@ -2001,6 +2001,599 @@ pub async fn aplicar_sugestao(
             ),
             None,
             Some(serde_json::to_value(&res_sug.resumo).unwrap_or(Value::Null)),
+        )
+        .await;
+    }
+
+    Ok(r)
+}
+
+async fn carregar_mapa_caixas_produtos_tx(
+    tx: &mut PgConnection,
+    codigos: &[String],
+) -> Result<HashMap<String, Caixa>, ErroApi> {
+    if codigos.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = sqlx::query(
+        "SELECT id, codigo, nome, altura_cm, comprimento_cm, largura_cm, empilhamento_max, insumo_erp_codigo, ativo, observacoes \
+         FROM expedicao_caixas WHERE ativo = TRUE",
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let caixas: Vec<Caixa> = rows
+        .into_iter()
+        .map(|r| Caixa {
+            id: r.get("id"),
+            codigo: r.get("codigo"),
+            nome: r.get("nome"),
+            altura_cm: r.get("altura_cm"),
+            comprimento_cm: r.get("comprimento_cm"),
+            largura_cm: r.get("largura_cm"),
+            empilhamento_max: r.get("empilhamento_max"),
+            insumo_erp_codigo: r.get("insumo_erp_codigo"),
+            ativo: r.get("ativo"),
+            observacoes: r.get("observacoes"),
+        })
+        .collect();
+
+    let mut caixa_por_id: HashMap<String, Caixa> = HashMap::new();
+    let mut insumo_para_caixa: HashMap<String, Caixa> = HashMap::new();
+    for cx in caixas {
+        if let Some(ref raw) = cx.insumo_erp_codigo {
+            for part in raw.split([',', ';']) {
+                let k = part.trim().to_ascii_uppercase();
+                if !k.is_empty() {
+                    insumo_para_caixa.entry(k).or_insert_with(|| cx.clone());
+                }
+            }
+        }
+        caixa_por_id.insert(cx.id.clone(), cx);
+    }
+
+    let mut out: HashMap<String, Caixa> = HashMap::new();
+    let manuais: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT produto_codigo, caixa_id FROM expedicao_produto_caixa WHERE produto_codigo = ANY($1)",
+    )
+    .bind(codigos)
+    .fetch_all(&mut *tx)
+    .await?;
+    for (prod_cod, cx_opt) in manuais {
+        if let Some(cid) = cx_opt {
+            if let Some(cx) = caixa_por_id.get(&cid) {
+                out.insert(prod_cod, cx.clone());
+            }
+        }
+    }
+
+    let form_rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT product_code, TRIM(ingredient_code) FROM formulations WHERE product_code = ANY($1)",
+    )
+    .bind(codigos)
+    .fetch_all(&mut *tx)
+    .await?;
+    for (prod_cod, ing_code) in form_rows {
+        if out.contains_key(&prod_cod) {
+            continue;
+        }
+        if let Some(cx) = insumo_para_caixa.get(&ing_code.to_ascii_uppercase()) {
+            out.insert(prod_cod, cx.clone());
+        }
+    }
+    Ok(out)
+}
+
+pub async fn mover_alocacao(
+    pool: &PgPool,
+    ctx: &AuthContext,
+    input: MoverAlocacaoInput,
+    confirmar: bool,
+) -> Result<RespostaAcao<Value>, ErroApi> {
+    let aloc_id = str_trim(Some(&input.alocacao_id))
+        .ok_or_else(|| ErroApi::invalido("Informe a alocação de origem."))?;
+    let destino_id = str_trim(Some(&input.destino_posicao_id))
+        .ok_or_else(|| ErroApi::invalido("Informe a posição de destino."))?;
+    if let Some(f) = input.fileiras_largura {
+        if f < 1 {
+            return Err(ErroApi::invalido("Fileiras na largura devem ser pelo menos 1."));
+        }
+    }
+    if let Some(c) = input.camadas_altura {
+        if c < 1 {
+            return Err(ErroApi::invalido("Camadas na altura devem ser pelo menos 1."));
+        }
+    }
+
+    let aloc_c = aloc_id.clone();
+    let dest_c = destino_id.clone();
+    let copiar = input.copiar;
+    let fil_opt = input.fileiras_largura;
+    let cam_opt = input.camadas_altura;
+
+    let r = executar_em_2_passos(pool, "mover_alocacao_expedicao", confirmar, move |tx| {
+        Box::pin(async move {
+            let orig = sqlx::query(
+                "SELECT a.id, a.posicao_id, a.produto_codigo, a.fileiras_largura, a.camadas_altura, a.fixado, a.observacoes, \
+                        p.codigo AS pos_codigo, prod.descricao AS prod_desc \
+                 FROM expedicao_alocacoes a \
+                 JOIN expedicao_posicoes p ON p.id = a.posicao_id \
+                 JOIN produtos prod ON prod.codigo = a.produto_codigo \
+                 WHERE a.id = $1 FOR UPDATE OF a",
+            )
+            .bind(&aloc_c)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| ErroApi::nao_encontrado("Alocação de origem não encontrada."))?;
+
+            let orig_pos_id: String = orig.get("posicao_id");
+            if orig_pos_id == dest_c {
+                return Err(ErroApi::invalido("Origem e destino são a mesma posição."));
+            }
+            let orig_pos_cod: String = orig.get("pos_codigo");
+            let prod_cod: String = orig.get("produto_codigo");
+            let prod_desc: String = orig.get("prod_desc");
+            let orig_fil: i32 = orig.get("fileiras_largura");
+            let orig_cam: i32 = orig.get("camadas_altura");
+            let orig_fixado: bool = orig.get("fixado");
+            let orig_obs: Option<String> = orig.get("observacoes");
+
+            let dest = sqlx::query(
+                "SELECT id, codigo, altura_cm FROM expedicao_posicoes WHERE id = $1",
+            )
+            .bind(&dest_c)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| ErroApi::nao_encontrado("Posição de destino não encontrada."))?;
+            let dest_cod: String = dest.get("codigo");
+            let dest_altura: f64 = dest.get("altura_cm");
+
+            let caixas_map =
+                carregar_mapa_caixas_produtos_tx(&mut **tx, std::slice::from_ref(&prod_cod)).await?;
+            let fileiras = fil_opt.unwrap_or(orig_fil).max(1);
+            let camadas = calcular_camadas_compat_vao(
+                dest_altura,
+                caixas_map.get(&prod_cod),
+                cam_opt,
+                orig_cam,
+            );
+
+            let existente_dest: Option<(String, i32)> = sqlx::query_as(
+                "SELECT id, fileiras_largura FROM expedicao_alocacoes \
+                 WHERE posicao_id = $1 AND produto_codigo = $2 FOR UPDATE",
+            )
+            .bind(&dest_c)
+            .bind(&prod_cod)
+            .fetch_optional(&mut **tx)
+            .await?;
+
+            let dest_aloc_id = if let Some((id_ex, fil_ex)) = &existente_dest {
+                let soma_fil = fil_ex + fileiras;
+                sqlx::query(
+                    "UPDATE expedicao_alocacoes SET fileiras_largura = $2, camadas_altura = $3, updated_at = NOW() WHERE id = $1",
+                )
+                .bind(id_ex)
+                .bind(soma_fil)
+                .bind(camadas)
+                .execute(&mut **tx)
+                .await?;
+                id_ex.clone()
+            } else {
+                let novo_id = slug_id("aloc");
+                sqlx::query(
+                    "INSERT INTO expedicao_alocacoes \
+                     (id, posicao_id, produto_codigo, fileiras_largura, camadas_altura, fixado, observacoes, updated_at) \
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())",
+                )
+                .bind(&novo_id)
+                .bind(&dest_c)
+                .bind(&prod_cod)
+                .bind(fileiras)
+                .bind(camadas)
+                .bind(orig_fixado)
+                .bind(&orig_obs)
+                .execute(&mut **tx)
+                .await?;
+                novo_id
+            };
+
+            if !copiar {
+                sqlx::query("DELETE FROM expedicao_alocacoes WHERE id = $1")
+                    .bind(&aloc_c)
+                    .execute(&mut **tx)
+                    .await?;
+            }
+
+            Ok(json!({
+                "id": dest_aloc_id,
+                "alocacaoOrigemId": aloc_c,
+                "origemPosicaoCodigo": orig_pos_cod,
+                "destinoPosicaoId": dest_c,
+                "destinoPosicaoCodigo": dest_cod,
+                "produtoCodigo": prod_cod,
+                "produtoDescricao": prod_desc,
+                "copiar": copiar,
+                "fileirasLargura": existente_dest.as_ref().map(|(_, f)| f + fileiras).unwrap_or(fileiras),
+                "camadasAltura": camadas,
+                "somadoNoDestino": existente_dest.is_some(),
+            }))
+        })
+    })
+    .await?;
+
+    if confirmar {
+        let acao_txt = if input.copiar { "copiado" } else { "movido" };
+        let prod = r.resultado["produtoCodigo"].as_str().unwrap_or("");
+        let orig_cod = r.resultado["origemPosicaoCodigo"].as_str().unwrap_or("");
+        let dest_cod = r.resultado["destinoPosicaoCodigo"].as_str().unwrap_or("");
+        registrar_auditoria(
+            pool,
+            ctx,
+            "mover_alocacao_expedicao",
+            "expedicao_alocacao",
+            r.resultado["id"].as_str().unwrap_or(""),
+            &format!("Produto {prod} {acao_txt} de {orig_cod} para {dest_cod}"),
+            None,
+            Some(r.resultado.clone()),
+        )
+        .await;
+    }
+
+    Ok(r)
+}
+
+pub async fn vincular_produtos_caixa_lote(
+    pool: &PgPool,
+    ctx: &AuthContext,
+    input: ProdutoCaixaLoteInput,
+    confirmar: bool,
+) -> Result<RespostaAcao<Value>, ErroApi> {
+    let mut codigos: Vec<String> = Vec::new();
+    let mut vistos: HashSet<String> = HashSet::new();
+    for raw in &input.produto_codigos {
+        let t = raw.trim().to_string();
+        if !t.is_empty() && vistos.insert(t.clone()) {
+            codigos.push(t);
+        }
+    }
+    if codigos.is_empty() || codigos.len() > 500 {
+        return Err(ErroApi::invalido("Selecione entre 1 e 500 produtos para editar em lote."));
+    }
+    if let Some(q) = input.qtde_cx_manual {
+        if q <= 0 {
+            return Err(ErroApi::invalido("Qtde/Cx manual deve ser maior que zero."));
+        }
+    }
+    let caixa_id_trim = str_trim(input.caixa_id.as_deref());
+    if caixa_id_trim.is_none()
+        && !input.limpar_caixa
+        && input.qtde_cx_manual.is_none()
+        && !input.limpar_qtde_cx
+    {
+        return Err(ErroApi::invalido(
+            "Informe uma caixa de embarque ou Qtde/Cx para aplicar em lote.",
+        ));
+    }
+
+    let codigos_c = codigos.clone();
+    let cx_c = caixa_id_trim.clone();
+    let limpar_caixa = input.limpar_caixa;
+    let qtde_opt = input.qtde_cx_manual;
+    let limpar_qtde = input.limpar_qtde_cx;
+
+    let r = executar_em_2_passos(
+        pool,
+        "vincular_produtos_caixa_lote_expedicao",
+        confirmar,
+        move |tx| {
+            Box::pin(async move {
+                if let Some(ref cid) = cx_c {
+                    let ok: bool = sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM expedicao_caixas WHERE id = $1)",
+                    )
+                    .bind(cid)
+                    .fetch_one(&mut **tx)
+                    .await?;
+                    if !ok {
+                        return Err(ErroApi::nao_encontrado("Caixa selecionada não encontrada."));
+                    }
+                }
+
+                let existentes: Vec<String> = sqlx::query_scalar(
+                    "SELECT codigo FROM produtos WHERE codigo = ANY($1) ORDER BY codigo ASC",
+                )
+                .bind(&codigos_c)
+                .fetch_all(&mut **tx)
+                .await?;
+                if existentes.is_empty() {
+                    return Err(ErroApi::nao_encontrado(
+                        "Nenhum dos produtos selecionados foi encontrado no catálogo.",
+                    ));
+                }
+
+                let atuais_rows = sqlx::query(
+                    "SELECT produto_codigo, caixa_id, qtde_cx_manual, camadas_override, observacoes \
+                     FROM expedicao_produto_caixa WHERE produto_codigo = ANY($1) FOR UPDATE",
+                )
+                .bind(&existentes)
+                .fetch_all(&mut **tx)
+                .await?;
+                let mut atuais: HashMap<String, (Option<String>, Option<i32>, Option<i32>, Option<String>)> =
+                    HashMap::new();
+                for row in atuais_rows {
+                    atuais.insert(
+                        row.get("produto_codigo"),
+                        (
+                            row.get("caixa_id"),
+                            row.get("qtde_cx_manual"),
+                            row.get("camadas_override"),
+                            row.get("observacoes"),
+                        ),
+                    );
+                }
+
+                for cod in &existentes {
+                    let prev = atuais.get(cod);
+                    let prox_cx = if limpar_caixa {
+                        None
+                    } else if let Some(ref cid) = cx_c {
+                        Some(cid.clone())
+                    } else {
+                        prev.and_then(|p| p.0.clone())
+                    };
+                    let prox_qtde = if limpar_qtde {
+                        None
+                    } else if qtde_opt.is_some() {
+                        qtde_opt
+                    } else {
+                        prev.and_then(|p| p.1)
+                    };
+                    let prox_cam = prev.and_then(|p| p.2);
+                    let prox_obs = prev.and_then(|p| p.3.clone());
+
+                    sqlx::query(
+                        "INSERT INTO expedicao_produto_caixa (produto_codigo, caixa_id, qtde_cx_manual, camadas_override, observacoes, updated_at) \
+                         VALUES ($1,$2,$3,$4,$5,NOW()) \
+                         ON CONFLICT (produto_codigo) DO UPDATE SET \
+                            caixa_id = EXCLUDED.caixa_id, \
+                            qtde_cx_manual = EXCLUDED.qtde_cx_manual, \
+                            camadas_override = EXCLUDED.camadas_override, \
+                            observacoes = EXCLUDED.observacoes, \
+                            updated_at = NOW()",
+                    )
+                    .bind(cod)
+                    .bind(&prox_cx)
+                    .bind(prox_qtde)
+                    .bind(prox_cam)
+                    .bind(&prox_obs)
+                    .execute(&mut **tx)
+                    .await?;
+                }
+
+                Ok(json!({
+                    "atualizadosCount": existentes.len(),
+                    "ignoradosCount": codigos_c.len().saturating_sub(existentes.len()),
+                    "caixaId": cx_c,
+                    "qtdeCxManual": qtde_opt,
+                    "limparCaixa": limpar_caixa,
+                    "limparQtdeCx": limpar_qtde,
+                }))
+            })
+        },
+    )
+    .await?;
+
+    if confirmar {
+        registrar_auditoria(
+            pool,
+            ctx,
+            "vincular_produtos_caixa_lote_expedicao",
+            "expedicao_produto_caixa",
+            "lote",
+            &format!(
+                "Conferência em lote aplicada em {} produtos",
+                r.resultado["atualizadosCount"].as_u64().unwrap_or(0)
+            ),
+            None,
+            Some(r.resultado.clone()),
+        )
+        .await;
+    }
+
+    Ok(r)
+}
+
+pub async fn importar_mapa_lote(
+    pool: &PgPool,
+    ctx: &AuthContext,
+    input: ImportarMapaLoteInput,
+    confirmar: bool,
+) -> Result<RespostaAcao<Value>, ErroApi> {
+    let estrutura_id = str_trim(Some(&input.estrutura_id))
+        .ok_or_else(|| ErroApi::invalido("Informe a estrutura de destino."))?;
+    if input.itens.is_empty() || input.itens.len() > 2000 {
+        return Err(ErroApi::invalido("Envie entre 1 e 2000 itens para importar no mapa."));
+    }
+
+    let est_c = estrutura_id.clone();
+    let substituir = input.substituir_estrutura;
+    let itens_raw = input.itens;
+
+    let r = executar_em_2_passos(pool, "importar_mapa_lote_expedicao", confirmar, move |tx| {
+        Box::pin(async move {
+            let est_ok: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM expedicao_estruturas WHERE id = $1)",
+            )
+            .bind(&est_c)
+            .fetch_one(&mut **tx)
+            .await?;
+            if !est_ok {
+                return Err(ErroApi::nao_encontrado("Estrutura de destino não encontrada."));
+            }
+
+            let pos_rows: Vec<(String, String, f64)> = sqlx::query_as(
+                "SELECT id, codigo, altura_cm FROM expedicao_posicoes WHERE estrutura_id = $1",
+            )
+            .bind(&est_c)
+            .fetch_all(&mut **tx)
+            .await?;
+            let pos_por_cod: HashMap<String, (String, f64)> = pos_rows
+                .into_iter()
+                .map(|(id, cod, alt)| (cod.trim().to_ascii_uppercase(), (id, alt)))
+                .collect();
+
+            let prod_cands: Vec<String> = itens_raw
+                .iter()
+                .map(|i| i.produto_codigo.trim().to_string())
+                .filter(|c| !c.is_empty())
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .collect();
+            let prods_existentes: HashSet<String> = sqlx::query_scalar::<_, String>(
+                "SELECT codigo FROM produtos WHERE codigo = ANY($1)",
+            )
+            .bind(&prod_cands)
+            .fetch_all(&mut **tx)
+            .await?
+            .into_iter()
+            .collect();
+
+            let mut ignorados_posicao = 0usize;
+            let mut ignorados_produto = 0usize;
+            let mut exemplos_ignorados: Vec<String> = Vec::new();
+
+            struct ItemMesclado {
+                posicao_id: String,
+                altura_cm: f64,
+                produto_codigo: String,
+                fileiras_largura: i32,
+                camadas_altura: Option<i32>,
+                fixado: bool,
+            }
+            let mut mapa_itens: HashMap<(String, String), ItemMesclado> = HashMap::new();
+            let mut prods_validos_set: HashSet<String> = HashSet::new();
+
+            for it in &itens_raw {
+                let p_cod = it.posicao_codigo.trim().to_ascii_uppercase();
+                let prod_cod = it.produto_codigo.trim().to_string();
+                let Some((pos_id, pos_alt)) = pos_por_cod.get(&p_cod) else {
+                    ignorados_posicao += 1;
+                    if exemplos_ignorados.len() < 15 {
+                        exemplos_ignorados.push(format!("Posição '{p_cod}' não encontrada ({prod_cod})"));
+                    }
+                    continue;
+                };
+                if !prods_existentes.contains(&prod_cod) {
+                    ignorados_produto += 1;
+                    if exemplos_ignorados.len() < 15 {
+                        exemplos_ignorados.push(format!("Produto '{prod_cod}' não existe no ERP ({p_cod})"));
+                    }
+                    continue;
+                }
+                let fil = it.fileiras_largura.max(1);
+                prods_validos_set.insert(prod_cod.clone());
+                let key = (pos_id.clone(), prod_cod.clone());
+                mapa_itens
+                    .entry(key)
+                    .and_modify(|cur| {
+                        cur.fileiras_largura += fil;
+                        if it.camadas_altura.is_some() {
+                            cur.camadas_altura = it.camadas_altura;
+                        }
+                        cur.fixado = cur.fixado || it.fixado;
+                    })
+                    .or_insert(ItemMesclado {
+                        posicao_id: pos_id.clone(),
+                        altura_cm: *pos_alt,
+                        produto_codigo: prod_cod,
+                        fileiras_largura: fil,
+                        camadas_altura: it.camadas_altura,
+                        fixado: it.fixado,
+                    });
+            }
+
+            let removidos_atuais: i64 = if substituir {
+                sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM expedicao_alocacoes a \
+                     JOIN expedicao_posicoes p ON p.id = a.posicao_id WHERE p.estrutura_id = $1",
+                )
+                .bind(&est_c)
+                .fetch_one(&mut **tx)
+                .await?
+            } else {
+                0
+            };
+
+            if substituir && removidos_atuais > 0 {
+                sqlx::query(
+                    "DELETE FROM expedicao_alocacoes WHERE posicao_id IN \
+                     (SELECT id FROM expedicao_posicoes WHERE estrutura_id = $1)",
+                )
+                .bind(&est_c)
+                .execute(&mut **tx)
+                .await?;
+            }
+
+            let validos_cods: Vec<String> = prods_validos_set.into_iter().collect();
+            let caixas_map = carregar_mapa_caixas_produtos_tx(&mut **tx, &validos_cods).await?;
+
+            let mut validos = 0usize;
+            for item in mapa_itens.into_values() {
+                let camadas = calcular_camadas_compat_vao(
+                    item.altura_cm,
+                    caixas_map.get(&item.produto_codigo),
+                    item.camadas_altura,
+                    3,
+                );
+                let aloc_id = slug_id("imp");
+                sqlx::query(
+                    "INSERT INTO expedicao_alocacoes \
+                     (id, posicao_id, produto_codigo, fileiras_largura, camadas_altura, fixado, observacoes, updated_at) \
+                     VALUES ($1,$2,$3,$4,$5,$6,'Importação planilha .xlsx',NOW()) \
+                     ON CONFLICT (posicao_id, produto_codigo) DO UPDATE SET \
+                        fileiras_largura = EXCLUDED.fileiras_largura, \
+                        camadas_altura = EXCLUDED.camadas_altura, \
+                        fixado = EXCLUDED.fixado, \
+                        observacoes = EXCLUDED.observacoes, \
+                        updated_at = NOW()",
+                )
+                .bind(&aloc_id)
+                .bind(&item.posicao_id)
+                .bind(&item.produto_codigo)
+                .bind(item.fileiras_largura)
+                .bind(camadas)
+                .bind(item.fixado)
+                .execute(&mut **tx)
+                .await?;
+                validos += 1;
+            }
+
+            Ok(json!({
+                "estruturaId": est_c,
+                "substituirEstrutura": substituir,
+                "validos": validos,
+                "ignoradosPosicao": ignorados_posicao,
+                "ignoradosProduto": ignorados_produto,
+                "removidosAtuais": removidos_atuais,
+                "exemplosIgnorados": exemplos_ignorados,
+            }))
+        })
+    })
+    .await?;
+
+    if confirmar {
+        registrar_auditoria(
+            pool,
+            ctx,
+            "importar_mapa_lote_expedicao",
+            "expedicao_estrutura",
+            &estrutura_id,
+            &format!(
+                "Importação de mapa aplicada: {} alocações gravadas",
+                r.resultado["validos"].as_u64().unwrap_or(0)
+            ),
+            None,
+            Some(r.resultado.clone()),
         )
         .await;
     }

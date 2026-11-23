@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as XLSX from 'xlsx';
 import { montarWorkbookAlocacao } from '../../src/modules/expedicao/alocacao/exportarPlanilha';
+import { parsearPlanilhaMapa } from '../../src/modules/expedicao/alocacao/importarPlanilha';
 import type { PainelAlocacaoResponse } from '../../src/modules/expedicao/alocacao/types';
 
 test('montarWorkbookAlocacao gera as 4 abas esperadas com dados reais do painel', () => {
@@ -167,4 +168,47 @@ test('montarWorkbookAlocacao gera as 4 abas esperadas com dados reais do painel'
   const dim = XLSX.utils.sheet_to_json(wb.Sheets['Dimensionamento ABC'], { header: 1 }) as unknown[][];
   assert.ok(dim.length >= 4);
   assert.equal((dim[3] as unknown[])[2], '2.13.023');
+
+  const mapaRows = XLSX.utils.sheet_to_json(wb.Sheets['Mapa Estantes'], { header: 1 }) as unknown[][];
+  const mapaText = mapaRows.flat().map(String).join(' | ');
+  assert.ok(mapaText.includes('Prateleira 1'));
+  assert.ok(!mapaText.includes('Andar 1'));
+});
+
+test('parsearPlanilhaMapa lê formato exportado do Nexus e formato Mapas_0309 (com deslocamentos)', () => {
+  // 1) Formato exportado pelo Nexus (Dimensionamento ABC)
+  const wbNexus = XLSX.utils.book_new();
+  const wsDim = XLSX.utils.aoa_to_sheet([
+    ['Local Picking', 'Local Pulmão', 'Código', 'Descrição'],
+    ['A1, B2', 'A7', '2.13.036', 'BOTTOX VINTAGE 100 GR'],
+    ['—', '—', '2.11.001', 'SEM ENDEREÇO'],
+  ]);
+  XLSX.utils.book_append_sheet(wbNexus, wsDim, 'Dimensionamento ABC');
+  const resNexus = parsearPlanilhaMapa(wbNexus);
+  assert.equal(resNexus.formato, 'nexus_dim');
+  assert.equal(resNexus.produtosUnicos, 1);
+  assert.deepEqual(
+    resNexus.itens.map((i) => `${i.posicaoCodigo}:${i.produtoCodigo}`),
+    ['A1:2.13.036', 'B2:2.13.036', 'A7:2.13.036'],
+  );
+
+  // 2) Formato grade Mapas_0309 (inclusive deslocamento 1 coluna à esquerda e 2 colunas E)
+  const grid: unknown[][] = Array.from({ length: 15 }, () => Array(12).fill(''));
+  grid[0][2] = 'E4';
+  grid[1][2] = '2.11.019';
+  grid[1][3] = '2.14.032'; // 2a coluna dentro do mesmo bloco E4
+  grid[5][6] = 'D2'; // cabecalho na col 6, codigos deslocados na col 5 (estilo R61 Mapas_0309)
+  grid[6][5] = '2.13.021';
+  grid[7][5] = '2.13.021';
+
+  const wb0309 = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb0309, XLSX.utils.aoa_to_sheet(grid), 'Mapas_0309');
+  const res0309 = parsearPlanilhaMapa(wb0309);
+  assert.equal(res0309.formato, 'mapas_0309');
+  assert.equal(res0309.abaUsada, 'Mapas_0309');
+  assert.equal(res0309.produtosUnicos, 3);
+  const byKey = new Map(res0309.itens.map((i) => [`${i.posicaoCodigo}:${i.produtoCodigo}`, i.fileirasLargura]));
+  assert.equal(byKey.get('E4:2.11.019'), 1);
+  assert.equal(byKey.get('E4:2.14.032'), 1);
+  assert.equal(byKey.get('D2:2.13.021'), 2);
 });

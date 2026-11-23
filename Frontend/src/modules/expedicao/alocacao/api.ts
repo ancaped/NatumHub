@@ -1,7 +1,11 @@
 import { apiJson } from '../../geral/lib/http';
 import type {
   ClienteSugestao,
+  ImportarMapaItemInput,
+  ImportarMapaLoteResultado,
+  MoverAlocacaoInput,
   PainelAlocacaoResponse,
+  ProdutoCaixaLoteInput,
   SugestaoResultado,
 } from './types';
 
@@ -194,6 +198,37 @@ export function gerarGradeEstrutura(
 ) {
   const qs = confirmar ? '?confirmar=true' : '';
   return apiJson(`/expedicao/alocacao/estruturas/${encodeURIComponent(id)}/gerar-grade${qs}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function moverAlocacao(body: MoverAlocacaoInput, confirmar = true) {
+  const qs = confirmar ? '?confirmar=true' : '';
+  return apiJson(`/expedicao/alocacao/mover${qs}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function vincularProdutosCaixaLote(body: ProdutoCaixaLoteInput, confirmar = false) {
+  const qs = confirmar ? '?confirmar=true' : '';
+  return apiJson(`/expedicao/alocacao/produtos-lote${qs}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function importarMapaLote(
+  body: {
+    estruturaId: string;
+    substituirEstrutura: boolean;
+    itens: ImportarMapaItemInput[];
+  },
+  confirmar = false,
+): Promise<ImportarMapaLoteResultado> {
+  const qs = confirmar ? '?confirmar=true' : '';
+  return apiJson<ImportarMapaLoteResultado>(`/expedicao/alocacao/importar-lote${qs}`, {
     method: 'POST',
     body: JSON.stringify(body),
   });

@@ -159,7 +159,11 @@ export function montarWorkbookAlocacao(
     const alturaAndar = posAndar[0]?.alturaCm ?? 0;
     const papelAndar = posAndar[0]?.papel === 'pulmao' ? 'PULMÃO' : 'PICKING';
 
-    const headerRow: (string | number)[] = [`Andar ${andar} (${papelAndar} · Vão ${alturaAndar} cm)`];
+    const rotuloPrat =
+      andaresOrdenados.length === 1
+        ? `Pátio / Chão · Prateleira ${andar}`
+        : `Prateleira ${andar}`;
+    const headerRow: (string | number)[] = [`${rotuloPrat} (${papelAndar} · Vão ${alturaAndar} cm)`];
     for (const col of colunasOrdenadas) {
       for (const nv of niveis) {
         headerRow.push(`${col}${nv}`);

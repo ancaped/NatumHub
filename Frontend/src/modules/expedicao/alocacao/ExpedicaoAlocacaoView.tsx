@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Download, Grid3X3, ListOrdered, RefreshCw, Settings } from 'lucide-react';
+import { Download, Grid3X3, ListOrdered, RefreshCw, Settings, Upload } from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
 import { BotaoAcao, ReportHeader, ReportTabs } from '../../geral/components/ui/ReportKit';
 import { useAviso } from '../../geral/components/ui/Aviso';
@@ -9,7 +9,7 @@ import { canEditView } from '../../geral/lib/modules/permissions';
 import { syncCurrentPageForView } from '../../geral/lib/viewLabels';
 import type { LinhaBase } from '../../geral/lib/linhas';
 import { usePreviaServidor } from '../../producao/lib/usePreviaServidor';
-import { fetchPainelAlocacao } from './api';
+import { fetchPainelAlocacao, moverAlocacao } from './api';
 import { baixarPlanilhaAlocacao } from './exportarPlanilha';
 import { MapaEstantesTab } from './MapaEstantesTab';
 import { DimensionamentoTab } from './DimensionamentoTab';
@@ -17,6 +17,7 @@ import { CadastrosTab } from './CadastrosTab';
 import { PosicaoDrawer } from './PosicaoDrawer';
 import { ProdutoAlocacaoDrawer } from './ProdutoAlocacaoDrawer';
 import { SugestaoDrawer } from './SugestaoDrawer';
+import { ImportarPlanilhaDrawer } from './ImportarPlanilhaDrawer';
 import type { PainelAlocacaoResponse, ProdutoDimensao } from './types';
 
 type TabId = 'mapa' | 'dimensionamento' | 'cadastros';
@@ -53,6 +54,7 @@ export default function ExpedicaoAlocacaoView({
   const [posicaoIdSelecionada, setPosicaoIdSelecionada] = useState<string | null>(null);
   const [produtoCodigoSelecionado, setProdutoCodigoSelecionado] = useState<string | null>(null);
   const [sugestaoOpen, setSugestaoOpen] = useState<boolean>(false);
+  const [importarOpen, setImportarOpen] = useState<boolean>(false);
 
   const { avisar, aviso } = useAviso();
   const { pedir: pedirPrevia, elemento: elementoPrevia } = usePreviaServidor(avisar);
@@ -108,9 +110,36 @@ export default function ExpedicaoAlocacaoView({
     }
   };
 
+  const executarMovimento = useCallback(
+    async (alocacaoId: string, destinoPosicaoId: string, copiar = false) => {
+      try {
+        const res = (await moverAlocacao(
+          { alocacaoId, destinoPosicaoId, copiar },
+          true,
+        )) as {
+          produtoCodigo?: string;
+          origemPosicaoCodigo?: string;
+          destinoPosicaoCodigo?: string;
+        };
+        avisar(
+          `${res.produtoCodigo ?? 'Produto'} ${copiar ? 'duplicado' : 'movido'} de ${
+            res.origemPosicaoCodigo ?? 'origem'
+          } para ${res.destinoPosicaoCodigo ?? 'destino'}.`,
+          'sucesso',
+        );
+        await carregar();
+      } catch (e) {
+        avisar(e instanceof Error ? e.message : 'Erro ao mover alocação.', 'erro');
+      }
+    },
+    [avisar, carregar],
+  );
+
+  const estruturaAtivaObj = painel?.estruturas.find((e) => e.id === painel.estruturaAtivaId);
+
   const subtitulo = painel
     ? `${painel.resumo.alocados}/${painel.resumo.totalProdutos} produtos alocados · ${painel.resumo.posicoesOcupadas}/${painel.resumo.totalPosicoes} posições ocupadas (${painel.resumo.ocupacaoMediaPct.toFixed(0)}%)`
-    : 'Planejamento dinâmico de endereços, Varejo × Atacado e conferência de caixas';
+    : 'Planejamento dinâmico de endereços no pátio/estantes, Varejo × Atacado e conferência de caixas';
 
   return (
     <AppLayout
@@ -128,6 +157,15 @@ export default function ExpedicaoAlocacaoView({
         subtitulo={subtitulo}
         acoes={
           <div className="flex flex-wrap gap-1.5">
+            {canEdit && (
+              <BotaoAcao
+                onClick={() => setImportarOpen(true)}
+                disabled={!painel || !painel.estruturaAtivaId}
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Importar .xlsx
+              </BotaoAcao>
+            )}
             <BotaoAcao onClick={exportarExcel} disabled={!painel} primario>
               <Download className="h-3.5 w-3.5" />
               Exportar .xlsx
@@ -176,7 +214,11 @@ export default function ExpedicaoAlocacaoView({
               estruturaAtivaId={painel.estruturaAtivaId}
               onChangeEstrutura={setEstruturaId}
               posicoes={painel.posicoes}
+              produtos={painel.produtos}
+              canEdit={canEdit}
               onSelectPosicao={(pos) => setPosicaoIdSelecionada(pos.id)}
+              onAbrirProduto={(p) => setProdutoCodigoSelecionado(p.codigo)}
+              onMoverAlocacao={(alocId, destId) => executarMovimento(alocId, destId, false)}
               onGerenciarEstruturas={() => {
                 setCadSubSecao('estruturas');
                 setAba('cadastros');
@@ -214,6 +256,7 @@ export default function ExpedicaoAlocacaoView({
               caixas={painel.caixas}
               atacadistas={painel.atacadistas}
               produtos={painel.produtos}
+              linhasConfigs={linhasConfigs}
               insumosCaixaErp={painel.insumosCaixaErp}
               janelaMeses={painel.janelaMeses}
               canEdit={canEdit}
@@ -228,11 +271,13 @@ export default function ExpedicaoAlocacaoView({
 
       <PosicaoDrawer
         posicao={posicaoAtiva}
+        posicoes={painel?.posicoes ?? []}
         produtos={painel?.produtos ?? []}
         caixas={painel?.caixas ?? []}
         canEdit={canEdit}
         onClose={() => setPosicaoIdSelecionada(null)}
         onSaved={carregar}
+        onMoverAlocacao={executarMovimento}
         avisar={avisar}
         pedirPrevia={pedirPrevia}
       />
@@ -260,6 +305,15 @@ export default function ExpedicaoAlocacaoView({
         usarMetaLinha={usarMetaLinha}
         linhasConfigs={linhasConfigs}
         onClose={() => setSugestaoOpen(false)}
+        onApplied={carregar}
+        avisar={avisar}
+      />
+
+      <ImportarPlanilhaDrawer
+        open={importarOpen}
+        estruturaId={painel?.estruturaAtivaId ?? ''}
+        estruturaNome={estruturaAtivaObj?.nome ?? painel?.estruturaAtivaId ?? ''}
+        onClose={() => setImportarOpen(false)}
         onApplied={carregar}
         avisar={avisar}
       />

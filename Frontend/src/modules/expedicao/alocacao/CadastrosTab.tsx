@@ -9,9 +9,15 @@ import {
   Users,
   Wrench,
 } from 'lucide-react';
-import { StatusBadge, TabelaPainel } from '../../geral/components/ui/ReportKit';
+import { StatusBadge, TabelaPainel, FiltroSelect } from '../../geral/components/ui/ReportKit';
 import type { TipoAviso } from '../../geral/components/ui/Aviso';
 import type { PedidoPrevia } from '../../producao/lib/usePreviaServidor';
+import {
+  agruparLinhas,
+  prefixosDaLinha,
+  rotuloLinha,
+  type LinhaBase,
+} from '../../geral/lib/linhas';
 import {
   fetchClientesSugestao,
   salvarAtacadista,
@@ -31,6 +37,23 @@ import type {
 
 type SubSecao = 'conferencia' | 'caixas' | 'atacadistas' | 'estruturas';
 
+function rotuloPendencia(s: string): string {
+  switch (s) {
+    case 'sem_caixa':
+      return 'Sem caixa';
+    case 'sem_qtde_cx':
+      return 'Sem qtde/cx';
+    case 'sem_endereco':
+      return 'Sem endereço';
+    case 'estoque_acima_capacidade':
+      return 'Acima cap.';
+    case 'estouro_vao':
+      return 'Estouro vão';
+    default:
+      return s;
+  }
+}
+
 interface CadastrosTabProps {
   subSecaoInicial?: SubSecao;
   estruturaAtivaId: string;
@@ -39,6 +62,7 @@ interface CadastrosTabProps {
   caixas: Caixa[];
   atacadistas: Atacadista[];
   produtos: ProdutoDimensao[];
+  linhasConfigs?: LinhaBase[];
   insumosCaixaErp: InsumoCaixaErpNaoVinculado[];
   janelaMeses: number;
   canEdit: boolean;
@@ -56,6 +80,7 @@ export function CadastrosTab({
   caixas,
   atacadistas,
   produtos,
+  linhasConfigs = [],
   insumosCaixaErp,
   janelaMeses,
   canEdit,
@@ -70,14 +95,59 @@ export function CadastrosTab({
     setSub(subSecaoInicial);
   }, [subSecaoInicial]);
 
-  // --- Conferência ERP ---
-  const pendencias = useMemo(
-    () =>
-      produtos
-        .filter((p) => p.situacaoAlocacao !== 'ok')
-        .slice(0, 80),
+  // --- Conferência ERP + Lote ---
+  const [buscaPend, setBuscaPend] = useState('');
+  const [linhaPend, setLinhaPend] = useState('ALL');
+  const [tipoPend, setTipoPend] = useState('ALL');
+  const [mostrarTodasPend, setMostrarTodasPend] = useState(false);
+  const [selecionados, setSelecionados] = useState<Set<string>>(() => new Set());
+  const [loteCaixaId, setLoteCaixaId] = useState('KEEP');
+  const [loteQtde, setLoteQtde] = useState('');
+
+  const opcoesLinhasPend = useMemo(() => {
+    const presentesSet = new Set(produtos.map((p) => p.linhaPrefix));
+    const presentes = linhasConfigs.filter((c) =>
+      prefixosDaLinha(linhasConfigs, c.linha_prefix).some((x) => presentesSet.has(x)),
+    );
+    const ordenadas = agruparLinhas(presentes).map((g) => g.linha.linha_prefix);
+    const fora = Array.from(presentesSet)
+      .filter((k) => !ordenadas.includes(k))
+      .sort();
+    return [...ordenadas, ...fora].map((prefix) => ({
+      valor: prefix,
+      rotulo:
+        rotuloLinha(linhasConfigs, prefix) === prefix
+          ? produtos.find((p) => p.linhaPrefix === prefix)?.nomeLinha ?? prefix
+          : rotuloLinha(linhasConfigs, prefix),
+    }));
+  }, [produtos, linhasConfigs]);
+
+  const todasPendencias = useMemo(
+    () => produtos.filter((p) => p.situacaoAlocacao !== 'ok'),
     [produtos],
   );
+
+  const pendenciasFiltradas = useMemo(() => {
+    const q = buscaPend.trim().toLowerCase();
+    const prefixos =
+      linhaPend === 'ALL' ? null : new Set(prefixosDaLinha(linhasConfigs, linhaPend));
+    return todasPendencias.filter((p) => {
+      if (prefixos && !prefixos.has(p.linhaPrefix)) return false;
+      if (tipoPend !== 'ALL' && p.situacaoAlocacao !== tipoPend) return false;
+      if (!q) return true;
+      return (
+        p.codigo.toLowerCase().includes(q) ||
+        p.descricao.toLowerCase().includes(q) ||
+        (p.insumoCaixaErp ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [todasPendencias, buscaPend, linhaPend, tipoPend, linhasConfigs]);
+
+  const pendencias = useMemo(
+    () => (mostrarTodasPend ? pendenciasFiltradas : pendenciasFiltradas.slice(0, 80)),
+    [pendenciasFiltradas, mostrarTodasPend],
+  );
+
   const [caixaInline, setCaixaInline] = useState<Record<string, string>>({});
   const [qtdeInline, setQtdeInline] = useState<Record<string, string>>({});
   const [vincularInsumoCaixaId, setVincularInsumoCaixaId] = useState<Record<string, string>>({});
@@ -389,14 +459,120 @@ export function CadastrosTab({
     });
   };
 
+  const toggleSelecionado = (codigo: string) => {
+    setSelecionados((prev) => {
+      const next = new Set(prev);
+      if (next.has(codigo)) next.delete(codigo);
+      else next.add(codigo);
+      return next;
+    });
+  };
+
+  const todosFiltradosSelecionados =
+    pendenciasFiltradas.length > 0 &&
+    pendenciasFiltradas.every((p) => selecionados.has(p.codigo));
+
+  const toggleTodosFiltrados = () => {
+    if (todosFiltradosSelecionados) {
+      setSelecionados((prev) => {
+        const next = new Set(prev);
+        for (const p of pendenciasFiltradas) next.delete(p.codigo);
+        return next;
+      });
+    } else {
+      setSelecionados((prev) => {
+        const next = new Set(prev);
+        for (const p of pendenciasFiltradas) next.add(p.codigo);
+        return next;
+      });
+    }
+  };
+
+  const aplicarEmLote = () => {
+    const codigos = Array.from(selecionados);
+    if (codigos.length === 0) return;
+    const qtdeNum = loteQtde.trim() ? parseInt(loteQtde.trim(), 10) : null;
+    if (qtdeNum !== null && !(qtdeNum > 0)) {
+      avisar('Informe uma Qtde/Cx válida maior que zero.', 'erro');
+      return;
+    }
+    const payload = {
+      produtoCodigos: codigos,
+      caixaId: loteCaixaId === 'KEEP' || loteCaixaId === 'CLEAR' ? null : loteCaixaId,
+      limparCaixa: loteCaixaId === 'CLEAR',
+      qtdeCxManual: qtdeNum,
+      limparQtdeCx: false,
+    };
+    if (!payload.caixaId && !payload.limparCaixa && payload.qtdeCxManual === null) {
+      avisar('Escolha uma caixa ou digite Qtde/Cx para aplicar em lote.', 'erro');
+      return;
+    }
+    const caixaLabel =
+      loteCaixaId === 'KEEP'
+        ? 'Manter caixa atual'
+        : loteCaixaId === 'CLEAR'
+          ? 'Remover caixa'
+          : `CX ${caixas.find((c) => c.id === loteCaixaId)?.codigo ?? loteCaixaId}`;
+    void pedirPrevia({
+      url: '/expedicao/alocacao/produtos-lote',
+      init: { method: 'POST', body: JSON.stringify(payload) },
+      titulo: `Aplicar conferência em lote (${codigos.length} produtos)`,
+      confirmarRotulo: `Aplicar em ${codigos.length} produtos`,
+      linhas: (d) => [
+        {
+          titulo: 'Produtos encontrados para atualização',
+          detalhe: String(d?.resultado?.atualizadosCount ?? d?.atualizadosCount ?? codigos.length),
+        },
+        { titulo: 'Caixa de embarque', detalhe: caixaLabel },
+        {
+          titulo: 'Qtde/Cx manual',
+          detalhe: qtdeNum !== null ? `${qtdeNum} un/cx` : 'Manter valor atual',
+        },
+      ],
+      erroPadrao: 'Erro ao aplicar alterações em lote.',
+      aoConcluir: async (d) => {
+        const count = d?.resultado?.atualizadosCount ?? d?.atualizadosCount ?? codigos.length;
+        avisar(`Dados atualizados em lote para ${count} produtos.`, 'sucesso');
+        setSelecionados(new Set());
+        setLoteQtde('');
+        await onSaved();
+      },
+    });
+  };
+
+  const aplicarPresetEstrutura = (tipo: 'estante' | 'patio') => {
+    if (tipo === 'patio') {
+      setGradeColunas('P1,P2,P3,P4');
+      setGradeLarg('100');
+      setGradeComp('120');
+      setGradeAndares([{ andar: 1, alturaCm: 180, papel: 'picking', lados: 1 }]);
+    } else {
+      setGradeColunas('A,B,C,D,E,F,G');
+      setGradeLarg('100');
+      setGradeComp('120');
+      setGradeAndares([
+        { andar: 1, alturaCm: 74.1, papel: 'picking', lados: 2 },
+        { andar: 2, alturaCm: 74, papel: 'picking', lados: 2 },
+        { andar: 3, alturaCm: 74, papel: 'pulmao', lados: 2 },
+        { andar: 4, alturaCm: 100, papel: 'pulmao', lados: 2 },
+        { andar: 5, alturaCm: 74, papel: 'pulmao', lados: 2 },
+        { andar: 6, alturaCm: 74, papel: 'pulmao', lados: 2 },
+      ]);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         {[
-          { id: 'conferencia', label: `Conferência ERP (${pendencias.length})`, icon: CheckCircle2 },
+          {
+            id: 'conferencia',
+            label: `Conferência ERP (${todasPendencias.length})`,
+            icon: CheckCircle2,
+          },
           { id: 'caixas', label: `Caixas (${caixas.length})`, icon: Box },
           { id: 'atacadistas', label: `Atacadistas (${atacadistas.length})`, icon: Users },
-          { id: 'estruturas', label: `Estantes & Andares (${estruturas.length})`, icon: Building2 },
+          { id: 'estruturas', label: `Estantes & Prateleiras (${estruturas.length})`, icon: Building2 },
         ].map((item) => {
           const Icon = item.icon;
           const ativo = sub === item.id;
@@ -481,18 +657,120 @@ export function CadastrosTab({
           )}
 
           <div className="panel-card !p-4 space-y-3">
-            <div>
-              <h3 className="text-sm font-bold text-zinc-900">
-                Conferência de produtos com pendência ({pendencias.length})
-              </h3>
-              <p className="text-xs text-zinc-500">
-                Ajuste rapidamente caixa de embarque ou unidades/caixa quando o ERP estiver sem Qtde/Cx ou sem fórmula de caixa.
-              </p>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900">
+                  Conferência de produtos com pendência ({pendenciasFiltradas.length})
+                </h3>
+                <p className="text-xs text-zinc-500">
+                  Filtre por linha ou tipo de pendência e vincule caixas ou Qtde/Cx individualmente ou em lote.
+                </p>
+              </div>
+              {pendenciasFiltradas.length > 80 && !mostrarTodasPend && (
+                <button
+                  type="button"
+                  onClick={() => setMostrarTodasPend(true)}
+                  className="text-xs font-bold text-zinc-800 underline cursor-pointer"
+                >
+                  Mostrar todos ({pendenciasFiltradas.length})
+                </button>
+              )}
             </div>
+
+            {/* Filtros da Conferência ERP */}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="h-3.5 w-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={buscaPend}
+                  onChange={(e) => setBuscaPend(e.target.value)}
+                  placeholder="Filtrar por código, descrição ou 9.04..."
+                  className="w-full pl-8 pr-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white text-xs"
+                />
+              </div>
+              <FiltroSelect
+                value={linhaPend}
+                onChange={setLinhaPend}
+                opcoes={[{ valor: 'ALL', rotulo: 'Todas as linhas' }, ...opcoesLinhasPend]}
+              />
+              <FiltroSelect
+                value={tipoPend}
+                onChange={setTipoPend}
+                opcoes={[
+                  { valor: 'ALL', rotulo: 'Pendência: Todas' },
+                  { valor: 'sem_caixa', rotulo: 'Sem caixa' },
+                  { valor: 'sem_qtde_cx', rotulo: 'Sem qtde/cx' },
+                  { valor: 'sem_endereco', rotulo: 'Sem endereço' },
+                  { valor: 'estoque_acima_capacidade', rotulo: 'Acima capacidade' },
+                ]}
+              />
+              {canEdit && pendenciasFiltradas.length > 0 && (
+                <label className="flex items-center gap-1.5 px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-zinc-50 cursor-pointer font-semibold text-zinc-700 min-h-[34px]">
+                  <input
+                    type="checkbox"
+                    checked={todosFiltradosSelecionados}
+                    onChange={toggleTodosFiltrados}
+                  />
+                  <span>Selecionar todos filtrados ({pendenciasFiltradas.length})</span>
+                </label>
+              )}
+            </div>
+
+            {/* Barra de edição em lote */}
+            {canEdit && selecionados.size > 0 && (
+              <div className="rounded-xl border border-zinc-300 bg-zinc-900 text-white p-3 flex flex-wrap items-center gap-2 text-xs">
+                <div className="flex items-center gap-2 mr-auto">
+                  <span className="font-bold">
+                    {selecionados.size}{' '}
+                    {selecionados.size === 1 ? 'produto selecionado' : 'produtos selecionados'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSelecionados(new Set())}
+                    className="text-zinc-300 hover:text-white underline cursor-pointer"
+                  >
+                    Limpar
+                  </button>
+                </div>
+                <select
+                  aria-label="Caixa de embarque em lote"
+                  value={loteCaixaId}
+                  onChange={(e) => setLoteCaixaId(e.target.value)}
+                  className="px-2.5 py-1.5 rounded-lg bg-white text-zinc-900 font-semibold text-xs min-w-[160px]"
+                >
+                  <option value="KEEP">Manter caixa atual</option>
+                  <option value="CLEAR">Remover caixa vinculada</option>
+                  {caixas.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      CX {c.codigo} — {c.nome}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min={1}
+                  aria-label="Qtde/Cx manual em lote"
+                  value={loteQtde}
+                  onChange={(e) => setLoteQtde(e.target.value)}
+                  placeholder="Qtde/Cx"
+                  className="w-28 px-2.5 py-1.5 rounded-lg bg-white text-zinc-900 font-mono text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={aplicarEmLote}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-extrabold cursor-pointer"
+                >
+                  Aplicar em {selecionados.size} produtos
+                </button>
+              </div>
+            )}
+
             <div className="hidden md:block">
               <TabelaPainel>
                 <thead>
                   <tr>
+                    {canEdit && <th className="w-8 text-center" />}
                     <th>Produto</th>
                     <th>Pendência</th>
                     <th>Fórmula ERP</th>
@@ -504,126 +782,154 @@ export function CadastrosTab({
                 <tbody>
                   {pendencias.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="text-center py-6 text-zinc-500">
-                        Tudo conferido e alocado!
+                      <td colSpan={canEdit ? 7 : 6} className="text-center py-6 text-zinc-500">
+                        Nenhuma pendência encontrada com os filtros atuais.
                       </td>
                     </tr>
                   ) : (
-                    pendencias.map((p) => (
-                      <tr key={p.codigo}>
-                        <td>
-                          <button
-                            type="button"
-                            onClick={() => onAbrirProduto(p)}
-                            className="text-left cursor-pointer hover:underline"
-                          >
-                            <span className="font-mono font-bold text-zinc-900">{p.codigo}</span>{' '}
-                            <span className="text-zinc-600">{p.descricao}</span>
-                          </button>
-                        </td>
-                        <td>
-                          <StatusBadge variante="ordem">{p.situacaoAlocacao}</StatusBadge>
-                        </td>
-                        <td className="font-mono text-xs text-zinc-500">
-                          {p.insumoCaixaErp ?? '—'}
-                        </td>
-                        <td>
-                          <select
-                            disabled={!canEdit}
-                            value={caixaInline[p.codigo] ?? p.caixaId ?? ''}
-                            onChange={(e) =>
-                              setCaixaInline((m) => ({ ...m, [p.codigo]: e.target.value }))
-                            }
-                            className="px-2 py-1 border border-zinc-200 rounded-lg bg-white text-xs"
-                          >
-                            <option value="">Sem caixa</option>
-                            {caixas.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                CX {c.codigo}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td>
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-mono text-xs text-zinc-500">
-                              ERP: {p.qtdeCxErp ?? '—'}
-                            </span>
-                            <input
-                              type="number"
-                              min={1}
-                              disabled={!canEdit}
-                              value={
-                                qtdeInline[p.codigo] ??
-                                (p.qtdeCxOrigem === 'manual' && p.qtdeCxEfetiva
-                                  ? String(p.qtdeCxEfetiva)
-                                  : '')
-                              }
-                              onChange={(e) =>
-                                setQtdeInline((m) => ({ ...m, [p.codigo]: e.target.value }))
-                              }
-                              placeholder="Manual"
-                              className="w-20 px-2 py-1 border border-zinc-200 rounded-lg font-mono text-xs"
-                            />
-                          </div>
-                        </td>
-                        <td className="text-right">
+                    pendencias.map((p) => {
+                      const marcado = selecionados.has(p.codigo);
+                      return (
+                        <tr key={p.codigo} className={marcado ? 'bg-zinc-50' : undefined}>
                           {canEdit && (
+                            <td className="text-center">
+                              <input
+                                type="checkbox"
+                                aria-label={`Selecionar ${p.codigo}`}
+                                checked={marcado}
+                                onChange={() => toggleSelecionado(p.codigo)}
+                              />
+                            </td>
+                          )}
+                          <td>
                             <button
                               type="button"
-                              onClick={() => salvarInlineProduto(p)}
-                              className="px-2.5 py-1 rounded-lg bg-zinc-900 text-white text-xs font-bold cursor-pointer"
+                              onClick={() => onAbrirProduto(p)}
+                              className="text-left cursor-pointer hover:underline"
                             >
-                              Salvar
+                              <span className="font-mono font-bold text-zinc-900">{p.codigo}</span>{' '}
+                              <span className="text-zinc-600">{p.descricao}</span>
                             </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))
+                          </td>
+                          <td>
+                            <StatusBadge variante="ordem">{rotuloPendencia(p.situacaoAlocacao)}</StatusBadge>
+                          </td>
+                          <td className="font-mono text-xs text-zinc-500">
+                            {p.insumoCaixaErp ?? '—'}
+                          </td>
+                          <td>
+                            <select
+                              disabled={!canEdit}
+                              value={caixaInline[p.codigo] ?? p.caixaId ?? ''}
+                              onChange={(e) =>
+                                setCaixaInline((m) => ({ ...m, [p.codigo]: e.target.value }))
+                              }
+                              className="px-2 py-1 border border-zinc-200 rounded-lg bg-white text-xs"
+                            >
+                              <option value="">Sem caixa</option>
+                              {caixas.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  CX {c.codigo}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono text-xs text-zinc-500">
+                                ERP: {p.qtdeCxErp ?? '—'}
+                              </span>
+                              <input
+                                type="number"
+                                min={1}
+                                disabled={!canEdit}
+                                value={
+                                  qtdeInline[p.codigo] ??
+                                  (p.qtdeCxOrigem === 'manual' && p.qtdeCxEfetiva
+                                    ? String(p.qtdeCxEfetiva)
+                                    : '')
+                                }
+                                onChange={(e) =>
+                                  setQtdeInline((m) => ({ ...m, [p.codigo]: e.target.value }))
+                                }
+                                placeholder="Manual"
+                                className="w-20 px-2 py-1 border border-zinc-200 rounded-lg font-mono text-xs"
+                              />
+                            </div>
+                          </td>
+                          <td className="text-right">
+                            {canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => salvarInlineProduto(p)}
+                                className="px-2.5 py-1 rounded-lg bg-zinc-900 text-white text-xs font-bold cursor-pointer"
+                              >
+                                Salvar
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </TabelaPainel>
             </div>
             <div className="md:hidden space-y-2">
-              {pendencias.map((p) => (
-                <div
-                  key={p.codigo}
-                  className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2 text-xs"
-                >
-                  <div className="flex justify-between gap-2">
-                    <span className="font-bold text-zinc-900">
-                      {p.codigo} — {p.descricao}
-                    </span>
-                    <StatusBadge variante="ordem">{p.situacaoAlocacao}</StatusBadge>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <select
-                      disabled={!canEdit}
-                      value={caixaInline[p.codigo] ?? p.caixaId ?? ''}
-                      onChange={(e) =>
-                        setCaixaInline((m) => ({ ...m, [p.codigo]: e.target.value }))
-                      }
-                      className="flex-1 px-2.5 py-2 border border-zinc-200 rounded-lg bg-white"
-                    >
-                      <option value="">Sem caixa</option>
-                      {caixas.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          CX {c.codigo}
-                        </option>
-                      ))}
-                    </select>
-                    {canEdit && (
-                      <button
-                        type="button"
-                        onClick={() => salvarInlineProduto(p)}
-                        className="px-3 py-2 rounded-lg bg-zinc-900 text-white font-bold cursor-pointer"
+              {pendencias.map((p) => {
+                const marcado = selecionados.has(p.codigo);
+                return (
+                  <div
+                    key={p.codigo}
+                    className={`rounded-xl border p-3 space-y-2 text-xs ${
+                      marcado ? 'border-zinc-900 bg-zinc-50' : 'border-zinc-200 bg-white'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <label className="flex items-start gap-2 cursor-pointer min-w-0">
+                        {canEdit && (
+                          <input
+                            type="checkbox"
+                            checked={marcado}
+                            onChange={() => toggleSelecionado(p.codigo)}
+                            className="mt-0.5 h-4 w-4 shrink-0"
+                          />
+                        )}
+                        <span className="font-bold text-zinc-900">
+                          {p.codigo} — {p.descricao}
+                        </span>
+                      </label>
+                      <StatusBadge variante="ordem">{rotuloPendencia(p.situacaoAlocacao)}</StatusBadge>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <select
+                        disabled={!canEdit}
+                        value={caixaInline[p.codigo] ?? p.caixaId ?? ''}
+                        onChange={(e) =>
+                          setCaixaInline((m) => ({ ...m, [p.codigo]: e.target.value }))
+                        }
+                        className="flex-1 min-w-[120px] px-2.5 py-2 border border-zinc-200 rounded-lg bg-white"
                       >
-                        Salvar
-                      </button>
-                    )}
+                        <option value="">Sem caixa</option>
+                        {caixas.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            CX {c.codigo}
+                          </option>
+                        ))}
+                      </select>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => salvarInlineProduto(p)}
+                          className="px-3 py-2 rounded-lg bg-zinc-900 text-white font-bold cursor-pointer min-h-[40px]"
+                        >
+                          Salvar
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -934,12 +1240,14 @@ export function CadastrosTab({
         </div>
       )}
 
-      {/* 4) Estruturas & Andares */}
+      {/* 4) Estruturas & Prateleiras */}
       {sub === 'estruturas' && (
         <div className="space-y-4 text-xs">
           {canEdit && (
             <form onSubmit={criarNovaEstrutura} className="panel-card !p-4 space-y-2.5">
-              <h3 className="text-sm font-bold text-zinc-900">Adicionar nova estante / rua</h3>
+              <h3 className="text-sm font-bold text-zinc-900">
+                Adicionar nova estante / área de pátio
+              </h3>
               <div className="flex flex-wrap items-end gap-2">
                 <label className="flex-1 min-w-[200px] space-y-1">
                   <span className="font-semibold text-zinc-600 block">Nome da estrutura</span>
@@ -947,7 +1255,7 @@ export function CadastrosTab({
                     required
                     value={novaEstNome}
                     onChange={(e) => setNovaEstNome(e.target.value)}
-                    placeholder="Ex: Estante B (Corredor 2)"
+                    placeholder="Ex: Pátio Leste ou Estante B"
                     className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white"
                   />
                 </label>
@@ -986,18 +1294,34 @@ export function CadastrosTab({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-bold text-zinc-900">
-                    Configurar Grade e Andares: {estAtiva.nome}
+                    Configurar Grade e Prateleiras: {estAtiva.nome}
                   </h3>
                   <p className="text-zinc-500">
-                    Adicione ou remova colunas/andares e ajuste alturas de vão ou papel (Picking / Pulmão).
+                    Escolha um modelo pronto (Porta-paletes ou Pátio no chão) ou personalize colunas, prateleiras e vãos.
                   </p>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => aplicarPresetEstrutura('estante')}
+                    className="px-2.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 font-bold cursor-pointer"
+                  >
+                    Porta-paletes (6 prateleiras × 2)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => aplicarPresetEstrutura('patio')}
+                    className="px-2.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 font-bold cursor-pointer"
+                  >
+                    Área de Pátio / Chão (1 nível)
+                  </button>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <label className="space-y-1 sm:col-span-1">
                   <span className="font-semibold text-zinc-600 block">
-                    Colunas (separadas por vírgula)
+                    Colunas / Módulos (separados por vírgula)
                   </span>
                   <input
                     value={gradeColunas}
@@ -1030,7 +1354,7 @@ export function CadastrosTab({
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-zinc-800">
-                    Andares ({gradeAndares.length})
+                    Prateleiras / Níveis ({gradeAndares.length})
                   </span>
                   <button
                     type="button"
@@ -1047,7 +1371,7 @@ export function CadastrosTab({
                     }
                     className="px-2.5 py-1 rounded-lg border border-zinc-300 bg-white font-bold flex items-center gap-1 cursor-pointer"
                   >
-                    <Plus className="h-3.5 w-3.5" /> Adicionar andar
+                    <Plus className="h-3.5 w-3.5" /> Adicionar prateleira
                   </button>
                 </div>
 
@@ -1056,8 +1380,8 @@ export function CadastrosTab({
                     key={a.andar}
                     className="flex flex-wrap items-center gap-2 p-2 rounded-xl border border-zinc-200 bg-zinc-50/50"
                   >
-                    <span className="font-mono font-bold w-20 text-zinc-900">
-                      Andar {a.andar}
+                    <span className="font-mono font-bold w-28 text-zinc-900">
+                      {gradeAndares.length === 1 ? 'Pátio (nível único)' : `Prateleira ${a.andar}`}
                     </span>
                     <label className="flex items-center gap-1">
                       <span className="text-zinc-500">Vão (cm):</span>
@@ -1106,7 +1430,7 @@ export function CadastrosTab({
                         onClick={() => setGradeAndares((prev) => prev.slice(0, -1))}
                         className="ml-auto text-rose-600 font-bold cursor-pointer"
                       >
-                        Remover andar
+                        Remover prateleira
                       </button>
                     )}
                   </div>

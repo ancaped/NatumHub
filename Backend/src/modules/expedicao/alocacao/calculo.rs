@@ -94,6 +94,23 @@ pub fn max_camadas(altura_vao_cm: f64, caixa_altura_cm: f64, empilhamento_max: i
     cabem.min(empilhamento_max.max(1)).max(0)
 }
 
+/// Calcula camadas compatíveis com o vão ao mover/importar um item para uma posição.
+pub fn calcular_camadas_compat_vao(
+    altura_vao_cm: f64,
+    caixa: Option<&Caixa>,
+    camadas_solicitada: Option<i32>,
+    fallback_atual: i32,
+) -> i32 {
+    if let Some(c) = camadas_solicitada.filter(|&v| v > 0) {
+        return c;
+    }
+    if let Some(cx) = caixa {
+        let max_c = max_camadas(altura_vao_cm, cx.altura_cm, cx.empilhamento_max);
+        return max_c.max(1);
+    }
+    fallback_atual.max(1)
+}
+
 #[derive(Debug, Clone)]
 pub struct GeometriaAlocacao {
     pub caixas_comp: i32,
@@ -946,5 +963,34 @@ mod tests {
         assert!(res.propostas.iter().all(|p| p.produto_codigo == "2.12.052"));
         assert!(res.propostas.iter().any(|p| p.posicao_codigo == "A1" && p.papel == "picking"));
         assert!(res.propostas.iter().any(|p| p.papel == "pulmao"));
+    }
+
+    #[test]
+    fn mover_para_vao_menor_reduz_camadas_e_vao_maior_expande_ate_limite() {
+        let cx24 = Caixa {
+            id: "cx_24".into(),
+            codigo: "24".into(),
+            nome: "CX 24".into(),
+            altura_cm: 24.7,
+            comprimento_cm: 26.8,
+            largura_cm: 15.8,
+            empilhamento_max: 4,
+            insumo_erp_codigo: None,
+            ativo: true,
+            observacoes: None,
+        };
+        // De 100cm (4 camadas) para 74.0cm -> cabe apenas 2 (24.7*3=74.1 > 74.0)
+        assert_eq!(calcular_camadas_compat_vao(74.0, Some(&cx24), None, 4), 2);
+        // Para 74.1cm exato -> cabe 3
+        assert_eq!(calcular_camadas_compat_vao(74.1, Some(&cx24), None, 2), 3);
+        // Para 100.0cm -> expande até empilhamento_max = 4
+        assert_eq!(calcular_camadas_compat_vao(100.0, Some(&cx24), None, 2), 4);
+    }
+
+    #[test]
+    fn mover_respeita_override_explicito_e_fallback_sem_caixa() {
+        assert_eq!(calcular_camadas_compat_vao(74.0, None, None, 3), 3);
+        assert_eq!(calcular_camadas_compat_vao(74.0, None, None, 0), 1);
+        assert_eq!(calcular_camadas_compat_vao(74.0, None, Some(2), 5), 2);
     }
 }

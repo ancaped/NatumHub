@@ -365,3 +365,50 @@ pub struct SugestaoResultado {
     pub nao_alocados: Vec<SugestaoNaoAlocado>,
     pub resumo: SugestaoResumo,
 }
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoverAlocacaoInput {
+    pub alocacao_id: String,
+    pub destino_posicao_id: String,
+    #[serde(default)]
+    pub copiar: bool,
+    pub fileiras_largura: Option<i32>,
+    pub camadas_altura: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProdutoCaixaLoteInput {
+    pub produto_codigos: Vec<String>,
+    pub caixa_id: Option<String>,
+    #[serde(default)]
+    pub limpar_caixa: bool,
+    pub qtde_cx_manual: Option<i32>,
+    #[serde(default)]
+    pub limpar_qtde_cx: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportarMapaItemInput {
+    pub posicao_codigo: String,
+    pub produto_codigo: String,
+    pub fileiras_largura: i32,
+    pub camadas_altura: Option<i32>,
+    #[serde(default = "default_true")]
+    pub fixado: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportarMapaLoteInput {
+    pub estrutura_id: String,
+    #[serde(default)]
+    pub substituir_estrutura: bool,
+    pub itens: Vec<ImportarMapaItemInput>,
+}

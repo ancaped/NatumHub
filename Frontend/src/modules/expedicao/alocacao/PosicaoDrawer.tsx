@@ -1,5 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Lock, Unlock, Plus, Trash2, Save, AlertTriangle } from 'lucide-react';
+import {
+  Lock,
+  Unlock,
+  Plus,
+  Trash2,
+  Save,
+  AlertTriangle,
+  ArrowRight,
+  Copy,
+} from 'lucide-react';
 import Drawer from '../../geral/components/ui/Drawer';
 import { StatusBadge } from '../../geral/components/ui/ReportKit';
 import type { TipoAviso } from '../../geral/components/ui/Aviso';
@@ -9,22 +18,30 @@ import type { Caixa, PosicaoComItens, ProdutoDimensao } from './types';
 
 interface PosicaoDrawerProps {
   posicao: PosicaoComItens | null;
+  posicoes: PosicaoComItens[];
   produtos: ProdutoDimensao[];
   caixas: Caixa[];
   canEdit: boolean;
   onClose: () => void;
   onSaved: () => Promise<void>;
+  onMoverAlocacao: (
+    alocacaoId: string,
+    destinoPosicaoId: string,
+    copiar: boolean,
+  ) => Promise<void>;
   avisar: (msg: string, tipo?: TipoAviso) => void;
   pedirPrevia: (p: PedidoPrevia) => Promise<void>;
 }
 
 export function PosicaoDrawer({
   posicao,
+  posicoes,
   produtos,
   caixas,
   canEdit,
   onClose,
   onSaved,
+  onMoverAlocacao,
   avisar,
   pedirPrevia,
 }: PosicaoDrawerProps) {
@@ -42,6 +59,9 @@ export function PosicaoDrawer({
   const [novoFixado, setNovoFixado] = useState(true);
   const [salvandoNovo, setSalvandoNovo] = useState(false);
 
+  const [destinoMover, setDestinoMover] = useState<Record<string, string>>({});
+  const [movendoId, setMovendoId] = useState<string | null>(null);
+
   const [edicoes, setEdicoes] = useState<
     Record<string, { fileiras: number; camadas: number; fixado: boolean }>
   >({});
@@ -58,6 +78,7 @@ export function PosicaoDrawer({
     setNovoFileiras(1);
     setNovoCamadas(1);
     setNovoFixado(true);
+    setDestinoMover({});
     const map: Record<string, { fileiras: number; camadas: number; fixado: boolean }> = {};
     for (const item of posicao.itens) {
       map[item.id] = {
@@ -68,6 +89,13 @@ export function PosicaoDrawer({
     }
     setEdicoes(map);
   }, [posicao]);
+
+  const destinosDisponiveis = useMemo(() => {
+    if (!posicao) return [];
+    return posicoes
+      .filter((p) => p.id !== posicao.id && p.ativo)
+      .sort((a, b) => a.andar - b.andar || a.colunaOrdem - b.colunaOrdem || a.nivel - b.nivel);
+  }, [posicoes, posicao]);
 
   const candidatos = useMemo(() => {
     if (!posicao) return [];
@@ -91,18 +119,37 @@ export function PosicaoDrawer({
     [produtos, prodSelecionado],
   );
 
+  // Cálculo automático de camadas e fileiras ideais ao selecionar o produto
   useEffect(() => {
     if (!posicao || !produtoEscolhido) return;
     const altCx = produtoEscolhido.caixaAlturaCm ?? 0;
+    const largCx = produtoEscolhido.caixaLarguraCm ?? 0;
+    const compCx = produtoEscolhido.caixaComprimentoCm ?? 0;
     const emp = produtoEscolhido.empilhamentoMax ?? 4;
+
+    let camadasCalc = 1;
     if (altCx > 0) {
       const cabem = Math.floor((posicao.alturaCm + 1e-6) / altCx);
       const sugerido = Math.max(1, Math.min(cabem || 1, emp));
-      setNovoCamadas(produtoEscolhido.camadasOverride ?? sugerido);
-    } else {
-      setNovoCamadas(1);
+      camadasCalc = produtoEscolhido.camadasOverride ?? sugerido;
     }
-    setNovoFileiras(1);
+    setNovoCamadas(camadasCalc);
+
+    let fileirasCalc = 1;
+    if (largCx > 0 && compCx > 0) {
+      const cabemLargLivre = Math.max(1, Math.floor((posicao.larguraLivreCm + 1e-6) / largCx));
+      const cabemComp = Math.max(1, Math.floor((posicao.comprimentoCm + 1e-6) / compCx));
+      const cxPorFileira = Math.max(1, cabemComp * camadasCalc);
+      const alvoCx =
+        posicao.papel === 'pulmao'
+          ? produtoEscolhido.caixasNecessariasPulmao || produtoEscolhido.caixasNecessariasTotal
+          : produtoEscolhido.caixasNecessariasPicking || produtoEscolhido.caixasNecessariasTotal;
+      if (alvoCx > 0) {
+        const nec = Math.max(1, Math.ceil(alvoCx / cxPorFileira));
+        fileirasCalc = Math.min(cabemLargLivre, nec);
+      }
+    }
+    setNovoFileiras(Math.max(1, fileirasCalc));
   }, [posicao, produtoEscolhido]);
 
   if (!posicao) return null;
@@ -130,7 +177,7 @@ export function PosicaoDrawer({
       );
       avisar(
         aplicarAndar
-          ? `Andar ${posicao.andar} atualizado.`
+          ? `Prateleira ${posicao.andar} atualizada.`
           : `Posição ${posicao.codigo} atualizada.`,
         'sucesso',
       );
@@ -142,10 +189,7 @@ export function PosicaoDrawer({
     }
   };
 
-  const salvarItemExistente = async (
-    itemId: string,
-    produtoCodigo: string,
-  ) => {
+  const salvarItemExistente = async (itemId: string, produtoCodigo: string) => {
     const ed = edicoes[itemId];
     if (!ed) return;
     try {
@@ -164,6 +208,20 @@ export function PosicaoDrawer({
       await onSaved();
     } catch (e) {
       avisar(e instanceof Error ? e.message : 'Erro ao salvar alocação.', 'erro');
+    }
+  };
+
+  const moverOuDuplicarItem = async (itemId: string, copiar: boolean) => {
+    const destId = destinoMover[itemId];
+    if (!destId) {
+      avisar('Escolha a posição de destino primeiro.', 'erro');
+      return;
+    }
+    setMovendoId(itemId);
+    try {
+      await onMoverAlocacao(itemId, destId, copiar);
+    } finally {
+      setMovendoId(null);
     }
   };
 
@@ -217,6 +275,12 @@ export function PosicaoDrawer({
     produtoEscolhido?.caixaLarguraCm != null
       ? novoFileiras * produtoEscolhido.caixaLarguraCm
       : null;
+  const previaCompNovo =
+    produtoEscolhido?.caixaComprimentoCm && produtoEscolhido.caixaComprimentoCm > 0
+      ? Math.max(1, Math.floor((posicao.comprimentoCm + 1e-6) / produtoEscolhido.caixaComprimentoCm))
+      : null;
+  const previaCaixasNovo =
+    previaCompNovo != null ? novoFileiras * previaCompNovo * Math.max(1, novoCamadas) : null;
 
   const caixaMap = new Map(caixas.map((c) => [c.id, c]));
 
@@ -226,7 +290,7 @@ export function PosicaoDrawer({
       onClose={onClose}
       size="lg"
       title={`Posição ${posicao.codigo}`}
-      subtitle={`Andar ${posicao.andar} · Nível ${posicao.nivel} · Vão ${posicao.alturaCm} cm`}
+      subtitle={`Prateleira ${posicao.andar} · Posição ${posicao.nivel} · Vão ${posicao.alturaCm} cm`}
       badge={
         <StatusBadge variante={posicao.papel === 'pulmao' ? 'aguardando' : 'saudavel'}>
           {posicao.papel === 'pulmao' ? 'Pulmão' : 'Picking'}
@@ -396,21 +460,58 @@ export function PosicaoDrawer({
                     </div>
 
                     {canEdit && (
-                      <div className="flex items-center justify-end gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => removerItem(item.id, item.produtoCodigo)}
-                          className="px-2.5 py-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 font-semibold flex items-center gap-1 cursor-pointer"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" /> Remover
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => salvarItemExistente(item.id, item.produtoCodigo)}
-                          className="px-2.5 py-1.5 rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 font-semibold flex items-center gap-1 cursor-pointer"
-                        >
-                          <Save className="h-3.5 w-3.5" /> Salvar
-                        </button>
+                      <div className="space-y-2 pt-1.5 border-t border-zinc-100">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <select
+                            aria-label={`Destino para mover ${item.produtoCodigo}`}
+                            value={destinoMover[item.id] ?? ''}
+                            onChange={(e) =>
+                              setDestinoMover((m) => ({ ...m, [item.id]: e.target.value }))
+                            }
+                            className="flex-1 min-w-[140px] px-2 py-1.5 border border-zinc-200 rounded-lg bg-zinc-50 text-xs font-mono"
+                          >
+                            <option value="">Mover / copiar para posição...</option>
+                            {destinosDisponiveis.map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {d.codigo} ({d.papel === 'pulmao' ? 'Pulmão' : 'Pick'} · livre{' '}
+                                {d.larguraLivreCm.toFixed(0)}cm)
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            disabled={!destinoMover[item.id] || movendoId === item.id}
+                            onClick={() => moverOuDuplicarItem(item.id, false)}
+                            className="px-2.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-800 font-semibold disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                          >
+                            <ArrowRight className="h-3 w-3" /> Mover
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!destinoMover[item.id] || movendoId === item.id}
+                            onClick={() => moverOuDuplicarItem(item.id, true)}
+                            className="px-2.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-800 font-semibold disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                          >
+                            <Copy className="h-3 w-3" /> Duplicar
+                          </button>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => removerItem(item.id, item.produtoCodigo)}
+                            className="px-2.5 py-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 font-semibold flex items-center gap-1 cursor-pointer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" /> Remover
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => salvarItemExistente(item.id, item.produtoCodigo)}
+                            className="px-2.5 py-1.5 rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 font-semibold flex items-center gap-1 cursor-pointer"
+                          >
+                            <Save className="h-3.5 w-3.5" /> Salvar
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -489,8 +590,10 @@ export function PosicaoDrawer({
                   </label>
                 </div>
                 {previaLarguraNovo !== null && (
-                  <div className="text-[11px] text-zinc-600 font-mono">
-                    Largura ocupada: {previaLarguraNovo.toFixed(1)} cm (livre:{' '}
+                  <div className="text-[11px] text-zinc-700 font-mono">
+                    Calculado: {novoFileiras} fil. × {novoCamadas} cam. ·{' '}
+                    {previaLarguraNovo.toFixed(1)} cm
+                    {previaCaixasNovo !== null ? ` · ${previaCaixasNovo} cx` : ''} (livre:{' '}
                     {posicao.larguraLivreCm.toFixed(1)} cm)
                   </div>
                 )}
@@ -498,10 +601,10 @@ export function PosicaoDrawer({
                   type="button"
                   disabled={salvandoNovo}
                   onClick={adicionarProduto}
-                  className="w-full py-2 rounded-xl bg-zinc-900 text-white font-bold flex items-center justify-center gap-1.5 hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
+                  className="w-full py-2 min-h-[42px] rounded-xl bg-zinc-900 text-white font-bold flex items-center justify-center gap-1.5 hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
                 >
                   <Plus className="h-4 w-4" />
-                  {salvandoNovo ? 'Alocando...' : `Alocar em ${posicao.codigo}`}
+                  {salvandoNovo ? 'Adicionando...' : `Adicionar em ${posicao.codigo}`}
                 </button>
               </div>
             )}
@@ -565,7 +668,7 @@ export function PosicaoDrawer({
                 checked={aplicarAndar}
                 onChange={(e) => setAplicarAndar(e.target.checked)}
               />
-              <span>Aplicar estas dimensões e papel a todo o Andar {posicao.andar}</span>
+              <span>Aplicar estas dimensões e papel a toda a Prateleira {posicao.andar}</span>
             </label>
             <button
               type="button"
