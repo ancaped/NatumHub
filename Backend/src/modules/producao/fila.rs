@@ -1010,51 +1010,57 @@ pub fn kg_de_quantidade(quantidade_kg: Option<f64>, quantidade: f64, unidade: &s
     medida_kg(descricao).map(|peso| quantidade * peso)
 }
 
-/// Consome `kg` agendados de um item da fila, na transação de quem chama: agendamento parcial devolve o saldo à
-/// fila; total (ou sem kg) remove a linha. Item que não existe mais não é erro.
+/// Remove um item da Fila de Demandas na transação de quem chama (mesmo quando agendado em quantidade menor;
+/// se o operador quiser produzir mais depois, adiciona à fila novamente). Item inexistente não é erro.
 pub async fn consumir_fila(
     conn: &mut sqlx::PgConnection,
     fila_id: &str,
-    kg: f64,
+    _kg: f64,
 ) -> Result<ConsumoFila, sqlx::Error> {
-    let linha = sqlx::query(
-        "SELECT descricao, quantidade::float8 AS qtd, quantidade_kg::float8 AS kg FROM producao_fila_demandas WHERE id = $1 FOR UPDATE",
+    let removido: Option<String> = sqlx::query_scalar(
+        "DELETE FROM producao_fila_demandas WHERE id = $1 RETURNING id",
     )
     .bind(fila_id)
     .fetch_optional(&mut *conn)
     .await?;
-    let fila_id = fila_id.to_string();
-    let Some(l) = linha else {
-        return Ok(ConsumoFila { fila_id, resultado: ResultadoConsumo::NaoEncontrado });
+    let resultado = match removido {
+        Some(_) => ResultadoConsumo::Removido,
+        None => ResultadoConsumo::NaoEncontrado,
     };
-    let descricao: String = l.get("descricao");
-    let fila_kg: f64 = l.get::<Option<f64>, _>("kg").unwrap_or(0.0);
-    let fila_un: f64 = l.get::<Option<f64>, _>("qtd").unwrap_or(0.0);
-    if fila_kg > 0.0 && kg > 0.0 && kg + 0.05 < fila_kg {
-        let restante_kg = ((fila_kg - kg) * 10.0).round() / 10.0;
-        // Unidades restantes: pelo peso da descrição; sem medida, na mesma proporção dos kg que sobraram.
-        let restante_un = match medida_kg(&descricao) {
-            Some(peso) => (restante_kg / peso).round() as i64,
-            None => (fila_un * restante_kg / fila_kg).round() as i64,
-        }
-        .max(1);
-        sqlx::query(
-            "UPDATE producao_fila_demandas SET quantidade = $2::float8, quantidade_kg = $3::float8, unidade = 'un', \
-             updated_at = CURRENT_TIMESTAMP WHERE id = $1",
-        )
-        .bind(&fila_id)
-        .bind(restante_un as f64)
-        .bind(restante_kg)
+    Ok(ConsumoFila { fila_id: fila_id.to_string(), resultado })
+}
+
+/// Remove todos os itens manuais da fila cujos códigos canônicos constam em `codigos_canon`.
+/// Usado ao criar novas ordens no planejamento para que nenhum produto planejado permaneça na fila.
+pub async fn consumir_fila_por_codigos(
+    conn: &mut sqlx::PgConnection,
+    codigos_canon: &[String],
+) -> Result<Vec<ConsumoFila>, sqlx::Error> {
+    if codigos_canon.is_empty() {
+        return Ok(Vec::new());
+    }
+    let alvos: std::collections::HashSet<&str> = codigos_canon.iter().map(|s| s.as_str()).collect();
+    let linhas: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, codigo_produto FROM producao_fila_demandas FOR UPDATE",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let ids: Vec<String> = linhas
+        .into_iter()
+        .filter(|(_, cod)| alvos.contains(crate::modules::producao::cobertura::store::canon(cod).as_str()))
+        .map(|(id, _)| id)
+        .collect();
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    sqlx::query("DELETE FROM producao_fila_demandas WHERE id = ANY($1)")
+        .bind(&ids)
         .execute(&mut *conn)
         .await?;
-        Ok(ConsumoFila { fila_id, resultado: ResultadoConsumo::Reduzido { restante_kg, restante_un } })
-    } else {
-        sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1")
-            .bind(&fila_id)
-            .execute(&mut *conn)
-            .await?;
-        Ok(ConsumoFila { fila_id, resultado: ResultadoConsumo::Removido })
-    }
+    Ok(ids
+        .into_iter()
+        .map(|fila_id| ConsumoFila { fila_id, resultado: ResultadoConsumo::Removido })
+        .collect())
 }
 
 #[cfg(test)]

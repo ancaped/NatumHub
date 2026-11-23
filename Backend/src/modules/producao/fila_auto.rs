@@ -343,13 +343,36 @@ pub(crate) async fn itens_manuais(pool: &sqlx::PgPool) -> Result<Vec<FilaDemanda
     Ok(sqlx::query_as::<_, FilaDemandaRow>(sql).fetch_all(pool).await?)
 }
 
-/// Códigos (canônicos) com ordem não cancelada na semana.
+/// Códigos (canônicos) com ordem não cancelada na semana consultada ou ainda aberta da semana atual em diante.
 async fn planejados_da_semana(pool: &sqlx::PgPool, semana: &str) -> Result<HashSet<String>, ErroApi> {
+    let inicio_atual = store::intervalo_semana(&store::semana_de(store::hoje_brasil()))
+        .map(|(ini, _)| ini)
+        .unwrap_or_else(store::hoje_brasil);
     let codigos: Vec<String> = sqlx::query_scalar(
-        "SELECT DISTINCT codigo_produto FROM producao_planejamento_semanal \
-         WHERE week_key = $1 AND COALESCE(ordem_status, 'planejado') <> 'cancelado'",
+        "SELECT DISTINCT pp.codigo_produto \
+         FROM producao_planejamento_semanal pp \
+         WHERE COALESCE(pp.ordem_status, 'planejado') <> 'cancelado' \
+           AND ( \
+             pp.week_key = $1 \
+             OR ( \
+               pp.data_planejada >= $2 \
+               AND COALESCE(pp.ordem_status, 'planejado') IN ('planejado', 'aprovado') \
+               AND NOT EXISTS ( \
+                 SELECT 1 FROM lote_custom_status c \
+                 WHERE c.lote_number = COALESCE(NULLIF(TRIM(pp.lote_erp), ''), pp.id) \
+                   AND c.custom_status IN ('Finalizada', 'Ordem Finalizada') \
+               ) \
+               AND NOT EXISTS ( \
+                 SELECT 1 FROM stock_movements sm \
+                 WHERE pp.lote_erp IS NOT NULL AND TRIM(pp.lote_erp) <> '' \
+                   AND sm.document_number = TRIM(pp.lote_erp) \
+                   AND sm.item_type = 'produto' AND sm.movement_type = 'entrada' \
+               ) \
+             ) \
+           )",
     )
     .bind(semana)
+    .bind(inicio_atual)
     .fetch_all(pool)
     .await?;
     Ok(codigos.iter().map(|c| canon(c)).collect())

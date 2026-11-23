@@ -19,7 +19,7 @@ use crate::core::acao::{executar_em_2_passos, exigir_motivo, ErroApi, Motivo};
 use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
-use crate::modules::producao::fila::{consumir_fila, ConsumoFila};
+use crate::modules::producao::fila::{consumir_fila, consumir_fila_por_codigos, ConsumoFila};
 use crate::modules::producao::{auditoria, permissao};
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -608,6 +608,10 @@ pub async fn gravar_planejamento_em(
     }
     let ids: Vec<String> = itens.iter().map(|i| i.id.clone()).collect();
     let antes = instantaneo_ordens(&mut *conn, &ids).await?;
+    let existentes: std::collections::HashSet<String> = antes
+        .iter()
+        .filter_map(|v| v.get("id").and_then(|x| x.as_str()).map(str::to_string))
+        .collect();
     for it in itens.iter() {
         validar_status_planejamento(&mut *conn, it).await?;
         upsert_planejamento_item(&mut *conn, it, usuario).await.map_err(db)?;
@@ -616,6 +620,22 @@ pub async fn gravar_planejamento_em(
     let mut consumos = Vec::with_capacity(consumir.len());
     for c in consumir {
         consumos.push(consumir_fila(&mut *conn, &c.fila_id, c.kg).await.map_err(db)?);
+    }
+    // Ao criar novas ordens (não canceladas), o produto sempre sai da fila manual mesmo sem `consumirFila`;
+    // atualizações em ordens já existentes preservam itens que o operador readicionou à fila depois.
+    let mut codigos_novos = Vec::new();
+    for it in itens.iter() {
+        let cancelado = it.ordem_status.as_deref().map(str::trim) == Some("cancelado");
+        if !existentes.contains(&it.id) && !cancelado {
+            let c = crate::modules::producao::cobertura::store::canon(&it.codigo_produto);
+            if !c.is_empty() && !codigos_novos.contains(&c) {
+                codigos_novos.push(c);
+            }
+        }
+    }
+    if !codigos_novos.is_empty() {
+        let extras = consumir_fila_por_codigos(&mut *conn, &codigos_novos).await.map_err(db)?;
+        consumos.extend(extras);
     }
     let depois = instantaneo_ordens(&mut *conn, &ids).await?;
     Ok(ResultadoGravacao { consumos, antes, depois })
@@ -1266,19 +1286,30 @@ mod tests {
             .await
             .ok();
 
-        // consumo parcial: 100 kg - 40 kg = 60 kg => 120 un (500 ml = 0,5 kg)
+        // mesmo com quantidade parcial (40 kg de 100 kg), o item planejado sai da fila por completo
         let mut a = vec![item(&format!("{week}-a"), "2026-10-23")];
         a[0].week_key = week.clone();
         let consumo = PedidoConsumoFila { fila_id: fila_id.clone(), kg: 40.0 };
         let r = gravar_planejamento(&pool, &mut a, &[consumo], "teste").await.unwrap().consumos;
-        assert_eq!(r[0].resultado, crate::modules::producao::fila::ResultadoConsumo::Reduzido { restante_kg: 60.0, restante_un: 120 });
-        assert_eq!(ler_fila(&pool, &fila_id).await, Some((120.0, 60.0)));
-
-        // consumo do restante: a linha some
-        let mut b = vec![item(&format!("{week}-b"), "2026-10-24")];
-        let consumo = PedidoConsumoFila { fila_id: fila_id.clone(), kg: 60.0 };
-        gravar_planejamento(&pool, &mut b, &[consumo], "teste").await.unwrap();
+        assert_eq!(r[0].resultado, crate::modules::producao::fila::ResultadoConsumo::Removido);
         assert_eq!(ler_fila(&pool, &fila_id).await, None);
+
+        // nova ordem sem `consumirFila` explícito também remove o produto da fila
+        let fila_auto_id = format!("{week}-fila-auto");
+        criar_fila_teste(&pool, &fila_auto_id).await;
+        let mut b = vec![item(&format!("{week}-b"), "2026-10-24")];
+        b[0].codigo_produto = "TESTE.P4".into();
+        let rb = gravar_planejamento(&pool, &mut b, &[], "teste").await.unwrap().consumos;
+        assert!(rb.iter().any(|c| c.fila_id == fila_auto_id && c.resultado == crate::modules::producao::fila::ResultadoConsumo::Removido));
+        assert_eq!(ler_fila(&pool, &fila_auto_id).await, None);
+
+        // se o operador readicionar à fila depois e mover/editar a ordem existente, o novo item da fila permanece
+        let fila_readd_id = format!("{week}-fila-readd");
+        criar_fila_teste(&pool, &fila_readd_id).await;
+        b[0].data_planejada = "2026-10-25".into();
+        gravar_planejamento(&pool, &mut b, &[], "teste").await.unwrap();
+        assert_eq!(ler_fila(&pool, &fila_readd_id).await, Some((200.0, 100.0)));
+        sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1").bind(&fila_readd_id).execute(&pool).await.unwrap();
 
         // fila inexistente não é erro
         let mut c = vec![item(&format!("{week}-c"), "2026-10-25")];
@@ -1318,7 +1349,7 @@ mod tests {
                 .unwrap();
             assert_eq!(ordens, if confirmar { 1 } else { 0 }, "sem confirmar não grava a ordem");
             let fila = ler_fila(&pool, &fila_id).await;
-            assert_eq!(fila, Some(if confirmar { (120.0, 60.0) } else { (200.0, 100.0) }), "nem consome a fila");
+            assert_eq!(fila, if confirmar { None } else { Some((200.0, 100.0)) }, "nem consome a fila");
         }
         sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1").bind(&fila_id).execute(&pool).await.unwrap();
         limpar_teste(&pool, &week).await;

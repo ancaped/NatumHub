@@ -1384,18 +1384,20 @@ export function PlanejamentoSemanalTab({
       novosItens.push(newItem);
     }
 
-    // O servidor grava as ordens e consome a demanda da fila na mesma transação (parcial deixa o saldo na fila).
+    // Ao agendar, a demanda sai automaticamente da fila (mesmo se agendado com kg menor;
+    // se precisar produzir mais depois, o operador adiciona na fila novamente).
     const consumirFila: { filaId: string; kg: number }[] = [];
     for (const prod of scheduleSelectedProducts) {
       const code = prod.codigo;
-      const fItem = filaDemandas.find((f: any) => f.id === prod._filaId);
+      const fItem = filaDemandas.find((f: any) => f.id === prod._filaId)
+        ?? filaDemandas.find((f: any) => (f.codigoProduto || f.codigo_produto || f.codigo) === code);
       if (fItem?.id) {
         const scheduledKg = Number(scheduleItemMasses[code] > 0 ? scheduleItemMasses[code] : (numItems === 1 ? scheduleQty : 0));
         consumirFila.push({ filaId: fItem.id, kg: scheduledKg });
       }
     }
     if (!(await handleSaveItems(novosItens, consumirFila))) return;
-    fetchFila();
+    await fetchFila();
 
     setScheduleModalItem(null);
     setScheduleSelectedProducts([]);
