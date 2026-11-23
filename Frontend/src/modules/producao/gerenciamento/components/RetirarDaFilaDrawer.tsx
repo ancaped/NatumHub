@@ -14,13 +14,20 @@ interface Previa {
   batch?: string | null;
 }
 
-/** Tira item(ns) da fila: mostra a prévia, pede o motivo e só grava no OK. */
+export interface RetirarAlvo {
+  filaId?: string | null;
+  codigo: string;
+  descricao: string;
+  quantidadeKg?: number | null;
+}
+
+/** Tira item(ns) da fila (manual ou automático): mostra a prévia, pede o motivo e só grava no OK. */
 export default function RetirarDaFilaDrawer({
-  filaId,
+  alvo,
   onClose,
   onRetirado,
 }: {
-  filaId: string;
+  alvo: RetirarAlvo;
   onClose: () => void;
   onRetirado: () => void;
 }) {
@@ -31,9 +38,14 @@ export default function RetirarDaFilaDrawer({
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
 
+  const ehManual = !!alvo.filaId;
+  const url = ehManual
+    ? `/api/producao/fila-demandas/${encodeURIComponent(String(alvo.filaId))}/retirar`
+    : '/api/producao/fila-demandas/retirar-produto';
   const corpo = (m: string, confirmar: boolean) =>
-    JSON.stringify({ motivo: m, grupo, confirmar });
-  const url = `/api/producao/fila-demandas/${encodeURIComponent(filaId)}/retirar`;
+    ehManual
+      ? JSON.stringify({ motivo: m, grupo, confirmar })
+      : JSON.stringify({ codigoProduto: alvo.codigo, descricao: alvo.descricao, motivo: m, confirmar });
 
   useEffect(() => {
     let vivo = true;
@@ -45,7 +57,7 @@ export default function RetirarDaFilaDrawer({
       vivo = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filaId, grupo]);
+  }, [alvo.filaId, alvo.codigo, grupo]);
 
   const motivoFinal = motivo === 'outro' ? (outro.trim() ? `outro: ${outro.trim()}` : '') : motivo;
   const emBatelada = !!previa?.batch;

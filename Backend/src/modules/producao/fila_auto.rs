@@ -213,6 +213,8 @@ pub struct FilaCalculada {
     pub itens: Vec<ItemCalculado>,
     pub excluidos: Excluidos,
     pub ctx: Contexto,
+    pub automatica_oculta: bool,
+    pub automaticos_ocultos: usize,
 }
 
 fn entrada_do_produto<'a>(
@@ -372,6 +374,8 @@ pub async fn montar_fila(db: &Db, semana: &str) -> Result<FilaCalculada, ErroApi
     let codigos_manuais: HashSet<String> = manuais.iter().map(|m| canon(&m.codigo_produto)).collect();
     let resumo: Vec<(String, f64)> = necessarios.iter().map(|p| (p.codigo.clone(), p.producao_recomendada as f64)).collect();
     let (escolhidos, excluidos) = escolher_automaticos(&resumo, &codigos_manuais, &planejados, &descartados);
+    let automatica_oculta = crate::modules::producao::fila::fila_automatica_oculta(pool).await?;
+    let automaticos_ocultos = if automatica_oculta { escolhidos.len() } else { 0 };
 
     let por_codigo: std::collections::HashMap<String, &ProductCalculationResult> = necessarios.iter().map(|p| (canon(&p.codigo), p)).collect();
     let regras = carregar_regras(pool).await?;
@@ -382,7 +386,9 @@ pub async fn montar_fila(db: &Db, semana: &str) -> Result<FilaCalculada, ErroApi
             item_manual(m, por_codigo.get(&c).copied(), regras.get(&c))
         })
         .collect();
-    itens.extend(escolhidos.iter().map(|i| item_automatico(&necessarios[*i], regras.get(&canon(&necessarios[*i].codigo)))));
+    if !automatica_oculta {
+        itens.extend(escolhidos.iter().map(|i| item_automatico(&necessarios[*i], regras.get(&canon(&necessarios[*i].codigo)))));
+    }
 
     let extras: Vec<String> = itens.iter().map(|i| canon(&i.codigo)).collect();
     let ctx = store::montar_contexto(pool, semana, &extras).await.map_err(erro_texto)?;
@@ -399,7 +405,14 @@ pub async fn montar_fila(db: &Db, semana: &str) -> Result<FilaCalculada, ErroApi
         item.motivo_situacao = motivo;
     }
     drop(sim);
-    Ok(FilaCalculada { semana: semana.to_string(), itens, excluidos, ctx })
+    Ok(FilaCalculada {
+        semana: semana.to_string(),
+        itens,
+        excluidos,
+        ctx,
+        automatica_oculta,
+        automaticos_ocultos,
+    })
 }
 
 /// Corpo de `GET /api/producao/fila-demandas`.
@@ -419,6 +432,8 @@ pub async fn resposta_fila(db: &Db, semana: Option<&str>) -> Result<Value, ErroA
             "aguardandoInsumos": fila.itens.len() - disponiveis,
         },
         "excluidos": fila.excluidos,
+        "automaticaOculta": fila.automatica_oculta,
+        "automaticosOcultos": fila.automaticos_ocultos,
     }))
 }
 

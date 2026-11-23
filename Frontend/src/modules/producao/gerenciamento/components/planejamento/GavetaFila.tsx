@@ -1,7 +1,8 @@
 import React from 'react';
-import { Package, BookOpen, Plus, Trash2, Search, Info } from 'lucide-react';
+import { Package, BookOpen, Plus, Trash2, Search, Info, RotateCcw } from 'lucide-react';
 import { eBase } from '../../../../geral/lib/regrasProduto';
 import { getProductProcessType } from '../../../lib/processoProduto';
+import type { RetirarAlvo } from '../RetirarDaFilaDrawer';
 
 export type AbaFila = 'disponiveis' | 'falta' | 'bases';
 
@@ -13,6 +14,9 @@ export interface DadosFila {
   qtdDisponiveis: number;
   qtdAguardandoInsumo: number;
   filaDemandas: any[];
+  automaticaOculta: boolean;
+  automaticosOcultos: number;
+  restaurandoAutomaticos: boolean;
   basesResumo: any[];
   basesVisiveis: any[];
   produtoPorCodigo: Map<string, any>;
@@ -31,7 +35,8 @@ export interface AcoesFila {
   setRegrasAberto: (v: boolean) => void;
   setAdicionarFila: (v: { codigo?: string; qtdKg?: number } | null) => void;
   setLimparFilaAberto: (v: boolean) => void;
-  setRetirarFilaId: (id: string | null) => void;
+  handleRestaurarAutomaticos: () => void;
+  setRetirarAlvo: (alvo: RetirarAlvo | null) => void;
   setCoberturaAberta: (v: boolean) => void;
   setDraggedDrawerProduct: (v: any | null) => void;
   setDragOverCell: (v: { reatorId: string; dateStr: string } | null) => void;
@@ -50,11 +55,11 @@ interface GavetaFilaProps {
 /** Gaveta lateral: Banco de Demandas (fila do PCP, itens aguardando insumos e bases). */
 export function GavetaFila({ fila, busca, acoes, podeEditar }: GavetaFilaProps) {
   const {
-    filaCardRef, filaAltura, demandCandidates, demandVisiveis, qtdDisponiveis, qtdAguardandoInsumo, filaDemandas, basesResumo, basesVisiveis, produtoPorCodigo,
+    filaCardRef, filaAltura, demandCandidates, demandVisiveis, qtdDisponiveis, qtdAguardandoInsumo, filaDemandas, automaticaOculta, automaticosOcultos, restaurandoAutomaticos, basesResumo, basesVisiveis, produtoPorCodigo,
   } = fila;
   const { filaAba, setFilaAba, demandSearch, setDemandSearch, basesBusca, setBasesBusca } = busca;
   const {
-    setRegrasAberto, setAdicionarFila, setLimparFilaAberto, setRetirarFilaId, setCoberturaAberta, setDraggedDrawerProduct, setDragOverCell,
+    setRegrasAberto, setAdicionarFila, setLimparFilaAberto, handleRestaurarAutomaticos, setRetirarAlvo, setCoberturaAberta, setDraggedDrawerProduct, setDragOverCell,
     handleShowProductDetails, handleOpenScheduleModal, handleFixarNaFila,
   } = acoes;
 
@@ -101,11 +106,25 @@ export function GavetaFila({ fila, busca, acoes, podeEditar }: GavetaFilaProps) 
               disabled={demandCandidates.length === 0 && filaDemandas.length === 0}
               onClick={() => setLimparFilaAberto(true)}
               className="flex items-center gap-1 px-2.5 py-1 max-md:min-h-11 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-              title="Apaga todos os itens manuais da fila (pede o motivo)"
+              title="Limpa os itens da fila e oculta os automáticos (pede o motivo)"
             >
               <Trash2 size={12} />
               Limpar fila
             </button>
+            {automaticaOculta && (
+              <button
+                type="button"
+                disabled={restaurandoAutomaticos}
+                onClick={handleRestaurarAutomaticos}
+                className="flex items-center gap-1 px-2.5 py-1 max-md:min-h-11 text-[11px] font-bold rounded-lg border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 disabled:opacity-50 cursor-pointer"
+                title="Voltar a exibir os itens automáticos da Demanda de Produção"
+              >
+                <RotateCcw size={12} />
+                {restaurandoAutomaticos
+                  ? 'Restaurando...'
+                  : `Restaurar automáticos${automaticosOcultos > 0 ? ` (${automaticosOcultos})` : ''}`}
+              </button>
+            )}
           </>
         )}
         </div>
@@ -196,8 +215,19 @@ export function GavetaFila({ fila, busca, acoes, podeEditar }: GavetaFilaProps) 
             })
           )
         ) : demandVisiveis.length === 0 ? (
-          <div className="py-8 text-center text-zinc-400 text-xs">
-            {filaAba === 'falta' ? 'Nenhum item da fila está aguardando insumos.' : 'Nenhum item disponível com os insumos cobertos.'}
+          <div className="py-8 px-3 text-center text-zinc-400 text-xs space-y-2">
+            <div>
+              {automaticaOculta && filaDemandas.length === 0
+                ? 'A fila está vazia (itens automáticos ocultados).'
+                : filaAba === 'falta'
+                  ? 'Nenhum item da fila está aguardando insumos.'
+                  : 'Nenhum item disponível com os insumos cobertos.'}
+            </div>
+            {automaticaOculta && filaDemandas.length === 0 && (
+              <div className="text-[11px] text-zinc-500">
+                Use <strong>Adicionar item</strong> para montar sua fila ou clique em <strong>Restaurar automáticos</strong>.
+              </div>
+            )}
           </div>
         ) : (
           demandVisiveis.map(prod => {
@@ -361,10 +391,15 @@ export function GavetaFila({ fila, busca, acoes, podeEditar }: GavetaFilaProps) 
                     <span>Ver Detalhes</span>
                   </button>
                   <div className="flex flex-wrap items-center gap-1.5">
-                  {podeEditar && (prod as any)._filaId && (
+                  {podeEditar && (
                     <button
                       type="button"
-                      onClick={() => setRetirarFilaId(String((prod as any)._filaId))}
+                      onClick={() => setRetirarAlvo({
+                        filaId: (prod as any)._filaId ? String((prod as any)._filaId) : null,
+                        codigo: prod.codigo,
+                        descricao: prod.descricao,
+                        quantidadeKg: prod.quantidade_kg ?? null,
+                      })}
                       className="px-2.5 py-1 max-md:min-h-11 text-xs font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
                       title="Tirar este item da fila"
                     >

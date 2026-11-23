@@ -3,13 +3,13 @@ import {
   Calendar, X, AlertTriangle, HelpCircle, Database, Check, ArrowRight, Clock, Truck, ShieldAlert, Layers, Filter, TrendingDown, CheckCircle, ArrowUpDown, FileSpreadsheet, Download, GripVertical, AlertOctagon, SlidersHorizontal, FlaskConical
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { apiFetch } from '../../../geral/lib/http';
+import { apiFetch, apiJson } from '../../../geral/lib/http';
 import AvisoProdutosSemPeso from '../../components/AvisoProdutosSemPeso';
 import { unidadesDeKg, ehBaseProduto } from '../../lib/unitConversion';
 import { getHoliday, getBrazilHolidaysForYear, HolidayInfo } from '../../../geral/lib/brazilHolidays';
 import { ProductDetailsDrawer } from './ProductDetailsDrawer';
 import CoberturaInsumosDrawer from './CoberturaInsumosDrawer';
-import RetirarDaFilaDrawer from './RetirarDaFilaDrawer';
+import RetirarDaFilaDrawer, { type RetirarAlvo } from './RetirarDaFilaDrawer';
 import LimparFilaDrawer from './LimparFilaDrawer';
 import RegrasPanel from './RegrasPanel';
 import PreviaAcaoDrawer, { PreviaAcao } from './PreviaAcaoDrawer';
@@ -99,7 +99,10 @@ export function PlanejamentoSemanalTab({
   // Tudo o que o servidor manda (manuais da tabela + automáticos calculados); `filaDemandas` são só os manuais.
   const [filaTodos, setFilaTodos] = useState<any[]>([]);
   const filaDemandas = useMemo(() => filaTodos.filter(f => f.origem !== 'automatica'), [filaTodos]);
-  const [retirarFilaId, setRetirarFilaId] = useState<string | null>(null);
+  const [automaticaOculta, setAutomaticaOculta] = useState(false);
+  const [automaticosOcultos, setAutomaticosOcultos] = useState(0);
+  const [restaurandoAutomaticos, setRestaurandoAutomaticos] = useState(false);
+  const [retirarAlvo, setRetirarAlvo] = useState<RetirarAlvo | null>(null);
   const [limparFilaAberto, setLimparFilaAberto] = useState(false);
   const [regrasAberto, setRegrasAberto] = useState(false);
   const [adicionarFila, setAdicionarFila] = useState<{ codigo?: string; qtdKg?: number } | null>(null);
@@ -119,12 +122,30 @@ export function PlanejamentoSemanalTab({
       if (res.ok) {
         const data = await res.json();
         setFilaTodos(Array.isArray(data.items) ? data.items : []);
+        setAutomaticaOculta(Boolean(data.automaticaOculta));
+        setAutomaticosOcultos(Number(data.automaticosOcultos) || 0);
       }
     } catch (e) {
       console.warn('Erro ao buscar fila de demandas:', e);
     }
 
   }, [semanaFila]);
+
+  const handleRestaurarAutomaticos = async () => {
+    setRestaurandoAutomaticos(true);
+    try {
+      await apiJson('/producao/fila-demandas/restaurar-automaticos?confirmar=true', {
+        method: 'POST',
+        body: JSON.stringify({ confirmar: true }),
+      });
+      avisar('Itens automáticos restaurados na fila.', 'sucesso');
+      await fetchFila();
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'Não foi possível restaurar a fila automática.', 'erro');
+    } finally {
+      setRestaurandoAutomaticos(false);
+    }
+  };
 
   // Modais de Ação
   const [scheduleModalItem, setScheduleModalItem] = useState<ScheduleModalItem | null>(null);
@@ -1567,11 +1588,11 @@ export function PlanejamentoSemanalTab({
         {demandBankOpen && (
           <GavetaFila
             fila={{
-              filaCardRef, filaAltura, demandCandidates, demandVisiveis, qtdDisponiveis, qtdAguardandoInsumo, filaDemandas, basesResumo, basesVisiveis, produtoPorCodigo,
+              filaCardRef, filaAltura, demandCandidates, demandVisiveis, qtdDisponiveis, qtdAguardandoInsumo, filaDemandas, automaticaOculta, automaticosOcultos, restaurandoAutomaticos, basesResumo, basesVisiveis, produtoPorCodigo,
             }}
             busca={{ filaAba, setFilaAba, demandSearch, setDemandSearch, basesBusca, setBasesBusca }}
             acoes={{
-              setRegrasAberto, setAdicionarFila, setLimparFilaAberto, setRetirarFilaId, setCoberturaAberta, setDraggedDrawerProduct, setDragOverCell,
+              setRegrasAberto, setAdicionarFila, setLimparFilaAberto, handleRestaurarAutomaticos, setRetirarAlvo, setCoberturaAberta, setDraggedDrawerProduct, setDragOverCell,
               handleShowProductDetails, handleOpenScheduleModal, handleFixarNaFila,
             }}
             podeEditar={podeEditar}
@@ -1695,12 +1716,12 @@ export function PlanejamentoSemanalTab({
           }}
         />
       )}
-      {retirarFilaId && (
+      {retirarAlvo && (
         <RetirarDaFilaDrawer
-          filaId={retirarFilaId}
-          onClose={() => setRetirarFilaId(null)}
+          alvo={retirarAlvo}
+          onClose={() => setRetirarAlvo(null)}
           onRetirado={() => {
-            setRetirarFilaId(null);
+            setRetirarAlvo(null);
             fetchFila();
           }}
         />

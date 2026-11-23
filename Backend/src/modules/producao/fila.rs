@@ -29,7 +29,9 @@ pub fn router() -> Router<Arc<AppState>> {
             delete(delete_fila_demanda).patch(update_fila_demanda).put(update_fila_demanda),
         )
         .route("/api/producao/fila-demandas/:id/retirar", post(retirar_rota))
+        .route("/api/producao/fila-demandas/retirar-produto", post(retirar_produto_rota))
         .route("/api/producao/fila-demandas/limpar", post(limpar_rota))
+        .route("/api/producao/fila-demandas/restaurar-automaticos", post(restaurar_automaticos_rota))
 }
 
 /// Ações da Fila de Demandas descritas para agentes (ver `core::catalogo`).
@@ -100,12 +102,37 @@ pub fn acoes() -> Vec<Acao> {
         Acao::exclusao(
             "limpar_fila_demandas",
             M,
-            "Esvazia a Fila de Demandas: apaga todos os itens colocados à mão (os automáticos não são apagados). Exige `motivo` ao confirmar; ele vai para a auditoria junto com a cópia dos itens que saíram; agentes não podem usar. Não marca os produtos como descartados: os automáticos voltam à fila enquanto forem necessários (para tirar um produto e lembrar o motivo, use `retirar_da_fila`). Sem `confirmar=true` mostra só a lista do que sairia.",
+            "Esvazia a Fila de Demandas: apaga todos os itens colocados à mão e oculta os itens automáticos da Demanda de Produção (sem marcá-los como descartados para o MRP). Exige `motivo` ao confirmar; vai para a auditoria junto com a cópia dos itens manuais; agentes não podem usar. Use `restaurar_fila_automatica` para exibir os automáticos de volta.",
             "POST",
             "/api/producao/fila-demandas/limpar",
             vec![
                 param("motivo", "corpo", "texto", true, "Por que a fila está sendo limpa (obrigatório ao confirmar; vai para a auditoria)."),
                 param("confirmar", "corpo", "booleano", false, "true para limpar de fato."),
+            ],
+        ),
+        Acao::gravacao(
+            "restaurar_fila_automatica",
+            M,
+            "Volta a exibir os itens automáticos da Demanda de Produção na Fila de Demandas (desfaz o ocultar de `limpar_fila_demandas`). Sem `confirmar=true` mostra só a prévia.",
+            "POST",
+            "/api/producao/fila-demandas/restaurar-automaticos",
+            true,
+            vec![
+                param("confirmar", "corpo", "booleano", false, "true para restaurar de fato."),
+            ],
+        ),
+        Acao::gravacao(
+            "retirar_produto_da_fila",
+            M,
+            "Tira um produto (inclusive item automático) da Fila de Demandas lembrando o motivo em `fila_descartada`. Sem `confirmar=true` mostra só a prévia.",
+            "POST",
+            "/api/producao/fila-demandas/retirar-produto",
+            true,
+            vec![
+                param("codigoProduto", "corpo", "texto", true, "Código do produto a tirar da fila."),
+                param("descricao", "corpo", "texto", false, "Descrição do produto (para a prévia/auditoria)."),
+                param("motivo", "corpo", "texto", true, "Por que o item sai da fila."),
+                param("confirmar", "corpo", "booleano", false, "true para retirar de fato."),
             ],
         ),
     ]
@@ -266,6 +293,150 @@ async fn retirar_rota(
     }
 }
 
+pub const KEY_FILA_AUTOMATICA_OCULTA: &str = "producao_fila_automatica_oculta";
+
+pub async fn fila_automatica_oculta(pool: &PgPool) -> Result<bool, ErroApi> {
+    let val: Option<String> = sqlx::query_scalar("SELECT value FROM config WHERE key = $1")
+        .bind(KEY_FILA_AUTOMATICA_OCULTA)
+        .fetch_optional(pool)
+        .await?;
+    Ok(val.as_deref() == Some("true"))
+}
+
+pub async fn definir_fila_automatica_oculta(
+    conn: &mut sqlx::PgConnection,
+    oculta: bool,
+) -> Result<(), ErroApi> {
+    let valor = if oculta { "true" } else { "false" };
+    sqlx::query(
+        "INSERT INTO config (key, value) VALUES ($1, $2) \
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+    )
+    .bind(KEY_FILA_AUTOMATICA_OCULTA)
+    .bind(valor)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RetirarProdutoBody {
+    #[serde(default, alias = "codigo_produto")]
+    codigo_produto: String,
+    #[serde(default)]
+    descricao: Option<String>,
+    #[serde(default)]
+    motivo: String,
+    #[serde(default)]
+    confirmar: bool,
+}
+
+pub async fn retirar_produto(
+    pool: &PgPool,
+    codigo_produto: &str,
+    descricao: Option<&str>,
+    motivo: &str,
+    confirmar: bool,
+    usuario: &str,
+) -> Result<crate::core::acao::RespostaAcao<Value>, ErroApi> {
+    let codigo = codigo_produto.trim().to_string();
+    if codigo.is_empty() {
+        return Err(ErroApi::invalido("Informe o código do produto."));
+    }
+    let motivo = motivo.trim().to_string();
+    if !decisoes::valor_valido(decisoes::TIPO_FILA_DESCARTADA, &motivo) {
+        return Err(ErroApi::invalido("Informe o motivo de tirar o item da fila."));
+    }
+    let desc = descricao
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
+    let cod_tx = codigo.clone();
+    let desc_tx = desc.clone();
+    let mot_tx = motivo.clone();
+    let usr_tx = usuario.to_string();
+    let r = executar_em_2_passos(pool, "retirar_produto_da_fila", confirmar, |tx| {
+        Box::pin(async move {
+            let removidos: Vec<Value> = sqlx::query_scalar(
+                "DELETE FROM producao_fila_demandas WHERE TRIM(codigo_produto) = $1 \
+                 RETURNING jsonb_build_object('id', id, 'codigo', codigo_produto, 'descricao', descricao, 'quantidadeKg', quantidade_kg)",
+            )
+            .bind(&cod_tx)
+            .fetch_all(&mut **tx)
+            .await?;
+
+            sqlx::query(
+                r#"
+                INSERT INTO producao_decisoes (tipo, chave, valor, vezes, atualizado_por, atualizado_em)
+                VALUES ($1, $2, $3, 1, $4, NOW())
+                ON CONFLICT (tipo, chave) DO UPDATE SET
+                    valor = EXCLUDED.valor,
+                    vezes = CASE WHEN producao_decisoes.valor = EXCLUDED.valor THEN producao_decisoes.vezes + 1 ELSE 1 END,
+                    atualizado_por = EXCLUDED.atualizado_por,
+                    atualizado_em = NOW()
+                "#,
+            )
+            .bind(decisoes::TIPO_FILA_DESCARTADA)
+            .bind(&cod_tx)
+            .bind(&mot_tx)
+            .bind(&usr_tx)
+            .execute(&mut **tx)
+            .await?;
+
+            let itens = if removidos.is_empty() {
+                vec![json!({
+                    "id": format!("auto:{cod_tx}"),
+                    "codigo": cod_tx,
+                    "descricao": desc_tx.unwrap_or_else(|| cod_tx.clone()),
+                    "quantidadeKg": Value::Null,
+                })]
+            } else {
+                removidos
+            };
+            Ok(json!({ "motivo": mot_tx, "itens": itens }))
+        })
+    })
+    .await?;
+
+    if !r.previa {
+        auditoria::registrar(
+            pool,
+            usuario,
+            "retirar_da_fila",
+            &codigo,
+            json!({ "motivo": motivo, "itens": r.resultado["itens"] }),
+        )
+        .await;
+    }
+    Ok(r)
+}
+
+async fn retirar_produto_rota(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(q): Query<Confirmar>,
+    Json(b): Json<RetirarProdutoBody>,
+) -> impl IntoResponse {
+    if let Err(r) = permissao::exigir_edicao(&ctx) {
+        return r;
+    }
+    match retirar_produto(
+        state.db.pool(),
+        &b.codigo_produto,
+        b.descricao.as_deref(),
+        &b.motivo,
+        b.confirmar || q.confirmar,
+        &ctx.display_name,
+    )
+    .await
+    {
+        Ok(r) => (StatusCode::OK, Json(crate::core::acao::corpo_acao(&r))).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct LimparBody {
     #[serde(default)]
@@ -274,7 +445,7 @@ struct LimparBody {
     confirmar: bool,
 }
 
-/// Apaga todos os itens da fila (linhas travadas) e devolve o instantâneo do que havia.
+/// Apaga todos os itens manuais da fila (linhas travadas), oculta a fila automática e devolve o instantâneo do que havia.
 async fn limpar_itens(conn: &mut sqlx::PgConnection) -> Result<Value, ErroApi> {
     let itens: Vec<Value> = sqlx::query_scalar(
         "SELECT to_jsonb(t) - 'created_at' - 'updated_at' FROM producao_fila_demandas t \
@@ -283,11 +454,13 @@ async fn limpar_itens(conn: &mut sqlx::PgConnection) -> Result<Value, ErroApi> {
     .fetch_all(&mut *conn)
     .await?;
     sqlx::query("DELETE FROM producao_fila_demandas").execute(&mut *conn).await?;
-    Ok(json!({ "total": itens.len(), "itens": itens }))
+    definir_fila_automatica_oculta(&mut *conn, true).await?;
+    Ok(json!({ "total": itens.len(), "itens": itens, "oculta_automatica": true }))
 }
 
 /// Serviço de "Limpar fila", em 2 passos: sem `confirmar` só lista o que sairia; com ele (e o motivo, obrigatório)
-/// apaga tudo numa transação e audita com o instantâneo. Não grava `fila_descartada` (limpar não é "não quero este produto").
+/// apaga os itens manuais e oculta os automáticos numa transação, auditando com o instantâneo.
+/// Não grava `fila_descartada` (limpar não é "não quero este produto"; os automáticos podem ser restaurados).
 pub async fn limpar_fila(
     pool: &PgPool,
     motivo: &str,
@@ -308,7 +481,7 @@ pub async fn limpar_fila(
             usuario,
             "limpar_fila_demandas",
             "fila",
-            json!({ "motivo": motivo, "total": r.resultado["total"], "itens": r.resultado["itens"] }),
+            json!({ "motivo": motivo, "total": r.resultado["total"], "itens": r.resultado["itens"], "oculta_automatica": true }),
         )
         .await;
     }
@@ -325,6 +498,53 @@ async fn limpar_rota(
         return r;
     }
     match limpar_fila(state.db.pool(), &b.motivo, b.confirmar || q.confirmar, &ctx.display_name).await {
+        Ok(r) => (StatusCode::OK, Json(crate::core::acao::corpo_acao(&r))).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct RestaurarBody {
+    #[serde(default)]
+    confirmar: bool,
+}
+
+pub async fn restaurar_automaticos(
+    pool: &PgPool,
+    confirmar: bool,
+    usuario: &str,
+) -> Result<crate::core::acao::RespostaAcao<Value>, ErroApi> {
+    let r = executar_em_2_passos(pool, "restaurar_fila_automatica", confirmar, |tx| {
+        Box::pin(async move {
+            definir_fila_automatica_oculta(&mut **tx, false).await?;
+            Ok(json!({ "automatica_oculta": false }))
+        })
+    })
+    .await?;
+    if !r.previa {
+        auditoria::registrar(
+            pool,
+            usuario,
+            "restaurar_fila_automatica",
+            "fila",
+            json!({ "automatica_oculta": false }),
+        )
+        .await;
+    }
+    Ok(r)
+}
+
+async fn restaurar_automaticos_rota(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(q): Query<Confirmar>,
+    body: Option<Json<RestaurarBody>>,
+) -> impl IntoResponse {
+    if let Err(r) = permissao::exigir_edicao(&ctx) {
+        return r;
+    }
+    let conf = q.confirmar || body.map(|b| b.confirmar).unwrap_or(false);
+    match restaurar_automaticos(state.db.pool(), conf, &ctx.display_name).await {
         Ok(r) => (StatusCode::OK, Json(crate::core::acao::corpo_acao(&r))).into_response(),
         Err(e) => e.into_response(),
     }
@@ -1071,12 +1291,38 @@ mod tests {
         let r = limpar_fila(&pool, "teste de limpeza", true, "teste").await.unwrap();
         assert!(!r.previa);
         assert_eq!(r.resultado["total"], 2);
+        assert_eq!(r.resultado["oculta_automatica"], true);
         assert_eq!(contar().await, 0, "confirmar apaga tudo");
+        assert!(fila_automatica_oculta(&pool).await.unwrap(), "limpar fila oculta os automáticos");
         let depois: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM producao_auditoria WHERE acao = 'limpar_fila_demandas'")
             .fetch_one(&pool).await.unwrap();
         assert_eq!(depois, antes + 1, "audita uma vez");
         let sem_decisao: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM producao_decisoes WHERE tipo = 'fila_descartada' AND chave IN ('LF.001','LF.002')")
             .fetch_one(&pool).await.unwrap();
         assert_eq!(sem_decisao, 0, "limpar não grava decisão fila_descartada");
+
+        let rest = restaurar_automaticos(&pool, true, "teste").await.unwrap();
+        assert!(!rest.previa);
+        assert!(!fila_automatica_oculta(&pool).await.unwrap(), "restaurar volta a mostrar os automáticos");
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn retirar_produto_automatico_grava_decisao_e_audita() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        let cod = "RP.AUTO.001";
+        sqlx::query("DELETE FROM producao_decisoes WHERE tipo = 'fila_descartada' AND chave = $1").bind(cod).execute(&pool).await.unwrap();
+
+        let previa = retirar_produto(&pool, cod, Some("Produto Auto"), "estoque_suficiente", false, "teste").await.unwrap();
+        assert!(previa.previa);
+        assert!(decisoes::atual(&pool, decisoes::TIPO_FILA_DESCARTADA, cod).await.unwrap().is_none());
+
+        let r = retirar_produto(&pool, cod, Some("Produto Auto"), "estoque_suficiente", true, "teste").await.unwrap();
+        assert!(!r.previa);
+        let dec = decisoes::atual(&pool, decisoes::TIPO_FILA_DESCARTADA, cod).await.unwrap();
+        assert_eq!(dec.map(|(v, _)| v), Some("estoque_suficiente".to_string()));
+
+        sqlx::query("DELETE FROM producao_decisoes WHERE tipo = 'fila_descartada' AND chave = $1").bind(cod).execute(&pool).await.unwrap();
     }
 }
