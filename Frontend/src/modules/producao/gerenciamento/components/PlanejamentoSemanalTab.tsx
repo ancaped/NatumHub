@@ -1673,6 +1673,7 @@ export function PlanejamentoSemanalTab({
       )}
       {limparFilaAberto && (
         <LimparFilaDrawer
+          automaticosCount={filaTodos.filter((f) => f.origem === 'automatica').length}
           onClose={() => setLimparFilaAberto(false)}
           onLimpa={() => {
             setLimparFilaAberto(false);
@@ -1718,6 +1719,7 @@ export function PlanejamentoSemanalTab({
         <ProductDetailsDrawer
           productCode={internalDrawerCode}
           isOpen={internalDrawerOpen}
+          onSelectProduct={(code) => setInternalDrawerCode(code)}
           onClose={() => {
             setInternalDrawerOpen(false);
             setInternalDrawerCode(null);

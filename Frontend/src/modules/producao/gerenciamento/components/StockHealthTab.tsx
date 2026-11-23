@@ -500,7 +500,12 @@ tr { page-break-inside: avoid; }
         </div>
       </div>
 
-      <ProductDetailsDrawer productCode={detalhe} isOpen={!!detalhe} onClose={() => setDetalhe(null)} />
+      <ProductDetailsDrawer
+        productCode={detalhe}
+        isOpen={!!detalhe}
+        onSelectProduct={(code) => setDetalhe(code)}
+        onClose={() => setDetalhe(null)}
+      />
     </div>
   );
 }

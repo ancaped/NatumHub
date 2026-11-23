@@ -3,9 +3,14 @@ import Drawer from '../../../geral/components/ui/Drawer';
 import { apiFetch } from '../../../geral/lib/http';
 import { canEdit, getAuthUser } from '../../../geral/lib/auth';
 import RegrasPanel from './RegrasPanel';
+import {
+  MesmaFormulaPanel,
+  carregarMesmaFormula,
+  enviarProdutoMesmaFormulaParaFila,
+  type ProdutoMesmaFormula,
+} from './MesmaFormulaPanel';
 import { 
-  TrendingUp, Layers, ClipboardList, Package, Clock, 
-  Sparkles, Calculator, AlertCircle, CheckCircle2, StickyNote 
+  TrendingUp, Layers, ClipboardList, Package, FlaskConical, StickyNote 
 } from 'lucide-react';
 
 /** Raiz da categoria do insumo (`categoryId`, já resolvida no servidor): embalagens, matéria-prima (inclui sem categoria) ou outras. */
@@ -31,36 +36,49 @@ interface ProductDetailsDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   onOpenLoteDetails?: (loteNumber: string) => void;
+  onSelectProduct?: (code: string) => void;
 }
 
 export const ProductDetailsDrawer: React.FC<ProductDetailsDrawerProps> = ({
   productCode,
   isOpen,
   onClose,
-  onOpenLoteDetails
+  onOpenLoteDetails,
+  onSelectProduct,
 }) => {
-  const [activeTab, setActiveTab] = useState<'geral' | 'formula' | 'lotes' | 'pedidos' | 'regras'>('geral');
+  const [activeTab, setActiveTab] = useState<'geral' | 'formula' | 'mesma_formula' | 'lotes' | 'pedidos' | 'regras'>('geral');
   const [loading, setLoading] = useState(false);
   const [details, setDetails] = useState<any | null>(null);
   const [pendingOrders, setPendingOrders] = useState<any | null>(null);
+  const [sameFormula, setSameFormula] = useState<ProdutoMesmaFormula[]>([]);
+  const [loadingSameFormula, setLoadingSameFormula] = useState(false);
+  const [enviandoFilaCodigo, setEnviandoFilaCodigo] = useState<string | null>(null);
+  const [erroFila, setErroFila] = useState<string | null>(null);
   const [simulatedQty, setSimulatedQty] = useState(100);
+
+  const podeEditarPlanejamento = canEdit(getAuthUser(), 'planejamento_producao');
 
   useEffect(() => {
     if (!isOpen || !productCode) {
       setDetails(null);
       setPendingOrders(null);
+      setSameFormula([]);
+      setErroFila(null);
       return;
     }
 
     let isMounted = true;
     const fetchDetails = async () => {
       setLoading(true);
+      setLoadingSameFormula(true);
       setActiveTab('geral');
+      setErroFila(null);
       try {
         const clean = encodeURIComponent(productCode.trim());
-        const [detRes, pedRes] = await Promise.all([
+        const [detRes, pedRes, mfList] = await Promise.all([
           apiFetch(`/produtos/${clean}/detalhes`),
-          apiFetch(`/produtos/${clean}/pedidos-pendentes`)
+          apiFetch(`/produtos/${clean}/pedidos-pendentes`),
+          carregarMesmaFormula(productCode),
         ]);
 
         if (isMounted && detRes.ok) {
@@ -71,16 +89,35 @@ export const ProductDetailsDrawer: React.FC<ProductDetailsDrawerProps> = ({
         if (isMounted && pedRes.ok) {
           setPendingOrders(await pedRes.json());
         }
+        if (isMounted) {
+          setSameFormula(mfList);
+        }
       } catch (e) {
         console.error('Erro ao carregar detalhes do produto:', e);
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+          setLoadingSameFormula(false);
+        }
       }
     };
 
     fetchDetails();
     return () => { isMounted = false; };
   }, [isOpen, productCode]);
+
+  const handleEnviarMesmaFormulaFila = async (item: ProdutoMesmaFormula) => {
+    setEnviandoFilaCodigo(item.codigo);
+    setErroFila(null);
+    try {
+      await enviarProdutoMesmaFormulaParaFila(item);
+      setSameFormula((prev) => prev.map((x) => (x.codigo === item.codigo ? { ...x, na_fila: true } : x)));
+    } catch (e) {
+      setErroFila(e instanceof Error ? e.message : 'Não foi possível adicionar à fila.');
+    } finally {
+      setEnviandoFilaCodigo(null);
+    }
+  };
 
   return (
     <Drawer
@@ -95,6 +132,7 @@ export const ProductDetailsDrawer: React.FC<ProductDetailsDrawerProps> = ({
       tabs={[
         { id: 'geral', label: 'Geral', icon: TrendingUp },
         { id: 'formula', label: 'Fórmula & Ingredientes', icon: Layers },
+        { id: 'mesma_formula', label: 'Mesma fórmula', icon: FlaskConical, badge: sameFormula.length },
         { id: 'lotes', label: 'Lotes de Produção', icon: ClipboardList, badge: details?.lastLots?.length || 0 },
         { id: 'pedidos', label: 'Pedidos', icon: Package, badge: pendingOrders?.pending_sales_orders?.length || 0 },
         { id: 'regras', label: 'Regras e notas', icon: StickyNote },
@@ -179,11 +217,21 @@ export const ProductDetailsDrawer: React.FC<ProductDetailsDrawerProps> = ({
           {/* TAB: FÓRMULA & MATÉRIAS-PRIMAS */}
           {activeTab === 'formula' && (
             <div className="space-y-4 animate-in fade-in duration-150">
-              <div className="flex items-center justify-between border-b border-zinc-150 pb-2">
+              <div className="flex items-center justify-between gap-2 border-b border-zinc-150 pb-2">
                 <div className="flex items-center gap-2">
                   <Layers className="h-4 w-4 text-zinc-600" />
                   <h4 className="font-extrabold text-sm text-zinc-900">Formulação Química & Insumos</h4>
                 </div>
+                {sameFormula.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('mesma_formula')}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-[11px] font-bold cursor-pointer transition-colors"
+                  >
+                    <FlaskConical size={12} />
+                    {sameFormula.length} {sameFormula.length === 1 ? 'item com mesma fórmula' : 'itens com mesma fórmula'}
+                  </button>
+                )}
               </div>
 
               {!details.formulation || details.formulation.length === 0 ? (
@@ -239,6 +287,19 @@ export const ProductDetailsDrawer: React.FC<ProductDetailsDrawerProps> = ({
                 </div>
               )}
             </div>
+          )}
+
+          {/* TAB: MESMA FORMULAÇÃO */}
+          {activeTab === 'mesma_formula' && (
+            <MesmaFormulaPanel
+              itens={sameFormula}
+              loading={loadingSameFormula}
+              podeEditar={podeEditarPlanejamento}
+              enviandoCodigo={enviandoFilaCodigo}
+              erro={erroFila}
+              onAbrirProduto={onSelectProduct}
+              onEnviarFila={handleEnviarMesmaFormulaFila}
+            />
           )}
 
           {/* TAB: LOTES */}

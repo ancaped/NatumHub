@@ -98,10 +98,10 @@ export function GavetaFila({ fila, busca, acoes, podeEditar }: GavetaFilaProps) 
             </button>
             <button
               type="button"
-              disabled={filaDemandas.length === 0}
+              disabled={demandCandidates.length === 0 && filaDemandas.length === 0}
               onClick={() => setLimparFilaAberto(true)}
               className="flex items-center gap-1 px-2.5 py-1 max-md:min-h-11 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-              title="Apaga todos os itens da fila (pede o motivo)"
+              title="Apaga todos os itens manuais da fila (pede o motivo)"
             >
               <Trash2 size={12} />
               Limpar fila

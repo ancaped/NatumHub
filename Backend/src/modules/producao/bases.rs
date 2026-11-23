@@ -52,15 +52,46 @@ pub struct ProdutoMesmaFormulacao {
     pub codigo: String,
     pub descricao: String,
     pub base: Option<String>,
+    #[serde(default)]
+    pub base_codigo: Option<String>,
+    #[serde(default)]
+    pub unidade: String,
+    #[serde(default)]
+    pub estoque: i64,
+    #[serde(default)]
+    pub pedidos_aberto: i64,
+    #[serde(default)]
+    pub estoque_futuro: i64,
+    #[serde(default)]
+    pub media_vendas: f64,
+    #[serde(default)]
+    pub producao_recomendada: i64,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub status_label: String,
+    #[serde(default)]
+    pub status_produto: Option<String>,
+    #[serde(default)]
+    pub na_fila: bool,
+    #[serde(default)]
+    pub planejado_semana: bool,
 }
 
-/// GET /api/producao/produtos-mesma-formulacao/:code
-/// Retorna EXCLUSIVAMENTE os produtos que possuem a exata mesma formulação química (mesmas matérias-primas e proporções)
-pub async fn get_produtos_mesma_formulacao(
-    State(state): State<Arc<AppState>>,
-    Path(code): Path<String>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
+fn rotulo_status_fallback(status_produto: Option<&str>) -> (&'static str, &'static str) {
+    match status_produto.unwrap_or("ativo") {
+        "descontinuado" => ("descontinuado", "Descontinuado"),
+        "terceirizado" => ("terceirizado", "Terceirizado"),
+        _ => ("saudavel", "Saudável"),
+    }
+}
+
+/// Serviço: busca produtos com a exata mesma formulação química de `code`, enriquecidos com o cálculo de estoque/demanda.
+pub async fn buscar_produtos_mesma_formulacao(
+    db: &crate::core::db::Db,
+    code: &str,
+) -> Result<Vec<ProdutoMesmaFormulacao>, String> {
+    let pool = db.pool();
     let clean_code = code.trim().to_string();
 
     let query = r#"
@@ -87,32 +118,132 @@ pub async fn get_produtos_mesma_formulacao(
         GROUP BY op.product_code
         HAVING COUNT(*)::bigint = (SELECT total FROM target_count)
       )
-      SELECT p.codigo, p.descricao, p.base
+      SELECT p.codigo, p.descricao, p.base, p.base_codigo,
+             COALESCE(e.estoque, 0.0)::float8,
+             COALESCE(i.unit, 'UN'),
+             op.status_produto
       FROM matched_products mp
       JOIN produtos p ON p.codigo = mp.product_code
+      LEFT JOIN estoque_atual e ON e.codigo = p.codigo
+      LEFT JOIN items i ON i.code = p.codigo
+      LEFT JOIN overrides_produtos op ON op.codigo = p.codigo
       WHERE (SELECT total FROM target_count) > 0
       ORDER BY p.descricao;
     "#;
 
-    match sqlx::query(query)
+    let rows = sqlx::query(query)
         .bind(&clean_code)
         .fetch_all(pool)
         .await
-    {
-        Ok(rows) => {
-            let list: Vec<ProdutoMesmaFormulacao> = rows
-                .into_iter()
-                .map(|r| ProdutoMesmaFormulacao {
-                    codigo: r.get::<String, _>(0),
-                    descricao: r.get::<Option<String>, _>(1).unwrap_or_default(),
-                    base: r.get::<Option<String>, _>(2),
-                })
-                .collect();
-            (axum::http::StatusCode::OK, Json(list)).into_response()
+        .map_err(|e| format!("Erro ao buscar produtos com mesma formulação: {}", e))?;
+
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut calc_map: HashMap<String, crate::models::ProductCalculationResult> = HashMap::new();
+    let params = crate::models::QueryParams {
+        include_all_regimes: Some(true),
+        include_bases: Some(true),
+        show_hidden: Some(true),
+        page: Some(1),
+        limit: Some(99_999),
+        ..Default::default()
+    };
+    if let Ok(corpo) = crate::modules::producao::calculo::listar_produtos(db, &params).await {
+        if let Some(items_val) = corpo.get("items") {
+            if let Ok(items) =
+                serde_json::from_value::<Vec<crate::models::ProductCalculationResult>>(items_val.clone())
+            {
+                for item in items {
+                    calc_map.insert(clean_product_code(&item.codigo), item.clone());
+                    calc_map.insert(item.codigo.trim().to_string(), item);
+                }
+            }
         }
+    }
+
+    let mut list: Vec<ProdutoMesmaFormulacao> = rows
+        .into_iter()
+        .map(|r| {
+            let codigo: String = r.get(0);
+            let descricao: String = r.get::<Option<String>, _>(1).unwrap_or_default();
+            let base: Option<String> = r.get(2);
+            let base_codigo: Option<String> = r.get(3);
+            let estoque_sql: f64 = crate::core::pg_row::pg_f64(&r, 4);
+            let unidade: String = r.get::<Option<String>, _>(5).unwrap_or_else(|| "UN".to_string());
+            let status_prod_sql: Option<String> = r.get(6);
+
+            let calc = calc_map
+                .get(codigo.trim())
+                .or_else(|| calc_map.get(&clean_product_code(&codigo)));
+
+            if let Some(c) = calc {
+                ProdutoMesmaFormulacao {
+                    codigo,
+                    descricao,
+                    base: c.base.clone().or(base),
+                    base_codigo: c.base_codigo.clone().or(base_codigo),
+                    unidade,
+                    estoque: c.estoque,
+                    pedidos_aberto: c.pedidos_aberto,
+                    estoque_futuro: c.estoque_futuro_com_producao,
+                    media_vendas: c.media_vendas,
+                    producao_recomendada: c.producao_recomendada,
+                    status: c.status.clone(),
+                    status_label: c.status_label.clone(),
+                    status_produto: c.status_produto.clone().or(status_prod_sql),
+                    na_fila: c.na_fila.unwrap_or(false),
+                    planejado_semana: c.planejado_semana.unwrap_or(false),
+                }
+            } else {
+                let est = estoque_sql.round() as i64;
+                let (st, lbl) = rotulo_status_fallback(status_prod_sql.as_deref());
+                ProdutoMesmaFormulacao {
+                    codigo,
+                    descricao,
+                    base,
+                    base_codigo,
+                    unidade,
+                    estoque: est,
+                    pedidos_aberto: 0,
+                    estoque_futuro: est,
+                    media_vendas: 0.0,
+                    producao_recomendada: 0,
+                    status: st.to_string(),
+                    status_label: lbl.to_string(),
+                    status_produto: status_prod_sql,
+                    na_fila: false,
+                    planejado_semana: false,
+                }
+            }
+        })
+        .collect();
+
+    list.sort_by(|a, b| {
+        let a_inativo = matches!(a.status_produto.as_deref(), Some("descontinuado" | "terceirizado"));
+        let b_inativo = matches!(b.status_produto.as_deref(), Some("descontinuado" | "terceirizado"));
+        a_inativo
+            .cmp(&b_inativo)
+            .then_with(|| b.producao_recomendada.cmp(&a.producao_recomendada))
+            .then_with(|| a.estoque_futuro.cmp(&b.estoque_futuro))
+            .then_with(|| a.descricao.cmp(&b.descricao))
+    });
+
+    Ok(list)
+}
+
+/// GET /api/producao/produtos-mesma-formulacao/:code
+/// Retorna EXCLUSIVAMENTE os produtos que possuem a exata mesma formulação química (mesmas matérias-primas e proporções)
+pub async fn get_produtos_mesma_formulacao(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    match buscar_produtos_mesma_formulacao(&state.db, &code).await {
+        Ok(list) => (axum::http::StatusCode::OK, Json(list)).into_response(),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao buscar produtos com mesma formulação: {}", e) })),
+            Json(json!({ "error": e })),
         )
             .into_response(),
     }
@@ -485,4 +616,63 @@ pub async fn get_bases_resumo(
         })),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rotulo_status_fallback_cobre_inativos() {
+        assert_eq!(rotulo_status_fallback(Some("descontinuado")), ("descontinuado", "Descontinuado"));
+        assert_eq!(rotulo_status_fallback(Some("terceirizado")), ("terceirizado", "Terceirizado"));
+        assert_eq!(rotulo_status_fallback(None), ("saudavel", "Saudável"));
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn mesma_formulacao_traz_estoque_e_situacao_dos_irmaos() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool_conn = sqlx::PgPool::connect(&url).await.unwrap();
+        let db = crate::core::db::Db::new(pool_conn);
+        let pool = db.pool();
+
+        for cod in ["TMF-A", "TMF-B", "TMF-OUTRO"] {
+            sqlx::query("DELETE FROM formulations WHERE product_code = $1").bind(cod).execute(pool).await.unwrap();
+            sqlx::query("DELETE FROM estoque_atual WHERE codigo = $1").bind(cod).execute(pool).await.unwrap();
+            sqlx::query("DELETE FROM produtos WHERE codigo = $1").bind(cod).execute(pool).await.unwrap();
+            sqlx::query("DELETE FROM items WHERE code = $1").bind(cod).execute(pool).await.unwrap();
+        }
+
+        sqlx::query("INSERT INTO config_linhas (linha_prefix, nome_linha) VALUES ('99', 'Linha Teste') ON CONFLICT (linha_prefix) DO NOTHING")
+            .execute(pool).await.unwrap();
+        sqlx::query("INSERT INTO items (code, description, unit) VALUES ('9.15.TMF1', 'INSUMO 1', 'KG'), ('9.15.TMF2', 'INSUMO 2', 'KG') ON CONFLICT (code) DO NOTHING")
+            .execute(pool).await.unwrap();
+        for (cod, desc, est) in [("TMF-A", "PRODUTO TMF 500ML", 12.0), ("TMF-B", "PRODUTO TMF 1L", 34.0), ("TMF-OUTRO", "OUTRO PRODUTO", 50.0)] {
+            sqlx::query("INSERT INTO items (code, description, unit) VALUES ($1, $2, 'UN')").bind(cod).bind(desc).execute(pool).await.unwrap();
+            sqlx::query("INSERT INTO produtos (codigo, descricao, linha_prefix) VALUES ($1, $2, '99')").bind(cod).bind(desc).execute(pool).await.unwrap();
+            sqlx::query("INSERT INTO estoque_atual (codigo, estoque) VALUES ($1, $2)").bind(cod).bind(est).execute(pool).await.unwrap();
+        }
+        for (cod, ing, pct) in [
+            ("TMF-A", "9.15.TMF1", 80.0), ("TMF-A", "9.15.TMF2", 20.0),
+            ("TMF-B", "9.15.TMF1", 80.0), ("TMF-B", "9.15.TMF2", 20.0),
+            ("TMF-OUTRO", "9.15.TMF1", 60.0), ("TMF-OUTRO", "9.15.TMF2", 40.0),
+        ] {
+            sqlx::query("INSERT INTO formulations (product_code, ingredient_code, quantity, percentage) VALUES ($1, $2, 1.0, $3)")
+                .bind(cod).bind(ing).bind(pct).execute(pool).await.unwrap();
+        }
+
+        let lista = buscar_produtos_mesma_formulacao(&db, "TMF-A").await.unwrap();
+        assert_eq!(lista.len(), 1);
+        assert_eq!(lista[0].codigo, "TMF-B");
+        assert_eq!(lista[0].estoque, 34);
+        assert_eq!(lista[0].unidade, "UN");
+
+        for cod in ["TMF-A", "TMF-B", "TMF-OUTRO"] {
+            sqlx::query("DELETE FROM formulations WHERE product_code = $1").bind(cod).execute(pool).await.unwrap();
+            sqlx::query("DELETE FROM estoque_atual WHERE codigo = $1").bind(cod).execute(pool).await.unwrap();
+            sqlx::query("DELETE FROM produtos WHERE codigo = $1").bind(cod).execute(pool).await.unwrap();
+            sqlx::query("DELETE FROM items WHERE code = $1").bind(cod).execute(pool).await.unwrap();
+        }
+    }
 }

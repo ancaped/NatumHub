@@ -4,11 +4,12 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, LayoutDashboard, Table, Layers, History,
   Settings, ArrowLeft, ClipboardList, User, TrendingUp, BarChart3,
   Scale, Package, FileText, EyeOff, HelpCircle, Info, Search, ClipboardCheck, Calendar, Boxes,
-  Target
+  Target, FlaskConical
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { apiFetch } from '../../geral/lib/http';
+import { canEdit, getAuthUser } from '../../geral/lib/auth';
 import { usePreviaServidor } from '../lib/usePreviaServidor';
 import { DIAS_COMERCIAIS_PADRAO, LIMITE_POR_PAGINA_PADRAO, resolverSettingNumerica } from '../../geral/lib/regrasProduto';
 import { salesOrderStatusLabel } from '../../geral/lib/salesOrderStatus';
@@ -28,6 +29,12 @@ import { LotesCalendarTab } from './components/LotesCalendarTab';
 import { LoteDetailsDrawer } from './components/LoteDetailsDrawer';
 import KitCompositionDrawer from '../components/KitCompositionDrawer';
 import Drawer from '../../geral/components/ui/Drawer';
+import {
+  MesmaFormulaPanel,
+  carregarMesmaFormula,
+  enviarProdutoMesmaFormulaParaFila,
+  type ProdutoMesmaFormula,
+} from './components/MesmaFormulaPanel';
 import { prefixosDaLinha, rotuloLinha } from '../../geral/lib/linhas';
 import { sublinhasSobPrincipal } from '../lib/linhasProducao';
 
@@ -193,6 +200,9 @@ export default function ProducaoView({
   const [detailsDrawerLoading, setDetailsDrawerLoading] = useState(false);
   const [detailsDrawerActiveTab, setDetailsDrawerActiveTab] = useState('geral');
   const [productPendingOrders, setProductPendingOrders] = useState(null);
+  const [sameFormulaList, setSameFormulaList] = useState<ProdutoMesmaFormula[]>([]);
+  const [sameFormulaLoading, setSameFormulaLoading] = useState(false);
+  const [enviandoMesmaFormulaCodigo, setEnviandoMesmaFormulaCodigo] = useState<string | null>(null);
   const [simulatedBatchQty, setSimulatedBatchQty] = useState<number>(100);
 
   // Suspended Products States
@@ -803,13 +813,16 @@ export default function ProducaoView({
   const fetchProductDetails = async (code) => {
     setDetailsDrawerActiveTab('geral');
     setDetailsDrawerLoading(true);
+    setSameFormulaLoading(true);
     setSelectedProductDetails(null);
     setProductPendingOrders(null);
+    setSameFormulaList([]);
     setDetailsDrawerOpen(true);
     try {
-      const [detRes, pedRes] = await Promise.all([
-        apiFetch(`/produtos/${code}/detalhes`),
-        apiFetch(`/produtos/${code}/pedidos-pendentes`),
+      const [detRes, pedRes, mfList] = await Promise.all([
+        apiFetch(`/produtos/${encodeURIComponent(code)}/detalhes`),
+        apiFetch(`/produtos/${encodeURIComponent(code)}/pedidos-pendentes`),
+        carregarMesmaFormula(code),
       ]);
       if (detRes.ok) {
         const data = await detRes.json();
@@ -822,11 +835,27 @@ export default function ProducaoView({
       if (pedRes.ok) {
         setProductPendingOrders(await pedRes.json());
       }
+      setSameFormulaList(mfList);
     } catch (e) {
       console.error("Error fetching product details:", e);
       showToast("Falha ao carregar detalhes", "error");
     } finally {
       setDetailsDrawerLoading(false);
+      setSameFormulaLoading(false);
+    }
+  };
+
+  const handleEnviarMesmaFormulaFila = async (item: ProdutoMesmaFormula) => {
+    setEnviandoMesmaFormulaCodigo(item.codigo);
+    try {
+      await enviarProdutoMesmaFormulaParaFila(item);
+      setSameFormulaList((prev) => prev.map((x) => (x.codigo === item.codigo ? { ...x, na_fila: true } : x)));
+      showToast(`${item.descricao} adicionado à fila.`, 'success');
+      fetchProducts();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Erro ao enviar à fila.', 'error');
+    } finally {
+      setEnviandoMesmaFormulaCodigo(null);
     }
   };
 
@@ -2371,6 +2400,7 @@ export default function ProducaoView({
         tabs={[
           { id: 'geral', label: 'Geral', icon: TrendingUp },
           { id: 'formula', label: 'Fórmula & Ingredientes', icon: Layers },
+          { id: 'mesma_formula', label: 'Mesma fórmula', icon: FlaskConical, badge: sameFormulaList.length },
           { id: 'lotes', label: 'Lotes de Produção', icon: ClipboardList, badge: selectedProductDetails?.lastLots?.length || 0 },
           { id: 'pedidos', label: 'Pedidos', icon: Package, badge: productPendingOrders?.pending_sales_orders?.length || 0 },
         ]}
@@ -2504,11 +2534,21 @@ export default function ProducaoView({
                     {/* TAB: FÓRMULA & INGREDIENTES & SIMULADOR DE PRODUÇÃO COMPLETA */}
                     {detailsDrawerActiveTab === 'formula' && (
                       <div className="space-y-4 animate-in fade-in duration-150 text-left">
-                        <div className="flex items-center justify-between border-b border-zinc-150 pb-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-150 pb-3">
                           <div className="flex items-center gap-2">
                             <Layers className="h-4 w-4 text-zinc-650" />
                             <h4 className="font-extrabold text-sm text-zinc-900">Fórmula & Necessidade de Produção</h4>
                           </div>
+                          {sameFormulaList.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setDetailsDrawerActiveTab('mesma_formula')}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-[11px] font-bold cursor-pointer transition-colors"
+                            >
+                              <FlaskConical size={12} />
+                              {sameFormulaList.length} {sameFormulaList.length === 1 ? 'item com mesma fórmula' : 'itens com mesma fórmula'}
+                            </button>
+                          )}
                         </div>
 
                         {selectedProductDetails.formulation.length === 0 ? (
@@ -2686,6 +2726,18 @@ export default function ProducaoView({
                           );
                         })()}
                       </div>
+                    )}
+
+                    {/* TAB: MESMA FORMULAÇÃO */}
+                    {detailsDrawerActiveTab === 'mesma_formula' && (
+                      <MesmaFormulaPanel
+                        itens={sameFormulaList}
+                        loading={sameFormulaLoading}
+                        podeEditar={canEdit(getAuthUser(), 'planejamento_producao')}
+                        enviandoCodigo={enviandoMesmaFormulaCodigo}
+                        onAbrirProduto={(codigo) => fetchProductDetails(codigo)}
+                        onEnviarFila={handleEnviarMesmaFormulaFila}
+                      />
                     )}
 
                     {/* TAB: LOTES DE PRODUÇÃO */}
