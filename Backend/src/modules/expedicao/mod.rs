@@ -2,6 +2,7 @@ pub mod models;
 pub mod handlers;
 pub mod lookup_models;
 pub mod lookup_handlers;
+pub mod alocacao;
 
 use std::sync::Arc;
 use axum::{
@@ -21,12 +22,13 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/expedicao/lookups/shipping/:id", put(lookup_handlers::update_shipping).delete(lookup_handlers::delete_shipping))
         .route("/api/expedicao/lookups/clients", get(lookup_handlers::list_clients).post(lookup_handlers::create_client))
         .route("/api/expedicao/lookups/clients/:id", put(lookup_handlers::update_client).delete(lookup_handlers::delete_client))
+        .merge(alocacao::router())
 }
 
 /// Ações de leitura da Expedição (ver `core::catalogo`).
 pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
     use crate::core::catalogo::{param, Acao};
-    vec![
+    let mut v = vec![
         Acao::leitura(
             "listar_pedidos_ecommerce",
             "expedicao_ecommerce",
@@ -59,5 +61,7 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
             "/api/expedicao/lookups/clients",
             vec![],
         ),
-    ]
+    ];
+    v.extend(alocacao::acoes());
+    v
 }

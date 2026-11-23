@@ -118,6 +118,7 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   qualidade_documentacao: FolderOpen,
   administrativo: Briefcase,
   expedicao_ecommerce: Globe,
+  expedicao_alocacao: Warehouse,
   expedicao: Truck,
   financeiro: DollarSign,
   ferramentas: Wrench,

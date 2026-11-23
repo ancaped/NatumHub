@@ -1,0 +1,367 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Estrutura {
+    pub id: String,
+    pub nome: String,
+    pub descricao: Option<String>,
+    pub estrado_largura_cm: f64,
+    pub estrado_comprimento_cm: f64,
+    pub ordem: i32,
+    pub ativo: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Posicao {
+    pub id: String,
+    pub estrutura_id: String,
+    pub codigo: String,
+    pub coluna: String,
+    pub coluna_ordem: i32,
+    pub nivel: i32,
+    pub andar: i32,
+    pub lado: i32,
+    pub papel: String,
+    pub largura_cm: f64,
+    pub comprimento_cm: f64,
+    pub altura_cm: f64,
+    pub ativo: bool,
+    pub observacoes: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Caixa {
+    pub id: String,
+    pub codigo: String,
+    pub nome: String,
+    pub altura_cm: f64,
+    pub comprimento_cm: f64,
+    pub largura_cm: f64,
+    pub empilhamento_max: i32,
+    pub insumo_erp_codigo: Option<String>,
+    pub ativo: bool,
+    pub observacoes: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Atacadista {
+    pub id: String,
+    pub nome_exibicao: String,
+    pub termo_busca: String,
+    pub cliente_codigo: Option<i32>,
+    pub ativo: bool,
+    pub pedidos_encontrados: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlocacaoItemView {
+    pub id: String,
+    pub posicao_id: String,
+    pub posicao_codigo: String,
+    pub estrutura_id: String,
+    pub papel: String,
+    pub andar: i32,
+    pub nivel: i32,
+    pub produto_codigo: String,
+    pub produto_descricao: String,
+    pub linha_prefix: String,
+    pub nome_linha: String,
+    pub fileiras_largura: i32,
+    pub camadas_altura: i32,
+    pub fixado: bool,
+    pub observacoes: Option<String>,
+    pub caixa_id: Option<String>,
+    pub caixa_codigo: Option<String>,
+    pub caixa_altura_cm: Option<f64>,
+    pub caixa_comprimento_cm: Option<f64>,
+    pub caixa_largura_cm: Option<f64>,
+    pub caixas_comprimento: i32,
+    pub max_camadas: i32,
+    pub total_caixas: i32,
+    pub qtde_cx: Option<i32>,
+    pub total_unidades: i32,
+    pub largura_ocupada_cm: f64,
+    pub altura_ocupada_cm: f64,
+    pub altura_vao_cm: f64,
+    pub estouro_altura: bool,
+    pub cobertura_meses: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PosicaoComItens {
+    #[serde(flatten)]
+    pub posicao: Posicao,
+    pub itens: Vec<AlocacaoItemView>,
+    pub largura_ocupada_cm: f64,
+    pub largura_livre_cm: f64,
+    pub ocupacao_pct: f64,
+    pub tem_estouro: bool,
+    pub total_caixas: i32,
+    pub total_unidades: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProdutoDimensao {
+    pub codigo: String,
+    pub descricao: String,
+    pub codigo_barras: Option<String>,
+    pub linha_prefix: String,
+    pub nome_linha: String,
+    pub linha_principal: Option<String>,
+    pub situacao: String,
+    pub atendimento: String,
+    pub eh_kit: bool,
+    pub estoque_atual: f64,
+    pub estoque_caixas: Option<i32>,
+    pub qtde_cx_erp: Option<i32>,
+    pub qtde_cx_efetiva: Option<i32>,
+    pub qtde_cx_origem: String,
+    pub caixa_id: Option<String>,
+    pub caixa_codigo: Option<String>,
+    pub caixa_nome: Option<String>,
+    pub caixa_origem: String,
+    pub caixa_altura_cm: Option<f64>,
+    pub caixa_comprimento_cm: Option<f64>,
+    pub caixa_largura_cm: Option<f64>,
+    pub empilhamento_max: Option<i32>,
+    pub insumo_caixa_erp: Option<String>,
+    pub insumo_caixa_erp_desc: Option<String>,
+    pub camadas_override: Option<i32>,
+    pub vendas_varejo: f64,
+    pub media_varejo: f64,
+    pub vendas_atacado: f64,
+    pub media_atacado: f64,
+    pub vendas_total: f64,
+    pub media_total: f64,
+    pub percentual_abc: f64,
+    pub acumulado_abc: f64,
+    pub curva_abc: String,
+    pub meta_meses_efetiva: f64,
+    pub caixas_necessarias_picking: i32,
+    pub caixas_necessarias_pulmao: i32,
+    pub caixas_necessarias_total: i32,
+    pub alocacoes: Vec<AlocacaoItemView>,
+    pub enderecos_picking: Vec<String>,
+    pub enderecos_pulmao: Vec<String>,
+    pub total_caixas_alocadas: i32,
+    pub total_unidades_alocadas: i32,
+    pub cobertura_meses_alocada: Option<f64>,
+    pub situacao_alocacao: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InsumoCaixaErpNaoVinculado {
+    pub ingredient_code: String,
+    pub description: String,
+    pub qtd_produtos: i64,
+    pub exemplos_produtos: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PainelResumo {
+    pub total_produtos: usize,
+    pub alocados: usize,
+    pub sem_endereco: usize,
+    pub sem_caixa: usize,
+    pub sem_qtde_cx: usize,
+    pub estoque_acima_capacidade: usize,
+    pub total_posicoes: usize,
+    pub posicoes_ocupadas: usize,
+    pub ocupacao_media_pct: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PainelAlocacaoResponse {
+    pub janela_meses: i32,
+    pub meta_meses: f64,
+    pub usar_meta_linha: bool,
+    pub estrutura_ativa_id: String,
+    pub estruturas: Vec<Estrutura>,
+    pub posicoes: Vec<PosicaoComItens>,
+    pub caixas: Vec<Caixa>,
+    pub atacadistas: Vec<Atacadista>,
+    pub produtos: Vec<ProdutoDimensao>,
+    pub insumos_caixa_erp: Vec<InsumoCaixaErpNaoVinculado>,
+    pub resumo: PainelResumo,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PainelQuery {
+    pub estrutura_id: Option<String>,
+    pub janela_meses: Option<i32>,
+    pub meta_meses: Option<f64>,
+    pub usar_meta_linha: Option<bool>,
+    pub incluir_inativos: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientesSugestaoQuery {
+    pub search: Option<String>,
+    pub janela_meses: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClienteSugestao {
+    pub codigo: Option<i32>,
+    pub nome: String,
+    pub pedidos: i64,
+    pub unidades: i64,
+    pub ja_atacadista: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EstruturaInput {
+    pub nome: String,
+    pub descricao: Option<String>,
+    pub estrado_largura_cm: Option<f64>,
+    pub estrado_comprimento_cm: Option<f64>,
+    pub ordem: Option<i32>,
+    pub ativo: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AndarConfigInput {
+    pub andar: i32,
+    pub altura_cm: f64,
+    pub papel: String,
+    pub lados: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GerarGradeInput {
+    pub colunas: Vec<String>,
+    pub andares: Vec<AndarConfigInput>,
+    pub largura_cm: Option<f64>,
+    pub comprimento_cm: Option<f64>,
+    pub substituir_nao_fixadas: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PosicaoUpdateInput {
+    pub altura_cm: Option<f64>,
+    pub largura_cm: Option<f64>,
+    pub comprimento_cm: Option<f64>,
+    pub papel: Option<String>,
+    pub ativo: Option<bool>,
+    pub observacoes: Option<String>,
+    pub aplicar_ao_andar: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaixaInput {
+    pub codigo: String,
+    pub nome: String,
+    pub altura_cm: f64,
+    pub comprimento_cm: f64,
+    pub largura_cm: f64,
+    pub empilhamento_max: Option<i32>,
+    pub insumo_erp_codigo: Option<String>,
+    pub ativo: Option<bool>,
+    pub observacoes: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProdutoCaixaInput {
+    pub caixa_id: Option<String>,
+    pub qtde_cx_manual: Option<i32>,
+    pub camadas_override: Option<i32>,
+    pub observacoes: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AtacadistaInput {
+    pub nome_exibicao: String,
+    pub termo_busca: String,
+    pub cliente_codigo: Option<i32>,
+    pub ativo: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlocacaoUpsertInput {
+    pub posicao_id: String,
+    pub produto_codigo: String,
+    pub fileiras_largura: i32,
+    pub camadas_altura: i32,
+    pub fixado: Option<bool>,
+    pub observacoes: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SugerirInput {
+    pub estrutura_id: Option<String>,
+    pub janela_meses: Option<i32>,
+    pub meta_meses: Option<f64>,
+    pub usar_meta_linha: Option<bool>,
+    pub linha_prefix: Option<String>,
+    pub incluir_saindo_de_linha: Option<bool>,
+    pub manter_fixados: Option<bool>,
+    pub limpar_nao_fixados: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SugestaoProposta {
+    pub produto_codigo: String,
+    pub produto_descricao: String,
+    pub curva_abc: String,
+    pub linha_prefix: String,
+    pub posicao_id: String,
+    pub posicao_codigo: String,
+    pub papel: String,
+    pub fileiras_largura: i32,
+    pub camadas_altura: i32,
+    pub total_caixas: i32,
+    pub total_unidades: i32,
+    pub largura_ocupada_cm: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SugestaoNaoAlocado {
+    pub produto_codigo: String,
+    pub produto_descricao: String,
+    pub curva_abc: String,
+    pub motivo: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SugestaoResumo {
+    pub estrutura_id: String,
+    pub removidas_count: usize,
+    pub propostas_count: usize,
+    pub produtos_alocados: usize,
+    pub posicoes_usadas: usize,
+    pub nao_alocados_count: usize,
+    pub ocupacao_media_pct: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SugestaoResultado {
+    pub propostas: Vec<SugestaoProposta>,
+    pub nao_alocados: Vec<SugestaoNaoAlocado>,
+    pub resumo: SugestaoResumo,
+}

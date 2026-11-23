@@ -110,6 +110,8 @@ export function getModuleTitle(view: string): string {
     case 'expedicao_ecommerce':
     case 'expedicao':
       return 'Expedição > E-commerce';
+    case 'expedicao_alocacao':
+      return 'Expedição > Alocação e Endereços';
     case 'linha_produtos':
       return 'Administrativo > Linha de Produtos';
     case 'financeiro':

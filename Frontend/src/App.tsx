@@ -39,6 +39,7 @@ const DevolucoesView = lazy(() => import('./modules/qualidade/devolucoes/Devoluc
 const AvariasView = lazy(() => import('./modules/qualidade/avarias/AvariasView'));
 const AdministrativoView = lazy(() => import('./modules/administrativo/AdministrativoView'));
 const ExpedicaoView = lazy(() => import('./modules/expedicao/ExpedicaoView'));
+const ExpedicaoAlocacaoView = lazy(() => import('./modules/expedicao/alocacao/ExpedicaoAlocacaoView'));
 const FinanceiroView = lazy(() => import('./modules/financeiro/FinanceiroView'));
 const EtiquetasView = lazy(() => import('./modules/ferramentas/etiquetas/EtiquetasView'));
 const RelatoriosCatalogoView = lazy(() => import('./modules/ferramentas/relatorios/RelatoriosView'));
@@ -67,7 +68,7 @@ import {
   ensureBrowserClientConfig,
 } from './modules/geral/lib/connectionConfig';
 
-type HubView = 'hub' | 'producao_hub' | 'planejamento_producao' | 'producao' | 'producao_bases' | 'producao_lotes' | 'producao_proc' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'mapa_arquitetura' | 'desenvolvimento' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_ordens_manuais' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_devolucoes' | 'qualidade_avarias' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'qualidade_documentacao' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'admin_faltas_linha' | 'admin_funcionarios' | 'admin_acompanhamento_producao' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro' | 'ferramentas_hub' | 'ferramentas_etiquetas' | 'ferramentas_editor' | 'ferramentas_impressoras' | 'ferramentas_balanca' | 'ferramentas_relatorios' | 'producao_rotina' | 'estoque_movimentacoes' | 'admin_relatorios' | 'saude_estoque';
+type HubView = 'hub' | 'producao_hub' | 'planejamento_producao' | 'producao' | 'producao_bases' | 'producao_lotes' | 'producao_proc' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'mapa_arquitetura' | 'desenvolvimento' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_ordens_manuais' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_devolucoes' | 'qualidade_avarias' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'qualidade_documentacao' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'admin_faltas_linha' | 'admin_funcionarios' | 'admin_acompanhamento_producao' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao_alocacao' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro' | 'ferramentas_hub' | 'ferramentas_etiquetas' | 'ferramentas_editor' | 'ferramentas_impressoras' | 'ferramentas_balanca' | 'ferramentas_relatorios' | 'producao_rotina' | 'estoque_movimentacoes' | 'admin_relatorios' | 'saude_estoque';
 
 const getInitialView = (): HubView => {
   if (typeof window !== 'undefined') {
@@ -1095,6 +1096,15 @@ export default function App() {
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar E-commerce <ArrowRight className="h-4 w-4" /></div>
                 </button>
               )}
+              {allow('expedicao_alocacao') && (
+                <button onClick={() => setView('expedicao_alocacao')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Warehouse className="h-6 w-6" /></div>
+                    <div><h3 className="text-xl font-bold text-zinc-900">Alocação e Endereços</h3><p className="text-sm text-zinc-500 mt-1">Mapa de estantes, Curva ABC Varejo × Atacado e planilha .xlsx.</p></div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar Alocação <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
             </div>
           </main>
         </div>
@@ -1105,6 +1115,14 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('expedicao_hub')} fallbackTitle="Erro no módulo de Expedição E-commerce">
           <ExpedicaoView onBackToHub={() => setView('expedicao_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'expedicao_alocacao') {
+      return (
+        <ErrorBoundary onReset={() => setView('expedicao_hub')} fallbackTitle="Erro no módulo de Alocação da Expedição">
+          <ExpedicaoAlocacaoView onBackToHub={() => setView('expedicao_hub')} />
         </ErrorBoundary>
       );
     }

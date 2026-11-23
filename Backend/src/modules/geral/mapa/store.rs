@@ -279,6 +279,7 @@ pub async fn ensure_seeded(pool: &PgPool) -> Result<(), String> {
         ("qualidade", "qualidade_limpeza", "Limpeza"),
         ("qualidade", "qualidade_recebimento_mp", "Recebimento MP"),
         ("expedicao", "expedicao_ecommerce", "E-commerce"),
+        ("expedicao", "expedicao_alocacao", "Alocação e Endereços"),
         ("financeiro", "financeiro", "Financeiro"),
     ];
 

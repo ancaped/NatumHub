@@ -73,6 +73,11 @@ if (view === 'planejamento_producao' || view === 'admin_acompanhamento_producao'
         ['expedicao_separacao', 'expedicao_ecommerce', 'expedicao'].includes(m)
       );
     }
+    if (key === 'expedicao_alocacao') {
+      return modules.some((m) =>
+        ['expedicao_alocacao', 'expedicao_ecommerce', 'expedicao'].includes(m)
+      );
+    }
     return modules.includes(key);
   }
   return hubVisible(modules, view);

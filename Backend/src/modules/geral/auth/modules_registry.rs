@@ -63,6 +63,7 @@ pub const MODULE_EXPEDICAO: &str = "expedicao";
 pub const MODULE_EXPEDICAO_ECOMMERCE: &str = "expedicao_ecommerce";
 /// Acesso somente à aba Expedição (marcar enviado / separação).
 pub const MODULE_EXPEDICAO_SEPARACAO: &str = "expedicao_separacao";
+pub const MODULE_EXPEDICAO_ALOCACAO: &str = "expedicao_alocacao";
 pub const MODULE_FINANCEIRO: &str = "financeiro";
 pub const MODULE_FERRAMENTAS_ETIQUETAS: &str = "ferramentas_etiquetas";
 pub const MODULE_FERRAMENTAS_EDITOR: &str = "ferramentas_editor";
@@ -122,6 +123,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_EXPEDICAO,
     MODULE_EXPEDICAO_ECOMMERCE,
     MODULE_EXPEDICAO_SEPARACAO,
+    MODULE_EXPEDICAO_ALOCACAO,
     MODULE_FINANCEIRO,
     MODULE_FERRAMENTAS_ETIQUETAS,
     MODULE_FERRAMENTAS_EDITOR,
@@ -244,7 +246,10 @@ pub fn module_registry() -> Vec<ModuleGroup> {
             key: "expedicao".into(),
             label: "Expedição".into(),
             hub_view: "expedicao_hub".into(),
-            children: vec![leaf(MODULE_EXPEDICAO_ECOMMERCE, "E-commerce")],
+            children: vec![
+                leaf(MODULE_EXPEDICAO_ECOMMERCE, "E-commerce"),
+                leaf(MODULE_EXPEDICAO_ALOCACAO, "Alocação e Endereços"),
+            ],
         },
         ModuleGroup {
             key: "financeiro".into(),
@@ -357,7 +362,10 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
             MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS.to_string(),
             MODULE_ADMIN_FUNCIONARIOS.to_string(),
         ],
-        "expedicao" => vec![MODULE_EXPEDICAO_ECOMMERCE.to_string()],
+        "expedicao" => vec![
+            MODULE_EXPEDICAO_ECOMMERCE.to_string(),
+            MODULE_EXPEDICAO_ALOCACAO.to_string(),
+        ],
         _ => vec![],
     }
 }
@@ -443,6 +451,11 @@ fn module_grants_view(modules: &[String], key: &str) -> bool {
         }),
         MODULE_EXPEDICAO_SEPARACAO => modules.iter().any(|m| {
             m == MODULE_EXPEDICAO_SEPARACAO
+                || m == MODULE_EXPEDICAO_ECOMMERCE
+                || m == MODULE_EXPEDICAO
+        }),
+        MODULE_EXPEDICAO_ALOCACAO => modules.iter().any(|m| {
+            m == MODULE_EXPEDICAO_ALOCACAO
                 || m == MODULE_EXPEDICAO_ECOMMERCE
                 || m == MODULE_EXPEDICAO
         }),

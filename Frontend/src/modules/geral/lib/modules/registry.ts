@@ -72,6 +72,7 @@ export const MODULE_KEYS = {
   EXPEDICAO: 'expedicao',
   EXPEDICAO_ECOMMERCE: 'expedicao_ecommerce',
   EXPEDICAO_SEPARACAO: 'expedicao_separacao',
+  EXPEDICAO_ALOCACAO: 'expedicao_alocacao',
   FINANCEIRO: 'financeiro',
   FERRAMENTAS_ETIQUETAS: 'ferramentas_etiquetas',
   FERRAMENTAS_EDITOR: 'ferramentas_editor',
@@ -190,7 +191,10 @@ export function moduleRegistry(): ModuleGroup[] {
       key: 'expedicao',
       label: 'Expedição',
       hubView: 'expedicao_hub',
-      children: [{ key: MODULE_KEYS.EXPEDICAO_ECOMMERCE, label: 'E-commerce' }],
+      children: [
+        { key: MODULE_KEYS.EXPEDICAO_ECOMMERCE, label: 'E-commerce' },
+        { key: MODULE_KEYS.EXPEDICAO_ALOCACAO, label: 'Alocação e Endereços' },
+      ],
     },    {
       key: 'financeiro',
       label: 'Financeiro',
@@ -292,7 +296,7 @@ export function defaultModulesForRole(role: string): string[] {
         MODULE_KEYS.ADMIN_ACOMPANHAMENTO_PRODUCAO,
       ];
     case 'expedicao':
-      return [MODULE_KEYS.EXPEDICAO_ECOMMERCE];
+      return [MODULE_KEYS.EXPEDICAO_ECOMMERCE, MODULE_KEYS.EXPEDICAO_ALOCACAO];
     default:
       return [];
   }

@@ -1535,7 +1535,8 @@ pub fn modulos_da_rota(path: &str) -> Option<&'static [&'static str]> {
     // Do mais específico para o mais geral: o primeiro prefixo que casar decide.
     const MAPA: &[(&str, &[&str])] = &[
         ("/api/vendas", &[MODULE_VENDAS, MODULE_VENDAS_ONLINE]),
-        ("/api/expedicao", &[MODULE_EXPEDICAO, MODULE_EXPEDICAO_ECOMMERCE, MODULE_EXPEDICAO_SEPARACAO]),
+        ("/api/expedicao/alocacao", &[MODULE_EXPEDICAO_ALOCACAO, MODULE_EXPEDICAO_ECOMMERCE, MODULE_EXPEDICAO]),
+        ("/api/expedicao", &[MODULE_EXPEDICAO, MODULE_EXPEDICAO_ECOMMERCE, MODULE_EXPEDICAO_SEPARACAO, MODULE_EXPEDICAO_ALOCACAO]),
         ("/api/financeiro", &[MODULE_FINANCEIRO]),
         ("/api/hub/compras/categorias", &[MODULE_COMPRAS_CATEGORIAS]),
         ("/api/hub/compras/categories", COMPRAS_E_CATEGORIAS),
