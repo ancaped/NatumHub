@@ -231,22 +231,63 @@ pub fn elegibilidade_abc_efetiva(
     }
 }
 
-/// Verifica se o produto pertence às linhas permitidas de uma prateleira (vazio = livre para todas).
+/// Define o grupo de Curva ABC e dedicação de prateleira:
+/// - Coloração (`cat_coloracao`) fica isolada no grupo `"coloracao"`.
+/// - Kits ficam separados em `"kits:<linha_base>"` (próximos à sua linha principal).
+/// - Demais produtos usam sua linha principal (`linha_principal ?? linha_prefix`).
+pub fn definir_grupo_alocacao(
+    eh_coloracao: bool,
+    eh_kit: bool,
+    linha_prefix: &str,
+    linha_principal: Option<&str>,
+    nome_linha_principal: &str,
+) -> (String, String) {
+    if eh_coloracao {
+        return ("coloracao".to_string(), "Coloração".to_string());
+    }
+    let base = linha_principal
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(linha_prefix);
+    let nome_base = if nome_linha_principal.trim().is_empty() {
+        base
+    } else {
+        nome_linha_principal.trim()
+    };
+    if eh_kit {
+        (format!("kits:{base}"), format!("Kits — {nome_base}"))
+    } else {
+        (base.to_string(), nome_base.to_string())
+    }
+}
+
+/// Verifica se o produto pertence aos grupos/linhas permitidos em uma prateleira (vazio = livre para todas).
+/// Coloração só entra em estantes com `"coloracao"`; Kits só entram com `"kits:<linha>"` ou `"kits"`.
 pub fn produto_pertence_a_linhas(prod: &ProdutoDimensao, linhas_permitidas: &[String]) -> bool {
     if linhas_permitidas.is_empty() {
         return true;
     }
+    if prod.eh_coloracao {
+        return linhas_permitidas.iter().any(|allowed| allowed.trim() == "coloracao");
+    }
+    if prod.eh_kit {
+        return linhas_permitidas.iter().any(|allowed| {
+            let a = allowed.trim();
+            a == "kits" || (!prod.grupo_alocacao.is_empty() && a == prod.grupo_alocacao)
+        });
+    }
     linhas_permitidas.iter().any(|allowed| {
         let a = allowed.trim();
         !a.is_empty()
-            && (prod.linha_prefix == a
+            && (a == prod.grupo_alocacao
+                || prod.linha_prefix == a
                 || prod.linha_principal.as_deref() == Some(a)
                 || prod.linha_prefix.starts_with(&format!("{a}.")))
     })
 }
 
-/// Classifica os produtos elegíveis por Curva ABC (80% A, 95% B, 100% C) separadamente por `linha_principal` (fallback `linha_prefix`).
-/// Itens com `incluir_abc_efetivo == false` recebem `"FORA"` e não afetam os percentuais das linhas.
+/// Classifica os produtos elegíveis por Curva ABC (80% A, 95% B, 100% C) separadamente por `grupo_alocacao`
+/// (Linha Principal, Kits da Linha ou Coloração). Itens com `incluir_abc_efetivo == false` recebem `"FORA"`.
 pub fn aplicar_curva_abc(produtos: &mut [ProdutoDimensao]) {
     produtos.sort_by(|a, b| {
         b.incluir_abc_efetivo
@@ -267,13 +308,16 @@ pub fn aplicar_curva_abc(produtos: &mut [ProdutoDimensao]) {
             p.curva_abc = "FORA".to_string();
             continue;
         }
-        let lg = p
-            .linha_principal
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or(&p.linha_prefix)
-            .to_string();
+        let lg = if !p.grupo_alocacao.trim().is_empty() {
+            p.grupo_alocacao.trim().to_string()
+        } else {
+            p.linha_principal
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&p.linha_prefix)
+                .to_string()
+        };
         grupos.entry(lg).or_default().push(idx);
     }
 
@@ -480,13 +524,23 @@ pub fn sugerir_alocacao(
     };
 
     candidatos.sort_by(|a, b| {
-        let lga = a.linha_principal.as_deref().unwrap_or(&a.linha_prefix);
-        let lgb = b.linha_principal.as_deref().unwrap_or(&b.linha_prefix);
-        let da = demanda_linha.get(lga).copied().unwrap_or(0.0);
-        let db = demanda_linha.get(lgb).copied().unwrap_or(0.0);
+        let base_a = if a.eh_coloracao {
+            "coloracao"
+        } else {
+            a.linha_principal.as_deref().unwrap_or(&a.linha_prefix)
+        };
+        let base_b = if b.eh_coloracao {
+            "coloracao"
+        } else {
+            b.linha_principal.as_deref().unwrap_or(&b.linha_prefix)
+        };
+        let da = demanda_linha.get(base_a).copied().unwrap_or(0.0);
+        let db = demanda_linha.get(base_b).copied().unwrap_or(0.0);
         db.partial_cmp(&da)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| lga.cmp(lgb))
+            .then_with(|| base_a.cmp(base_b))
+            // Linha principal vem primeiro; Kits da mesma linha vêm logo em seguida (próximos)
+            .then_with(|| a.eh_kit.cmp(&b.eh_kit))
             .then_with(|| abc_rank(&a.curva_abc).cmp(&abc_rank(&b.curva_abc)))
             .then_with(|| {
                 b.media_total
@@ -906,6 +960,9 @@ mod tests {
             motivo_fora_abc: None,
             atendimento: "estoque".into(),
             eh_kit: false,
+            eh_coloracao: false,
+            grupo_alocacao: "2.11".into(),
+            grupo_alocacao_nome: "Hair".into(),
             estoque_atual: 0.0,
             estoque_caixas: None,
             qtde_cx_erp: Some(12),
@@ -981,6 +1038,9 @@ mod tests {
             motivo_fora_abc: None,
             atendimento: "estoque".into(),
             eh_kit: false,
+            eh_coloracao: false,
+            grupo_alocacao: "2.11".into(),
+            grupo_alocacao_nome: "Hair".into(),
             estoque_atual: 100.0,
             estoque_caixas: Some(9),
             qtde_cx_erp: Some(12),
@@ -1031,6 +1091,9 @@ mod tests {
             motivo_fora_abc: None,
             atendimento: "estoque".into(),
             eh_kit: true,
+            eh_coloracao: false,
+            grupo_alocacao: "kits:2.12".into(),
+            grupo_alocacao_nome: "Kits — Hair".into(),
             estoque_atual: 300.0,
             estoque_caixas: Some(100),
             qtde_cx_erp: Some(3),
@@ -1122,6 +1185,8 @@ mod tests {
         incluir_override: Option<bool>,
     ) -> ProdutoDimensao {
         let (efetivo, motivo) = elegibilidade_abc_efetiva(incluir_override, descricao, vendas, "ativo");
+        let (grupo_alocacao, grupo_alocacao_nome) =
+            definir_grupo_alocacao(false, false, linha_prefix, linha_principal, linha_prefix);
         ProdutoDimensao {
             codigo: codigo.into(),
             descricao: descricao.into(),
@@ -1135,6 +1200,9 @@ mod tests {
             motivo_fora_abc: motivo,
             atendimento: "estoque".into(),
             eh_kit: false,
+            eh_coloracao: false,
+            grupo_alocacao,
+            grupo_alocacao_nome,
             estoque_atual: 50.0,
             estoque_caixas: Some(5),
             qtde_cx_erp: Some(12),
@@ -1231,5 +1299,79 @@ mod tests {
         );
         assert_eq!(res.propostas.len(), 1);
         assert_eq!(res.propostas[0].produto_codigo, "2.11.001");
+    }
+
+    #[test]
+    fn coloracao_e_kits_tem_curva_abc_e_regra_de_prateleira_separados() {
+        let mut t1 = prod_teste_abc("1.34.001", "TIN PRETO NATUM", "1", Some("1"), 800.0, None);
+        t1.eh_coloracao = true;
+        (t1.grupo_alocacao, t1.grupo_alocacao_nome) =
+            definir_grupo_alocacao(true, false, "1", Some("1"), "Natum");
+
+        let aox = prod_teste_abc("1.33.001", "AOX 20 VOL NATUM", "1", Some("1"), 200.0, None);
+
+        let mut kit_hair = prod_teste_abc("2.12.052", "KIT MAIS LISO", "2.12", Some("2"), 500.0, None);
+        kit_hair.eh_kit = true;
+        (kit_hair.grupo_alocacao, kit_hair.grupo_alocacao_nome) =
+            definir_grupo_alocacao(false, true, "2.12", Some("2"), "Hair Extrattus");
+
+        let hair = prod_teste_abc("2.11.001", "SHAMPOO HAIR", "2.11", Some("2"), 1000.0, None);
+
+        let mut prods = vec![t1, aox, kit_hair, hair];
+        aplicar_curva_abc(&mut prods);
+
+        let by = |cod: &str| prods.iter().find(|p| p.codigo == cod).unwrap().clone();
+        // Coloração calcula só dentro de "coloracao" -> 100% A, sem misturar com AOX da linha 1
+        assert_eq!(by("1.34.001").grupo_alocacao, "coloracao");
+        assert!((by("1.34.001").percentual_abc - 100.0).abs() < 1e-6);
+        assert_eq!(by("1.33.001").grupo_alocacao, "1");
+        assert!((by("1.33.001").percentual_abc - 100.0).abs() < 1e-6);
+        // Kit calcula separado da linha 2
+        assert_eq!(by("2.12.052").grupo_alocacao, "kits:2");
+        assert!((by("2.12.052").percentual_abc - 100.0).abs() < 1e-6);
+        assert!((by("2.11.001").percentual_abc - 100.0).abs() < 1e-6);
+
+        // Regra de prateleira: só ["1"] NÃO aceita Coloração nem Kit Natum
+        assert!(!produto_pertence_a_linhas(&by("1.34.001"), &["1".into()]));
+        assert!(produto_pertence_a_linhas(&by("1.33.001"), &["1".into()]));
+        assert!(produto_pertence_a_linhas(&by("1.34.001"), &["coloracao".into()]));
+        assert!(!produto_pertence_a_linhas(&by("2.12.052"), &["2".into()]));
+        assert!(produto_pertence_a_linhas(
+            &by("2.12.052"),
+            &["2".into(), "kits:2".into()],
+        ));
+    }
+
+    #[test]
+    fn sugestao_mantem_kits_proximos_da_linha_principal() {
+        let cx9 = caixa_exemplo("9", 22.5, 19.5, 14.7, 4);
+        let posicoes = vec![
+            pos_exemplo("A1", 1, 1, "picking", 74.1),
+            pos_exemplo("B1", 2, 1, "picking", 74.1),
+        ];
+        let mut hair = prod_teste_abc("2.11.001", "SHAMPOO HAIR", "2.11", Some("2"), 600.0, None);
+        hair.media_total = 50.0;
+        let mut kit_hair = prod_teste_abc("2.12.052", "KIT HAIR", "2.12", Some("2"), 900.0, None);
+        kit_hair.eh_kit = true;
+        kit_hair.media_total = 75.0;
+        (kit_hair.grupo_alocacao, kit_hair.grupo_alocacao_nome) =
+            definir_grupo_alocacao(false, true, "2.12", Some("2"), "Hair Extrattus");
+
+        let mut prods = vec![hair, kit_hair];
+        aplicar_curva_abc(&mut prods);
+
+        let res = sugerir_alocacao(
+            "est",
+            &posicoes,
+            &[cx9],
+            &[],
+            &prods,
+            &["2".into(), "kits:2".into()],
+            true,
+            true,
+        );
+        assert_eq!(res.propostas.len(), 2);
+        assert_eq!(res.propostas[0].produto_codigo, "2.11.001");
+        assert_eq!(res.propostas[1].produto_codigo, "2.12.052");
     }
 }

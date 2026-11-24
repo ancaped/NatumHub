@@ -1,13 +1,48 @@
 import { apiJson } from '../../geral/lib/http';
+import { rotuloLinha, type LinhaBase } from '../../geral/lib/linhas';
 import type {
   ClienteSugestao,
+  Estrutura,
   ImportarMapaItemInput,
   ImportarMapaLoteResultado,
   MoverAlocacaoInput,
   PainelAlocacaoResponse,
   ProdutoCaixaLoteInput,
+  ProdutoDimensao,
   SugestaoResultado,
 } from './types';
+
+export function rotuloGrupoAlocacao(codigo: string, linhasConfigs: LinhaBase[]): string {
+  const c = codigo.trim();
+  if (c === 'coloracao') return 'Coloração';
+  if (c === 'kits') return 'Todos os Kits';
+  if (c.startsWith('kits:')) {
+    const base = c.slice(5);
+    return `Kits — ${rotuloLinha(linhasConfigs, base)}`;
+  }
+  return rotuloLinha(linhasConfigs, c);
+}
+
+export function produtoForaDasLinhasDaEstante(
+  prod: ProdutoDimensao,
+  estrutura?: Estrutura | null,
+): boolean {
+  const permitidas = estrutura?.linhasPermitidas ?? [];
+  if (permitidas.length === 0) return false;
+  if (prod.ehColoracao) {
+    return !permitidas.includes('coloracao');
+  }
+  if (prod.ehKit) {
+    return !permitidas.some((a) => a === 'kits' || a === prod.grupoAlocacao);
+  }
+  return !permitidas.some(
+    (allowed) =>
+      allowed === prod.grupoAlocacao ||
+      prod.linhaPrefix === allowed ||
+      prod.linhaPrincipal === allowed ||
+      prod.linhaPrefix.startsWith(`${allowed}.`),
+  );
+}
 
 export interface PainelParams {
   estruturaId?: string;

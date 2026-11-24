@@ -125,7 +125,7 @@ export function ProdutoAlocacaoDrawer({
       size="md"
       title={produto.descricao}
       subtitle={`${produto.codigo} · ${produto.linhaPrefix} — ${produto.nomeLinha}`}
-      badge={<StatusBadge variante={produto.curvaAbc === 'A' ? 'saudavel' : produto.curvaAbc === 'B' ? 'ordem' : 'apoio'}>Curva {produto.curvaAbc}</StatusBadge>}
+      badge={<StatusBadge variante={produto.curvaAbc === 'A' ? 'saudavel' : produto.curvaAbc === 'B' ? 'ordem' : 'aguardando'}>Curva {produto.curvaAbc}</StatusBadge>}
     >
       <div className="p-4 sm:p-5 space-y-4 text-xs">
         {/* Endereços atuais */}

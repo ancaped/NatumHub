@@ -1,10 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Building2, Plus, Search, Trash2, Users } from 'lucide-react';
-import { StatusBadge } from '../../geral/components/ui/ReportKit';
+import Drawer from '../../geral/components/ui/Drawer';
+import {
+  BotaoAcao,
+  ReportTabs,
+  StatusBadge,
+  TabelaPainel,
+} from '../../geral/components/ui/ReportKit';
 import type { TipoAviso } from '../../geral/components/ui/Aviso';
 import type { PedidoPrevia } from '../../producao/lib/usePreviaServidor';
 import { agruparLinhas, type LinhaBase } from '../../geral/lib/linhas';
-import { fetchClientesSugestao, salvarAtacadista, salvarEstrutura } from './api';
+import {
+  fetchClientesSugestao,
+  rotuloGrupoAlocacao,
+  salvarAtacadista,
+  salvarEstrutura,
+} from './api';
 import type { Atacadista, ClienteSugestao, Estrutura, PosicaoComItens } from './types';
 
 interface GalpoesTabProps {
@@ -46,7 +57,19 @@ export function GalpoesTab({
     [linhasConfigs],
   );
 
-  // --- Criar / Editar Estrutura ---
+  // Opções de dedicação: linhas principais + Kits da linha + Coloração
+  const opcoesGruposDedicacao = useMemo(() => {
+    const out: Array<{ valor: string; rotulo: string }> = [];
+    for (const l of linhasPrincipais) {
+      out.push({ valor: l.linha_prefix, rotulo: l.nome_linha });
+      out.push({ valor: `kits:${l.linha_prefix}`, rotulo: `Kits — ${l.nome_linha}` });
+    }
+    out.push({ valor: 'coloracao', rotulo: 'Coloração (cat_coloracao)' });
+    return out;
+  }, [linhasPrincipais]);
+
+  // --- Drawer Criar/Editar Prateleira ---
+  const [drawerEstOpen, setDrawerEstOpen] = useState(false);
   const [editEstId, setEditEstId] = useState<string | null>(null);
   const [estNome, setEstNome] = useState('');
   const [estGalpao, setEstGalpao] = useState('Galpão 1 (Área Nobre)');
@@ -54,8 +77,10 @@ export function GalpoesTab({
   const [estLinhas, setEstLinhas] = useState<Set<string>>(() => new Set());
   const [estLarg, setEstLarg] = useState('100');
   const [estComp, setEstComp] = useState('120');
+  const [salvandoEst, setSalvandoEst] = useState(false);
 
-  // --- Grade da estrutura selecionada ---
+  // --- Drawer Configurar Grade ---
+  const [drawerGradeOpen, setDrawerGradeOpen] = useState(false);
   const estAtiva = estruturas.find((e) => e.id === estruturaAtivaId) ?? estruturas[0] ?? null;
   const [gradeColunas, setGradeColunas] = useState('A,B,C,D,E,F,G');
   const [gradeLarg, setGradeLarg] = useState('100');
@@ -130,7 +155,7 @@ export function GalpoesTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sub]);
 
-  const limparFormEstrutura = () => {
+  const abrirNovaEstrutura = () => {
     setEditEstId(null);
     setEstNome('');
     setEstGalpao('Galpão 1 (Área Nobre)');
@@ -138,9 +163,10 @@ export function GalpoesTab({
     setEstLinhas(new Set());
     setEstLarg('100');
     setEstComp('120');
+    setDrawerEstOpen(true);
   };
 
-  const editarEstrutura = (e: Estrutura) => {
+  const abrirEditarEstrutura = (e: Estrutura) => {
     setEditEstId(e.id);
     setEstNome(e.nome);
     setEstGalpao(e.galpao || 'Galpão 1 (Área Nobre)');
@@ -149,6 +175,12 @@ export function GalpoesTab({
     setEstLarg(String(e.estradoLarguraCm));
     setEstComp(String(e.estradoComprimentoCm));
     onChangeEstrutura(e.id);
+    setDrawerEstOpen(true);
+  };
+
+  const abrirGradeEstrutura = (e: Estrutura) => {
+    onChangeEstrutura(e.id);
+    setDrawerGradeOpen(true);
   };
 
   const toggleLinhaEst = (prefix: string) => {
@@ -160,9 +192,10 @@ export function GalpoesTab({
     });
   };
 
-  const gravarEstrutura = async (ev: React.FormEvent) => {
-    ev.preventDefault();
+  const gravarEstrutura = async (ev?: React.FormEvent) => {
+    ev?.preventDefault();
     const existente = editEstId ? estruturas.find((e) => e.id === editEstId) : null;
+    setSalvandoEst(true);
     try {
       await salvarEstrutura(
         editEstId,
@@ -180,15 +213,15 @@ export function GalpoesTab({
         true,
       );
       avisar(
-        editEstId
-          ? `Prateleira '${estNome}' atualizada.`
-          : `Prateleira '${estNome}' criada.`,
+        editEstId ? `Prateleira '${estNome}' atualizada.` : `Prateleira '${estNome}' criada.`,
         'sucesso',
       );
-      limparFormEstrutura();
+      setDrawerEstOpen(false);
       await onSaved();
     } catch (err) {
       avisar(err instanceof Error ? err.message : 'Erro ao salvar estrutura.', 'erro');
+    } finally {
+      setSalvandoEst(false);
     }
   };
 
@@ -225,6 +258,7 @@ export function GalpoesTab({
       erroPadrao: 'Erro ao gerar grade.',
       aoConcluir: async () => {
         avisar('Grade da estrutura atualizada.', 'sucesso');
+        setDrawerGradeOpen(false);
         await onSaved();
       },
     });
@@ -289,383 +323,177 @@ export function GalpoesTab({
     });
   };
 
-  const nomeLinha = (prefix: string) =>
-    linhasPrincipais.find((l) => l.linha_prefix === prefix)?.nome_linha ?? prefix;
-
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setSub('estruturas')}
-          className={`px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 cursor-pointer min-h-[42px] ${
-            sub === 'estruturas'
-              ? 'bg-zinc-900 text-white border-zinc-900'
-              : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
-          }`}
-        >
-          <Building2 className="h-3.5 w-3.5" />
-          Galpões & Prateleiras ({estruturas.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setSub('atacadistas')}
-          className={`px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 cursor-pointer min-h-[42px] ${
-            sub === 'atacadistas'
-              ? 'bg-zinc-900 text-white border-zinc-900'
-              : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
-          }`}
-        >
-          <Users className="h-3.5 w-3.5" />
-          Clientes Atacadistas ({atacadistas.length})
-        </button>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <ReportTabs
+          ativa={sub}
+          onChange={(id) => setSub(id as 'estruturas' | 'atacadistas')}
+          abas={[
+            {
+              id: 'estruturas',
+              label: 'Galpões & Prateleiras',
+              icone: <Building2 className="h-3.5 w-3.5" />,
+              contagem: estruturas.length,
+            },
+            {
+              id: 'atacadistas',
+              label: 'Clientes Atacadistas',
+              icone: <Users className="h-3.5 w-3.5" />,
+              contagem: atacadistas.length,
+            },
+          ]}
+        />
+        {sub === 'estruturas' && canEdit && (
+          <BotaoAcao primario onClick={abrirNovaEstrutura}>
+            <Plus className="h-3.5 w-3.5" />
+            Nova Prateleira
+          </BotaoAcao>
+        )}
       </div>
 
       {sub === 'estruturas' && (
-        <div className="space-y-4 text-xs">
-          {/* Lista de prateleiras cadastradas com dedicação por linha */}
-          <div className="panel-card !p-4 space-y-3">
-            <h3 className="text-sm font-bold text-zinc-900">
-              Estruturas & Regras de Separação por Linha
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {estruturas.map((e) => {
-                const selecionada = estAtiva?.id === e.id;
-                return (
-                  <div
-                    key={e.id}
-                    className={`rounded-xl border p-3 space-y-2 ${
-                      selecionada ? 'border-zinc-900 bg-zinc-50/70' : 'border-zinc-200 bg-white'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="font-bold text-zinc-900 truncate">{e.nome}</div>
-                        <div className="text-[11px] text-zinc-500">
-                          {e.galpao} · {e.zona === 'afastado' ? 'Área secundária' : 'Área nobre'}
-                        </div>
+        <>
+          <div className="hidden md:block">
+            <TabelaPainel>
+              <thead>
+                <tr>
+                  <th>Estrutura</th>
+                  <th>Galpão / Zona</th>
+                  <th>Grupos Dedicados</th>
+                  <th className="text-center">Vãos</th>
+                  <th className="text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {estruturas.map((e) => (
+                  <tr key={e.id}>
+                    <td>
+                      <div className="font-bold text-zinc-900">{e.nome}</div>
+                      <div className="text-[11px] font-mono text-zinc-500">
+                        Estrado {e.estradoLarguraCm}×{e.estradoComprimentoCm} cm
                       </div>
-                      <StatusBadge variante={e.zona === 'afastado' ? 'apoio' : 'saudavel'}>
-                        {e.posicoesOcupadas}/{e.totalPosicoes} vãos
-                      </StatusBadge>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1">
-                      <span className="text-[11px] text-zinc-500 mr-1">Linhas:</span>
+                    </td>
+                    <td>
+                      <div className="text-zinc-800">{e.galpao}</div>
+                      <div className="mt-0.5">
+                        <StatusBadge
+                          variante={e.zona === 'afastado' ? 'aguardando' : 'saudavel'}
+                        >
+                          {e.zona === 'afastado' ? 'Área Secundária' : 'Área Nobre'}
+                        </StatusBadge>
+                      </div>
+                    </td>
+                    <td>
                       {e.linhasPermitidas.length === 0 ? (
-                        <StatusBadge variante="apoio">Todas as linhas (livre)</StatusBadge>
+                        <StatusBadge variante="descontinuado">Livre (Todas)</StatusBadge>
                       ) : (
-                        e.linhasPermitidas.map((lp) => (
-                          <StatusBadge key={lp} variante="ordem">
-                            {nomeLinha(lp)}
-                          </StatusBadge>
-                        ))
+                        <div className="flex flex-wrap gap-1">
+                          {e.linhasPermitidas.map((lp) => (
+                            <StatusBadge key={lp} variante="ordem">
+                              {rotuloGrupoAlocacao(lp, linhasConfigs)}
+                            </StatusBadge>
+                          ))}
+                        </div>
                       )}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => onVerNoMapa(e.id)}
-                        className="px-2.5 py-1.5 min-h-[36px] rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100 font-bold cursor-pointer"
-                      >
-                        Abrir no Mapa 2D
-                      </button>
-                      {canEdit && (
+                    </td>
+                    <td className="text-center font-mono">
+                      {e.posicoesOcupadas}/{e.totalPosicoes}{' '}
+                      <span className="text-[11px] text-zinc-500">
+                        ({Math.round(e.ocupacaoMediaPct ?? 0)}%)
+                      </span>
+                    </td>
+                    <td className="text-right">
+                      <div className="flex justify-end gap-2">
                         <button
                           type="button"
-                          onClick={() => editarEstrutura(e)}
-                          className="px-2.5 py-1.5 min-h-[36px] rounded-lg bg-zinc-900 text-white font-bold cursor-pointer"
+                          onClick={() => onVerNoMapa(e.id)}
+                          className="text-xs font-bold text-zinc-700 hover:underline cursor-pointer"
                         >
-                          Editar regra & linhas
+                          Mapa 2D
                         </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                        {canEdit && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => abrirEditarEstrutura(e)}
+                              className="text-xs font-bold text-zinc-900 hover:underline cursor-pointer"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => abrirGradeEstrutura(e)}
+                              className="text-xs font-bold text-zinc-600 hover:underline cursor-pointer"
+                            >
+                              Grade
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </TabelaPainel>
           </div>
 
-          {/* Criar ou editar estrutura */}
-          {canEdit && (
-            <form onSubmit={gravarEstrutura} className="panel-card !p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-zinc-900">
-                  {editEstId ? `Editando: ${estNome}` : 'Nova prateleira / área de pátio'}
-                </h3>
-                {editEstId && (
+          <div className="md:hidden space-y-2">
+            {estruturas.map((e) => (
+              <div key={e.id} className="panel-card !p-3 space-y-2 text-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-bold text-zinc-900 truncate">{e.nome}</div>
+                    <div className="text-[11px] text-zinc-500">
+                      {e.galpao} · {e.posicoesOcupadas}/{e.totalPosicoes} vãos
+                    </div>
+                  </div>
+                  <StatusBadge variante={e.zona === 'afastado' ? 'aguardando' : 'saudavel'}>
+                    {e.zona === 'afastado' ? 'Secundária' : 'Nobre'}
+                  </StatusBadge>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {e.linhasPermitidas.length === 0 ? (
+                    <StatusBadge variante="descontinuado">Livre (Todas)</StatusBadge>
+                  ) : (
+                    e.linhasPermitidas.map((lp) => (
+                      <StatusBadge key={lp} variante="ordem">
+                        {rotuloGrupoAlocacao(lp, linhasConfigs)}
+                      </StatusBadge>
+                    ))
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5 pt-1">
                   <button
                     type="button"
-                    onClick={limparFormEstrutura}
-                    className="text-zinc-500 underline cursor-pointer"
+                    onClick={() => onVerNoMapa(e.id)}
+                    className="px-3 py-2 min-h-[40px] rounded-lg border border-zinc-200 bg-white font-semibold"
                   >
-                    Cancelar edição
+                    Mapa 2D
                   </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
-                <label className="space-y-1 lg:col-span-2">
-                  <span className="font-semibold text-zinc-600 block">Nome da estante / área</span>
-                  <input
-                    required
-                    value={estNome}
-                    onChange={(e) => setEstNome(e.target.value)}
-                    placeholder="Ex: Prateleira 2 — Natum"
-                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="font-semibold text-zinc-600 block">Galpão</span>
-                  <input
-                    required
-                    value={estGalpao}
-                    onChange={(e) => setEstGalpao(e.target.value)}
-                    placeholder="Galpão 1 (Área Nobre)"
-                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="font-semibold text-zinc-600 block">Zona</span>
-                  <select
-                    value={estZona}
-                    onChange={(e) =>
-                      setEstZona(e.target.value === 'afastado' ? 'afastado' : 'nobre')
-                    }
-                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white font-semibold"
-                  >
-                    <option value="nobre">Área Nobre (saída alta)</option>
-                    <option value="afastado">Área Secundária (afastada)</option>
-                  </select>
-                </label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <label className="space-y-1">
-                    <span className="font-semibold text-zinc-600 block">Larg. (cm)</span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={estLarg}
-                      onChange={(e) => setEstLarg(e.target.value)}
-                      className="w-full px-2 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono"
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="font-semibold text-zinc-600 block">Comp. (cm)</span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={estComp}
-                      onChange={(e) => setEstComp(e.target.value)}
-                      className="w-full px-2 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono"
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <span className="font-semibold text-zinc-700 block">
-                  Dedicar prateleira a linhas específicas (vazio = livre para todas; evita misturar Hair e Natum):
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {linhasPrincipais.map((l) => {
-                    const marcada = estLinhas.has(l.linha_prefix);
-                    return (
-                      <label
-                        key={l.linha_prefix}
-                        className={`px-2.5 py-1.5 min-h-[36px] rounded-lg border flex items-center gap-1.5 cursor-pointer font-semibold ${
-                          marcada
-                            ? 'bg-zinc-900 text-white border-zinc-900'
-                            : 'bg-white text-zinc-700 border-zinc-200'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={marcada}
-                          onChange={() => toggleLinhaEst(l.linha_prefix)}
-                        />
-                        <span>{l.nome_linha}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="px-4 py-2 min-h-[40px] rounded-xl bg-zinc-900 text-white font-bold cursor-pointer"
-              >
-                {editEstId ? 'Salvar Prateleira' : 'Criar Prateleira'}
-              </button>
-            </form>
-          )}
-
-          {/* Grade de vãos da prateleira ativa */}
-          {estAtiva && canEdit && (
-            <div className="panel-card !p-4 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h3 className="text-sm font-bold text-zinc-900">
-                    Grade física de {estAtiva.nome}
-                  </h3>
-                  <p className="text-zinc-500">
-                    Defina colunas (A–G ou P1–P6), prateleiras e altura dos vãos em cm.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => aplicarPresetEstrutura('estante')}
-                    className="px-2.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 font-bold cursor-pointer"
-                  >
-                    Porta-paletes (6 prateleiras × 2)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => aplicarPresetEstrutura('patio')}
-                    className="px-2.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 font-bold cursor-pointer"
-                  >
-                    Área de Pátio / Chão (1 nível)
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <label className="space-y-1">
-                  <span className="font-semibold text-zinc-600 block">Colunas / Módulos</span>
-                  <input
-                    value={gradeColunas}
-                    onChange={(e) => setGradeColunas(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono uppercase"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="font-semibold text-zinc-600 block">Largura posição (cm)</span>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={gradeLarg}
-                    onChange={(e) => setGradeLarg(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="font-semibold text-zinc-600 block">Comprimento (cm)</span>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={gradeComp}
-                    onChange={(e) => setGradeComp(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono"
-                  />
-                </label>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-zinc-800">
-                    Prateleiras / Níveis ({gradePrateleiras.length})
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setGradePrateleiras((prev) => [
-                        ...prev,
-                        {
-                          andar: prev.length + 1,
-                          alturaCm: 74,
-                          papel: 'pulmao',
-                          lados: 2,
-                        },
-                      ])
-                    }
-                    className="px-2.5 py-1 rounded-lg border border-zinc-300 bg-white font-bold flex items-center gap-1 cursor-pointer"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Adicionar prateleira
-                  </button>
-                </div>
-
-                {gradePrateleiras.map((a, idx) => (
-                  <div
-                    key={a.andar}
-                    className="flex flex-wrap items-center gap-2 p-2 rounded-xl border border-zinc-200 bg-zinc-50/50"
-                  >
-                    <span className="font-mono font-bold w-28 text-zinc-900">
-                      {gradePrateleiras.length === 1
-                        ? 'Pátio (nível único)'
-                        : `Prateleira ${a.andar}`}
-                    </span>
-                    <label className="flex items-center gap-1">
-                      <span className="text-zinc-500">Vão (cm):</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={a.alturaCm}
-                        onChange={(e) => {
-                          const val = Number(e.target.value) || 74;
-                          setGradePrateleiras((prev) =>
-                            prev.map((x, i) => (i === idx ? { ...x, alturaCm: val } : x)),
-                          );
-                        }}
-                        className="w-20 px-2 py-1 border border-zinc-200 rounded-lg bg-white font-mono"
-                      />
-                    </label>
-                    <select
-                      value={a.papel}
-                      onChange={(e) => {
-                        const papel = e.target.value === 'pulmao' ? 'pulmao' : 'picking';
-                        setGradePrateleiras((prev) =>
-                          prev.map((x, i) => (i === idx ? { ...x, papel } : x)),
-                        );
-                      }}
-                      className="px-2 py-1 border border-zinc-200 rounded-lg bg-white font-semibold"
-                    >
-                      <option value="picking">Picking</option>
-                      <option value="pulmao">Pulmão</option>
-                    </select>
-                    <select
-                      value={a.lados}
-                      onChange={(e) => {
-                        const lados = Number(e.target.value) === 1 ? 1 : 2;
-                        setGradePrateleiras((prev) =>
-                          prev.map((x, i) => (i === idx ? { ...x, lados } : x)),
-                        );
-                      }}
-                      className="px-2 py-1 border border-zinc-200 rounded-lg bg-white"
-                    >
-                      <option value={2}>2 posições/col (ímpar/par)</option>
-                      <option value={1}>1 posição/col</option>
-                    </select>
-                    {gradePrateleiras.length > 1 && idx === gradePrateleiras.length - 1 && (
+                  {canEdit && (
+                    <>
                       <button
                         type="button"
-                        onClick={() => setGradePrateleiras((prev) => prev.slice(0, -1))}
-                        className="ml-auto text-rose-600 font-bold cursor-pointer"
+                        onClick={() => abrirEditarEstrutura(e)}
+                        className="px-3 py-2 min-h-[40px] rounded-lg bg-zinc-900 text-white font-semibold"
                       >
-                        Remover prateleira
+                        Editar regra
                       </button>
-                    )}
-                  </div>
-                ))}
+                      <button
+                        type="button"
+                        onClick={() => abrirGradeEstrutura(e)}
+                        className="px-3 py-2 min-h-[40px] rounded-lg border border-zinc-200 bg-white font-semibold"
+                      >
+                        Grade
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-
-              <label className="flex items-center gap-2 cursor-pointer text-zinc-600">
-                <input
-                  type="checkbox"
-                  checked={gradeSubstituir}
-                  onChange={(e) => setGradeSubstituir(e.target.checked)}
-                />
-                <span>Desativar posições antigas que ficarem fora desta grade</span>
-              </label>
-
-              <button
-                type="button"
-                onClick={aplicarGrade}
-                className="px-4 py-2 min-h-[40px] rounded-xl bg-zinc-900 text-white font-bold cursor-pointer"
-              >
-                Pré-visualizar e Aplicar Grade
-              </button>
-            </div>
-          )}
-        </div>
+            ))}
+          </div>
+        </>
       )}
 
       {sub === 'atacadistas' && (
@@ -691,14 +519,16 @@ export function GalpoesTab({
                     </span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <StatusBadge variante={a.pedidosEncontrados > 0 ? 'saudavel' : 'apoio'}>
+                    <StatusBadge
+                      variante={a.pedidosEncontrados > 0 ? 'saudavel' : 'descontinuado'}
+                    >
                       {a.pedidosEncontrados} pedidos ({janelaMeses}m)
                     </StatusBadge>
                     {canEdit && (
                       <button
                         type="button"
                         onClick={() => removerAtacadista(a)}
-                        className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg cursor-pointer"
                         title="Remover"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -811,6 +641,286 @@ export function GalpoesTab({
           </div>
         </div>
       )}
+
+      {/* Drawer Criar / Editar Prateleira e Dedicação */}
+      <Drawer
+        isOpen={drawerEstOpen}
+        onClose={() => setDrawerEstOpen(false)}
+        size="lg"
+        title={editEstId ? `Editar: ${estNome}` : 'Nova Prateleira / Área de Pátio'}
+        subtitle="Defina galpão, zona e grupos permitidos (linhas, kits e coloração)"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setDrawerEstOpen(false)}
+              className="px-3 py-2 text-xs font-bold rounded-xl border border-zinc-200 bg-white text-zinc-700 cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={salvandoEst || !estNome.trim()}
+              onClick={() => void gravarEstrutura()}
+              className="px-4 py-2 text-xs font-bold rounded-xl bg-zinc-900 text-white disabled:opacity-50 cursor-pointer"
+            >
+              {salvandoEst ? 'Salvando...' : editEstId ? 'Salvar Prateleira' : 'Criar Prateleira'}
+            </button>
+          </div>
+        }
+      >
+        <form onSubmit={gravarEstrutura} className="p-4 sm:p-5 space-y-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="space-y-1 sm:col-span-2">
+              <span className="font-semibold text-zinc-600 block">Nome da prateleira / área</span>
+              <input
+                required
+                value={estNome}
+                onChange={(e) => setEstNome(e.target.value)}
+                placeholder="Ex: Prateleira 2 — Natum"
+                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="font-semibold text-zinc-600 block">Galpão</span>
+              <input
+                required
+                value={estGalpao}
+                onChange={(e) => setEstGalpao(e.target.value)}
+                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="font-semibold text-zinc-600 block">Zona</span>
+              <select
+                value={estZona}
+                onChange={(e) => setEstZona(e.target.value === 'afastado' ? 'afastado' : 'nobre')}
+                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-semibold"
+              >
+                <option value="nobre">Área Nobre (saída alta)</option>
+                <option value="afastado">Área Secundária (afastada)</option>
+              </select>
+            </label>
+            <label className="space-y-1">
+              <span className="font-semibold text-zinc-600 block">Largura estrado (cm)</span>
+              <input
+                type="number"
+                step="0.1"
+                value={estLarg}
+                onChange={(e) => setEstLarg(e.target.value)}
+                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="font-semibold text-zinc-600 block">Comprimento estrado (cm)</span>
+              <input
+                type="number"
+                step="0.1"
+                value={estComp}
+                onChange={(e) => setEstComp(e.target.value)}
+                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono"
+              />
+            </label>
+          </div>
+
+          <div className="space-y-2">
+            <span className="font-semibold text-zinc-700 block">
+              Grupos dedicados (vazio = livre para todas; separa Linhas, Kits e Coloração):
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {opcoesGruposDedicacao.map((op) => {
+                const marcada = estLinhas.has(op.valor);
+                return (
+                  <label
+                    key={op.valor}
+                    className={`px-2.5 py-1.5 min-h-[36px] rounded-lg border flex items-center gap-1.5 cursor-pointer font-semibold ${
+                      marcada
+                        ? 'bg-zinc-900 text-white border-zinc-900'
+                        : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={marcada}
+                      onChange={() => toggleLinhaEst(op.valor)}
+                    />
+                    <span>{op.rotulo}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        </form>
+      </Drawer>
+
+      {/* Drawer Grade Física */}
+      <Drawer
+        isOpen={drawerGradeOpen}
+        onClose={() => setDrawerGradeOpen(false)}
+        size="lg"
+        title={`Grade Física: ${estAtiva?.nome ?? ''}`}
+        subtitle="Configure colunas, prateleiras e altura livre dos vãos em cm"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setDrawerGradeOpen(false)}
+              className="px-3 py-2 text-xs font-bold rounded-xl border border-zinc-200 bg-white text-zinc-700 cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={aplicarGrade}
+              className="px-4 py-2 text-xs font-bold rounded-xl bg-zinc-900 text-white cursor-pointer"
+            >
+              Pré-visualizar e Aplicar Grade
+            </button>
+          </div>
+        }
+      >
+        <div className="p-4 sm:p-5 space-y-4 text-xs">
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => aplicarPresetEstrutura('estante')}
+              className="px-2.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 font-bold cursor-pointer"
+            >
+              Porta-paletes (6 prateleiras × 2)
+            </button>
+            <button
+              type="button"
+              onClick={() => aplicarPresetEstrutura('patio')}
+              className="px-2.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 font-bold cursor-pointer"
+            >
+              Área de Pátio / Chão (1 nível)
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <label className="space-y-1">
+              <span className="font-semibold text-zinc-600 block">Colunas / Módulos</span>
+              <input
+                value={gradeColunas}
+                onChange={(e) => setGradeColunas(e.target.value)}
+                className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono uppercase"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="font-semibold text-zinc-600 block">Largura posição (cm)</span>
+              <input
+                type="number"
+                step="0.1"
+                value={gradeLarg}
+                onChange={(e) => setGradeLarg(e.target.value)}
+                className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="font-semibold text-zinc-600 block">Comprimento (cm)</span>
+              <input
+                type="number"
+                step="0.1"
+                value={gradeComp}
+                onChange={(e) => setGradeComp(e.target.value)}
+                className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono"
+              />
+            </label>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-zinc-800">
+                Prateleiras / Níveis ({gradePrateleiras.length})
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setGradePrateleiras((prev) => [
+                    ...prev,
+                    { andar: prev.length + 1, alturaCm: 74, papel: 'pulmao', lados: 2 },
+                  ])
+                }
+                className="px-2.5 py-1 rounded-lg border border-zinc-300 bg-white font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5" /> Adicionar prateleira
+              </button>
+            </div>
+
+            {gradePrateleiras.map((a, idx) => (
+              <div
+                key={a.andar}
+                className="flex flex-wrap items-center gap-2 p-2 rounded-xl border border-zinc-200 bg-zinc-50/50"
+              >
+                <span className="font-mono font-bold w-28 text-zinc-900">
+                  {gradePrateleiras.length === 1
+                    ? 'Pátio (nível único)'
+                    : `Prateleira ${a.andar}`}
+                </span>
+                <label className="flex items-center gap-1">
+                  <span className="text-zinc-500">Vão (cm):</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={a.alturaCm}
+                    onChange={(e) => {
+                      const val = Number(e.target.value) || 74;
+                      setGradePrateleiras((prev) =>
+                        prev.map((x, i) => (i === idx ? { ...x, alturaCm: val } : x)),
+                      );
+                    }}
+                    className="w-20 px-2 py-1 border border-zinc-200 rounded-lg bg-white font-mono"
+                  />
+                </label>
+                <select
+                  value={a.papel}
+                  onChange={(e) => {
+                    const papel = e.target.value === 'pulmao' ? 'pulmao' : 'picking';
+                    setGradePrateleiras((prev) =>
+                      prev.map((x, i) => (i === idx ? { ...x, papel } : x)),
+                    );
+                  }}
+                  className="px-2 py-1 border border-zinc-200 rounded-lg bg-white font-semibold"
+                >
+                  <option value="picking">Picking</option>
+                  <option value="pulmao">Pulmão</option>
+                </select>
+                <select
+                  value={a.lados}
+                  onChange={(e) => {
+                    const lados = Number(e.target.value) === 1 ? 1 : 2;
+                    setGradePrateleiras((prev) =>
+                      prev.map((x, i) => (i === idx ? { ...x, lados } : x)),
+                    );
+                  }}
+                  className="px-2 py-1 border border-zinc-200 rounded-lg bg-white"
+                >
+                  <option value={2}>2 posições/col (ímpar/par)</option>
+                  <option value={1}>1 posição/col</option>
+                </select>
+                {gradePrateleiras.length > 1 && idx === gradePrateleiras.length - 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setGradePrateleiras((prev) => prev.slice(0, -1))}
+                    className="ml-auto text-red-600 font-bold cursor-pointer"
+                  >
+                    Remover
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <label className="flex items-center gap-2 cursor-pointer text-zinc-600">
+            <input
+              type="checkbox"
+              checked={gradeSubstituir}
+              onChange={(e) => setGradeSubstituir(e.target.checked)}
+            />
+            <span>Desativar posições antigas que ficarem fora desta grade</span>
+          </label>
+        </div>
+      </Drawer>
     </div>
   );
 }

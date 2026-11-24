@@ -1,6 +1,13 @@
 import React, { useMemo, useState } from 'react';
-import { Box, CheckCircle2, Search, Wrench } from 'lucide-react';
-import { FiltroSelect, StatusBadge, TabelaPainel } from '../../geral/components/ui/ReportKit';
+import { Box, CheckCircle2, Plus, Search, Wrench } from 'lucide-react';
+import Drawer from '../../geral/components/ui/Drawer';
+import {
+  BotaoAcao,
+  FiltroSelect,
+  ReportTabs,
+  StatusBadge,
+  TabelaPainel,
+} from '../../geral/components/ui/ReportKit';
 import type { TipoAviso } from '../../geral/components/ui/Aviso';
 import type { PedidoPrevia } from '../../producao/lib/usePreviaServidor';
 import {
@@ -54,7 +61,8 @@ export function CaixasTab({
 }: CaixasTabProps) {
   const [sub, setSub] = useState<'caixas' | 'conferencia'>('caixas');
 
-  // --- Caixas CRUD ---
+  // --- Drawer de Caixa ---
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [editCxId, setEditCxId] = useState<string | null>(null);
   const [cxCod, setCxCod] = useState('');
   const [cxNome, setCxNome] = useState('');
@@ -121,7 +129,7 @@ export function CaixasTab({
     [pendenciasFiltradas, mostrarTodasPend],
   );
 
-  const limparCaixaForm = () => {
+  const abrirNovaCaixa = () => {
     setEditCxId(null);
     setCxCod('');
     setCxNome('');
@@ -130,9 +138,10 @@ export function CaixasTab({
     setCxLarg('14.7');
     setCxEmp('4');
     setCxInsumo('');
+    setDrawerOpen(true);
   };
 
-  const preencherCaixaForm = (c: Caixa) => {
+  const abrirEditarCaixa = (c: Caixa) => {
     setEditCxId(c.id);
     setCxCod(c.codigo);
     setCxNome(c.nome);
@@ -141,10 +150,11 @@ export function CaixasTab({
     setCxLarg(String(c.larguraCm));
     setCxEmp(String(c.empilhamentoMax));
     setCxInsumo(c.insumoErpCodigo ?? '');
+    setDrawerOpen(true);
   };
 
-  const gravarCaixa = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const gravarCaixa = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setSalvandoCx(true);
     try {
       await salvarCaixa(
@@ -163,7 +173,7 @@ export function CaixasTab({
         true,
       );
       avisar(`Caixa ${cxCod} salva.`, 'sucesso');
-      limparCaixaForm();
+      setDrawerOpen(false);
       await onSaved();
     } catch (err) {
       avisar(err instanceof Error ? err.message : 'Erro ao salvar caixa.', 'erro');
@@ -332,142 +342,36 @@ export function CaixasTab({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setSub('caixas')}
-          className={`px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 cursor-pointer min-h-[42px] ${
-            sub === 'caixas'
-              ? 'bg-zinc-900 text-white border-zinc-900'
-              : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
-          }`}
-        >
-          <Box className="h-3.5 w-3.5" />
-          Caixas & Medidas ({caixas.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setSub('conferencia')}
-          className={`px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 cursor-pointer min-h-[42px] ${
-            sub === 'conferencia'
-              ? 'bg-zinc-900 text-white border-zinc-900'
-              : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
-          }`}
-        >
-          <CheckCircle2 className="h-3.5 w-3.5" />
-          Conferência ERP & Lote ({todasPendencias.length})
-        </button>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <ReportTabs
+          ativa={sub}
+          onChange={(id) => setSub(id as 'caixas' | 'conferencia')}
+          abas={[
+            {
+              id: 'caixas',
+              label: 'Caixas & Medidas',
+              icone: <Box className="h-3.5 w-3.5" />,
+              contagem: caixas.length,
+            },
+            {
+              id: 'conferencia',
+              label: 'Conferência ERP & Lote',
+              icone: <CheckCircle2 className="h-3.5 w-3.5" />,
+              contagem: todasPendencias.length,
+            },
+          ]}
+        />
+        {sub === 'caixas' && canEdit && (
+          <BotaoAcao primario onClick={abrirNovaCaixa}>
+            <Plus className="h-3.5 w-3.5" />
+            Nova Caixa
+          </BotaoAcao>
+        )}
       </div>
 
       {sub === 'caixas' && (
-        <div className="space-y-4">
-          {canEdit && (
-            <form onSubmit={gravarCaixa} className="panel-card !p-4 space-y-3 text-xs">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-zinc-900">
-                  {editCxId ? `Editando Caixa ${cxCod}` : 'Nova Caixa de Embarque'}
-                </h3>
-                {editCxId && (
-                  <button
-                    type="button"
-                    onClick={limparCaixaForm}
-                    className="text-zinc-500 underline cursor-pointer"
-                  >
-                    Cancelar edição
-                  </button>
-                )}
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-                <label className="space-y-1">
-                  <span className="font-semibold text-zinc-600 block">Código</span>
-                  <input
-                    required
-                    value={cxCod}
-                    onChange={(e) => setCxCod(e.target.value)}
-                    placeholder="Ex: 29"
-                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white"
-                  />
-                </label>
-                <label className="space-y-1 col-span-2">
-                  <span className="font-semibold text-zinc-600 block">Nome / Descrição</span>
-                  <input
-                    required
-                    value={cxNome}
-                    onChange={(e) => setCxNome(e.target.value)}
-                    placeholder="Caixa 29 (20×23×15)"
-                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="font-semibold text-zinc-600 block">Alt. (cm)</span>
-                  <input
-                    required
-                    type="number"
-                    step="0.1"
-                    value={cxAlt}
-                    onChange={(e) => setCxAlt(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="font-semibold text-zinc-600 block">Comp. (cm)</span>
-                  <input
-                    required
-                    type="number"
-                    step="0.1"
-                    value={cxComp}
-                    onChange={(e) => setCxComp(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="font-semibold text-zinc-600 block">Larg. (cm)</span>
-                  <input
-                    required
-                    type="number"
-                    step="0.1"
-                    value={cxLarg}
-                    onChange={(e) => setCxLarg(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="font-semibold text-zinc-600 block">Empilh. máx.</span>
-                  <input
-                    required
-                    type="number"
-                    min={1}
-                    value={cxEmp}
-                    onChange={(e) => setCxEmp(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono"
-                  />
-                </label>
-              </div>
-              <div className="flex flex-wrap items-end gap-2">
-                <label className="flex-1 min-w-[200px] space-y-1">
-                  <span className="font-semibold text-zinc-600 block">
-                    Insumo ERP (código na fórmula, ex.: 9.04.063)
-                  </span>
-                  <input
-                    value={cxInsumo}
-                    onChange={(e) => setCxInsumo(e.target.value)}
-                    placeholder="Opcional — separa múltiplos por vírgula"
-                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono"
-                  />
-                </label>
-                <button
-                  type="submit"
-                  disabled={salvandoCx}
-                  className="px-4 py-2 min-h-[40px] rounded-xl bg-zinc-900 text-white font-bold cursor-pointer"
-                >
-                  {salvandoCx ? 'Salvando...' : editCxId ? 'Salvar Caixa' : 'Cadastrar Caixa'}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* Tabela Desktop */}
+        <>
           <div className="hidden md:block">
             <TabelaPainel>
               <thead>
@@ -497,7 +401,7 @@ export function CaixasTab({
                         <div className="flex justify-end gap-2">
                           <button
                             type="button"
-                            onClick={() => preencherCaixaForm(c)}
+                            onClick={() => abrirEditarCaixa(c)}
                             className="text-xs font-bold text-zinc-700 hover:underline cursor-pointer"
                           >
                             Editar
@@ -505,7 +409,7 @@ export function CaixasTab({
                           <button
                             type="button"
                             onClick={() => removerCaixa(c)}
-                            className="text-xs font-bold text-rose-600 hover:underline cursor-pointer"
+                            className="text-xs font-bold text-red-600 hover:underline cursor-pointer"
                           >
                             Excluir
                           </button>
@@ -518,28 +422,27 @@ export function CaixasTab({
             </TabelaPainel>
           </div>
 
-          {/* Cartões Celular */}
           <div className="md:hidden space-y-2">
             {caixas.map((c) => (
               <div key={c.id} className="panel-card !p-3 space-y-1.5 text-xs">
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <span className="font-mono font-extrabold text-zinc-900">CX {c.codigo}</span>
+                    <span className="font-mono font-bold text-zinc-900">CX {c.codigo}</span>
                     <span className="text-zinc-600 ml-1.5">{c.nome}</span>
                   </div>
                   {canEdit && (
                     <div className="flex gap-2 shrink-0">
                       <button
                         type="button"
-                        onClick={() => preencherCaixaForm(c)}
-                        className="px-2.5 py-1.5 rounded-lg border border-zinc-200 font-bold"
+                        onClick={() => abrirEditarCaixa(c)}
+                        className="px-2.5 py-1.5 min-h-[38px] rounded-lg border border-zinc-200 font-semibold"
                       >
                         Editar
                       </button>
                       <button
                         type="button"
                         onClick={() => removerCaixa(c)}
-                        className="px-2.5 py-1.5 rounded-lg border border-rose-200 text-rose-600 font-bold"
+                        className="px-2.5 py-1.5 min-h-[38px] rounded-lg border border-red-200 text-red-600 font-semibold"
                       >
                         Excluir
                       </button>
@@ -554,7 +457,7 @@ export function CaixasTab({
               </div>
             ))}
           </div>
-        </div>
+        </>
       )}
 
       {sub === 'conferencia' && (
@@ -563,10 +466,10 @@ export function CaixasTab({
             <div className="panel-card !p-4 space-y-3">
               <div>
                 <h3 className="text-sm font-bold text-zinc-900 flex items-center gap-1.5">
-                  <Wrench className="h-4 w-4" /> Caixas encontradas nas fórmulas do ERP sem vínculo ({insumosCaixaErp.length})
+                  <Wrench className="h-4 w-4" /> Caixas nas fórmulas/kits sem vínculo ({insumosCaixaErp.length})
                 </h3>
                 <p className="text-xs text-zinc-500">
-                  Vincule o código de insumo do ERP (9.04.xxx) a uma caixa cadastrada para preencher automaticamente os produtos da fórmula.
+                  Vincule o código 9.04.xxx a uma caixa cadastrada para preencher todos os produtos e kits que usam esse insumo.
                 </p>
               </div>
               <div className="space-y-2">
@@ -581,7 +484,7 @@ export function CaixasTab({
                       </span>{' '}
                       — <span className="font-semibold text-zinc-700">{ins.description}</span>{' '}
                       <span className="text-zinc-500">
-                        ({ins.qtdProdutos} produtos, ex.: {ins.exemplosProdutos.slice(0, 2).join(', ')})
+                        ({ins.qtdProdutos} itens, ex.: {ins.exemplosProdutos.slice(0, 2).join(', ')})
                       </span>
                     </div>
                     {canEdit && (
@@ -622,7 +525,7 @@ export function CaixasTab({
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <h3 className="text-sm font-bold text-zinc-900">
-                  Conferência de produtos com pendência ({pendenciasFiltradas.length})
+                  Pendências de caixa e Qtde/Cx ({pendenciasFiltradas.length})
                 </h3>
                 <p className="text-xs text-zinc-500">
                   Vincule caixas ou Qtde/Cx individualmente ou selecione vários produtos para atualizar em lote.
@@ -682,7 +585,8 @@ export function CaixasTab({
               <div className="rounded-xl border border-zinc-300 bg-zinc-900 text-white p-3 flex flex-wrap items-center gap-2 text-xs">
                 <div className="flex items-center gap-2 mr-auto">
                   <span className="font-bold">
-                    {selecionados.size} {selecionados.size === 1 ? 'produto selecionado' : 'produtos selecionados'}
+                    {selecionados.size}{' '}
+                    {selecionados.size === 1 ? 'produto selecionado' : 'produtos selecionados'}
                   </span>
                   <button
                     type="button"
@@ -718,7 +622,7 @@ export function CaixasTab({
                 <button
                   type="button"
                   onClick={aplicarEmLote}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-extrabold cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg bg-white hover:bg-zinc-100 text-zinc-900 font-bold cursor-pointer"
                 >
                   Aplicar em {selecionados.size}
                 </button>
@@ -732,7 +636,7 @@ export function CaixasTab({
                     {canEdit && <th className="w-8 text-center" />}
                     <th>Produto</th>
                     <th>Pendência</th>
-                    <th>Fórmula ERP</th>
+                    <th>Fórmula / Kit</th>
                     <th>Caixa Embarque</th>
                     <th>Qtde/Cx</th>
                     <th className="text-right">Ação</th>
@@ -893,6 +797,118 @@ export function CaixasTab({
           </div>
         </div>
       )}
+
+      {/* Drawer canônico para Criar/Editar Caixa */}
+      <Drawer
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        size="md"
+        title={editCxId ? `Editar Caixa ${cxCod}` : 'Nova Caixa de Embarque'}
+        subtitle="Informe código, medidas externas em cm e vínculo opcional com insumo 9.04.xxx"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(false)}
+              className="px-3 py-2 text-xs font-bold rounded-xl border border-zinc-200 bg-white text-zinc-700 cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={salvandoCx || !cxCod.trim() || !cxNome.trim()}
+              onClick={() => void gravarCaixa()}
+              className="px-4 py-2 text-xs font-bold rounded-xl bg-zinc-900 text-white disabled:opacity-50 cursor-pointer"
+            >
+              {salvandoCx ? 'Salvando...' : editCxId ? 'Salvar Caixa' : 'Cadastrar Caixa'}
+            </button>
+          </div>
+        }
+      >
+        <form onSubmit={gravarCaixa} className="p-4 sm:p-5 space-y-3 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <label className="space-y-1">
+              <span className="font-semibold text-zinc-600 block">Código</span>
+              <input
+                required
+                value={cxCod}
+                onChange={(e) => setCxCod(e.target.value)}
+                placeholder="Ex: 29"
+                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white"
+              />
+            </label>
+            <label className="space-y-1 sm:col-span-2">
+              <span className="font-semibold text-zinc-600 block">Nome / Descrição</span>
+              <input
+                required
+                value={cxNome}
+                onChange={(e) => setCxNome(e.target.value)}
+                placeholder="Caixa 29 (20×23×15)"
+                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white"
+              />
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <label className="space-y-1">
+              <span className="font-semibold text-zinc-600 block">Altura (cm)</span>
+              <input
+                required
+                type="number"
+                step="0.1"
+                value={cxAlt}
+                onChange={(e) => setCxAlt(e.target.value)}
+                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="font-semibold text-zinc-600 block">Compr. (cm)</span>
+              <input
+                required
+                type="number"
+                step="0.1"
+                value={cxComp}
+                onChange={(e) => setCxComp(e.target.value)}
+                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="font-semibold text-zinc-600 block">Largura (cm)</span>
+              <input
+                required
+                type="number"
+                step="0.1"
+                value={cxLarg}
+                onChange={(e) => setCxLarg(e.target.value)}
+                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="font-semibold text-zinc-600 block">Empilh. máx.</span>
+              <input
+                required
+                type="number"
+                min={1}
+                value={cxEmp}
+                onChange={(e) => setCxEmp(e.target.value)}
+                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono"
+              />
+            </label>
+          </div>
+
+          <label className="space-y-1 block">
+            <span className="font-semibold text-zinc-600 block">
+              Insumo ERP (código na fórmula ou composição de kit, ex.: 9.04.063)
+            </span>
+            <input
+              value={cxInsumo}
+              onChange={(e) => setCxInsumo(e.target.value)}
+              placeholder="Opcional — separa múltiplos por vírgula"
+              className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono"
+            />
+          </label>
+        </form>
+      </Drawer>
     </div>
   );
 }

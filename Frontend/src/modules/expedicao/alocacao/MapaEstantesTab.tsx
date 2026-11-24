@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
-  ArrowLeftRight,
   AlertTriangle,
+  ArrowLeftRight,
   Building2,
   Grid3X3,
   Layers,
@@ -11,33 +11,10 @@ import {
   ScanBarcode,
   Settings,
 } from 'lucide-react';
-import {
-  BotaoAcao,
-  FilterBar,
-  FiltroSelect,
-  StatusBadge,
-} from '../../geral/components/ui/ReportKit';
-import { rotuloLinha, type LinhaBase } from '../../geral/lib/linhas';
-import type { Estrutura, PosicaoComItens, ProdutoDimensao } from './types';
-
-const LINHA_CORES = [
-  '#10b981',
-  '#0ea5e9',
-  '#8b5cf6',
-  '#f59e0b',
-  '#ec4899',
-  '#14b8a6',
-  '#6366f1',
-  '#ef4444',
-];
-
-function corDaLinha(prefix: string): string {
-  let hash = 0;
-  for (let i = 0; i < prefix.length; i++) {
-    hash = (hash * 31 + prefix.charCodeAt(i)) >>> 0;
-  }
-  return LINHA_CORES[hash % LINHA_CORES.length];
-}
+import { BotaoAcao, FilterBar, StatusBadge } from '../../geral/components/ui/ReportKit';
+import type { LinhaBase } from '../../geral/lib/linhas';
+import { rotuloGrupoAlocacao } from './api';
+import type { AlocacaoItemView, Estrutura, PosicaoComItens, ProdutoDimensao } from './types';
 
 interface MapaEstantesTabProps {
   estruturas: Estrutura[];
@@ -67,7 +44,7 @@ export function MapaEstantesTab({
   onGerenciarEstruturas,
 }: MapaEstantesTabProps) {
   const [modoVisao, setModoVisao] = useState<'2d' | 'grade'>('2d');
-  const [sentidoInverso, setSentidoInverso] = useState(true); // G -> A como na planilha Mapas_0309
+  const [sentidoInverso, setSentidoInverso] = useState(true);
   const [detalhado, setDetalhado] = useState(false);
   const [busca, setBusca] = useState('');
   const [andarFiltro, setAndarFiltro] = useState('ALL');
@@ -81,7 +58,46 @@ export function MapaEstantesTab({
 
   const termo = busca.trim().toLowerCase();
 
-  // Agrupamento dos galpões para o mini-mapa
+  const prodPorCodigo = useMemo(() => {
+    const m = new Map<string, ProdutoDimensao>();
+    for (const p of produtos) m.set(p.codigo, p);
+    return m;
+  }, [produtos]);
+
+  const estiloItem = (item: AlocacaoItemView, posEstouro: boolean) => {
+    const p = prodPorCodigo.get(item.produtoCodigo);
+    if (item.estouroAltura || posEstouro) {
+      return {
+        box: 'bg-red-50 border-red-500 text-red-900',
+        cell: 'bg-red-200/80',
+        borda: 'border-red-500',
+        dot: 'bg-red-500',
+      };
+    }
+    if (p?.ehColoracao) {
+      return {
+        box: 'bg-amber-50 border-amber-400 text-amber-950',
+        cell: 'bg-amber-200/75',
+        borda: 'border-amber-500',
+        dot: 'bg-amber-500',
+      };
+    }
+    if (p?.ehKit) {
+      return {
+        box: 'bg-zinc-200 border-zinc-700 text-zinc-900',
+        cell: 'bg-zinc-400/60',
+        borda: 'border-zinc-900',
+        dot: 'bg-zinc-900',
+      };
+    }
+    return {
+      box: 'bg-zinc-100 border-zinc-400 text-zinc-900',
+      cell: 'bg-zinc-300/75',
+      borda: 'border-zinc-400',
+      dot: 'bg-zinc-400',
+    };
+  };
+
   const galpoesAgrupados = useMemo(() => {
     const mapa = new Map<string, Estrutura[]>();
     for (const e of estruturas) {
@@ -90,6 +106,11 @@ export function MapaEstantesTab({
     }
     return Array.from(mapa.entries());
   }, [estruturas]);
+
+  const estruturaAtiva = useMemo(
+    () => estruturas.find((e) => e.id === estruturaAtivaId) ?? null,
+    [estruturas, estruturaAtivaId],
+  );
 
   const colunas = useMemo(() => {
     const mapa = new Map<string, number>();
@@ -107,7 +128,6 @@ export function MapaEstantesTab({
   );
   const nivelUnico = andares.length === 1;
 
-  // Cotas acumuladas de baixo (Prateleira 1 no piso = 0) para cima
   const infoPrateleiras = useMemo(() => {
     const asc = [...andares].sort((a, b) => a - b);
     let acumCm = 0;
@@ -195,11 +215,6 @@ export function MapaEstantesTab({
           ? 'grid-cols-2 lg:grid-cols-4 xl:grid-cols-7'
           : 'grid-cols-2 lg:grid-cols-4 xl:grid-cols-6';
 
-  const rotuloDedicacao = (e: Estrutura) => {
-    if (!e.linhasPermitidas || e.linhasPermitidas.length === 0) return 'Livre (Todas)';
-    return e.linhasPermitidas.map((lp) => rotuloLinha(linhasConfigs, lp)).join(' + ');
-  };
-
   const handleDropPosicao = async (e: React.DragEvent, posId: string) => {
     e.preventDefault();
     setDropTargetId(null);
@@ -209,7 +224,7 @@ export function MapaEstantesTab({
       const raw = e.dataTransfer.getData('application/json');
       if (raw) payload = JSON.parse(raw);
     } catch {
-      /* fallback estado local */
+      /* fallback */
     }
     setDragInfo(null);
     if (!payload || payload.origemPosicaoId === posId) return;
@@ -217,124 +232,61 @@ export function MapaEstantesTab({
   };
 
   return (
-    <div className="space-y-3">
-      {/* Mini-mapa dos Galpões & Prateleiras */}
-      <div className="panel-card !p-3 space-y-2.5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-xs font-extrabold text-zinc-800">
-            <Building2 className="h-3.5 w-3.5 text-zinc-500" />
-            Mini-mapa dos Galpões e Prateleiras
-          </div>
-          <button
-            type="button"
-            onClick={onGerenciarEstruturas}
-            className="text-[11px] font-bold text-zinc-700 hover:text-zinc-950 flex items-center gap-1 cursor-pointer"
-          >
-            <Settings className="h-3 w-3" />
-            Configurar Galpões & Linhas
-          </button>
+    <div className="space-y-2.5">
+      {/* Seletor compacto de Galpão / Prateleira (sem KPI cards) */}
+      <div className="panel-card !px-3 !py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          {galpoesAgrupados.map(([galpaoNome, listas]) => (
+            <div key={galpaoNome} className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-bold text-zinc-500 flex items-center gap-1">
+                <Building2 className="h-3 w-3" />
+                {galpaoNome}:
+              </span>
+              {listas.map((est) => {
+                const ativa = est.id === estruturaAtivaId;
+                return (
+                  <button
+                    key={est.id}
+                    type="button"
+                    onClick={() => onChangeEstrutura(est.id)}
+                    className={`px-2.5 py-1 min-h-[34px] max-sm:min-h-[40px] rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
+                      ativa
+                        ? 'bg-zinc-900 text-white border-zinc-900'
+                        : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
+                    }`}
+                  >
+                    {est.nome}{' '}
+                    <span className={`font-mono text-[10px] ${ativa ? 'text-zinc-300' : 'text-zinc-400'}`}>
+                      ({est.posicoesOcupadas}/{est.totalPosicoes})
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-2.5">
-          {galpoesAgrupados.map(([galpaoNome, listas]) => {
-            const ehGalpao1 = listas.length > 1;
-            return (
-              <div
-                key={galpaoNome}
-                className={`rounded-xl border border-zinc-200 bg-zinc-50/70 p-2.5 space-y-2 ${
-                  ehGalpao1 ? 'lg:col-span-2' : 'lg:col-span-1'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-zinc-600 uppercase tracking-wider">
-                  <span>{galpaoNome}</span>
-                  <span className="font-mono text-zinc-500">
-                    {listas.length} {listas.length === 1 ? 'área' : 'prateleiras'}
-                  </span>
-                </div>
-                <div
-                  className={`grid gap-2 ${
-                    ehGalpao1 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1'
-                  }`}
-                >
-                  {listas.map((est) => {
-                    const ativa = est.id === estruturaAtivaId;
-                    const pct = Math.round(est.ocupacaoMediaPct ?? 0);
-                    return (
-                      <button
-                        key={est.id}
-                        type="button"
-                        onClick={() => onChangeEstrutura(est.id)}
-                        className={`text-left rounded-xl border p-2.5 min-h-[44px] transition-all cursor-pointer space-y-1.5 ${
-                          ativa
-                            ? 'border-zinc-900 bg-white ring-2 ring-zinc-900/15 shadow-sm'
-                            : 'border-zinc-200 bg-white/80 hover:border-zinc-400'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-1">
-                          <span className="text-xs font-extrabold text-zinc-900 leading-tight">
-                            {est.nome}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1">
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                              est.linhasPermitidas.length > 0
-                                ? 'bg-amber-50 border border-amber-200 text-amber-900'
-                                : 'bg-zinc-100 border border-zinc-200 text-zinc-600'
-                            }`}
-                          >
-                            {rotuloDedicacao(est)}
-                          </span>
-                          <span className="text-[10px] font-mono text-zinc-500 ml-auto">
-                            {est.posicoesOcupadas}/{est.totalPosicoes} vãos
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <div className="h-1.5 flex-1 rounded-full bg-zinc-100 overflow-hidden">
-                            <div
-                              className={`h-full ${
-                                pct >= 85
-                                  ? 'bg-amber-500'
-                                  : pct > 0
-                                    ? 'bg-emerald-500'
-                                    : 'bg-zinc-300'
-                              }`}
-                              style={{ width: `${Math.min(100, pct)}%` }}
-                            />
-                          </div>
-                          <span className="text-[10px] font-mono font-bold text-zinc-600">
-                            {pct}%
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <button
+          type="button"
+          onClick={onGerenciarEstruturas}
+          className="text-[11px] font-semibold text-zinc-600 hover:text-zinc-900 flex items-center gap-1 cursor-pointer shrink-0"
+        >
+          <Settings className="h-3.5 w-3.5" />
+          Configurar
+        </button>
       </div>
 
-      {/* Barra de busca + modo de exibição */}
+      {/* Barra única de busca e controles */}
       <div onKeyDown={handleBuscaKeyDown}>
         <FilterBar
           busca={busca}
           onBusca={setBusca}
           placeholder="Bipar código de barras, produto (ex.: 2.13.036, Argan) ou posição (A1)..."
         >
-          {estruturas.length > 0 && (
-            <FiltroSelect
-              value={estruturaAtivaId}
-              onChange={onChangeEstrutura}
-              opcoes={estruturas.map((e) => ({ valor: e.id, rotulo: e.nome }))}
-            />
-          )}
-          <div className="hidden md:flex items-center rounded-xl border border-zinc-200 bg-white p-0.5">
+          <div className="hidden md:flex items-center rounded-lg border border-zinc-200 bg-zinc-50 p-0.5">
             <button
               type="button"
               onClick={() => setModoVisao('2d')}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer ${
+              className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1 cursor-pointer ${
                 modoVisao === '2d'
                   ? 'bg-zinc-900 text-white'
                   : 'text-zinc-600 hover:text-zinc-900'
@@ -346,7 +298,7 @@ export function MapaEstantesTab({
             <button
               type="button"
               onClick={() => setModoVisao('grade')}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer ${
+              className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1 cursor-pointer ${
                 modoVisao === 'grade'
                   ? 'bg-zinc-900 text-white'
                   : 'text-zinc-600 hover:text-zinc-900'
@@ -391,12 +343,9 @@ export function MapaEstantesTab({
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span
-                      className="inline-block h-2.5 w-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: corDaLinha(p.linhaPrefix) }}
-                    />
-                    <span className="font-mono font-extrabold text-zinc-900">{p.codigo}</span>
-                    <span className="font-semibold text-zinc-800 truncate">{p.descricao}</span>
+                    <span className="font-mono font-bold text-zinc-900">{p.codigo}</span>
+                    <span className="font-medium text-zinc-800 truncate">{p.descricao}</span>
+                    <StatusBadge variante="aguardando">{p.grupoAlocacaoNome}</StatusBadge>
                   </div>
                   <div className="mt-0.5 text-[11px] text-zinc-500 flex flex-wrap gap-2">
                     <span>{p.caixaCodigo ? `CX ${p.caixaCodigo}` : 'Sem caixa'}</span>
@@ -412,7 +361,7 @@ export function MapaEstantesTab({
                         key={`qk-pk-${cod}`}
                         type="button"
                         onClick={() => (target ? onSelectPosicao(target) : onAbrirProduto(p))}
-                        className="px-2.5 py-1.5 min-h-[36px] rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-900 font-mono font-bold text-xs flex items-center gap-1 hover:bg-emerald-100 cursor-pointer"
+                        className="px-2.5 py-1.5 min-h-[36px] rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 font-mono font-bold text-xs flex items-center gap-1 hover:bg-emerald-100 cursor-pointer"
                       >
                         <MapPin className="h-3 w-3" /> Pick {cod}
                       </button>
@@ -425,7 +374,7 @@ export function MapaEstantesTab({
                         key={`qk-pl-${cod}`}
                         type="button"
                         onClick={() => (target ? onSelectPosicao(target) : onAbrirProduto(p))}
-                        className="px-2.5 py-1.5 min-h-[36px] rounded-lg bg-zinc-100 border border-zinc-300 text-zinc-900 font-mono font-bold text-xs flex items-center gap-1 hover:bg-zinc-200 cursor-pointer"
+                        className="px-2.5 py-1.5 min-h-[36px] rounded-lg bg-zinc-100 border border-zinc-200 text-zinc-800 font-mono font-bold text-xs flex items-center gap-1 hover:bg-zinc-200 cursor-pointer"
                       >
                         <MapPin className="h-3 w-3" /> Pulmão {cod}
                       </button>
@@ -437,7 +386,7 @@ export function MapaEstantesTab({
                       onClick={() => onAbrirProduto(p)}
                       className="px-2.5 py-1.5 min-h-[36px] rounded-lg bg-zinc-900 text-white font-bold text-xs cursor-pointer"
                     >
-                      Sem endereço · Alocar
+                      Alocar
                     </button>
                   )}
                 </div>
@@ -453,39 +402,45 @@ export function MapaEstantesTab({
         </div>
       ) : (
         <>
-          {/* DESENHO 2D PROPORCIONAL (Desktop) */}
+          {/* DESENHO 2D PROPORCIONAL HSL ZINC (Desktop) */}
           {modoVisao === '2d' && (
             <div className="hidden md:block panel-card !p-3 space-y-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="font-extrabold text-zinc-900">
-                    Vista Frontal 2D Proporcional
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-bold text-zinc-900">
+                    {estruturaAtiva?.nome ?? 'Vista Frontal 2D'}
                   </span>
+                  {estruturaAtiva && estruturaAtiva.linhasPermitidas.length > 0 && (
+                    <StatusBadge variante="aguardando">
+                      {estruturaAtiva.linhasPermitidas
+                        .map((lp) => rotuloGrupoAlocacao(lp, linhasConfigs))
+                        .join(' + ')}
+                    </StatusBadge>
+                  )}
                   <span className="font-mono text-[11px] text-zinc-500">
-                    Altura total: {infoPrateleiras.alturaTotalM.toFixed(2)} m ·{' '}
-                    {colunas.length} colunas ({colunas[0]}…{colunas[colunas.length - 1]})
+                    {infoPrateleiras.alturaTotalM.toFixed(2)} m · {colunas.length} colunas
                   </span>
                 </div>
                 {canEdit && (
                   <span className="text-[11px] text-zinc-400">
-                    Clique num vão para editar ou arraste uma pilha entre posições
+                    Clique num vão para editar ou arraste uma pilha para mover
                   </span>
                 )}
               </div>
 
-              {/* Cabeçalho das colunas alinhado ao desenho */}
+              {/* Cabeçalho das colunas */}
               <div className="flex items-center gap-2 pl-[88px] pr-1">
                 {colunas.map((col) => (
                   <div
                     key={`hdr-${col}`}
-                    className="flex-1 min-w-0 text-center font-mono text-xs font-extrabold text-zinc-700 bg-zinc-100 rounded-md py-0.5"
+                    className="flex-1 min-w-0 text-center font-mono text-[11px] font-bold text-zinc-700 bg-zinc-100 border border-zinc-200 rounded-md py-0.5"
                   >
-                    Coluna {col}
+                    {col}
                   </div>
                 ))}
               </div>
 
-              {/* Corpo do Porta-paletes / Pátio: níveis do topo até o piso */}
+              {/* Porta-paletes industrial em HSL Zinc */}
               <div className="space-y-0">
                 {andares.map((andar) => {
                   const posAndar = posicoes.filter((p) => p.andar === andar);
@@ -500,13 +455,13 @@ export function MapaEstantesTab({
 
                   return (
                     <div key={`2d-prat-${andar}`} className="flex items-stretch gap-2">
-                      {/* Régua vertical de cota à esquerda */}
+                      {/* Régua vertical de cotas */}
                       <div className="w-[80px] shrink-0 flex flex-col justify-between py-1 pr-1.5 text-right border-r border-zinc-200">
-                        <div className="text-[10px] font-mono font-bold text-zinc-500 leading-none">
+                        <div className="text-[10px] font-mono font-semibold text-zinc-500 leading-none">
                           {(meta ? meta.topoCm / 100 : 0).toFixed(2)} m
                         </div>
                         <div className="space-y-0.5">
-                          <div className="text-[11px] font-extrabold text-zinc-800 leading-tight">
+                          <div className="text-[11px] font-bold text-zinc-800 leading-tight">
                             {nivelUnico ? 'Pátio' : `Prat. ${andar}`}
                           </div>
                           <div className="text-[9.5px] font-mono text-zinc-500 leading-none">
@@ -514,8 +469,8 @@ export function MapaEstantesTab({
                             <span
                               className={
                                 meta?.papel === 'Picking'
-                                  ? 'text-emerald-700 font-bold'
-                                  : 'text-amber-700 font-bold'
+                                  ? 'text-emerald-700 font-semibold'
+                                  : 'text-zinc-600 font-semibold'
                               }
                             >
                               {meta?.papel}
@@ -527,10 +482,10 @@ export function MapaEstantesTab({
                         </div>
                       </div>
 
-                      {/* Vãos com montantes azuis e longarinas âmbar */}
+                      {/* Montantes e longarinas em zinc industrial */}
                       <div className="flex-1 min-w-0 flex flex-col">
                         <div
-                          className="flex items-stretch bg-zinc-50/50 border-l-[5px] border-blue-700"
+                          className="flex items-stretch bg-zinc-50/40 border-l-[5px] border-zinc-800"
                           style={{ height: `${heightPx}px` }}
                         >
                           {colunas.map((col) => {
@@ -543,8 +498,10 @@ export function MapaEstantesTab({
                             return (
                               <div
                                 key={`2d-${andar}-${col}`}
-                                className={`flex-1 min-w-0 border-r-[5px] border-blue-700 grid ${
-                                  slots.length > 1 ? 'grid-cols-2 divide-x divide-zinc-300/70' : 'grid-cols-1'
+                                className={`flex-1 min-w-0 border-r-[5px] border-zinc-800 grid ${
+                                  slots.length > 1
+                                    ? 'grid-cols-2 divide-x divide-zinc-200'
+                                    : 'grid-cols-1'
                                 }`}
                               >
                                 {slots.map((pos) => {
@@ -590,21 +547,20 @@ export function MapaEstantesTab({
                                         isDropTarget
                                           ? 'bg-zinc-200 ring-2 ring-inset ring-zinc-900'
                                           : pos.temEstouro
-                                            ? 'bg-rose-50/90 ring-1 ring-inset ring-rose-400'
+                                            ? 'bg-red-50/80 ring-1 ring-inset ring-red-400'
                                             : casaBusca
-                                              ? 'bg-amber-50/70 ring-2 ring-inset ring-zinc-900'
+                                              ? 'bg-amber-50 ring-2 ring-inset ring-zinc-900'
                                               : pos.itens.length > 0
                                                 ? 'bg-white hover:bg-zinc-50'
                                                 : 'bg-zinc-50/40 hover:bg-white'
                                       } ${apagado ? 'opacity-30' : ''}`}
                                     >
-                                      {/* Rótulo do endereço no topo do vão */}
                                       <div className="absolute top-0.5 left-1 right-1 flex items-center justify-between pointer-events-none">
-                                        <span className="font-mono text-[9px] font-extrabold text-zinc-700 leading-none">
+                                        <span className="font-mono text-[9px] font-bold text-zinc-600 leading-none">
                                           {pos.codigo}
                                         </span>
                                         {pos.temEstouro && (
-                                          <AlertTriangle className="h-2.5 w-2.5 text-rose-600 shrink-0" />
+                                          <AlertTriangle className="h-2.5 w-2.5 text-red-600 shrink-0" />
                                         )}
                                       </div>
 
@@ -634,7 +590,7 @@ export function MapaEstantesTab({
                                                   ),
                                                 )
                                               : 60;
-                                          const cor = corDaLinha(item.linhaPrefix);
+                                          const st = estiloItem(item, pos.temEstouro);
                                           return (
                                             <div
                                               key={item.id}
@@ -659,25 +615,19 @@ export function MapaEstantesTab({
                                                 setDropTargetId(null);
                                               }}
                                               title={`${item.produtoCodigo} — ${item.produtoDescricao} · ${item.fileirasLargura}fil×${item.camadasAltura}cam = ${item.totalCaixas} cx`}
-                                              style={{
-                                                width: `${wPct}%`,
-                                                height: `${hPct}%`,
-                                                backgroundColor: `${cor}26`,
-                                                borderColor: item.estouroAltura ? '#e11d48' : cor,
-                                              }}
-                                              className={`min-w-0 rounded-t-[2px] border-[1.5px] flex flex-col justify-between p-[1px] overflow-hidden select-none ${
+                                              style={{ width: `${wPct}%`, height: `${hPct}%` }}
+                                              className={`min-w-0 rounded-t-[2px] border flex flex-col justify-between p-[1px] overflow-hidden select-none ${st.box} ${
                                                 canEdit ? 'cursor-grab active:cursor-grabbing' : ''
                                               }`}
                                             >
                                               <div className="flex items-center justify-between gap-0.5 leading-none">
-                                                <span className="font-mono text-[7.5px] font-extrabold text-zinc-900 truncate">
+                                                <span className="font-mono text-[7.5px] font-bold truncate">
                                                   {item.produtoCodigo}
                                                 </span>
                                                 {item.fixado && (
-                                                  <Lock className="h-2 w-2 text-zinc-600 shrink-0" />
+                                                  <Lock className="h-2 w-2 opacity-60 shrink-0" />
                                                 )}
                                               </div>
-                                              {/* Indicação visual de camadas empilhadas */}
                                               <div
                                                 className="flex-1 grid gap-[1px] mt-[1px]"
                                                 style={{
@@ -698,8 +648,7 @@ export function MapaEstantesTab({
                                                 }).map((_, idx) => (
                                                   <div
                                                     key={idx}
-                                                    style={{ backgroundColor: `${cor}40` }}
-                                                    className="rounded-[1px]"
+                                                    className={`rounded-[1px] ${st.cell}`}
                                                   />
                                                 ))}
                                               </div>
@@ -714,40 +663,41 @@ export function MapaEstantesTab({
                             );
                           })}
                         </div>
-                        {/* Longarina âmbar na base da prateleira */}
-                        <div className="h-[5px] w-full bg-amber-500 border-b border-amber-700/40" />
+                        {/* Longarina neutra */}
+                        <div className="h-[5px] w-full bg-zinc-400 border-b border-zinc-500/60" />
                       </div>
                     </div>
                   );
                 })}
-                {/* Piso */}
                 <div className="flex items-center gap-2">
-                  <div className="w-[80px] shrink-0 text-right pr-1.5 text-[9.5px] font-mono font-bold text-zinc-500">
+                  <div className="w-[80px] shrink-0 text-right pr-1.5 text-[9.5px] font-mono font-semibold text-zinc-500">
                     Piso 0,00 m
                   </div>
-                  <div className="flex-1 h-[3px] bg-zinc-400 rounded-full" />
+                  <div className="flex-1 h-[3px] bg-zinc-300 rounded-full" />
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px] text-zinc-500">
-                <span className="flex items-center gap-1">
-                  <span className="inline-block w-3 h-2 bg-blue-700 rounded-xs" /> Montante azul
+              <div className="flex flex-wrap items-center gap-4 pt-1 text-[11px] text-zinc-500">
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-3 h-2.5 bg-zinc-100 border border-zinc-400 rounded-xs" /> Linha
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-3 h-2.5 bg-zinc-200 border border-zinc-700 rounded-xs" /> Kits
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-3 h-2.5 bg-amber-50 border border-amber-400 rounded-xs" /> Coloração
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-3 h-2.5 bg-red-50 border border-red-500 rounded-xs" /> Estouro
                 </span>
                 <span className="flex items-center gap-1">
-                  <span className="inline-block w-3 h-2 bg-amber-500 rounded-xs" /> Longarina âmbar
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="inline-block w-3 h-2 border border-rose-500 bg-rose-100 rounded-xs" />{' '}
-                  Estouro altura/largura
-                </span>
-                <span className="flex items-center gap-1">
-                  <Lock className="h-3 w-3 text-zinc-500" /> Posição fixada
+                  <Lock className="h-3 w-3 text-zinc-500" /> Fixado
                 </span>
               </div>
             </div>
           )}
 
-          {/* GRADE CÓDIGOS (Desktop quando selecionada) */}
+          {/* GRADE CÓDIGOS (Desktop) */}
           {modoVisao === 'grade' && (
             <div className="hidden md:block space-y-2.5">
               {andares.map((andar) => {
@@ -768,9 +718,7 @@ export function MapaEstantesTab({
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 pb-1.5">
                       <div className="flex items-center gap-2">
                         <Layers className="h-3.5 w-3.5 text-zinc-500" />
-                        <span className="text-xs font-extrabold text-zinc-900">
-                          {rotuloPrat}
-                        </span>
+                        <span className="text-xs font-bold text-zinc-900">{rotuloPrat}</span>
                         <StatusBadge
                           variante={refPos?.papel === 'pulmao' ? 'aguardando' : 'saudavel'}
                         >
@@ -837,7 +785,7 @@ export function MapaEstantesTab({
                                     isDropTarget
                                       ? 'border-zinc-900 bg-zinc-100 ring-2 ring-zinc-900/30'
                                       : pos.temEstouro
-                                        ? 'border-rose-300 bg-rose-50/60 hover:border-rose-400'
+                                        ? 'border-red-300 bg-red-50/60 hover:border-red-400'
                                         : casaBusca
                                           ? 'border-zinc-900 bg-white ring-2 ring-zinc-900/25'
                                           : pos.itens.length > 0
@@ -846,7 +794,7 @@ export function MapaEstantesTab({
                                   } ${apagadoPorBusca ? 'opacity-35' : ''}`}
                                 >
                                   <div className="flex items-center justify-between gap-0.5 mb-0.5">
-                                    <span className="font-mono text-[9.5px] font-extrabold text-zinc-900 leading-none">
+                                    <span className="font-mono text-[9.5px] font-bold text-zinc-900 leading-none">
                                       {pos.codigo}
                                     </span>
                                     <span className="font-mono text-[8.5px] font-semibold text-zinc-500 leading-none">
@@ -858,7 +806,7 @@ export function MapaEstantesTab({
                                     <div
                                       className={`h-full ${
                                         pos.temEstouro
-                                          ? 'bg-rose-500'
+                                          ? 'bg-red-500'
                                           : pos.ocupacaoPct >= 90
                                             ? 'bg-amber-500'
                                             : pos.itens.length > 0
@@ -877,55 +825,57 @@ export function MapaEstantesTab({
                                     </div>
                                   ) : (
                                     <div className="space-y-0.5">
-                                      {pos.itens.slice(0, detalhado ? 6 : 5).map((item) => (
-                                        <div
-                                          key={item.id}
-                                          draggable={canEdit}
-                                          onDragStart={(e) => {
-                                            if (!canEdit) return;
-                                            e.stopPropagation();
-                                            const p = {
-                                              alocacaoId: item.id,
-                                              origemPosicaoId: pos.id,
-                                              produtoCodigo: item.produtoCodigo,
-                                            };
-                                            setDragInfo(p);
-                                            e.dataTransfer.effectAllowed = 'move';
-                                            e.dataTransfer.setData(
-                                              'application/json',
-                                              JSON.stringify(p),
-                                            );
-                                          }}
-                                          onDragEnd={() => {
-                                            setDragInfo(null);
-                                            setDropTargetId(null);
-                                          }}
-                                          title={`${item.produtoCodigo} — ${item.produtoDescricao} (${item.nomeLinha}) · ${item.fileirasLargura}×${item.camadasAltura} · ${item.totalCaixas} cx`}
-                                          style={{ borderLeftColor: corDaLinha(item.linhaPrefix) }}
-                                          className={`rounded-r border-l-[3px] pl-1 transition-colors ${
-                                            canEdit
-                                              ? 'hover:bg-zinc-100 cursor-grab active:cursor-grabbing'
-                                              : ''
-                                          }`}
-                                        >
-                                          <div className="flex items-center justify-between gap-0.5 text-[9.5px] leading-tight">
-                                            <span className="font-mono font-bold tracking-tighter text-zinc-800 whitespace-nowrap">
-                                              {item.produtoCodigo}
-                                            </span>
-                                            {detalhado && item.fixado && (
-                                              <Lock className="h-2 w-2 text-zinc-400 shrink-0" />
+                                      {pos.itens.slice(0, detalhado ? 6 : 5).map((item) => {
+                                        const st = estiloItem(item, pos.temEstouro);
+                                        return (
+                                          <div
+                                            key={item.id}
+                                            draggable={canEdit}
+                                            onDragStart={(e) => {
+                                              if (!canEdit) return;
+                                              e.stopPropagation();
+                                              const p = {
+                                                alocacaoId: item.id,
+                                                origemPosicaoId: pos.id,
+                                                produtoCodigo: item.produtoCodigo,
+                                              };
+                                              setDragInfo(p);
+                                              e.dataTransfer.effectAllowed = 'move';
+                                              e.dataTransfer.setData(
+                                                'application/json',
+                                                JSON.stringify(p),
+                                              );
+                                            }}
+                                            onDragEnd={() => {
+                                              setDragInfo(null);
+                                              setDropTargetId(null);
+                                            }}
+                                            title={`${item.produtoCodigo} — ${item.produtoDescricao} (${item.nomeLinha}) · ${item.fileirasLargura}×${item.camadasAltura} · ${item.totalCaixas} cx`}
+                                            className={`rounded-r border-l-[3px] pl-1 transition-colors ${st.borda} ${
+                                              canEdit
+                                                ? 'hover:bg-zinc-100 cursor-grab active:cursor-grabbing'
+                                                : ''
+                                            }`}
+                                          >
+                                            <div className="flex items-center justify-between gap-0.5 text-[9.5px] leading-tight">
+                                              <span className="font-mono font-bold tracking-tighter text-zinc-800 whitespace-nowrap">
+                                                {item.produtoCodigo}
+                                              </span>
+                                              {detalhado && item.fixado && (
+                                                <Lock className="h-2 w-2 text-zinc-400 shrink-0" />
+                                              )}
+                                            </div>
+                                            {detalhado && (
+                                              <div className="flex items-center justify-between gap-1 text-[8.5px] text-zinc-500 leading-tight">
+                                                <span className="truncate">{item.produtoDescricao}</span>
+                                                <span className="font-mono shrink-0">
+                                                  {item.totalCaixas}cx
+                                                </span>
+                                              </div>
                                             )}
                                           </div>
-                                          {detalhado && (
-                                            <div className="flex items-center justify-between gap-1 text-[8.5px] text-zinc-500 leading-tight">
-                                              <span className="truncate">{item.produtoDescricao}</span>
-                                              <span className="font-mono shrink-0">
-                                                {item.totalCaixas}cx
-                                              </span>
-                                            </div>
-                                          )}
-                                        </div>
-                                      ))}
+                                        );
+                                      })}
                                       {pos.itens.length > (detalhado ? 6 : 5) && (
                                         <div className="text-[9px] font-semibold text-zinc-500 pl-0.5">
                                           +{pos.itens.length - (detalhado ? 6 : 5)} itens
@@ -935,7 +885,7 @@ export function MapaEstantesTab({
                                   )}
 
                                   {pos.temEstouro && (
-                                    <div className="mt-0.5 flex items-center gap-0.5 text-[9px] font-bold text-rose-700">
+                                    <div className="mt-0.5 flex items-center gap-0.5 text-[9px] font-bold text-red-700">
                                       <AlertTriangle className="h-2.5 w-2.5 shrink-0" /> Estouro
                                     </div>
                                   )}
@@ -958,7 +908,7 @@ export function MapaEstantesTab({
               <button
                 type="button"
                 onClick={() => setAndarFiltro('ALL')}
-                className={`px-3 py-2 rounded-xl text-xs font-bold border cursor-pointer min-h-[44px] ${
+                className={`px-3 py-2 rounded-xl text-xs font-semibold border cursor-pointer min-h-[44px] ${
                   andarFiltro === 'ALL'
                     ? 'bg-zinc-900 text-white border-zinc-900'
                     : 'bg-white text-zinc-700 border-zinc-200'
@@ -971,7 +921,7 @@ export function MapaEstantesTab({
                   key={a}
                   type="button"
                   onClick={() => setAndarFiltro(String(a))}
-                  className={`px-3 py-2 rounded-xl text-xs font-bold border cursor-pointer min-h-[44px] ${
+                  className={`px-3 py-2 rounded-xl text-xs font-semibold border cursor-pointer min-h-[44px] ${
                     andarFiltro === String(a)
                       ? 'bg-zinc-900 text-white border-zinc-900'
                       : 'bg-white text-zinc-700 border-zinc-200'
@@ -990,13 +940,13 @@ export function MapaEstantesTab({
                   onClick={() => onSelectPosicao(pos)}
                   className={`w-full text-left rounded-xl border p-3 space-y-2 min-h-[44px] cursor-pointer ${
                     pos.temEstouro
-                      ? 'border-rose-300 bg-rose-50/40'
+                      ? 'border-red-300 bg-red-50/40'
                       : 'border-zinc-200 bg-white'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm font-extrabold text-zinc-900">
+                      <span className="font-mono text-sm font-bold text-zinc-900">
                         {pos.codigo}
                       </span>
                       <StatusBadge
@@ -1013,23 +963,19 @@ export function MapaEstantesTab({
                     </span>
                   </div>
 
-                  {/* Mini barra 2D proporcional no card mobile */}
                   {pos.itens.length > 0 && (
-                    <div className="flex items-end gap-1 h-4 bg-zinc-50 border-b-2 border-amber-500 px-1 rounded-t">
+                    <div className="flex items-end gap-1 h-4 bg-zinc-50 border-b-2 border-zinc-400 px-1 rounded-t">
                       {pos.itens.map((it) => {
                         const w =
                           pos.larguraCm > 0
                             ? Math.max(10, Math.min(100, (it.larguraOcupadaCm / pos.larguraCm) * 100))
                             : 25;
+                        const st = estiloItem(it, pos.temEstouro);
                         return (
                           <div
                             key={it.id}
-                            style={{
-                              width: `${w}%`,
-                              backgroundColor: `${corDaLinha(it.linhaPrefix)}44`,
-                              borderColor: corDaLinha(it.linhaPrefix),
-                            }}
-                            className="h-3 border rounded-t-[2px]"
+                            style={{ width: `${w}%` }}
+                            className={`h-3 border rounded-t-[2px] ${st.box}`}
                           />
                         );
                       })}
@@ -1040,24 +986,24 @@ export function MapaEstantesTab({
                     <div className="text-xs text-zinc-400">Posição livre</div>
                   ) : (
                     <div className="space-y-1">
-                      {pos.itens.map((item) => (
-                        <div
-                          key={item.id}
-                          className="flex items-center justify-between gap-2 text-xs"
-                        >
-                          <span className="truncate text-zinc-800 flex items-center gap-1.5">
-                            <span
-                              className="inline-block h-2 w-2 rounded-full shrink-0"
-                              style={{ backgroundColor: corDaLinha(item.linhaPrefix) }}
-                            />
-                            <strong className="font-mono">{item.produtoCodigo}</strong> —{' '}
-                            {item.produtoDescricao}
-                          </span>
-                          <span className="font-mono text-zinc-600 shrink-0">
-                            {item.totalCaixas}cx
-                          </span>
-                        </div>
-                      ))}
+                      {pos.itens.map((item) => {
+                        const st = estiloItem(item, pos.temEstouro);
+                        return (
+                          <div
+                            key={item.id}
+                            className="flex items-center justify-between gap-2 text-xs"
+                          >
+                            <span className="truncate text-zinc-800 flex items-center gap-1.5">
+                              <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${st.dot}`} />
+                              <strong className="font-mono">{item.produtoCodigo}</strong> —{' '}
+                              {item.produtoDescricao}
+                            </span>
+                            <span className="font-mono text-zinc-600 shrink-0">
+                              {item.totalCaixas}cx
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </button>

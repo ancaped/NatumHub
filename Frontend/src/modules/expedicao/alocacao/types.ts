@@ -117,6 +117,9 @@ export interface ProdutoDimensao {
   motivoForaAbc: string | null;
   atendimento: string;
   ehKit: boolean;
+  ehColoracao: boolean;
+  grupoAlocacao: string;
+  grupoAlocacaoNome: string;
   estoqueAtual: number;
   estoqueCaixas: number | null;
   qtdeCxErp: number | null;
@@ -125,7 +128,7 @@ export interface ProdutoDimensao {
   caixaId: string | null;
   caixaCodigo: string | null;
   caixaNome: string | null;
-  caixaOrigem: 'manual' | 'erp_formula' | 'ausente' | string;
+  caixaOrigem: 'manual' | 'erp_formula' | 'kit_composicao' | 'ausente' | string;
   caixaAlturaCm: number | null;
   caixaComprimentoCm: number | null;
   caixaLarguraCm: number | null;

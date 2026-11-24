@@ -12,8 +12,9 @@ use crate::modules::geral::auth::models::AuthContext;
 
 use super::calculo::{
     agrupar_insumos_caixa_nao_vinculados, aplicar_curva_abc, calcular_camadas_compat_vao,
-    calcular_geometria_alocacao, calcular_necessidades_caixas, e_cliente_atacadista,
-    elegibilidade_abc_efetiva, situacao_alocacao_produto, sugerir_alocacao, AlocacaoExistente,
+    calcular_geometria_alocacao, calcular_necessidades_caixas, definir_grupo_alocacao,
+    e_cliente_atacadista, elegibilidade_abc_efetiva, situacao_alocacao_produto, sugerir_alocacao,
+    AlocacaoExistente,
 };
 use super::models::*;
 
@@ -314,11 +315,17 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
     }
     let caixa_por_id: HashMap<String, &Caixa> = caixas.iter().map(|c| (c.id.clone(), c)).collect();
 
-    // Kits existentes
+    // Kits existentes e mapa de nomes das linhas principais
     let kits_vec: Vec<String> = sqlx::query_scalar("SELECT DISTINCT kit_codigo FROM kit_composicao")
         .fetch_all(pool)
         .await?;
     let kits_set: HashSet<String> = kits_vec.into_iter().collect();
+
+    let linhas_rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT linha_prefix, nome_linha FROM config_linhas")
+            .fetch_all(pool)
+            .await?;
+    let nome_por_prefix: HashMap<String, String> = linhas_rows.into_iter().collect();
 
     // Formulações para inferência automática de caixa e diagnóstico ERP
     let form_rows = sqlx::query(
@@ -351,6 +358,40 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
                 .entry(p_code.clone())
                 .or_insert_with(|| (ing_code.clone(), ing_desc.clone()));
             insumos_nao_vinculados.push((ing_code, ing_desc, p_code));
+        }
+    }
+
+    // Composição de kits (kit_composicao): fonte automática complementar para kits sem caixa na fórmula
+    let kit_rows = sqlx::query(
+        "SELECT kc.kit_codigo, TRIM(kc.componente_codigo) AS ing_code, \
+                COALESCE(NULLIF(TRIM(i.description), ''), NULLIF(TRIM(f_desc.description), ''), TRIM(kc.componente_codigo)) AS ing_desc \
+         FROM kit_composicao kc \
+         LEFT JOIN items i ON i.code = kc.componente_codigo \
+         LEFT JOIN LATERAL (SELECT description FROM formulations WHERE ingredient_code = kc.componente_codigo LIMIT 1) f_desc ON TRUE",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut caixa_por_kit_comp: HashMap<String, String> = HashMap::new();
+    for r in kit_rows {
+        let k_code: String = r.get("kit_codigo");
+        let ing_code: String = r.get("ing_code");
+        let ing_desc: String = r.get("ing_desc");
+        let ing_up = ing_code.to_ascii_uppercase();
+        let desc_up = ing_desc.to_ascii_uppercase();
+
+        if let Some(cid) = insumo_para_caixa.get(&ing_up) {
+            caixa_por_kit_comp.entry(k_code.clone()).or_insert_with(|| cid.clone());
+            insumo_caixa_por_prod
+                .entry(k_code)
+                .or_insert((ing_code, ing_desc));
+        } else if ing_up.starts_with("9.04.") || desc_up.contains("CAIXA") || desc_up.starts_with("CX ") {
+            insumo_caixa_por_prod
+                .entry(k_code.clone())
+                .or_insert_with(|| (ing_code.clone(), ing_desc.clone()));
+            if !caixa_por_formula.contains_key(&k_code) && !caixa_por_kit_comp.contains_key(&k_code) {
+                insumos_nao_vinculados.push((ing_code, ing_desc, k_code));
+            }
         }
     }
 
@@ -491,6 +532,8 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             (Some(cid), "manual".to_string())
         } else if let Some(cid) = caixa_por_formula.get(&codigo) {
             (Some(cid.clone()), "erp_formula".to_string())
+        } else if let Some(cid) = caixa_por_kit_comp.get(&codigo) {
+            (Some(cid.clone()), "kit_composicao".to_string())
         } else {
             (None, "ausente".to_string())
         };
@@ -550,6 +593,21 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         let (incluir_abc_efetivo, motivo_fora_abc) =
             elegibilidade_abc_efetiva(incluir_abc_override, &descricao, vendas_total, &situacao);
 
+        let eh_kit = kits_set.contains(&codigo);
+        let eh_coloracao = cat_raiz == "cat_coloracao";
+        let nome_principal = linha_principal
+            .as_deref()
+            .and_then(|lp| nome_por_prefix.get(lp))
+            .map(String::as_str)
+            .unwrap_or(&nome_linha);
+        let (grupo_alocacao, grupo_alocacao_nome) = definir_grupo_alocacao(
+            eh_coloracao,
+            eh_kit,
+            &linha_prefix,
+            linha_principal.as_deref(),
+            nome_principal,
+        );
+
         produtos.push(ProdutoDimensao {
             codigo: codigo.clone(),
             descricao,
@@ -562,7 +620,10 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             incluir_abc_efetivo,
             motivo_fora_abc,
             atendimento,
-            eh_kit: kits_set.contains(&codigo),
+            eh_kit,
+            eh_coloracao,
+            grupo_alocacao,
+            grupo_alocacao_nome,
             estoque_atual,
             estoque_caixas,
             qtde_cx_erp,
@@ -2067,8 +2128,24 @@ pub async fn aplicar_sugestao(
                 return false;
             }
             if let Some(ref lp) = filtro_linha {
-                if lp != "ALL" && p.linha_prefix != *lp && p.linha_principal.as_deref() != Some(lp.as_str()) {
-                    return false;
+                if lp != "ALL" {
+                    if lp == "coloracao" {
+                        if !p.eh_coloracao {
+                            return false;
+                        }
+                    } else if lp.starts_with("kits:") {
+                        if p.grupo_alocacao != *lp {
+                            return false;
+                        }
+                    } else if lp == "kits" {
+                        if !p.eh_kit {
+                            return false;
+                        }
+                    } else if p.eh_coloracao
+                        || (p.linha_prefix != *lp && p.linha_principal.as_deref() != Some(lp.as_str()))
+                    {
+                        return false;
+                    }
                 }
             }
             true
@@ -2203,6 +2280,21 @@ async fn carregar_mapa_caixas_produtos_tx(
         }
         if let Some(cx) = insumo_para_caixa.get(&ing_code.to_ascii_uppercase()) {
             out.insert(prod_cod, cx.clone());
+        }
+    }
+
+    let kit_rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT kit_codigo, TRIM(componente_codigo) FROM kit_composicao WHERE kit_codigo = ANY($1)",
+    )
+    .bind(codigos)
+    .fetch_all(&mut *tx)
+    .await?;
+    for (kit_cod, comp_code) in kit_rows {
+        if out.contains_key(&kit_cod) {
+            continue;
+        }
+        if let Some(cx) = insumo_para_caixa.get(&comp_code.to_ascii_uppercase()) {
+            out.insert(kit_cod, cx.clone());
         }
     }
     Ok(out)

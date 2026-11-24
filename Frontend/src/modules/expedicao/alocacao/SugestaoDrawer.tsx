@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Sparkles, Check, AlertTriangle } from 'lucide-react';
 import Drawer from '../../geral/components/ui/Drawer';
 import type { TipoAviso } from '../../geral/components/ui/Aviso';
-import { agruparLinhas, rotuloLinha, type LinhaBase } from '../../geral/lib/linhas';
-import { sugerirAlocacao } from './api';
+import { agruparLinhas, type LinhaBase } from '../../geral/lib/linhas';
+import { rotuloGrupoAlocacao, sugerirAlocacao } from './api';
 import type { Estrutura, SugestaoResultado } from './types';
 
 interface SugestaoDrawerProps {
@@ -126,7 +126,7 @@ export function SugestaoDrawer({
     }
   };
 
-  const opcoesLinhas = agruparLinhas(linhasConfigs);
+  const opcoesLinhas = agruparLinhas(linhasConfigs).filter((g) => g.nivel === 0);
 
   return (
     <Drawer
@@ -134,7 +134,7 @@ export function SugestaoDrawer({
       onClose={onClose}
       size="lg"
       title="Sugerir Alocação Automática"
-      subtitle="Organização híbrida: zona por linha + Curva ABC + Picking (níveis baixos) / Pulmão (altos)"
+      subtitle="Organização híbrida: zona por grupo (Linha / Kits próximos / Coloração) + Curva ABC + Picking / Pulmão"
       footer={
         <div className="flex justify-end gap-2">
           <button
@@ -161,10 +161,10 @@ export function SugestaoDrawer({
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 flex items-center gap-1.5">
             <Sparkles className="h-3.5 w-3.5 shrink-0 text-amber-600" />
             <span>
-              Prateleira ativa (<strong>{estruturaAtiva.nome}</strong>) dedicada exclusivamente às linhas:{' '}
+              Prateleira ativa (<strong>{estruturaAtiva.nome}</strong>) dedicada a:{' '}
               <strong>
                 {estruturaAtiva.linhasPermitidas
-                  .map((lp) => rotuloLinha(linhasConfigs, lp))
+                  .map((lp) => rotuloGrupoAlocacao(lp, linhasConfigs))
                   .join(', ')}
               </strong>
               .
@@ -174,18 +174,22 @@ export function SugestaoDrawer({
         <div className="panel-card !p-3 space-y-2.5">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <label className="space-y-1">
-              <span className="font-semibold text-zinc-600 block">Escopo de linha</span>
+              <span className="font-semibold text-zinc-600 block">Escopo de grupo / linha</span>
               <select
                 value={linhaPrefix}
                 onChange={(e) => setLinhaPrefix(e.target.value)}
                 className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white"
               >
-                <option value="ALL">Todas as linhas ativas</option>
+                <option value="ALL">Todos os grupos permitidos</option>
                 {opcoesLinhas.map(({ linha }) => (
-                  <option key={linha.linha_prefix} value={linha.linha_prefix}>
-                    {rotuloLinha(linhasConfigs, linha.linha_prefix)}
-                  </option>
+                  <React.Fragment key={linha.linha_prefix}>
+                    <option value={linha.linha_prefix}>{linha.nome_linha}</option>
+                    <option value={`kits:${linha.linha_prefix}`}>
+                      Kits — {linha.nome_linha}
+                    </option>
+                  </React.Fragment>
                 ))}
+                <option value="coloracao">Coloração</option>
               </select>
             </label>
             <div className="space-y-1.5 pt-1">

@@ -13,23 +13,14 @@ import Drawer from '../../geral/components/ui/Drawer';
 import { StatusBadge } from '../../geral/components/ui/ReportKit';
 import type { TipoAviso } from '../../geral/components/ui/Aviso';
 import type { PedidoPrevia } from '../../producao/lib/usePreviaServidor';
-import { rotuloLinha, type LinhaBase } from '../../geral/lib/linhas';
-import { atualizarPosicao, salvarAlocacaoPosicao } from './api';
+import type { LinhaBase } from '../../geral/lib/linhas';
+import {
+  atualizarPosicao,
+  produtoForaDasLinhasDaEstante,
+  rotuloGrupoAlocacao,
+  salvarAlocacaoPosicao,
+} from './api';
 import type { Caixa, Estrutura, PosicaoComItens, ProdutoDimensao } from './types';
-
-function produtoForaDasLinhasDaEstante(
-  prod: ProdutoDimensao,
-  estrutura?: Estrutura | null,
-): boolean {
-  const permitidas = estrutura?.linhasPermitidas ?? [];
-  if (permitidas.length === 0) return false;
-  return !permitidas.some(
-    (allowed) =>
-      prod.linhaPrefix === allowed ||
-      prod.linhaPrincipal === allowed ||
-      prod.linhaPrefix.startsWith(`${allowed}.`),
-  );
-}
 
 interface PosicaoDrawerProps {
   posicao: PosicaoComItens | null;
@@ -333,7 +324,7 @@ export function PosicaoDrawer({
             <div
               className={`h-full transition-all ${
                 posicao.temEstouro
-                  ? 'bg-rose-500'
+                  ? 'bg-red-500'
                   : posicao.ocupacaoPct >= 90
                     ? 'bg-amber-500'
                     : 'bg-emerald-500'
@@ -342,7 +333,7 @@ export function PosicaoDrawer({
             />
           </div>
           {posicao.temEstouro && (
-            <div className="flex items-center gap-1.5 text-rose-700 font-semibold">
+            <div className="flex items-center gap-1.5 text-red-700 font-semibold">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
               Há estouro de largura ou altura nesta posição.
             </div>
@@ -519,7 +510,7 @@ export function PosicaoDrawer({
                           <button
                             type="button"
                             onClick={() => removerItem(item.id, item.produtoCodigo)}
-                            className="px-2.5 py-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 font-semibold flex items-center gap-1 cursor-pointer"
+                            className="px-2.5 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 font-semibold flex items-center gap-1 cursor-pointer"
                           >
                             <Trash2 className="h-3.5 w-3.5" /> Remover
                           </button>
@@ -623,7 +614,7 @@ export function PosicaoDrawer({
                       Atenção: esta prateleira é dedicada às linhas{' '}
                       <strong>
                         {(estruturaAtiva?.linhasPermitidas ?? [])
-                          .map((lp) => rotuloLinha(linhasConfigs, lp))
+                          .map((lp) => rotuloGrupoAlocacao(lp, linhasConfigs))
                           .join(', ')}
                       </strong>
                       . Você pode gravar manualmente, mas a sugestão automática mantém linhas separadas.
