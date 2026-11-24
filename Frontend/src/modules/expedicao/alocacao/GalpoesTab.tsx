@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Building2, Plus, Search, Trash2, Users } from 'lucide-react';
+import { Building2, Plus, Search, Trash2, Upload, Users } from 'lucide-react';
 import Drawer from '../../geral/components/ui/Drawer';
 import {
   BotaoAcao,
@@ -29,6 +29,7 @@ interface GalpoesTabProps {
   canEdit: boolean;
   onSaved: () => Promise<void>;
   onVerNoMapa: (estId: string) => void;
+  onAbrirImportar?: () => void;
   avisar: (msg: string, tipo?: TipoAviso) => void;
   pedirPrevia: (p: PedidoPrevia) => Promise<void>;
 }
@@ -44,10 +45,12 @@ export function GalpoesTab({
   canEdit,
   onSaved,
   onVerNoMapa,
+  onAbrirImportar,
   avisar,
   pedirPrevia,
 }: GalpoesTabProps) {
   const [sub, setSub] = useState<'estruturas' | 'atacadistas'>('estruturas');
+  const [mostrarErpClientes, setMostrarErpClientes] = useState(false);
 
   const linhasPrincipais = useMemo(
     () =>
@@ -345,10 +348,18 @@ export function GalpoesTab({
           ]}
         />
         {sub === 'estruturas' && canEdit && (
-          <BotaoAcao primario onClick={abrirNovaEstrutura}>
-            <Plus className="h-3.5 w-3.5" />
-            Nova Prateleira
-          </BotaoAcao>
+          <div className="flex flex-wrap gap-1.5">
+            {onAbrirImportar && (
+              <BotaoAcao onClick={onAbrirImportar}>
+                <Upload className="h-3.5 w-3.5" />
+                Importar .xlsx
+              </BotaoAcao>
+            )}
+            <BotaoAcao primario onClick={abrirNovaEstrutura}>
+              <Plus className="h-3.5 w-3.5" />
+              Nova Prateleira
+            </BotaoAcao>
+          </div>
         )}
       </div>
 
@@ -375,14 +386,10 @@ export function GalpoesTab({
                       </div>
                     </td>
                     <td>
-                      <div className="text-zinc-800">{e.galpao}</div>
-                      <div className="mt-0.5">
-                        <StatusBadge
-                          variante={e.zona === 'afastado' ? 'aguardando' : 'saudavel'}
-                        >
-                          {e.zona === 'afastado' ? 'Área Secundária' : 'Área Nobre'}
-                        </StatusBadge>
-                      </div>
+                      <span className="text-zinc-800">{e.galpao}</span>
+                      <span className="text-[11px] text-zinc-500 ml-1.5">
+                        · {e.zona === 'afastado' ? 'Secundária' : 'Nobre'}
+                      </span>
                     </td>
                     <td>
                       {e.linhasPermitidas.length === 0 ? (
@@ -410,7 +417,7 @@ export function GalpoesTab({
                           onClick={() => onVerNoMapa(e.id)}
                           className="text-xs font-bold text-zinc-700 hover:underline cursor-pointer"
                         >
-                          Mapa 2D
+                          Ver mapa
                         </button>
                         {canEdit && (
                           <>
@@ -499,12 +506,23 @@ export function GalpoesTab({
       {sub === 'atacadistas' && (
         <div className="space-y-4">
           <div className="panel-card !p-4 space-y-3 text-xs">
-            <h3 className="text-sm font-bold text-zinc-900">
-              Clientes Atacadistas ({atacadistas.length})
-            </h3>
-            <p className="text-zinc-500">
-              Pedidos desses clientes alimentam o dimensionamento de <strong>Pulmão</strong>; todo o restante entra como <strong>Varejo (Picking)</strong>.
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-bold text-zinc-900">
+                Clientes Atacadistas ({atacadistas.length})
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !mostrarErpClientes;
+                  setMostrarErpClientes(next);
+                  if (next && clientesErp.length === 0) void buscarClientesErp();
+                }}
+                className="px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-xs font-semibold text-zinc-700 flex items-center gap-1 cursor-pointer"
+              >
+                <Search className="h-3.5 w-3.5" />
+                {mostrarErpClientes ? 'Ocultar busca ERP' : 'Buscar no ERP'}
+              </button>
+            </div>
             <div className="space-y-2">
               {atacadistas.map((a) => (
                 <div
@@ -585,60 +603,62 @@ export function GalpoesTab({
             )}
           </div>
 
-          <div className="panel-card !p-4 space-y-3 text-xs">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h4 className="font-bold text-zinc-800">
-                Maiores compradores no ERP ({janelaMeses} meses)
-              </h4>
-              <div className="flex gap-2">
-                <input
-                  value={buscaCliente}
-                  onChange={(e) => setBuscaCliente(e.target.value)}
-                  placeholder="Filtrar cliente ERP..."
-                  className="px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white"
-                />
-                <button
-                  type="button"
-                  onClick={() => void buscarClientesErp()}
-                  className="px-3 py-1.5 rounded-lg border border-zinc-200 bg-white font-bold flex items-center gap-1 cursor-pointer"
-                >
-                  <Search className="h-3.5 w-3.5" />
-                  {carregandoClientes ? 'Buscando...' : 'Buscar'}
-                </button>
+          {mostrarErpClientes && (
+            <div className="panel-card !p-4 space-y-3 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="font-bold text-zinc-800">
+                  Maiores compradores no ERP ({janelaMeses} meses)
+                </h4>
+                <div className="flex gap-2">
+                  <input
+                    value={buscaCliente}
+                    onChange={(e) => setBuscaCliente(e.target.value)}
+                    placeholder="Filtrar cliente ERP..."
+                    className="px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void buscarClientesErp()}
+                    className="px-3 py-1.5 rounded-lg border border-zinc-200 bg-white font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Search className="h-3.5 w-3.5" />
+                    {carregandoClientes ? 'Buscando...' : 'Buscar'}
+                  </button>
+                </div>
+              </div>
+              <div className="max-h-72 overflow-y-auto divide-y divide-zinc-100 border border-zinc-200 rounded-xl bg-white">
+                {clientesErp.map((c, idx) => (
+                  <div
+                    key={`${c.codigo ?? 'x'}-${c.nome}-${idx}`}
+                    className="px-3 py-2 flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-bold text-zinc-900 truncate">
+                        {c.codigo != null ? `[${c.codigo}] ` : ''}
+                        {c.nome}
+                      </div>
+                      <div className="text-zinc-500 font-mono text-[11px]">
+                        {c.pedidos} pedidos · {c.unidades.toLocaleString('pt-BR')} unidades
+                      </div>
+                    </div>
+                    {c.jaAtacadista ? (
+                      <StatusBadge variante="saudavel">Atacadista</StatusBadge>
+                    ) : (
+                      canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => void gravarAtacadista(c.nome, c.nome, c.codigo)}
+                          className="px-2.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 font-bold shrink-0 cursor-pointer"
+                        >
+                          + Atacadista
+                        </button>
+                      )
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
-            <div className="max-h-72 overflow-y-auto divide-y divide-zinc-100 border border-zinc-200 rounded-xl bg-white">
-              {clientesErp.map((c, idx) => (
-                <div
-                  key={`${c.codigo ?? 'x'}-${c.nome}-${idx}`}
-                  className="px-3 py-2 flex items-center justify-between gap-2"
-                >
-                  <div className="min-w-0">
-                    <div className="font-bold text-zinc-900 truncate">
-                      {c.codigo != null ? `[${c.codigo}] ` : ''}
-                      {c.nome}
-                    </div>
-                    <div className="text-zinc-500 font-mono text-[11px]">
-                      {c.pedidos} pedidos · {c.unidades.toLocaleString('pt-BR')} unidades
-                    </div>
-                  </div>
-                  {c.jaAtacadista ? (
-                    <StatusBadge variante="saudavel">Atacadista</StatusBadge>
-                  ) : (
-                    canEdit && (
-                      <button
-                        type="button"
-                        onClick={() => void gravarAtacadista(c.nome, c.nome, c.codigo)}
-                        className="px-2.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 font-bold shrink-0 cursor-pointer"
-                      >
-                        + Atacadista
-                      </button>
-                    )
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+          )}
         </div>
       )}
 

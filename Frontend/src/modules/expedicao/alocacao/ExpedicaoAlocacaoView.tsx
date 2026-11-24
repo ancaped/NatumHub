@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Box, Building2, Download, Grid3X3, ListOrdered, RefreshCw, Upload } from 'lucide-react';
+import { Box, Building2, Download, Grid3X3, ListOrdered, RefreshCw } from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
 import { BotaoAcao, ReportHeader } from '../../geral/components/ui/ReportKit';
 import { useAviso } from '../../geral/components/ui/Aviso';
@@ -96,7 +96,7 @@ export default function ExpedicaoAlocacaoView({
   const pendenciasCaixas = painel ? painel.resumo.semCaixa + painel.resumo.semQtdeCx : 0;
 
   const sidebarItems: SidebarItem[] = [
-    { id: 'mapa', label: 'Mapa 2D', icon: Grid3X3 },
+    { id: 'mapa', label: 'Mapa', icon: Grid3X3 },
     { id: 'abc', label: 'Curva ABC', icon: ListOrdered },
     {
       id: 'caixas',
@@ -144,8 +144,8 @@ export default function ExpedicaoAlocacaoView({
   );
 
   const subtitulo = painel
-    ? `${painel.resumo.alocados}/${painel.resumo.totalProdutos} produtos alocados · ${painel.resumo.posicoesOcupadas}/${painel.resumo.totalPosicoes} vãos ocupados (${painel.resumo.ocupacaoMediaPct.toFixed(0)}%)`
-    : 'Planejamento dinâmico multi-galpão, Curva ABC por linha e conferência de caixas';
+    ? `${painel.resumo.alocados}/${painel.resumo.totalProdutos} alocados · ${painel.resumo.posicoesOcupadas}/${painel.resumo.totalPosicoes} vãos (${painel.resumo.ocupacaoMediaPct.toFixed(0)}%)`
+    : 'Alocação multi-galpão e Curva ABC';
 
   return (
     <AppLayout
@@ -159,24 +159,15 @@ export default function ExpedicaoAlocacaoView({
       {elementoPrevia}
 
       <ReportHeader
-        titulo="Expedição · Alocação e Endereços"
+        titulo="Alocação e Endereços"
         subtitulo={subtitulo}
         acoes={
           <div className="flex flex-wrap gap-1.5">
-            {canEdit && (
-              <BotaoAcao
-                onClick={() => setImportarOpen(true)}
-                disabled={!painel || !painel.estruturaAtivaId}
-              >
-                <Upload className="h-3.5 w-3.5" />
-                Importar .xlsx
-              </BotaoAcao>
-            )}
             <BotaoAcao onClick={exportarExcel} disabled={!painel} primario>
               <Download className="h-3.5 w-3.5" />
               Exportar .xlsx
             </BotaoAcao>
-            <BotaoAcao onClick={() => void carregar()} disabled={carregando}>
+            <BotaoAcao onClick={() => void carregar()} disabled={carregando} title="Atualizar">
               <RefreshCw className={`h-3.5 w-3.5 ${carregando ? 'animate-spin' : ''}`} />
               Atualizar
             </BotaoAcao>
@@ -202,7 +193,6 @@ export default function ExpedicaoAlocacaoView({
               onSelectPosicao={(pos) => setPosicaoIdSelecionada(pos.id)}
               onAbrirProduto={(p) => setProdutoCodigoSelecionado(p.codigo)}
               onMoverAlocacao={(alocId, destId) => executarMovimento(alocId, destId, false)}
-              onGerenciarEstruturas={() => setAba('galpoes')}
             />
           )}
 
@@ -259,6 +249,7 @@ export default function ExpedicaoAlocacaoView({
                 setEstruturaId(estId);
                 setAba('mapa');
               }}
+              onAbrirImportar={() => setImportarOpen(true)}
               avisar={avisar}
               pedirPrevia={pedirPrevia}
             />

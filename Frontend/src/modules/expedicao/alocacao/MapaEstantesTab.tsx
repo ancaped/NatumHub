@@ -10,7 +10,6 @@ import {
   Lock,
   MapPin,
   ScanBarcode,
-  Settings,
 } from 'lucide-react';
 import { BotaoAcao, FilterBar, StatusBadge } from '../../geral/components/ui/ReportKit';
 import type { LinhaBase } from '../../geral/lib/linhas';
@@ -29,7 +28,6 @@ interface MapaEstantesTabProps {
   onSelectPosicao: (pos: PosicaoComItens) => void;
   onAbrirProduto: (p: ProdutoDimensao) => void;
   onMoverAlocacao: (alocacaoId: string, destinoPosicaoId: string) => Promise<void>;
-  onGerenciarEstruturas: () => void;
 }
 
 export function MapaEstantesTab({
@@ -43,9 +41,8 @@ export function MapaEstantesTab({
   onSelectPosicao,
   onAbrirProduto,
   onMoverAlocacao,
-  onGerenciarEstruturas,
 }: MapaEstantesTabProps) {
-  const [modoVisao, setModoVisao] = useState<'2d' | '3d' | 'grade'>('2d');
+  const [modoVisao, setModoVisao] = useState<'2d' | '3d' | 'grade'>('3d');
   const [mobileModo, setMobileModo] = useState<'lista' | '3d'>('lista');
   const [sentidoInverso, setSentidoInverso] = useState(true);
   const [detalhado, setDetalhado] = useState(false);
@@ -130,6 +127,7 @@ export function MapaEstantesTab({
     [posicoes],
   );
   const nivelUnico = andares.length === 1;
+  const minAndar = andares.length > 0 ? Math.min(...andares) : 1;
 
   const infoPrateleiras = useMemo(() => {
     const asc = [...andares].sort((a, b) => a - b);
@@ -237,13 +235,14 @@ export function MapaEstantesTab({
   return (
     <div className="space-y-2.5">
       {/* Seletor compacto de Galpão / Prateleira (sem KPI cards) */}
-      <div className="panel-card !px-3 !py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          {galpoesAgrupados.map(([galpaoNome, listas]) => (
+      <div className="panel-card !px-3 !py-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+        {galpoesAgrupados.map(([galpaoNome, listas]) => {
+          const rotuloGalpao = galpaoNome.replace(/\s*\([^)]*\)\s*$/, '').trim();
+          return (
             <div key={galpaoNome} className="flex flex-wrap items-center gap-1.5">
               <span className="text-[11px] font-bold text-zinc-500 flex items-center gap-1">
                 <Building2 className="h-3 w-3" />
-                {galpaoNome}:
+                {rotuloGalpao}:
               </span>
               {listas.map((est) => {
                 const ativa = est.id === estruturaAtivaId;
@@ -266,16 +265,8 @@ export function MapaEstantesTab({
                 );
               })}
             </div>
-          ))}
-        </div>
-        <button
-          type="button"
-          onClick={onGerenciarEstruturas}
-          className="text-[11px] font-semibold text-zinc-600 hover:text-zinc-900 flex items-center gap-1 cursor-pointer shrink-0"
-        >
-          <Settings className="h-3.5 w-3.5" />
-          Configurar
-        </button>
+          );
+        })}
       </div>
 
       {/* Barra única de busca e controles */}
@@ -283,21 +274,9 @@ export function MapaEstantesTab({
         <FilterBar
           busca={busca}
           onBusca={setBusca}
-          placeholder="Bipar código de barras, produto (ex.: 2.13.036, Argan) ou vão (A1)..."
+          placeholder="Bipar EAN, produto ou vão (ex.: 2.13.036, A1)..."
         >
           <div className="hidden md:flex items-center rounded-lg border border-zinc-200 bg-zinc-50 p-0.5">
-            <button
-              type="button"
-              onClick={() => setModoVisao('2d')}
-              className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1 cursor-pointer ${
-                modoVisao === '2d'
-                  ? 'bg-zinc-900 text-white'
-                  : 'text-zinc-600 hover:text-zinc-900'
-              }`}
-            >
-              <Layers className="h-3.5 w-3.5" />
-              Desenho 2D
-            </button>
             <button
               type="button"
               onClick={() => setModoVisao('3d')}
@@ -308,7 +287,19 @@ export function MapaEstantesTab({
               }`}
             >
               <Box className="h-3.5 w-3.5" />
-              3D Isométrico
+              3D
+            </button>
+            <button
+              type="button"
+              onClick={() => setModoVisao('2d')}
+              className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1 cursor-pointer ${
+                modoVisao === '2d'
+                  ? 'bg-zinc-900 text-white'
+                  : 'text-zinc-600 hover:text-zinc-900'
+              }`}
+            >
+              <Layers className="h-3.5 w-3.5" />
+              2D
             </button>
             <button
               type="button"
@@ -320,7 +311,7 @@ export function MapaEstantesTab({
               }`}
             >
               <Grid3X3 className="h-3.5 w-3.5" />
-              Grade Códigos
+              Grade
             </button>
           </div>
           <BotaoAcao
@@ -420,27 +411,20 @@ export function MapaEstantesTab({
           {/* DESENHO 2D PROPORCIONAL HSL ZINC (Desktop) */}
           {modoVisao === '2d' && (
             <div className="hidden md:block panel-card !p-3 space-y-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-bold text-zinc-900">
-                    {estruturaAtiva?.nome ?? 'Vista Frontal 2D'}
-                  </span>
-                  {estruturaAtiva && estruturaAtiva.linhasPermitidas.length > 0 && (
-                    <StatusBadge variante="aguardando">
-                      {estruturaAtiva.linhasPermitidas
-                        .map((lp) => rotuloGrupoAlocacao(lp, linhasConfigs))
-                        .join(' + ')}
-                    </StatusBadge>
-                  )}
-                  <span className="font-mono text-[11px] text-zinc-500">
-                    {infoPrateleiras.alturaTotalM.toFixed(2)} m · {colunas.length} colunas
-                  </span>
-                </div>
-                {canEdit && (
-                  <span className="text-[11px] text-zinc-400">
-                    Clique num vão para editar ou arraste uma pilha para mover
-                  </span>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-bold text-zinc-900">
+                  {estruturaAtiva?.nome ?? 'Vista Frontal 2D'}
+                </span>
+                {estruturaAtiva && estruturaAtiva.linhasPermitidas.length > 0 && (
+                  <StatusBadge variante="aguardando">
+                    {estruturaAtiva.linhasPermitidas
+                      .map((lp) => rotuloGrupoAlocacao(lp, linhasConfigs))
+                      .join(' + ')}
+                  </StatusBadge>
                 )}
+                <span className="font-mono text-[11px] text-zinc-500">
+                  {infoPrateleiras.alturaTotalM.toFixed(2)} m · {colunas.length} colunas
+                </span>
               </div>
 
               {/* Cabeçalho das colunas */}
@@ -705,8 +689,10 @@ export function MapaEstantesTab({
                             );
                           })}
                         </div>
-                        {/* Longarina laranja/âmbar real na base de cada andar */}
-                        <div className="h-[5px] w-full bg-amber-500 border-b border-amber-700/40" />
+                        {/* Longarina laranja/âmbar somente nos andares suspensos (Andar 1 direto no piso) */}
+                        {andar !== minAndar && (
+                          <div className="h-[5px] w-full bg-amber-500 border-b border-amber-700/40" />
+                        )}
                       </div>
                     </div>
                   );
@@ -794,11 +780,6 @@ export function MapaEstantesTab({
                           {refPos?.larguraCm ?? 100}×{refPos?.comprimentoCm ?? 120} cm
                         </span>
                       </div>
-                      {canEdit && (
-                        <span className="text-[10px] text-zinc-400">
-                          Arraste um código para mover entre vãos
-                        </span>
-                      )}
                     </div>
 
                     <div className={`grid ${gridClassCols} gap-1`}>
@@ -1068,7 +1049,11 @@ export function MapaEstantesTab({
                   </div>
 
                   {pos.itens.length > 0 && (
-                    <div className="bg-zinc-50 border-b-2 border-amber-500 px-1 pt-1 rounded-t">
+                    <div
+                      className={`bg-zinc-50 border-b-2 px-1 pt-1 rounded-t ${
+                        pos.andar === minAndar ? 'border-zinc-400' : 'border-amber-500'
+                      }`}
+                    >
                       <div className="flex items-end gap-1 h-3.5">
                         {pos.itens.map((it) => {
                           const w =

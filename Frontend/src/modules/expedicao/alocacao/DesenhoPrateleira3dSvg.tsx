@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import { Lock } from 'lucide-react';
 import type { Estrutura, PosicaoComItens, ProdutoDimensao } from './types';
 
 interface DesenhoPrateleira3dSvgProps {
@@ -83,10 +82,12 @@ export function DesenhoPrateleira3dSvg({
     return andarFoco === 'ALL' ? asc : asc.filter((a) => a === andarFoco);
   }, [andares, andarFoco]);
 
-  // Calcular dimensões reais em cm da prateleira completa para manter proporção exata
+  // Calcular dimensões reais em cm da prateleira completa; Andar 1 fica direto no chão (z=0, sem longarina embaixo)
   const layoutGeo = useMemo(() => {
     const allAsc = [...andares].sort((a, b) => a - b);
+    const minAndar = allAsc[0] ?? 1;
     const zBasePorAndar = new Map<number, number>();
+    const zTrayTopPorAndar = new Map<number, number>();
     const altPorAndar = new Map<number, number>();
     let zAcum = 0;
     const vigaH = 8;
@@ -94,9 +95,12 @@ export function DesenhoPrateleira3dSvg({
     for (const a of allAsc) {
       const ref = posicoes.find((p) => p.andar === a);
       const h = ref?.alturaCm ?? 74;
+      const ehChao = a === minAndar;
       zBasePorAndar.set(a, zAcum);
+      const trayTop = ehChao ? zAcum : zAcum + vigaH;
+      zTrayTopPorAndar.set(a, trayTop);
       altPorAndar.set(a, h);
-      zAcum += h + vigaH;
+      zAcum = trayTop + h;
     }
 
     const totalZ = Math.max(80, zAcum);
@@ -124,7 +128,17 @@ export function DesenhoPrateleira3dSvg({
     }
 
     const totalX = Math.max(120, xAcum - gapCol);
-    return { zBasePorAndar, altPorAndar, totalZ, xCols, totalX, maxDepth, vigaH };
+    return {
+      minAndar,
+      zBasePorAndar,
+      zTrayTopPorAndar,
+      altPorAndar,
+      totalZ,
+      xCols,
+      totalX,
+      maxDepth,
+      vigaH,
+    };
   }, [andares, colunas, posicoes, estrutura]);
 
   // Projeção axonométrica nivelada para prateleiras largas
@@ -243,6 +257,153 @@ export function DesenhoPrateleira3dSvg({
     );
   };
 
+  /**
+   * Palete PBR 3D realista com tábuas de base, 3 tacos com vãos de garfo vazados e tampo ripado.
+   */
+  const Palete3D = ({
+    x,
+    y,
+    z,
+    dx,
+    dy,
+    dz,
+  }: {
+    x: number;
+    y: number;
+    z: number;
+    dx: number;
+    dy: number;
+    dz: number;
+  }) => {
+    const hBot = 2;
+    const hDeck = 3;
+    const hTaco = Math.max(3, dz - hBot - hDeck);
+    const wTaco = Math.max(7, Math.round(dx * 0.14));
+    const dTaco = Math.max(8, Math.round(dy * 0.13));
+
+    const blocoCor: CoresCaixa3d = {
+      top: '#cfa974',
+      front: '#b88f54',
+      side: '#9a733e',
+      stroke: '#6e502f',
+    };
+    const sombraVao: CoresCaixa3d = {
+      top: '#6e502f',
+      front: '#4a341b',
+      side: '#3b2814',
+      stroke: '#3b2814',
+    };
+
+    const frontBlocksX = [x, x + (dx - wTaco) / 2, x + dx - wTaco];
+    const orderedFrontX = dirSign === 1 ? frontBlocksX : [...frontBlocksX].reverse();
+    const xSideFace = dirSign === 1 ? x + dx - wTaco : x;
+
+    return (
+      <g>
+        {/* Base inferior de apoio */}
+        <Box3D
+          x={x}
+          y={y}
+          z={z}
+          dx={dx}
+          dy={dy}
+          dz={hBot}
+          colors={{
+            top: '#c9a36a',
+            front: '#a98047',
+            side: '#8c6735',
+            stroke: '#6e502f',
+          }}
+          strokeWidth={0.55}
+        />
+
+        {/* Núcleo sombreado recuado (gera os vãos escuros do garfo na frente e na lateral) */}
+        <Box3D
+          x={x + 2}
+          y={y + 6}
+          z={z + hBot}
+          dx={Math.max(8, dx - 4)}
+          dy={Math.max(10, dy - 12)}
+          dz={hTaco}
+          colors={sombraVao}
+          strokeWidth={0.45}
+        />
+
+        {/* Tacos lateral traseiro e central */}
+        <Box3D
+          x={xSideFace}
+          y={y + dy - dTaco}
+          z={z + hBot}
+          dx={wTaco}
+          dy={dTaco}
+          dz={hTaco}
+          colors={blocoCor}
+          strokeWidth={0.5}
+        />
+        <Box3D
+          x={xSideFace}
+          y={y + (dy - dTaco) / 2}
+          z={z + hBot}
+          dx={wTaco}
+          dy={dTaco}
+          dz={hTaco}
+          colors={blocoCor}
+          strokeWidth={0.5}
+        />
+
+        {/* 3 tacos frontais (deixam os 2 vãos abertos para a paleteira/empilhadeira) */}
+        {orderedFrontX.map((bx, bIdx) => (
+          <Box3D
+            key={`taco-f-${bIdx}`}
+            x={bx}
+            y={y}
+            z={z + hBot}
+            dx={wTaco}
+            dy={dTaco}
+            dz={hTaco}
+            colors={blocoCor}
+            strokeWidth={0.5}
+          />
+        ))}
+
+        {/* Tampo superior de madeira */}
+        <Box3D
+          x={x}
+          y={y}
+          z={z + hBot + hTaco}
+          dx={dx}
+          dy={dy}
+          dz={hDeck}
+          colors={{
+            top: '#ebd5b0',
+            front: '#d9b782',
+            side: '#be9558',
+            stroke: '#785d3b',
+          }}
+          strokeWidth={0.65}
+        />
+
+        {/* Ripas longitudinais sobre o tampo */}
+        {[0.25, 0.5, 0.75].map((frac) => {
+          const a = toPt(x + 2, y + dy * frac, z + dz);
+          const b = toPt(x + dx - 2, y + dy * frac, z + dz);
+          return (
+            <line
+              key={`ripa-${frac}`}
+              x1={a.x}
+              y1={a.y}
+              x2={b.x}
+              y2={b.y}
+              stroke="#9a7b4f"
+              strokeWidth={0.5}
+              opacity={0.55}
+            />
+          );
+        })}
+      </g>
+    );
+  };
+
   // Ordem de desenho das colunas respeitando oclusão do ângulo escolhido
   const colsOrdered = useMemo(
     () => (dirSign === 1 ? layoutGeo.xCols : [...layoutGeo.xCols].reverse()),
@@ -262,73 +423,68 @@ export function DesenhoPrateleira3dSvg({
   }, [layoutGeo.xCols, dirSign]);
 
   return (
-    <div className="panel-card !p-3 space-y-2.5">
+    <div className="panel-card !p-3 space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-bold text-zinc-900">
-            {estrutura?.nome ?? 'Prateleira 3D'} — Modelo Isométrico
+            {estrutura?.nome ?? 'Prateleira'}
           </span>
           <span className="font-mono text-[11px] text-zinc-500">
-            {(layoutGeo.totalZ / 100).toFixed(2)} m · {colunas.length} col. ·{' '}
-            {andares.length} {nivelUnico ? 'nível' : 'andares'}
+            {(layoutGeo.totalZ / 100).toFixed(2)} m · {colunas.length} col.
           </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
-          <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5">
+          {andares.length > 1 && (
+            <div className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setAndarFoco('ALL')}
+                className={`px-2 py-0.5 rounded-md font-semibold cursor-pointer ${
+                  andarFoco === 'ALL' ? 'bg-zinc-900 text-white' : 'text-zinc-600'
+                }`}
+              >
+                Todos
+              </button>
+              {[...andares]
+                .sort((a, b) => b - a)
+                .map((a) => (
+                  <button
+                    key={`3d-foco-${a}`}
+                    type="button"
+                    onClick={() => setAndarFoco(a)}
+                    className={`px-2 py-0.5 rounded-md font-semibold cursor-pointer ${
+                      andarFoco === a ? 'bg-zinc-900 text-white' : 'text-zinc-600'
+                    }`}
+                  >
+                    {a}º
+                  </button>
+                ))}
+            </div>
+          )}
+
+          <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 text-[11px]">
             <button
               type="button"
               onClick={() => setAngulo('dir')}
-              className={`px-2 py-1 rounded-md text-[11px] font-semibold cursor-pointer ${
+              className={`px-2 py-0.5 rounded-md font-semibold cursor-pointer ${
                 angulo === 'dir' ? 'bg-zinc-900 text-white' : 'text-zinc-600'
               }`}
             >
-              Vista Dir.
+              Dir.
             </button>
             <button
               type="button"
               onClick={() => setAngulo('esq')}
-              className={`px-2 py-1 rounded-md text-[11px] font-semibold cursor-pointer ${
+              className={`px-2 py-0.5 rounded-md font-semibold cursor-pointer ${
                 angulo === 'esq' ? 'bg-zinc-900 text-white' : 'text-zinc-600'
               }`}
             >
-              Vista Esq.
+              Esq.
             </button>
           </div>
         </div>
       </div>
-
-      {andares.length > 1 && (
-        <div className="flex flex-wrap items-center gap-1 text-[11px]">
-          <button
-            type="button"
-            onClick={() => setAndarFoco('ALL')}
-            className={`px-2.5 py-1 rounded-lg border font-semibold cursor-pointer ${
-              andarFoco === 'ALL'
-                ? 'bg-zinc-900 text-white border-zinc-900'
-                : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
-            }`}
-          >
-            Todos os andares
-          </button>
-          {[...andares]
-            .sort((a, b) => b - a)
-            .map((a) => (
-              <button
-                key={`3d-foco-${a}`}
-                type="button"
-                onClick={() => setAndarFoco(a)}
-                className={`px-2.5 py-1 rounded-lg border font-semibold cursor-pointer ${
-                  andarFoco === a
-                    ? 'bg-zinc-900 text-white border-zinc-900'
-                    : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
-                }`}
-              >
-                Andar {a}
-              </button>
-            ))}
-        </div>
-      )}
 
       <div className="rounded-xl border border-zinc-200 bg-zinc-50/40 p-1.5 overflow-hidden">
         <svg
@@ -398,10 +554,11 @@ export function DesenhoPrateleira3dSvg({
             );
           })}
 
-          {/* Andares (de baixo para cima) */}
+          {/* Andares (de baixo para cima; Andar 1 direto no chão sem longarina) */}
           {andaresAsc.map((andar) => {
             const zFloor = layoutGeo.zBasePorAndar.get(andar) ?? 0;
-            const zTrayTop = zFloor + beamThick;
+            const zTrayTop = layoutGeo.zTrayTopPorAndar.get(andar) ?? zFloor;
+            const ehChao = andar === layoutGeo.minAndar;
             const altVao = layoutGeo.altPorAndar.get(andar) ?? 74;
             const posAndar = posicoes.filter((p) => p.andar === andar);
             const refPos = posAndar[0];
@@ -413,22 +570,24 @@ export function DesenhoPrateleira3dSvg({
 
             return (
               <g key={`andar-3d-${andar}`}>
-                {/* Longarina traseira (atrás das caixas) */}
-                <Box3D
-                  x={0}
-                  y={layoutGeo.maxDepth - 6}
-                  z={zFloor}
-                  dx={layoutGeo.totalX}
-                  dy={6}
-                  dz={beamThick}
-                  colors={{
-                    top: '#d97706',
-                    front: '#b45309',
-                    side: '#92400e',
-                    stroke: '#78350f',
-                  }}
-                  strokeWidth={0.5}
-                />
+                {/* Longarina traseira somente a partir do Andar 2 (Andar 1 é no chão) */}
+                {!ehChao && (
+                  <Box3D
+                    x={0}
+                    y={layoutGeo.maxDepth - 6}
+                    z={zFloor}
+                    dx={layoutGeo.totalX}
+                    dy={6}
+                    dz={beamThick}
+                    colors={{
+                      top: '#d97706',
+                      front: '#b45309',
+                      side: '#92400e',
+                      stroke: '#78350f',
+                    }}
+                    strokeWidth={0.5}
+                  />
+                )}
 
                 {/* Vãos por coluna na ordem de oclusão */}
                 {colsOrdered.map((colMeta) => {
@@ -505,21 +664,14 @@ export function DesenhoPrateleira3dSvg({
                           </text>
                         ) : (
                           <>
-                            {/* Palete 3D de madeira */}
-                            <Box3D
+                            {/* Palete PBR 3D realista de madeira */}
+                            <Palete3D
                               x={sx + 3}
                               y={4}
                               z={zTrayTop}
                               dx={Math.max(20, slotW - 6)}
                               dy={Math.max(40, pos.comprimentoCm - 8)}
                               dz={paleteH}
-                              colors={{
-                                top: '#ebd5b0',
-                                front: '#d9b782',
-                                side: '#b88f54',
-                                stroke: '#8c6d46',
-                              }}
-                              strokeWidth={0.7}
                             />
 
                             {/* Pilhas 3D de caixas */}
@@ -589,22 +741,24 @@ export function DesenhoPrateleira3dSvg({
                   });
                 })}
 
-                {/* Longarina frontal laranja */}
-                <Box3D
-                  x={0}
-                  y={0}
-                  z={zFloor}
-                  dx={layoutGeo.totalX}
-                  dy={6}
-                  dz={beamThick}
-                  colors={{
-                    top: '#fbbf24',
-                    front: '#f59e0b',
-                    side: '#d97706',
-                    stroke: '#b45309',
-                  }}
-                  strokeWidth={0.65}
-                />
+                {/* Longarina frontal laranja somente a partir do Andar 2 (Andar 1 é no chão) */}
+                {!ehChao && (
+                  <Box3D
+                    x={0}
+                    y={0}
+                    z={zFloor}
+                    dx={layoutGeo.totalX}
+                    dy={6}
+                    dz={beamThick}
+                    colors={{
+                      top: '#fbbf24',
+                      front: '#f59e0b',
+                      side: '#d97706',
+                      stroke: '#b45309',
+                    }}
+                    strokeWidth={0.65}
+                  />
+                )}
 
                 {/* Rótulo do Andar + acesso à esquerda fora da projeção */}
                 <text
@@ -673,32 +827,27 @@ export function DesenhoPrateleira3dSvg({
         </svg>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5 text-[11px] text-zinc-500">
-        <div className="flex flex-wrap items-center gap-3.5">
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-2 bg-blue-700 rounded-xs" /> Montante
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-1.5 bg-amber-500 rounded-xs" /> Longarina
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-2 bg-[#d9b782] border border-[#8c6d46] rounded-xs" /> Palete
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-2.5 bg-[#f2e4cc] border border-[#8c6d46] rounded-xs" /> Caixas
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-2.5 bg-zinc-200 border border-zinc-700 rounded-xs" /> Kits
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-2.5 bg-amber-100 border border-amber-500 rounded-xs" /> Coloração
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-2.5 bg-red-50 border border-red-500 rounded-xs" /> Estouro
-          </span>
-        </div>
-        <span className="flex items-center gap-1 text-zinc-400">
-          <Lock className="h-3 w-3" /> Clique num vão para inspecionar e ver o peso
+      <div className="flex flex-wrap items-center gap-3.5 pt-0.5 text-[11px] text-zinc-500">
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-2 bg-blue-700 rounded-xs" /> Montante
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-1.5 bg-amber-500 rounded-xs" /> Longarina
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-2 bg-[#d9b782] border border-[#8c6d46] rounded-xs" /> Palete
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-2.5 bg-[#f2e4cc] border border-[#8c6d46] rounded-xs" /> Caixas
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-2.5 bg-zinc-200 border border-zinc-700 rounded-xs" /> Kits
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-2.5 bg-amber-100 border border-amber-500 rounded-xs" /> Coloração
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-2.5 bg-red-50 border border-red-500 rounded-xs" /> Estouro
         </span>
       </div>
     </div>

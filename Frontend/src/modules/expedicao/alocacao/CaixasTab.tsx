@@ -463,7 +463,11 @@ export function CaixasTab({
                   const res = calcularPaletizacao(c, 100, 120, 74.1);
                   const best = res[res.melhorPadrao] ?? res.normal;
                   return (
-                    <tr key={c.id}>
+                    <tr
+                      key={c.id}
+                      onClick={() => abrirEditarCaixa(c)}
+                      className="cursor-pointer hover:bg-zinc-50/80"
+                    >
                       <td className="font-mono font-bold text-zinc-900">CX {c.codigo}</td>
                       <td>{c.nome}</td>
                       <td className="text-right font-mono">
@@ -484,7 +488,7 @@ export function CaixasTab({
                       <td className="font-mono text-xs text-zinc-600">
                         {c.insumoErpCodigo ?? '—'}
                       </td>
-                      <td className="text-right">
+                      <td className="text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end gap-2">
                           <button
                             type="button"
@@ -492,7 +496,7 @@ export function CaixasTab({
                             className="text-xs font-bold text-zinc-700 hover:underline cursor-pointer inline-flex items-center gap-1"
                           >
                             <Eye className="h-3.5 w-3.5" />
-                            {canEdit ? 'Desenho / Editar' : 'Desenho'}
+                            Desenho
                           </button>
                           {canEdit && (
                             <button
@@ -557,15 +561,10 @@ export function CaixasTab({
       {sub === 'conferencia' && (
         <div className="space-y-4">
           {insumosCaixaErp.length > 0 && (
-            <div className="panel-card !p-4 space-y-3">
-              <div>
-                <h3 className="text-sm font-bold text-zinc-900 flex items-center gap-1.5">
-                  <Wrench className="h-4 w-4" /> Caixas nas fórmulas/kits sem vínculo ({insumosCaixaErp.length})
-                </h3>
-                <p className="text-xs text-zinc-500">
-                  Vincule o código 9.04.xxx a uma caixa cadastrada para preencher todos os produtos e kits que usam esse insumo.
-                </p>
-              </div>
+            <div className="panel-card !p-4 space-y-2.5">
+              <h3 className="text-sm font-bold text-zinc-900 flex items-center gap-1.5">
+                <Wrench className="h-4 w-4" /> Caixas 9.04.xxx sem vínculo ({insumosCaixaErp.length})
+              </h3>
               <div className="space-y-2">
                 {insumosCaixaErp.map((ins) => (
                   <div
@@ -616,15 +615,10 @@ export function CaixasTab({
           )}
 
           <div className="panel-card !p-4 space-y-3">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-bold text-zinc-900">
-                  Pendências de caixa e Qtde/Cx ({pendenciasFiltradas.length})
-                </h3>
-                <p className="text-xs text-zinc-500">
-                  Vincule caixas ou Qtde/Cx individualmente ou selecione vários produtos para atualizar em lote.
-                </p>
-              </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-bold text-zinc-900">
+                Pendências ({pendenciasFiltradas.length})
+              </h3>
               {pendenciasFiltradas.length > 80 && !mostrarTodasPend && (
                 <button
                   type="button"
@@ -982,7 +976,7 @@ export function CaixasTab({
                           : 'bg-zinc-50 text-zinc-700 border-zinc-200 hover:bg-zinc-100'
                       }`}
                     >
-                      Vão {String(altVao).replace('.', ',')}
+                      {String(altVao).replace('.', ',')}cm
                     </button>
                   ))}
                 </div>
@@ -999,7 +993,7 @@ export function CaixasTab({
                       },
                       {
                         id: 'rotacionado' as const,
-                        label: `Girado 90° (${paletizacaoLive.rotacionado?.caixasPorLastro ?? '—'})`,
+                        label: `90° (${paletizacaoLive.rotacionado?.caixasPorLastro ?? '—'})`,
                         disabled: !paletizacaoLive.rotacionado,
                       },
                       {
@@ -1038,7 +1032,7 @@ export function CaixasTab({
                       camadaPreview === 'impar' ? 'bg-zinc-900 text-white' : 'text-zinc-700'
                     }`}
                   >
-                    Camada 1, 3
+                    Cam. 1, 3
                   </button>
                   <button
                     type="button"
@@ -1047,7 +1041,7 @@ export function CaixasTab({
                       camadaPreview === 'par' ? 'bg-zinc-900 text-white' : 'text-zinc-700'
                     }`}
                   >
-                    Camada 2, 4 (travada)
+                    Cam. 2, 4
                   </button>
                 </div>
               </div>

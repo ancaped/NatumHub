@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckSquare, Sparkles, Square } from 'lucide-react';
+import { AlertTriangle, CheckSquare, SlidersHorizontal, Sparkles, Square } from 'lucide-react';
 import {
   BotaoAcao,
   FilterBar,
@@ -83,6 +83,7 @@ export function CurvaAbcTab({
   const [situacaoCatalogo, setSituacaoCatalogo] = useState<string>('ativos_e_saindo');
   const [busca, setBusca] = useState<string>('');
   const [mostrarTodos, setMostrarTodos] = useState<boolean>(false);
+  const [mostrarFiltrosExtras, setMostrarFiltrosExtras] = useState<boolean>(false);
   const [selecionados, setSelecionados] = useState<Set<string>>(() => new Set());
   const [salvandoCodigo, setSalvandoCodigo] = useState<string | null>(null);
 
@@ -287,7 +288,7 @@ export function CurvaAbcTab({
           setBusca(v);
           setMostrarTodos(false);
         }}
-        placeholder="Buscar código, produto, código de barras ou endereço..."
+        placeholder="Buscar código, produto, EAN ou endereço..."
       >
         <FiltroSelect
           value={grupoFiltro}
@@ -301,12 +302,12 @@ export function CurvaAbcTab({
           value={curvaFiltro}
           onChange={setCurvaFiltro}
           opcoes={[
-            { valor: 'NA_ABC', rotulo: 'Na Curva ABC (A/B/C)' },
+            { valor: 'NA_ABC', rotulo: 'Curva A/B/C' },
             { valor: 'FORA', rotulo: 'Fora da ABC' },
-            { valor: 'ALL', rotulo: 'Curva: Todas (incl. Fora)' },
-            { valor: 'A', rotulo: 'Somente Curva A' },
-            { valor: 'B', rotulo: 'Somente Curva B' },
-            { valor: 'C', rotulo: 'Somente Curva C' },
+            { valor: 'ALL', rotulo: 'Todas (incl. Fora)' },
+            { valor: 'A', rotulo: 'Curva A' },
+            { valor: 'B', rotulo: 'Curva B' },
+            { valor: 'C', rotulo: 'Curva C' },
           ]}
         />
         <FiltroSelect
@@ -314,58 +315,70 @@ export function CurvaAbcTab({
           onChange={setSituacaoAlocFiltro}
           opcoes={[
             { valor: 'ALL', rotulo: 'Alocação: Todas' },
-            { valor: 'ok', rotulo: 'Alocados (OK)' },
+            { valor: 'ok', rotulo: 'OK' },
             { valor: 'sem_endereco', rotulo: 'Sem endereço' },
             { valor: 'sem_caixa', rotulo: 'Sem caixa' },
             { valor: 'sem_qtde_cx', rotulo: 'Sem qtde/cx' },
-            { valor: 'estoque_acima_capacidade', rotulo: 'Estoque > capacidade' },
-            { valor: 'estouro_vao', rotulo: 'Estouro de vão' },
+            { valor: 'estoque_acima_capacidade', rotulo: 'Acima cap.' },
+            { valor: 'estouro_vao', rotulo: 'Estouro vão' },
           ]}
         />
-        <FiltroSelect
-          value={situacaoCatalogo}
-          onChange={(val) => {
-            setSituacaoCatalogo(val);
-            onChangeIncluirInativos(val === 'todos');
-          }}
-          opcoes={[
-            { valor: 'ativos_e_saindo', rotulo: 'Ativos + Saindo' },
-            { valor: 'ativos', rotulo: 'Só Ativos' },
-            { valor: 'lancamento', rotulo: 'Lançamentos' },
-            { valor: 'saindo_de_linha', rotulo: 'Saindo de linha' },
-            { valor: 'todos', rotulo: 'Todos (incl. inativos)' },
-          ]}
-        />
-        <FiltroSelect
-          value={String(janelaMeses)}
-          onChange={(v) => onChangeJanela(Number(v))}
-          opcoes={[
-            { valor: '12', rotulo: 'Janela: 12 meses' },
-            { valor: '6', rotulo: 'Janela: 6 meses' },
-            { valor: '3', rotulo: 'Janela: 3 meses' },
-          ]}
-        />
-        <FiltroSelect
-          value={metaSelectVal}
-          onChange={(v) => {
-            if (v === 'linha') onChangeMeta(metaMeses, true);
-            else onChangeMeta(Number(v), false);
-          }}
-          opcoes={[
-            { valor: 'linha', rotulo: 'Meta: da Linha' },
-            { valor: '1', rotulo: 'Meta: 1 mês' },
-            { valor: '2', rotulo: 'Meta: 2 meses' },
-            { valor: '3', rotulo: 'Meta: 3 meses' },
-            { valor: '4', rotulo: 'Meta: 4 meses' },
-          ]}
-        />
+        <BotaoAcao
+          onClick={() => setMostrarFiltrosExtras((v) => !v)}
+          title="Configurar catálogo, janela e meta"
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          {janelaMeses}m · {usarMetaLinha ? 'Linha' : `${metaMeses}m`}
+        </BotaoAcao>
         {canEdit && (
           <BotaoAcao primario onClick={onAbrirSugestao}>
             <Sparkles className="h-3.5 w-3.5" />
-            Sugerir Alocação
+            Sugerir
           </BotaoAcao>
         )}
       </FilterBar>
+
+      {mostrarFiltrosExtras && (
+        <div className="panel-card !px-3 !py-2 flex flex-wrap items-center gap-2 text-xs">
+          <FiltroSelect
+            value={situacaoCatalogo}
+            onChange={(val) => {
+              setSituacaoCatalogo(val);
+              onChangeIncluirInativos(val === 'todos');
+            }}
+            opcoes={[
+              { valor: 'ativos_e_saindo', rotulo: 'Ativos + Saindo' },
+              { valor: 'ativos', rotulo: 'Só Ativos' },
+              { valor: 'lancamento', rotulo: 'Lançamentos' },
+              { valor: 'saindo_de_linha', rotulo: 'Saindo de linha' },
+              { valor: 'todos', rotulo: 'Todos (incl. inativos)' },
+            ]}
+          />
+          <FiltroSelect
+            value={String(janelaMeses)}
+            onChange={(v) => onChangeJanela(Number(v))}
+            opcoes={[
+              { valor: '12', rotulo: 'Janela: 12 meses' },
+              { valor: '6', rotulo: 'Janela: 6 meses' },
+              { valor: '3', rotulo: 'Janela: 3 meses' },
+            ]}
+          />
+          <FiltroSelect
+            value={metaSelectVal}
+            onChange={(v) => {
+              if (v === 'linha') onChangeMeta(metaMeses, true);
+              else onChangeMeta(Number(v), false);
+            }}
+            opcoes={[
+              { valor: 'linha', rotulo: 'Meta: da Linha' },
+              { valor: '1', rotulo: 'Meta: 1 mês' },
+              { valor: '2', rotulo: 'Meta: 2 meses' },
+              { valor: '3', rotulo: 'Meta: 3 meses' },
+              { valor: '4', rotulo: 'Meta: 4 meses' },
+            ]}
+          />
+        </div>
+      )}
 
       {canEdit && selecionados.size > 0 && (
         <div className="rounded-xl border border-zinc-300 bg-zinc-900 text-white px-3 py-2.5 flex flex-wrap items-center gap-2 text-xs">
@@ -406,16 +419,13 @@ export function CurvaAbcTab({
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500 px-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span>
-            Exibindo <strong>{visiveis.length}</strong> de <strong>{filtrados.length}</strong>
-            {incluirInativos ? ' (incl. inativos)' : ''}
-          </span>
-          <StatusBadge variante="saudavel">A: {resumoEscopo.cntA}</StatusBadge>
-          <StatusBadge variante="ordem">B: {resumoEscopo.cntB}</StatusBadge>
-          <StatusBadge variante="aguardando">C: {resumoEscopo.cntC}</StatusBadge>
-          <StatusBadge variante="descontinuado">Fora: {resumoEscopo.fora}</StatusBadge>
-        </div>
+        <span className="font-mono">
+          <strong className="text-zinc-900">{visiveis.length}</strong> de {filtrados.length} · A{' '}
+          <strong className="text-emerald-700">{resumoEscopo.cntA}</strong> · B{' '}
+          <strong className="text-amber-700">{resumoEscopo.cntB}</strong> · C{' '}
+          <strong className="text-zinc-800">{resumoEscopo.cntC}</strong> · Fora{' '}
+          {resumoEscopo.fora}
+        </span>
         {filtrados.length > 100 && !mostrarTodos && (
           <button
             type="button"
