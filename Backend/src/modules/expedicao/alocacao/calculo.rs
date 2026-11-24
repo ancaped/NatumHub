@@ -169,39 +169,144 @@ pub fn calcular_geometria_alocacao(
     }
 }
 
-/// Classifica os produtos por Curva ABC (80% A, 95% B, 100% C) com base em `vendas_total`.
+const TERMOS_APOIO_BRINDE: &[&str] = &[
+    "SACOLA",
+    "SACOLAS",
+    "BRINDE",
+    "BRINDES",
+    "AMOSTRA",
+    "AMOSTRAS",
+    "DISPLAY",
+    "DISPLAYS",
+    "CATALOGO",
+    "CATALOGOS",
+    "FOLDER",
+    "FOLDERS",
+    "PANFLETO",
+    "PANFLETOS",
+    "TESTER",
+    "TESTERS",
+    "PROVADOR",
+    "PROVADORES",
+    "EXPOSITOR",
+    "EXPOSITORES",
+    "CARTAZ",
+    "CARTAZES",
+    "BANNER",
+    "BANNERS",
+    "NECESSAIRE",
+    "NECESSAIRES",
+    "BOLSA",
+    "BOLSAS",
+];
+
+/// Identifica itens de apoio, material promocional ou brindes que não devem poluir a Curva ABC.
+pub fn eh_item_apoio_ou_brinde(descricao: &str) -> bool {
+    TERMOS_APOIO_BRINDE
+        .iter()
+        .any(|t| contem_palavra_inteira(descricao, t))
+}
+
+/// Determina a elegibilidade efetiva do produto para entrar no cálculo da Curva ABC.
+pub fn elegibilidade_abc_efetiva(
+    incluir_override: Option<bool>,
+    descricao: &str,
+    vendas_total: f64,
+    situacao: &str,
+) -> (bool, Option<String>) {
+    match incluir_override {
+        Some(true) => (true, None),
+        Some(false) => (false, Some("Excluído manualmente da ABC".into())),
+        None => {
+            if eh_item_apoio_ou_brinde(descricao) {
+                (false, Some("Item de apoio / brinde".into()))
+            } else if vendas_total <= 0.0 {
+                (false, Some("Sem vendas no período".into()))
+            } else if situacao == "descontinuado" {
+                (false, Some("Produto descontinuado".into()))
+            } else {
+                (true, None)
+            }
+        }
+    }
+}
+
+/// Verifica se o produto pertence às linhas permitidas de uma prateleira (vazio = livre para todas).
+pub fn produto_pertence_a_linhas(prod: &ProdutoDimensao, linhas_permitidas: &[String]) -> bool {
+    if linhas_permitidas.is_empty() {
+        return true;
+    }
+    linhas_permitidas.iter().any(|allowed| {
+        let a = allowed.trim();
+        !a.is_empty()
+            && (prod.linha_prefix == a
+                || prod.linha_principal.as_deref() == Some(a)
+                || prod.linha_prefix.starts_with(&format!("{a}.")))
+    })
+}
+
+/// Classifica os produtos elegíveis por Curva ABC (80% A, 95% B, 100% C) separadamente por `linha_principal` (fallback `linha_prefix`).
+/// Itens com `incluir_abc_efetivo == false` recebem `"FORA"` e não afetam os percentuais das linhas.
 pub fn aplicar_curva_abc(produtos: &mut [ProdutoDimensao]) {
-    let soma_total: f64 = produtos.iter().map(|p| p.vendas_total.max(0.0)).sum();
     produtos.sort_by(|a, b| {
-        b.vendas_total
-            .partial_cmp(&a.vendas_total)
-            .unwrap_or(std::cmp::Ordering::Equal)
+        b.incluir_abc_efetivo
+            .cmp(&a.incluir_abc_efetivo)
+            .then_with(|| {
+                b.vendas_total
+                    .partial_cmp(&a.vendas_total)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .then_with(|| a.codigo.cmp(&b.codigo))
     });
-    if soma_total <= 0.0 {
-        for p in produtos.iter_mut() {
+
+    let mut grupos: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (idx, p) in produtos.iter_mut().enumerate() {
+        if !p.incluir_abc_efetivo {
             p.percentual_abc = 0.0;
             p.acumulado_abc = 0.0;
-            p.curva_abc = "C".to_string();
+            p.curva_abc = "FORA".to_string();
+            continue;
         }
-        return;
+        let lg = p
+            .linha_principal
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&p.linha_prefix)
+            .to_string();
+        grupos.entry(lg).or_default().push(idx);
     }
-    let mut acumulado = 0.0;
-    for (idx, p) in produtos.iter_mut().enumerate() {
-        let v = p.vendas_total.max(0.0);
-        let pct = (v / soma_total) * 100.0;
-        acumulado = (acumulado + pct).min(100.0);
-        p.percentual_abc = pct;
-        p.acumulado_abc = acumulado;
-        p.curva_abc = if v <= 0.0 {
-            "C".to_string()
-        } else if idx == 0 || acumulado <= 80.0 + EPS {
-            "A".to_string()
-        } else if acumulado <= 95.0 + EPS {
-            "B".to_string()
-        } else {
-            "C".to_string()
-        };
+
+    for (_linha, indices) in grupos {
+        let soma_total: f64 = indices
+            .iter()
+            .map(|&i| produtos[i].vendas_total.max(0.0))
+            .sum();
+        if soma_total <= 0.0 {
+            for i in indices {
+                produtos[i].percentual_abc = 0.0;
+                produtos[i].acumulado_abc = 0.0;
+                produtos[i].curva_abc = "C".to_string();
+            }
+            continue;
+        }
+        let mut acumulado = 0.0;
+        for (pos, &i) in indices.iter().enumerate() {
+            let v = produtos[i].vendas_total.max(0.0);
+            let pct = (v / soma_total) * 100.0;
+            acumulado = (acumulado + pct).min(100.0);
+            produtos[i].percentual_abc = pct;
+            produtos[i].acumulado_abc = acumulado;
+            produtos[i].curva_abc = if v <= 0.0 {
+                "C".to_string()
+            } else if pos == 0 || acumulado <= 80.0 + EPS {
+                "A".to_string()
+            } else if acumulado <= 95.0 + EPS {
+                "B".to_string()
+            } else {
+                "C".to_string()
+            };
+        }
     }
 }
 
@@ -249,6 +354,7 @@ pub fn sugerir_alocacao(
     caixas: &[Caixa],
     existentes: &[AlocacaoExistente],
     produtos: &[ProdutoDimensao],
+    linhas_permitidas: &[String],
     manter_fixados: bool,
     limpar_nao_fixados: bool,
 ) -> SugestaoResultado {
@@ -331,6 +437,9 @@ pub fn sugerir_alocacao(
     let mut nao_alocados: Vec<SugestaoNaoAlocado> = Vec::new();
 
     for p in produtos {
+        if !p.incluir_abc_efetivo || !produto_pertence_a_linhas(p, linhas_permitidas) {
+            continue;
+        }
         if !limpar_nao_fixados && produtos_ja_alocados.contains(&p.codigo) {
             continue;
         }
@@ -792,6 +901,9 @@ mod tests {
             nome_linha: "Hair".into(),
             linha_principal: None,
             situacao: "ativo".into(),
+            incluir_abc_override: None,
+            incluir_abc_efetivo: true,
+            motivo_fora_abc: None,
             atendimento: "estoque".into(),
             eh_kit: false,
             estoque_atual: 0.0,
@@ -864,6 +976,9 @@ mod tests {
             nome_linha: "Hair".into(),
             linha_principal: None,
             situacao: "ativo".into(),
+            incluir_abc_override: None,
+            incluir_abc_efetivo: true,
+            motivo_fora_abc: None,
             atendimento: "estoque".into(),
             eh_kit: false,
             estoque_atual: 100.0,
@@ -911,6 +1026,9 @@ mod tests {
             nome_linha: "Hair".into(),
             linha_principal: None,
             situacao: "ativo".into(),
+            incluir_abc_override: None,
+            incluir_abc_efetivo: true,
+            motivo_fora_abc: None,
             atendimento: "estoque".into(),
             eh_kit: true,
             estoque_atual: 300.0,
@@ -956,6 +1074,7 @@ mod tests {
             &[cx9, cx132],
             &existentes,
             &[p_varejo, p_kit],
+            &[],
             true,
             true,
         );
@@ -992,5 +1111,125 @@ mod tests {
         assert_eq!(calcular_camadas_compat_vao(74.0, None, None, 3), 3);
         assert_eq!(calcular_camadas_compat_vao(74.0, None, None, 0), 1);
         assert_eq!(calcular_camadas_compat_vao(74.0, None, Some(2), 5), 2);
+    }
+
+    fn prod_teste_abc(
+        codigo: &str,
+        descricao: &str,
+        linha_prefix: &str,
+        linha_principal: Option<&str>,
+        vendas: f64,
+        incluir_override: Option<bool>,
+    ) -> ProdutoDimensao {
+        let (efetivo, motivo) = elegibilidade_abc_efetiva(incluir_override, descricao, vendas, "ativo");
+        ProdutoDimensao {
+            codigo: codigo.into(),
+            descricao: descricao.into(),
+            codigo_barras: None,
+            linha_prefix: linha_prefix.into(),
+            nome_linha: linha_prefix.into(),
+            linha_principal: linha_principal.map(str::to_string),
+            situacao: "ativo".into(),
+            incluir_abc_override: incluir_override,
+            incluir_abc_efetivo: efetivo,
+            motivo_fora_abc: motivo,
+            atendimento: "estoque".into(),
+            eh_kit: false,
+            estoque_atual: 50.0,
+            estoque_caixas: Some(5),
+            qtde_cx_erp: Some(12),
+            qtde_cx_efetiva: Some(12),
+            qtde_cx_origem: "erp".into(),
+            caixa_id: Some("9".into()),
+            caixa_codigo: Some("9".into()),
+            caixa_nome: Some("9".into()),
+            caixa_origem: "manual".into(),
+            caixa_altura_cm: Some(22.5),
+            caixa_comprimento_cm: Some(19.5),
+            caixa_largura_cm: Some(14.7),
+            empilhamento_max: Some(4),
+            insumo_caixa_erp: None,
+            insumo_caixa_erp_desc: None,
+            camadas_override: None,
+            vendas_varejo: vendas,
+            media_varejo: vendas / 12.0,
+            vendas_atacado: 0.0,
+            media_atacado: 0.0,
+            vendas_total: vendas,
+            media_total: vendas / 12.0,
+            percentual_abc: 0.0,
+            acumulado_abc: 0.0,
+            curva_abc: String::new(),
+            meta_meses_efetiva: 2.0,
+            caixas_necessarias_picking: 2,
+            caixas_necessarias_pulmao: 0,
+            caixas_necessarias_total: 2,
+            alocacoes: vec![],
+            enderecos_picking: vec![],
+            enderecos_pulmao: vec![],
+            total_caixas_alocadas: 0,
+            total_unidades_alocadas: 0,
+            cobertura_meses_alocada: None,
+            situacao_alocacao: "sem_endereco".into(),
+        }
+    }
+
+    #[test]
+    fn curva_abc_separa_hair_e_natum_e_exclui_itens_apoio() {
+        let mut prods = vec![
+            prod_teste_abc("2.11.001", "Shampoo Hair", "2.11", Some("2"), 900.0, None),
+            prod_teste_abc("2.11.002", "Condicionador Hair", "2.11", Some("2"), 100.0, None),
+            prod_teste_abc("2.99.001", "Sacola Personalizada Hair", "2.15", Some("2"), 5000.0, None),
+            prod_teste_abc("1.01.001", "Sabonete Natum", "1.01", Some("1"), 80.0, None),
+            prod_teste_abc("1.01.002", "Oleo Natum Sem Giro", "1.01", Some("1"), 0.0, None),
+        ];
+        aplicar_curva_abc(&mut prods);
+        let by = |cod: &str| prods.iter().find(|p| p.codigo == cod).unwrap().clone();
+        // Hair calcula só dentro da linha 2 (900 + 100 = 1000) -> 2.11.001 = 90%, A; sacola = FORA
+        assert_eq!(by("2.11.001").curva_abc, "A");
+        assert!((by("2.11.001").percentual_abc - 90.0).abs() < 1e-6);
+        assert_eq!(by("2.99.001").curva_abc, "FORA");
+        // Natum calcula só dentro da linha 1 (80 = 100% da Natum), nunca é ofuscado por Hair
+        assert_eq!(by("1.01.001").curva_abc, "A");
+        assert!((by("1.01.001").percentual_abc - 100.0).abs() < 1e-6);
+        assert_eq!(by("1.01.002").curva_abc, "FORA");
+    }
+
+    #[test]
+    fn elegibilidade_abc_respeita_override_manual() {
+        let (ef_auto_sacola, mot1) = elegibilidade_abc_efetiva(None, "Brinde Necessaire", 500.0, "ativo");
+        assert!(!ef_auto_sacola);
+        assert!(mot1.is_some());
+
+        let (ef_forcado, mot2) = elegibilidade_abc_efetiva(Some(true), "Brinde Necessaire", 0.0, "ativo");
+        assert!(ef_forcado);
+        assert!(mot2.is_none());
+
+        let (ef_removido, mot3) = elegibilidade_abc_efetiva(Some(false), "Shampoo Top", 1000.0, "ativo");
+        assert!(!ef_removido);
+        assert!(mot3.is_some());
+    }
+
+    #[test]
+    fn sugestao_respeita_linhas_permitidas_da_prateleira() {
+        let cx9 = caixa_exemplo("9", 22.5, 19.5, 14.7, 4);
+        let posicoes = vec![pos_exemplo("A1", 1, 1, "picking", 74.1)];
+        let hair = prod_teste_abc("2.11.001", "Shampoo Hair", "2.11", Some("2"), 500.0, None);
+        let natum = prod_teste_abc("1.01.001", "Sabonete Natum", "1.01", Some("1"), 500.0, None);
+        let mut prods = vec![hair, natum];
+        aplicar_curva_abc(&mut prods);
+
+        let res = sugerir_alocacao(
+            "estante_principal",
+            &posicoes,
+            &[cx9],
+            &[],
+            &prods,
+            &["2".to_string()],
+            true,
+            true,
+        );
+        assert_eq!(res.propostas.len(), 1);
+        assert_eq!(res.propostas[0].produto_codigo, "2.11.001");
     }
 }

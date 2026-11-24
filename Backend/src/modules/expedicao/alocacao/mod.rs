@@ -53,6 +53,7 @@ pub fn router() -> Router<Arc<AppState>> {
             "/api/expedicao/alocacao/produtos-lote",
             post(handlers::post_produtos_caixa_lote),
         )
+        .route("/api/expedicao/alocacao/abc-lote", post(handlers::post_abc_lote))
         .route("/api/expedicao/alocacao/importar-lote", post(handlers::post_importar_lote))
 }
 

@@ -269,3 +269,14 @@ pub async fn post_importar_lote(
     let r = service::importar_mapa_lote(state.db.pool(), &ctx, body, c.confirmar).await?;
     Ok((StatusCode::OK, Json(service::resposta_json(r))).into_response())
 }
+
+pub async fn post_abc_lote(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<AbcElegibilidadeLoteInput>,
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    let r = service::atualizar_elegibilidade_abc_lote(state.db.pool(), &ctx, body, c.confirmar).await?;
+    Ok((StatusCode::OK, Json(service::resposta_json(r))).into_response())
+}

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Download, Grid3X3, ListOrdered, RefreshCw, Settings, Upload } from 'lucide-react';
+import { Box, Building2, Download, Grid3X3, ListOrdered, RefreshCw, Upload } from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
-import { BotaoAcao, ReportHeader, ReportTabs } from '../../geral/components/ui/ReportKit';
+import { BotaoAcao, ReportHeader } from '../../geral/components/ui/ReportKit';
 import { useAviso } from '../../geral/components/ui/Aviso';
 import { apiJson } from '../../geral/lib/http';
 import { getAuthUser } from '../../geral/lib/auth';
@@ -12,21 +12,16 @@ import { usePreviaServidor } from '../../producao/lib/usePreviaServidor';
 import { fetchPainelAlocacao, moverAlocacao } from './api';
 import { baixarPlanilhaAlocacao } from './exportarPlanilha';
 import { MapaEstantesTab } from './MapaEstantesTab';
-import { DimensionamentoTab } from './DimensionamentoTab';
-import { CadastrosTab } from './CadastrosTab';
+import { CurvaAbcTab } from './CurvaAbcTab';
+import { CaixasTab } from './CaixasTab';
+import { GalpoesTab } from './GalpoesTab';
 import { PosicaoDrawer } from './PosicaoDrawer';
 import { ProdutoAlocacaoDrawer } from './ProdutoAlocacaoDrawer';
 import { SugestaoDrawer } from './SugestaoDrawer';
 import { ImportarPlanilhaDrawer } from './ImportarPlanilhaDrawer';
 import type { PainelAlocacaoResponse, ProdutoDimensao } from './types';
 
-type TabId = 'mapa' | 'dimensionamento' | 'cadastros';
-
-const SIDEBAR: SidebarItem[] = [
-  { id: 'mapa', label: 'Mapa das Estantes', icon: Grid3X3 },
-  { id: 'dimensionamento', label: 'Dimensionamento ABC', icon: ListOrdered },
-  { id: 'cadastros', label: 'Cadastros & Conferência', icon: Settings },
-];
+type TabId = 'mapa' | 'abc' | 'caixas' | 'galpoes';
 
 export default function ExpedicaoAlocacaoView({
   onBackToHub,
@@ -34,9 +29,6 @@ export default function ExpedicaoAlocacaoView({
   onBackToHub: () => void;
 }) {
   const [aba, setAba] = useState<TabId>('mapa');
-  const [cadSubSecao, setCadSubSecao] = useState<
-    'conferencia' | 'caixas' | 'atacadistas' | 'estruturas'
-  >('conferencia');
 
   const [estruturaId, setEstruturaId] = useState<string>('');
   const [janelaMeses, setJanelaMeses] = useState<number>(12);
@@ -99,6 +91,22 @@ export default function ExpedicaoAlocacaoView({
     painel?.posicoes.find((p) => p.id === posicaoIdSelecionada) ?? null;
   const produtoAtivo =
     painel?.produtos.find((p) => p.codigo === produtoCodigoSelecionado) ?? null;
+  const estruturaAtivaObj = painel?.estruturas.find((e) => e.id === painel.estruturaAtivaId) ?? null;
+
+  const pendenciasCaixas = painel ? painel.resumo.semCaixa + painel.resumo.semQtdeCx : 0;
+
+  const sidebarItems: SidebarItem[] = [
+    { id: 'mapa', label: 'Mapa 2D', icon: Grid3X3 },
+    { id: 'abc', label: 'Curva ABC', icon: ListOrdered },
+    {
+      id: 'caixas',
+      label: 'Caixas & Dimensões',
+      icon: Box,
+      badge: pendenciasCaixas > 0 ? pendenciasCaixas : undefined,
+      badgeTone: pendenciasCaixas > 0 ? 'amber' : undefined,
+    },
+    { id: 'galpoes', label: 'Galpões & Regras', icon: Building2 },
+  ];
 
   const exportarExcel = () => {
     if (!painel) return;
@@ -135,17 +143,15 @@ export default function ExpedicaoAlocacaoView({
     [avisar, carregar],
   );
 
-  const estruturaAtivaObj = painel?.estruturas.find((e) => e.id === painel.estruturaAtivaId);
-
   const subtitulo = painel
-    ? `${painel.resumo.alocados}/${painel.resumo.totalProdutos} produtos alocados · ${painel.resumo.posicoesOcupadas}/${painel.resumo.totalPosicoes} posições ocupadas (${painel.resumo.ocupacaoMediaPct.toFixed(0)}%)`
-    : 'Planejamento dinâmico de endereços no pátio/estantes, Varejo × Atacado e conferência de caixas';
+    ? `${painel.resumo.alocados}/${painel.resumo.totalProdutos} produtos alocados · ${painel.resumo.posicoesOcupadas}/${painel.resumo.totalPosicoes} vãos ocupados (${painel.resumo.ocupacaoMediaPct.toFixed(0)}%)`
+    : 'Planejamento dinâmico multi-galpão, Curva ABC por linha e conferência de caixas';
 
   return (
     <AppLayout
       moduleTitle="Alocação e Endereços"
       onBackToHub={onBackToHub}
-      sidebarItems={SIDEBAR}
+      sidebarItems={sidebarItems}
       activeTab={aba}
       onTabChange={(id) => setAba(id as TabId)}
     >
@@ -178,33 +184,9 @@ export default function ExpedicaoAlocacaoView({
         }
       />
 
-      <ReportTabs
-        ativa={aba}
-        onChange={(id) => setAba(id as TabId)}
-        abas={[
-          {
-            id: 'mapa',
-            label: 'Mapa das Estantes',
-            contagem: painel?.resumo.posicoesOcupadas,
-          },
-          {
-            id: 'dimensionamento',
-            label: 'Dimensionamento ABC',
-            contagem: painel?.resumo.totalProdutos,
-          },
-          {
-            id: 'cadastros',
-            label: 'Cadastros & Conferência',
-            contagem: painel
-              ? painel.resumo.semCaixa + painel.resumo.semQtdeCx
-              : undefined,
-          },
-        ]}
-      />
-
       {carregando && !painel ? (
         <div className="panel-card p-10 text-center text-sm text-zinc-500">
-          Carregando alocação, vendas Varejo × Atacado e caixas do ERP...
+          Carregando alocação multi-galpão, Curva ABC por linha e caixas do ERP...
         </div>
       ) : painel ? (
         <>
@@ -215,19 +197,17 @@ export default function ExpedicaoAlocacaoView({
               onChangeEstrutura={setEstruturaId}
               posicoes={painel.posicoes}
               produtos={painel.produtos}
+              linhasConfigs={linhasConfigs}
               canEdit={canEdit}
               onSelectPosicao={(pos) => setPosicaoIdSelecionada(pos.id)}
               onAbrirProduto={(p) => setProdutoCodigoSelecionado(p.codigo)}
               onMoverAlocacao={(alocId, destId) => executarMovimento(alocId, destId, false)}
-              onGerenciarEstruturas={() => {
-                setCadSubSecao('estruturas');
-                setAba('cadastros');
-              }}
+              onGerenciarEstruturas={() => setAba('galpoes')}
             />
           )}
 
-          {aba === 'dimensionamento' && (
-            <DimensionamentoTab
+          {aba === 'abc' && (
+            <CurvaAbcTab
               produtos={painel.produtos}
               linhasConfigs={linhasConfigs}
               janelaMeses={painel.janelaMeses}
@@ -243,25 +223,42 @@ export default function ExpedicaoAlocacaoView({
               onChangeIncluirInativos={setIncluirInativos}
               onAbrirProduto={(p) => setProdutoCodigoSelecionado(p.codigo)}
               onAbrirSugestao={() => setSugestaoOpen(true)}
+              onSaved={carregar}
+              avisar={avisar}
+              pedirPrevia={pedirPrevia}
               onFiltroProdutosChange={setProdutosFiltradosExport}
             />
           )}
 
-          {aba === 'cadastros' && (
-            <CadastrosTab
-              subSecaoInicial={cadSubSecao}
-              estruturaAtivaId={painel.estruturaAtivaId}
-              estruturas={painel.estruturas}
-              posicoes={painel.posicoes}
+          {aba === 'caixas' && (
+            <CaixasTab
               caixas={painel.caixas}
-              atacadistas={painel.atacadistas}
               produtos={painel.produtos}
               linhasConfigs={linhasConfigs}
               insumosCaixaErp={painel.insumosCaixaErp}
-              janelaMeses={painel.janelaMeses}
               canEdit={canEdit}
               onSaved={carregar}
               onAbrirProduto={(p) => setProdutoCodigoSelecionado(p.codigo)}
+              avisar={avisar}
+              pedirPrevia={pedirPrevia}
+            />
+          )}
+
+          {aba === 'galpoes' && (
+            <GalpoesTab
+              estruturaAtivaId={painel.estruturaAtivaId}
+              onChangeEstrutura={setEstruturaId}
+              estruturas={painel.estruturas}
+              posicoes={painel.posicoes}
+              atacadistas={painel.atacadistas}
+              linhasConfigs={linhasConfigs}
+              janelaMeses={painel.janelaMeses}
+              canEdit={canEdit}
+              onSaved={carregar}
+              onVerNoMapa={(estId) => {
+                setEstruturaId(estId);
+                setAba('mapa');
+              }}
               avisar={avisar}
               pedirPrevia={pedirPrevia}
             />
@@ -271,6 +268,8 @@ export default function ExpedicaoAlocacaoView({
 
       <PosicaoDrawer
         posicao={posicaoAtiva}
+        estruturaAtiva={estruturaAtivaObj}
+        linhasConfigs={linhasConfigs}
         posicoes={painel?.posicoes ?? []}
         produtos={painel?.produtos ?? []}
         caixas={painel?.caixas ?? []}
@@ -300,6 +299,7 @@ export default function ExpedicaoAlocacaoView({
       <SugestaoDrawer
         open={sugestaoOpen}
         estruturaId={painel?.estruturaAtivaId ?? ''}
+        estruturaAtiva={estruturaAtivaObj}
         janelaMeses={janelaMeses}
         metaMeses={metaMeses}
         usarMetaLinha={usarMetaLinha}

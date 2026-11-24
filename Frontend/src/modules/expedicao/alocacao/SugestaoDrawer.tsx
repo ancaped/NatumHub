@@ -4,11 +4,12 @@ import Drawer from '../../geral/components/ui/Drawer';
 import type { TipoAviso } from '../../geral/components/ui/Aviso';
 import { agruparLinhas, rotuloLinha, type LinhaBase } from '../../geral/lib/linhas';
 import { sugerirAlocacao } from './api';
-import type { SugestaoResultado } from './types';
+import type { Estrutura, SugestaoResultado } from './types';
 
 interface SugestaoDrawerProps {
   open: boolean;
   estruturaId: string;
+  estruturaAtiva?: Estrutura | null;
   janelaMeses: number;
   metaMeses: number;
   usarMetaLinha: boolean;
@@ -21,6 +22,7 @@ interface SugestaoDrawerProps {
 export function SugestaoDrawer({
   open,
   estruturaId,
+  estruturaAtiva = null,
   janelaMeses,
   metaMeses,
   usarMetaLinha,
@@ -37,6 +39,14 @@ export function SugestaoDrawer({
   const [calculando, setCalculando] = useState(false);
   const [aplicando, setAplicando] = useState(false);
   const [previa, setPrevia] = useState<SugestaoResultado | null>(null);
+
+  useEffect(() => {
+    if (open && estruturaAtiva?.linhasPermitidas.length === 1) {
+      setLinhaPrefix(estruturaAtiva.linhasPermitidas[0]);
+    } else if (open && (estruturaAtiva?.linhasPermitidas.length ?? 0) === 0) {
+      setLinhaPrefix('ALL');
+    }
+  }, [open, estruturaAtiva]);
 
   useEffect(() => {
     if (!open) {
@@ -147,6 +157,20 @@ export function SugestaoDrawer({
       }
     >
       <div className="p-4 sm:p-5 space-y-4 text-xs">
+        {estruturaAtiva && (estruturaAtiva.linhasPermitidas?.length ?? 0) > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 flex items-center gap-1.5">
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+            <span>
+              Prateleira ativa (<strong>{estruturaAtiva.nome}</strong>) dedicada exclusivamente às linhas:{' '}
+              <strong>
+                {estruturaAtiva.linhasPermitidas
+                  .map((lp) => rotuloLinha(linhasConfigs, lp))
+                  .join(', ')}
+              </strong>
+              .
+            </span>
+          </div>
+        )}
         <div className="panel-card !p-3 space-y-2.5">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <label className="space-y-1">

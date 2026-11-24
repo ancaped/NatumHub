@@ -2,10 +2,16 @@ export interface Estrutura {
   id: string;
   nome: string;
   descricao: string | null;
+  galpao: string;
+  zona: 'nobre' | 'afastado' | string;
+  linhasPermitidas: string[];
   estradoLarguraCm: number;
   estradoComprimentoCm: number;
   ordem: number;
   ativo: boolean;
+  totalPosicoes: number;
+  posicoesOcupadas: number;
+  ocupacaoMediaPct: number;
 }
 
 export interface Posicao {
@@ -106,6 +112,9 @@ export interface ProdutoDimensao {
   nomeLinha: string;
   linhaPrincipal: string | null;
   situacao: string;
+  incluirAbcOverride: boolean | null;
+  incluirAbcEfetivo: boolean;
+  motivoForaAbc: string | null;
   atendimento: string;
   ehKit: boolean;
   estoqueAtual: number;
@@ -132,7 +141,7 @@ export interface ProdutoDimensao {
   mediaTotal: number;
   percentualAbc: number;
   acumuladoAbc: number;
-  curvaAbc: 'A' | 'B' | 'C' | string;
+  curvaAbc: 'A' | 'B' | 'C' | 'FORA' | string;
   metaMesesEfetiva: number;
   caixasNecessariasPicking: number;
   caixasNecessariasPulmao: number;

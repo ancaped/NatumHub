@@ -165,6 +165,9 @@ export function salvarEstrutura(
   body: {
     nome: string;
     descricao: string | null;
+    galpao?: string;
+    zona?: string;
+    linhasPermitidas?: string[];
     estradoLarguraCm: number;
     estradoComprimentoCm: number;
     ordem: number;
@@ -214,6 +217,21 @@ export function moverAlocacao(body: MoverAlocacaoInput, confirmar = true) {
 export function vincularProdutosCaixaLote(body: ProdutoCaixaLoteInput, confirmar = false) {
   const qs = confirmar ? '?confirmar=true' : '';
   return apiJson(`/expedicao/alocacao/produtos-lote${qs}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function atualizarAbcLote(
+  body: { produtoCodigos: string[]; incluirAbc: boolean | null },
+  confirmar = false,
+) {
+  const qs = confirmar ? '?confirmar=true' : '';
+  return apiJson<{
+    atualizadosCount: number;
+    ignoradosCount: number;
+    incluirAbc: boolean | null;
+  }>(`/expedicao/alocacao/abc-lote${qs}`, {
     method: 'POST',
     body: JSON.stringify(body),
   });

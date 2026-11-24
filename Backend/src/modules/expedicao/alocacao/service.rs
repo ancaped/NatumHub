@@ -13,9 +13,28 @@ use crate::modules::geral::auth::models::AuthContext;
 use super::calculo::{
     agrupar_insumos_caixa_nao_vinculados, aplicar_curva_abc, calcular_camadas_compat_vao,
     calcular_geometria_alocacao, calcular_necessidades_caixas, e_cliente_atacadista,
-    situacao_alocacao_produto, sugerir_alocacao, AlocacaoExistente,
+    elegibilidade_abc_efetiva, situacao_alocacao_produto, sugerir_alocacao, AlocacaoExistente,
 };
 use super::models::*;
+
+fn normalizar_zona(raw: Option<&str>) -> String {
+    match raw.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+        Some("afastado") | Some("secundario") | Some("secundário") => "afastado".to_string(),
+        _ => "nobre".to_string(),
+    }
+}
+
+fn normalizar_linhas_permitidas(raw: Option<Vec<String>>) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for item in raw.unwrap_or_default() {
+        let t = item.trim().to_string();
+        if !t.is_empty() && seen.insert(t.clone()) {
+            out.push(t);
+        }
+    }
+    out
+}
 
 fn str_trim(s: Option<&str>) -> Option<String> {
     s.map(str::trim)
@@ -111,21 +130,72 @@ async fn excluir_em_2_passos(
 
 async fn carregar_estruturas(pool: &PgPool) -> Result<Vec<Estrutura>, ErroApi> {
     let rows = sqlx::query(
-        "SELECT id, nome, descricao, estrado_largura_cm, estrado_comprimento_cm, ordem, ativo \
+        "SELECT id, nome, descricao, galpao, zona, linhas_permitidas, \
+                estrado_largura_cm, estrado_comprimento_cm, ordem, ativo \
          FROM expedicao_estruturas ORDER BY ordem ASC, nome ASC",
     )
     .fetch_all(pool)
     .await?;
+
+    let pos_metric_rows = sqlx::query(
+        "SELECT p.estrutura_id, p.largura_cm, \
+                COALESCE(SUM(a.fileiras_largura::double precision * COALESCE(c.largura_cm, 0)), 0)::double precision AS larg_ocupada, \
+                COUNT(a.id)::bigint AS itens_count \
+         FROM expedicao_posicoes p \
+         LEFT JOIN expedicao_alocacoes a ON a.posicao_id = p.id \
+         LEFT JOIN expedicao_produto_caixa epc ON epc.produto_codigo = a.produto_codigo \
+         LEFT JOIN expedicao_caixas c ON c.id = epc.caixa_id \
+         WHERE p.ativo = TRUE \
+         GROUP BY p.id, p.estrutura_id, p.largura_cm",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut stats: HashMap<String, (usize, usize, f64)> = HashMap::new();
+    for mr in pos_metric_rows {
+        let est_id: String = mr.get("estrutura_id");
+        let larg_vao: f64 = mr.get("largura_cm");
+        let larg_ocupada: f64 = mr.get("larg_ocupada");
+        let itens_count: i64 = mr.get("itens_count");
+        let pct = if larg_vao > 0.0 {
+            ((larg_ocupada / larg_vao) * 100.0).min(100.0)
+        } else {
+            0.0
+        };
+        let entry = stats.entry(est_id).or_insert((0, 0, 0.0));
+        entry.0 += 1;
+        if itens_count > 0 {
+            entry.1 += 1;
+        }
+        entry.2 += pct;
+    }
+
     Ok(rows
         .into_iter()
-        .map(|r| Estrutura {
-            id: r.get("id"),
-            nome: r.get("nome"),
-            descricao: r.get("descricao"),
-            estrado_largura_cm: r.get("estrado_largura_cm"),
-            estrado_comprimento_cm: r.get("estrado_comprimento_cm"),
-            ordem: r.get("ordem"),
-            ativo: r.get("ativo"),
+        .map(|r| {
+            let id: String = r.get("id");
+            let (total_posicoes, posicoes_ocupadas, soma_pct) =
+                stats.get(&id).copied().unwrap_or((0, 0, 0.0));
+            let ocupacao_media_pct = if total_posicoes > 0 {
+                soma_pct / (total_posicoes as f64)
+            } else {
+                0.0
+            };
+            Estrutura {
+                id,
+                nome: r.get("nome"),
+                descricao: r.get("descricao"),
+                galpao: r.get("galpao"),
+                zona: r.get("zona"),
+                linhas_permitidas: r.get::<Option<Vec<String>>, _>("linhas_permitidas").unwrap_or_default(),
+                estrado_largura_cm: r.get("estrado_largura_cm"),
+                estrado_comprimento_cm: r.get("estrado_comprimento_cm"),
+                ordem: r.get("ordem"),
+                ativo: r.get("ativo"),
+                total_posicoes,
+                posicoes_ocupadas,
+                ocupacao_media_pct,
+            }
         })
         .collect())
 }
@@ -344,7 +414,8 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
                 COALESCE(ea.estoque, 0.0) AS estoque_atual, \
                 epc.caixa_id, \
                 epc.qtde_cx_manual, \
-                epc.camadas_override \
+                epc.camadas_override, \
+                epc.incluir_abc \
          FROM produtos p \
          LEFT JOIN overrides_produtos o ON o.codigo = p.codigo \
          LEFT JOIN config_linhas cl ON cl.linha_prefix = COALESCE(NULLIF(o.linha_prefix_manual, ''), p.linha_prefix) \
@@ -387,6 +458,7 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         let caixa_id_manual: Option<String> = r.get("caixa_id");
         let qtde_cx_manual: Option<i32> = r.get::<Option<i32>, _>("qtde_cx_manual").filter(|&q| q > 0);
         let camadas_override: Option<i32> = r.get::<Option<i32>, _>("camadas_override").filter(|&c| c > 0);
+        let incluir_abc_override: Option<bool> = r.get("incluir_abc");
 
         let cat_raiz = categoria_raiz(categoria_produto.as_deref().unwrap_or(""), &pais_cat);
         let eh_base = e_base(&codigo, &cat_raiz, status_produto.as_deref().unwrap_or(""));
@@ -475,6 +547,9 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             None => (None, None),
         };
 
+        let (incluir_abc_efetivo, motivo_fora_abc) =
+            elegibilidade_abc_efetiva(incluir_abc_override, &descricao, vendas_total, &situacao);
+
         produtos.push(ProdutoDimensao {
             codigo: codigo.clone(),
             descricao,
@@ -483,6 +558,9 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             nome_linha,
             linha_principal,
             situacao,
+            incluir_abc_override,
+            incluir_abc_efetivo,
+            motivo_fora_abc,
             atendimento,
             eh_kit: kits_set.contains(&codigo),
             estoque_atual,
@@ -800,6 +878,15 @@ pub async fn criar_estrutura(
         return Err(ErroApi::invalido("Largura e comprimento do estrado devem ser positivos."));
     }
     let desc = str_trim(input.descricao.as_deref());
+    let zona = normalizar_zona(input.zona.as_deref());
+    let galpao = str_trim(input.galpao.as_deref()).unwrap_or_else(|| {
+        if zona == "afastado" {
+            "Galpão 2 (Área Secundária)".to_string()
+        } else {
+            "Galpão 1 (Área Nobre)".to_string()
+        }
+    });
+    let linhas_permitidas = normalizar_linhas_permitidas(input.linhas_permitidas);
     let ordem = input.ordem.unwrap_or(10);
     let ativo = input.ativo.unwrap_or(true);
     let id = slug_id("est");
@@ -807,15 +894,22 @@ pub async fn criar_estrutura(
     let id_c = id.clone();
     let nome_c = nome.clone();
     let desc_c = desc.clone();
+    let galpao_c = galpao.clone();
+    let zona_c = zona.clone();
+    let linhas_c = linhas_permitidas.clone();
     let r = executar_em_2_passos(pool, "criar_estrutura_expedicao", confirmar, move |tx| {
         Box::pin(async move {
             sqlx::query(
-                "INSERT INTO expedicao_estruturas (id, nome, descricao, estrado_largura_cm, estrado_comprimento_cm, ordem, ativo) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                "INSERT INTO expedicao_estruturas \
+                 (id, nome, descricao, galpao, zona, linhas_permitidas, estrado_largura_cm, estrado_comprimento_cm, ordem, ativo) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
             )
             .bind(&id_c)
             .bind(&nome_c)
             .bind(&desc_c)
+            .bind(&galpao_c)
+            .bind(&zona_c)
+            .bind(&linhas_c)
             .bind(largura)
             .bind(comp)
             .bind(ordem)
@@ -825,6 +919,9 @@ pub async fn criar_estrutura(
             Ok(json!({
                 "id": id_c,
                 "nome": nome_c,
+                "galpao": galpao_c,
+                "zona": zona_c,
+                "linhasPermitidas": linhas_c,
                 "estradoLarguraCm": largura,
                 "estradoComprimentoCm": comp,
             }))
@@ -862,10 +959,22 @@ pub async fn atualizar_estrutura(
         return Err(ErroApi::invalido("Largura e comprimento do estrado devem ser positivos."));
     }
     let desc = str_trim(input.descricao.as_deref());
+    let zona = normalizar_zona(input.zona.as_deref());
+    let galpao = str_trim(input.galpao.as_deref()).unwrap_or_else(|| {
+        if zona == "afastado" {
+            "Galpão 2 (Área Secundária)".to_string()
+        } else {
+            "Galpão 1 (Área Nobre)".to_string()
+        }
+    });
+    let linhas_permitidas = normalizar_linhas_permitidas(input.linhas_permitidas);
     let ordem = input.ordem.unwrap_or(1);
     let ativo = input.ativo.unwrap_or(true);
     let id_c = id.to_string();
     let nome_c = nome.clone();
+    let galpao_c = galpao.clone();
+    let zona_c = zona.clone();
+    let linhas_c = linhas_permitidas.clone();
 
     let r = executar_em_2_passos(pool, "atualizar_estrutura_expedicao", confirmar, move |tx| {
         Box::pin(async move {
@@ -881,12 +990,16 @@ pub async fn atualizar_estrutura(
             };
             sqlx::query(
                 "UPDATE expedicao_estruturas \
-                 SET nome = $2, descricao = $3, estrado_largura_cm = $4, estrado_comprimento_cm = $5, ordem = $6, ativo = $7, updated_at = NOW() \
+                 SET nome = $2, descricao = $3, galpao = $4, zona = $5, linhas_permitidas = $6, \
+                     estrado_largura_cm = $7, estrado_comprimento_cm = $8, ordem = $9, ativo = $10, updated_at = NOW() \
                  WHERE id = $1",
             )
             .bind(&id_c)
             .bind(&nome_c)
             .bind(&desc)
+            .bind(&galpao_c)
+            .bind(&zona_c)
+            .bind(&linhas_c)
             .bind(largura)
             .bind(comp)
             .bind(ordem)
@@ -899,6 +1012,9 @@ pub async fn atualizar_estrutura(
                 "depois": {
                     "nome": nome_c,
                     "descricao": desc,
+                    "galpao": galpao_c,
+                    "zona": zona_c,
+                    "linhasPermitidas": linhas_c,
                     "estradoLarguraCm": largura,
                     "estradoComprimentoCm": comp,
                     "ordem": ordem,
@@ -1959,12 +2075,20 @@ pub async fn aplicar_sugestao(
         })
         .collect();
 
+    let linhas_permitidas: Vec<String> = painel
+        .estruturas
+        .iter()
+        .find(|e| e.id == painel.estrutura_ativa_id)
+        .map(|e| e.linhas_permitidas.clone())
+        .unwrap_or_default();
+
     let res_sug = sugerir_alocacao(
         &painel.estrutura_ativa_id,
         &posicoes_raw,
         &painel.caixas,
         &existentes,
         &candidatos,
+        &linhas_permitidas,
         manter_fixados,
         limpar_nao_fixados,
     );
@@ -2591,6 +2715,90 @@ pub async fn importar_mapa_lote(
             &format!(
                 "Importação de mapa aplicada: {} alocações gravadas",
                 r.resultado["validos"].as_u64().unwrap_or(0)
+            ),
+            None,
+            Some(r.resultado.clone()),
+        )
+        .await;
+    }
+
+    Ok(r)
+}
+
+pub async fn atualizar_elegibilidade_abc_lote(
+    pool: &PgPool,
+    ctx: &AuthContext,
+    input: AbcElegibilidadeLoteInput,
+    confirmar: bool,
+) -> Result<RespostaAcao<Value>, ErroApi> {
+    let mut codigos: Vec<String> = Vec::new();
+    let mut vistos: HashSet<String> = HashSet::new();
+    for raw in &input.produto_codigos {
+        let t = raw.trim().to_string();
+        if !t.is_empty() && vistos.insert(t.clone()) {
+            codigos.push(t);
+        }
+    }
+    if codigos.is_empty() || codigos.len() > 500 {
+        return Err(ErroApi::invalido(
+            "Selecione entre 1 e 500 produtos para alterar a elegibilidade da Curva ABC.",
+        ));
+    }
+
+    let codigos_c = codigos.clone();
+    let incluir_opt = input.incluir_abc;
+    let r = executar_em_2_passos(pool, "atualizar_abc_lote_expedicao", confirmar, move |tx| {
+        Box::pin(async move {
+            let existentes: Vec<String> = sqlx::query_scalar(
+                "SELECT codigo FROM produtos WHERE codigo = ANY($1) ORDER BY codigo ASC",
+            )
+            .bind(&codigos_c)
+            .fetch_all(&mut **tx)
+            .await?;
+            if existentes.is_empty() {
+                return Err(ErroApi::nao_encontrado(
+                    "Nenhum dos produtos selecionados foi encontrado no catálogo.",
+                ));
+            }
+
+            for cod in &existentes {
+                sqlx::query(
+                    "INSERT INTO expedicao_produto_caixa (produto_codigo, incluir_abc, updated_at) \
+                     VALUES ($1, $2, NOW()) \
+                     ON CONFLICT (produto_codigo) DO UPDATE SET \
+                        incluir_abc = EXCLUDED.incluir_abc, \
+                        updated_at = NOW()",
+                )
+                .bind(cod)
+                .bind(incluir_opt)
+                .execute(&mut **tx)
+                .await?;
+            }
+
+            Ok(json!({
+                "atualizadosCount": existentes.len(),
+                "ignoradosCount": codigos_c.len().saturating_sub(existentes.len()),
+                "incluirAbc": incluir_opt,
+            }))
+        })
+    })
+    .await?;
+
+    if confirmar {
+        let desc = match input.incluir_abc {
+            Some(true) => "incluídos na Curva ABC",
+            Some(false) => "retirados da Curva ABC",
+            None => "restaurados para regra automática da Curva ABC",
+        };
+        registrar_auditoria(
+            pool,
+            ctx,
+            "atualizar_abc_lote_expedicao",
+            "expedicao_produto_caixa",
+            "abc_lote",
+            &format!(
+                "{} produtos {desc}",
+                r.resultado["atualizadosCount"].as_u64().unwrap_or(0)
             ),
             None,
             Some(r.resultado.clone()),

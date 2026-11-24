@@ -6,10 +6,16 @@ pub struct Estrutura {
     pub id: String,
     pub nome: String,
     pub descricao: Option<String>,
+    pub galpao: String,
+    pub zona: String,
+    pub linhas_permitidas: Vec<String>,
     pub estrado_largura_cm: f64,
     pub estrado_comprimento_cm: f64,
     pub ordem: i32,
     pub ativo: bool,
+    pub total_posicoes: usize,
+    pub posicoes_ocupadas: usize,
+    pub ocupacao_media_pct: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,6 +122,9 @@ pub struct ProdutoDimensao {
     pub nome_linha: String,
     pub linha_principal: Option<String>,
     pub situacao: String,
+    pub incluir_abc_override: Option<bool>,
+    pub incluir_abc_efetivo: bool,
+    pub motivo_fora_abc: Option<String>,
     pub atendimento: String,
     pub eh_kit: bool,
     pub estoque_atual: f64,
@@ -227,6 +236,9 @@ pub struct ClienteSugestao {
 pub struct EstruturaInput {
     pub nome: String,
     pub descricao: Option<String>,
+    pub galpao: Option<String>,
+    pub zona: Option<String>,
+    pub linhas_permitidas: Option<Vec<String>>,
     pub estrado_largura_cm: Option<f64>,
     pub estrado_comprimento_cm: Option<f64>,
     pub ordem: Option<i32>,
@@ -391,6 +403,13 @@ pub struct ProdutoCaixaLoteInput {
     pub qtde_cx_manual: Option<i32>,
     #[serde(default)]
     pub limpar_qtde_cx: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AbcElegibilidadeLoteInput {
+    pub produto_codigos: Vec<String>,
+    pub incluir_abc: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

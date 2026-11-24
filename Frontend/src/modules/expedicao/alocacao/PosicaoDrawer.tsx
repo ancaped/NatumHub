@@ -13,11 +13,28 @@ import Drawer from '../../geral/components/ui/Drawer';
 import { StatusBadge } from '../../geral/components/ui/ReportKit';
 import type { TipoAviso } from '../../geral/components/ui/Aviso';
 import type { PedidoPrevia } from '../../producao/lib/usePreviaServidor';
+import { rotuloLinha, type LinhaBase } from '../../geral/lib/linhas';
 import { atualizarPosicao, salvarAlocacaoPosicao } from './api';
-import type { Caixa, PosicaoComItens, ProdutoDimensao } from './types';
+import type { Caixa, Estrutura, PosicaoComItens, ProdutoDimensao } from './types';
+
+function produtoForaDasLinhasDaEstante(
+  prod: ProdutoDimensao,
+  estrutura?: Estrutura | null,
+): boolean {
+  const permitidas = estrutura?.linhasPermitidas ?? [];
+  if (permitidas.length === 0) return false;
+  return !permitidas.some(
+    (allowed) =>
+      prod.linhaPrefix === allowed ||
+      prod.linhaPrincipal === allowed ||
+      prod.linhaPrefix.startsWith(`${allowed}.`),
+  );
+}
 
 interface PosicaoDrawerProps {
   posicao: PosicaoComItens | null;
+  estruturaAtiva?: Estrutura | null;
+  linhasConfigs?: LinhaBase[];
   posicoes: PosicaoComItens[];
   produtos: ProdutoDimensao[];
   caixas: Caixa[];
@@ -35,6 +52,8 @@ interface PosicaoDrawerProps {
 
 export function PosicaoDrawer({
   posicao,
+  estruturaAtiva = null,
+  linhasConfigs = [],
   posicoes,
   produtos,
   caixas,
@@ -595,6 +614,20 @@ export function PosicaoDrawer({
                     {previaLarguraNovo.toFixed(1)} cm
                     {previaCaixasNovo !== null ? ` · ${previaCaixasNovo} cx` : ''} (livre:{' '}
                     {posicao.larguraLivreCm.toFixed(1)} cm)
+                  </div>
+                )}
+                {produtoForaDasLinhasDaEstante(produtoEscolhido, estruturaAtiva) && (
+                  <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-900 flex items-start gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-600" />
+                    <span>
+                      Atenção: esta prateleira é dedicada às linhas{' '}
+                      <strong>
+                        {(estruturaAtiva?.linhasPermitidas ?? [])
+                          .map((lp) => rotuloLinha(linhasConfigs, lp))
+                          .join(', ')}
+                      </strong>
+                      . Você pode gravar manualmente, mas a sugestão automática mantém linhas separadas.
+                    </span>
                   </div>
                 )}
                 <button
