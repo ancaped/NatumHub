@@ -345,6 +345,25 @@ export function PosicaoDrawer({
               style={{ width: `${Math.min(100, Math.max(0, posicao.ocupacaoPct))}%` }}
             />
           </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-600 pt-0.5">
+            <span>
+              Acesso:{' '}
+              <strong className="text-zinc-900">
+                {posicao.acessoEquipamento === 'empilhadeira'
+                  ? 'Empilhadeira / Paleteira'
+                  : 'Manual (a pé)'}
+              </strong>{' '}
+              <span className="font-mono text-zinc-500">
+                (base {((posicao.cotaBaseCm ?? 0) / 100).toFixed(2)} m)
+              </span>
+            </span>
+            {(posicao.pesoCargaKg ?? 0) > 0 && (
+              <span className="font-mono text-zinc-700">
+                Carga ~{Math.round(posicao.pesoCargaKg ?? 0)} kg · c/ palete ~
+                {Math.round(posicao.pesoTotalComPaleteKg ?? 0)} kg
+              </span>
+            )}
+          </div>
           {posicao.temEstouro && (
             <div className="flex items-center gap-1.5 text-red-700 font-semibold">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -489,6 +508,9 @@ export function PosicaoDrawer({
                       <span className="text-zinc-600 font-mono text-[11px]">
                         {largPrev.toFixed(1)} cm · {totalCxPrev} cx ·{' '}
                         {totalUnPrev.toLocaleString('pt-BR')} un
+                        {item.pesoEstimadoKg != null && item.pesoEstimadoKg > 0
+                          ? ` · ~${Math.round(item.pesoEstimadoKg)} kg`
+                          : ''}
                         {item.coberturaMeses != null
                           ? ` · ${item.coberturaMeses.toFixed(1)} m`
                           : ''}

@@ -138,8 +138,26 @@ export function CaixasTab({
     [pendenciasFiltradas, mostrarTodasPend],
   );
 
+  const pesoAutoPorCaixaId = useMemo(() => {
+    const soma = new Map<string, { tot: number; n: number }>();
+    for (const p of produtos) {
+      if (!p.caixaId || p.pesoCaixaEstimadoKg == null || !(p.pesoCaixaEstimadoKg > 0)) continue;
+      const cur = soma.get(p.caixaId) ?? { tot: 0, n: 0 };
+      soma.set(p.caixaId, { tot: cur.tot + p.pesoCaixaEstimadoKg, n: cur.n + 1 });
+    }
+    const out = new Map<string, number>();
+    for (const [id, v] of soma.entries()) {
+      out.set(id, Number((v.tot / v.n).toFixed(2)));
+    }
+    return out;
+  }, [produtos]);
+
+  const pesoAutoSelecionado = editCxId ? pesoAutoPorCaixaId.get(editCxId) ?? null : null;
+
   const paletizacaoLive = useMemo(() => {
-    const pesoNum = cxPeso.trim() ? Number(cxPeso) : null;
+    const pesoManual = cxPeso.trim() ? Number(cxPeso) : null;
+    const pesoUsado =
+      pesoManual != null && pesoManual > 0 ? pesoManual : pesoAutoSelecionado;
     return calcularPaletizacao(
       {
         alturaCm: Number(cxAlt) > 0 ? Number(cxAlt) : 20,
@@ -147,13 +165,13 @@ export function CaixasTab({
         larguraCm: Number(cxLarg) > 0 ? Number(cxLarg) : 15,
         empilhamentoMax: Math.max(1, parseInt(cxEmp || '4', 10) || 4),
         podeGirar: cxPodeGirar,
-        pesoBrutoKg: pesoNum != null && pesoNum > 0 ? pesoNum : null,
+        pesoBrutoKg: pesoUsado,
       },
       paleteLargCm,
       paleteCompCm,
       vaoAltCm,
     );
-  }, [cxAlt, cxComp, cxLarg, cxEmp, cxPodeGirar, cxPeso, paleteLargCm, paleteCompCm, vaoAltCm]);
+  }, [cxAlt, cxComp, cxLarg, cxEmp, cxPodeGirar, cxPeso, pesoAutoSelecionado, paleteLargCm, paleteCompCm, vaoAltCm]);
 
   const layoutAtivo = useMemo(() => {
     if (padraoPreview === 'rotacionado') {
@@ -917,7 +935,11 @@ export function CaixasTab({
               comprimentoCm={Number(cxComp) || 20}
               larguraCm={Number(cxLarg) || 15}
               codigo={cxCod.trim() || undefined}
-              pesoBrutoKg={cxPeso.trim() ? Number(cxPeso) : null}
+              pesoBrutoKg={
+                cxPeso.trim() && Number(cxPeso) > 0
+                  ? Number(cxPeso)
+                  : pesoAutoSelecionado
+              }
               podeGirar={cxPodeGirar}
             />
 
@@ -1134,7 +1156,7 @@ export function CaixasTab({
 
             <label className="space-y-1 block">
               <span className="font-semibold text-zinc-600 block">
-                Peso bruto estimado por caixa (kg)
+                Peso bruto por caixa (kg){pesoAutoSelecionado ? ` · automático ~${pesoAutoSelecionado} kg` : ''}
               </span>
               <input
                 disabled={!canEdit}
@@ -1143,7 +1165,11 @@ export function CaixasTab({
                 min={0.1}
                 value={cxPeso}
                 onChange={(e) => setCxPeso(e.target.value)}
-                placeholder="Opcional — usado no cálculo de carga do palete"
+                placeholder={
+                  pesoAutoSelecionado
+                    ? `Automático pelos produtos: ~${pesoAutoSelecionado} kg`
+                    : 'Opcional — preenchido auto se produtos tiverem g/ml/L'
+                }
                 className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono disabled:bg-zinc-50"
               />
             </label>

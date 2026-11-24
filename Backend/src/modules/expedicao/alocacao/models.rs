@@ -98,6 +98,7 @@ pub struct AlocacaoItemView {
     pub altura_vao_cm: f64,
     pub estouro_altura: bool,
     pub cobertura_meses: Option<f64>,
+    pub peso_estimado_kg: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +113,10 @@ pub struct PosicaoComItens {
     pub tem_estouro: bool,
     pub total_caixas: i32,
     pub total_unidades: i32,
+    pub peso_carga_kg: f64,
+    pub peso_total_com_palete_kg: f64,
+    pub cota_base_cm: f64,
+    pub acesso_equipamento: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,6 +150,9 @@ pub struct ProdutoDimensao {
     pub caixa_comprimento_cm: Option<f64>,
     pub caixa_largura_cm: Option<f64>,
     pub empilhamento_max: Option<i32>,
+    pub peso_unitario_kg: Option<f64>,
+    pub peso_caixa_estimado_kg: Option<f64>,
+    pub classe_empilhamento: String,
     pub insumo_caixa_erp: Option<String>,
     pub insumo_caixa_erp_desc: Option<String>,
     pub camadas_override: Option<i32>,

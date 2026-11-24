@@ -5,16 +5,18 @@ use sqlx::{PgConnection, PgPool, Row};
 
 use crate::core::acao::{corpo_acao, executar_em_2_passos, exigir_motivo, ErroApi, RespostaAcao};
 use crate::core::regras_produto::{
-    atendimento_efetivo, carregar_pais_categorias, categoria_raiz, e_base, situacao_do_status_legado,
+    atendimento_efetivo, carregar_pais_categorias, categoria_raiz, e_base, peso_unitario_kg,
+    situacao_do_status_legado,
 };
 use crate::modules::geral::audit;
 use crate::modules::geral::auth::models::AuthContext;
 
 use super::calculo::{
-    agrupar_insumos_caixa_nao_vinculados, aplicar_curva_abc, calcular_camadas_compat_vao,
-    calcular_geometria_alocacao, calcular_necessidades_caixas, definir_grupo_alocacao,
-    e_cliente_atacadista, elegibilidade_abc_efetiva, situacao_alocacao_produto, sugerir_alocacao,
-    AlocacaoExistente,
+    acesso_equipamento_por_cota, agrupar_insumos_caixa_nao_vinculados, aplicar_curva_abc, arred2,
+    calcular_camadas_compat_vao, calcular_cotas_base_andares, calcular_geometria_alocacao,
+    calcular_necessidades_caixas, calcular_peso_caixa_estimado_kg, classificar_empilhamento,
+    definir_grupo_alocacao, e_cliente_atacadista, elegibilidade_abc_efetiva,
+    situacao_alocacao_produto, sugerir_alocacao, AlocacaoExistente, TARA_PALETE_PBR_KG,
 };
 use super::models::*;
 
@@ -363,11 +365,14 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         }
     }
 
-    // Composição de kits (kit_composicao): fonte automática complementar para kits sem caixa na fórmula
+    // Composição de kits (kit_composicao): fonte automática complementar para kits sem caixa na fórmula e peso automático
     let kit_rows = sqlx::query(
         "SELECT kc.kit_codigo, TRIM(kc.componente_codigo) AS ing_code, \
+                COALESCE(kc.quantidade, 1.0)::double precision AS comp_qtd, \
+                p_comp.descricao AS comp_desc, \
                 COALESCE(NULLIF(TRIM(i.description), ''), NULLIF(TRIM(f_desc.description), ''), TRIM(kc.componente_codigo)) AS ing_desc \
          FROM kit_composicao kc \
+         LEFT JOIN produtos p_comp ON p_comp.codigo = kc.componente_codigo \
          LEFT JOIN items i ON i.code = kc.componente_codigo \
          LEFT JOIN LATERAL (SELECT description FROM formulations WHERE ingredient_code = kc.componente_codigo LIMIT 1) f_desc ON TRUE",
     )
@@ -375,10 +380,18 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
     .await?;
 
     let mut caixa_por_kit_comp: HashMap<String, String> = HashMap::new();
+    let mut peso_kit_map: HashMap<String, f64> = HashMap::new();
     for r in kit_rows {
         let k_code: String = r.get("kit_codigo");
         let ing_code: String = r.get("ing_code");
         let ing_desc: String = r.get("ing_desc");
+        let comp_qtd: f64 = r.get::<Option<f64>, _>("comp_qtd").unwrap_or(1.0).max(0.0);
+        let comp_desc: Option<String> = r.get("comp_desc");
+        if let Some(ref desc) = comp_desc {
+            if let Some(p_comp) = peso_unitario_kg(desc, false) {
+                *peso_kit_map.entry(k_code.clone()).or_insert(0.0) += p_comp * comp_qtd;
+            }
+        }
         let ing_up = ing_code.to_ascii_uppercase();
         let desc_up = ing_desc.to_ascii_uppercase();
 
@@ -476,6 +489,7 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         qtde_cx: Option<i32>,
         caixa_id: Option<String>,
         media_total: f64,
+        peso_caixa_estimado_kg: Option<f64>,
     }
     let mut fallback_map: HashMap<String, ProdMetaFallback> = HashMap::new();
     let mut produtos: Vec<ProdutoDimensao> = Vec::new();
@@ -547,6 +561,28 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         let media_atacado = vendas_atacado / janela_f;
         let media_total = vendas_total / janela_f;
 
+        let cx_ref = caixa_id_eff.as_ref().and_then(|id| caixa_por_id.get(id)).copied();
+        let eh_kit = kits_set.contains(&codigo);
+        let peso_unitario = peso_unitario_kg(&descricao, false).or_else(|| {
+            if eh_kit {
+                peso_kit_map
+                    .get(&codigo)
+                    .copied()
+                    .filter(|&v| v > 0.0)
+                    .map(arred2)
+            } else {
+                None
+            }
+        });
+        let peso_caixa_est = calcular_peso_caixa_estimado_kg(
+            cx_ref.and_then(|c| c.peso_bruto_kg),
+            peso_unitario,
+            qtde_cx_efetiva,
+        );
+        let classe_emp =
+            classificar_empilhamento(peso_caixa_est, cx_ref.map(|c| c.empilhamento_max), eh_kit)
+                .to_string();
+
         fallback_map.insert(
             codigo.clone(),
             ProdMetaFallback {
@@ -556,6 +592,7 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
                 qtde_cx: qtde_cx_efetiva,
                 caixa_id: caixa_id_eff.clone(),
                 media_total,
+                peso_caixa_estimado_kg: peso_caixa_est,
             },
         );
 
@@ -566,8 +603,6 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         if !incluir_inativos && inativo {
             continue;
         }
-
-        let cx_ref = caixa_id_eff.as_ref().and_then(|id| caixa_por_id.get(id)).copied();
         let meta_meses_efetiva = if usar_meta_linha && estoque_ideal_mult > 0.0 {
             estoque_ideal_mult
         } else {
@@ -595,7 +630,6 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         let (incluir_abc_efetivo, motivo_fora_abc) =
             elegibilidade_abc_efetiva(incluir_abc_override, &descricao, vendas_total, &situacao);
 
-        let eh_kit = kits_set.contains(&codigo);
         let eh_coloracao = cat_raiz == "cat_coloracao";
         let nome_principal = linha_principal
             .as_deref()
@@ -639,6 +673,9 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             caixa_comprimento_cm: cx_ref.map(|c| c.comprimento_cm),
             caixa_largura_cm: cx_ref.map(|c| c.largura_cm),
             empilhamento_max: cx_ref.map(|c| c.empilhamento_max),
+            peso_unitario_kg: peso_unitario,
+            peso_caixa_estimado_kg: peso_caixa_est,
+            classe_empilhamento: classe_emp,
             insumo_caixa_erp: ins_cod,
             insumo_caixa_erp_desc: ins_desc,
             camadas_override,
@@ -712,6 +749,10 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             fb.media_total,
         );
 
+        let peso_estimado_kg = fb
+            .peso_caixa_estimado_kg
+            .map(|p| arred2(p * (geom.total_caixas as f64)));
+
         let view = AlocacaoItemView {
             id,
             posicao_id: posicao_id.clone(),
@@ -743,11 +784,13 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             altura_vao_cm: pos.altura_cm,
             estouro_altura: geom.estouro_altura,
             cobertura_meses: geom.cobertura_meses,
+            peso_estimado_kg,
         };
         itens_por_pos.entry(posicao_id).or_default().push(view.clone());
         itens_por_prod.entry(produto_codigo).or_default().push(view);
     }
 
+    let cotas_base = calcular_cotas_base_andares(&posicoes);
     let mut posicoes_com_itens: Vec<PosicaoComItens> = Vec::with_capacity(posicoes.len());
     let mut posicoes_ocupadas = 0usize;
     let mut soma_pct = 0.0;
@@ -765,6 +808,14 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         let tem_estouro = largura_ocupada_cm > pos.largura_cm + 1e-6 || itens.iter().any(|i| i.estouro_altura);
         let total_caixas: i32 = itens.iter().map(|i| i.total_caixas).sum();
         let total_unidades: i32 = itens.iter().map(|i| i.total_unidades).sum();
+        let cota_base_cm = cotas_base.get(&pos.andar).copied().unwrap_or(0.0);
+        let acesso_equipamento = acesso_equipamento_por_cota(cota_base_cm).to_string();
+        let peso_carga_kg = arred2(itens.iter().filter_map(|i| i.peso_estimado_kg).sum());
+        let peso_total_com_palete_kg = if !itens.is_empty() && peso_carga_kg > 0.0 {
+            arred2(peso_carga_kg + TARA_PALETE_PBR_KG)
+        } else {
+            0.0
+        };
         if pos.ativo {
             ativas_count += 1;
             if !itens.is_empty() {
@@ -781,6 +832,10 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             tem_estouro,
             total_caixas,
             total_unidades,
+            peso_carga_kg,
+            peso_total_com_palete_kg,
+            cota_base_cm,
+            acesso_equipamento,
         });
     }
 

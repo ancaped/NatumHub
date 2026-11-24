@@ -169,6 +169,63 @@ pub fn calcular_geometria_alocacao(
     }
 }
 
+pub const TARA_CAIXA_PADRAO_KG: f64 = 0.4;
+pub const TARA_PALETE_PBR_KG: f64 = 25.0;
+pub const ALTURA_LIMITE_ACESSO_MANUAL_CM: f64 = 120.0;
+
+pub fn arred2(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0
+}
+
+pub fn calcular_peso_caixa_estimado_kg(
+    peso_bruto_manual_kg: Option<f64>,
+    peso_unitario_kg: Option<f64>,
+    qtde_cx: Option<i32>,
+) -> Option<f64> {
+    if let Some(v) = peso_bruto_manual_kg.filter(|v| v.is_finite() && *v > 0.0) {
+        return Some(arred2(v));
+    }
+    let u = peso_unitario_kg.filter(|v| v.is_finite() && *v > 0.0)?;
+    let q = qtde_cx.filter(|&q| q > 0)?;
+    Some(arred2(u * (q as f64) + TARA_CAIXA_PADRAO_KG))
+}
+
+pub fn classificar_empilhamento(
+    peso_caixa_kg: Option<f64>,
+    empilhamento_max: Option<i32>,
+    eh_kit: bool,
+) -> &'static str {
+    if empilhamento_max.is_some_and(|e| e <= 2) || peso_caixa_kg.is_some_and(|p| p >= 12.0) {
+        return "base";
+    }
+    if eh_kit || peso_caixa_kg.is_some_and(|p| p <= 3.0) {
+        return "topo";
+    }
+    "padrao"
+}
+
+pub fn acesso_equipamento_por_cota(cota_base_cm: f64) -> &'static str {
+    if cota_base_cm < ALTURA_LIMITE_ACESSO_MANUAL_CM - EPS {
+        "manual"
+    } else {
+        "empilhadeira"
+    }
+}
+
+pub fn calcular_cotas_base_andares(posicoes: &[Posicao]) -> HashMap<i32, f64> {
+    let mut alt_por_andar: BTreeMap<i32, f64> = BTreeMap::new();
+    for p in posicoes {
+        alt_por_andar.entry(p.andar).or_insert(p.altura_cm);
+    }
+    let mut cotas = HashMap::new();
+    let mut acum = 0.0;
+    for (andar, h) in alt_por_andar {
+        cotas.insert(andar, arred2(acum));
+        acum += if h > 0.0 { h } else { 74.0 };
+    }
+    cotas
+}
+
 const TERMOS_APOIO_BRINDE: &[&str] = &[
     "SACOLA",
     "SACOLAS",
@@ -978,6 +1035,9 @@ mod tests {
             caixa_comprimento_cm: Some(19.5),
             caixa_largura_cm: Some(14.7),
             empilhamento_max: Some(4),
+            peso_unitario_kg: None,
+            peso_caixa_estimado_kg: None,
+            classe_empilhamento: "padrao".into(),
             insumo_caixa_erp: None,
             insumo_caixa_erp_desc: None,
             camadas_override: None,
@@ -1056,6 +1116,9 @@ mod tests {
             caixa_comprimento_cm: Some(19.5),
             caixa_largura_cm: Some(14.7),
             empilhamento_max: Some(4),
+            peso_unitario_kg: None,
+            peso_caixa_estimado_kg: None,
+            classe_empilhamento: "padrao".into(),
             insumo_caixa_erp: None,
             insumo_caixa_erp_desc: None,
             camadas_override: None,
@@ -1109,6 +1172,9 @@ mod tests {
             caixa_comprimento_cm: Some(26.4),
             caixa_largura_cm: Some(26.4),
             empilhamento_max: Some(4),
+            peso_unitario_kg: None,
+            peso_caixa_estimado_kg: None,
+            classe_empilhamento: "padrao".into(),
             insumo_caixa_erp: None,
             insumo_caixa_erp_desc: None,
             camadas_override: None,
@@ -1220,6 +1286,9 @@ mod tests {
             caixa_comprimento_cm: Some(19.5),
             caixa_largura_cm: Some(14.7),
             empilhamento_max: Some(4),
+            peso_unitario_kg: None,
+            peso_caixa_estimado_kg: None,
+            classe_empilhamento: "padrao".into(),
             insumo_caixa_erp: None,
             insumo_caixa_erp_desc: None,
             camadas_override: None,
@@ -1377,5 +1446,39 @@ mod tests {
         assert_eq!(res.propostas.len(), 2);
         assert_eq!(res.propostas[0].produto_codigo, "2.11.001");
         assert_eq!(res.propostas[1].produto_codigo, "2.12.052");
+    }
+
+    #[test]
+    fn peso_caixa_classe_empilhamento_e_acesso_por_cota_funcionam() {
+        // Override manual prevalece
+        assert_eq!(
+            calcular_peso_caixa_estimado_kg(Some(14.5), Some(0.5), Some(12)),
+            Some(14.5)
+        );
+        // Cálculo automático: 0.5 kg * 12 un + 0.4 tara caixa = 6.4 kg
+        assert_eq!(
+            calcular_peso_caixa_estimado_kg(None, Some(0.5), Some(12)),
+            Some(6.4)
+        );
+        assert_eq!(calcular_peso_caixa_estimado_kg(None, None, Some(12)), None);
+
+        assert_eq!(classificar_empilhamento(Some(14.0), Some(4), false), "base");
+        assert_eq!(classificar_empilhamento(Some(6.0), Some(2), false), "base");
+        assert_eq!(classificar_empilhamento(Some(2.5), Some(4), false), "topo");
+        assert_eq!(classificar_empilhamento(Some(6.0), Some(4), true), "topo");
+        assert_eq!(classificar_empilhamento(Some(6.0), Some(4), false), "padrao");
+
+        let posicoes = vec![
+            pos_exemplo("A1", 1, 1, "picking", 74.1),
+            Posicao { andar: 2, ..pos_exemplo("A3", 1, 3, "picking", 74.0) },
+            Posicao { andar: 3, ..pos_exemplo("A5", 1, 5, "pulmao", 74.0) },
+        ];
+        let cotas = calcular_cotas_base_andares(&posicoes);
+        assert_eq!(cotas.get(&1).copied(), Some(0.0));
+        assert_eq!(cotas.get(&2).copied(), Some(74.1));
+        assert_eq!(cotas.get(&3).copied(), Some(148.1));
+        assert_eq!(acesso_equipamento_por_cota(0.0), "manual");
+        assert_eq!(acesso_equipamento_por_cota(74.1), "manual");
+        assert_eq!(acesso_equipamento_por_cota(148.1), "empilhadeira");
     }
 }

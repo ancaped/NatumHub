@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeftRight,
+  Box,
   Building2,
   Grid3X3,
   Layers,
@@ -14,6 +15,7 @@ import {
 import { BotaoAcao, FilterBar, StatusBadge } from '../../geral/components/ui/ReportKit';
 import type { LinhaBase } from '../../geral/lib/linhas';
 import { rotuloGrupoAlocacao } from './api';
+import { DesenhoPrateleira3dSvg } from './DesenhoPrateleira3dSvg';
 import type { AlocacaoItemView, Estrutura, PosicaoComItens, ProdutoDimensao } from './types';
 
 interface MapaEstantesTabProps {
@@ -43,7 +45,8 @@ export function MapaEstantesTab({
   onMoverAlocacao,
   onGerenciarEstruturas,
 }: MapaEstantesTabProps) {
-  const [modoVisao, setModoVisao] = useState<'2d' | 'grade'>('2d');
+  const [modoVisao, setModoVisao] = useState<'2d' | '3d' | 'grade'>('2d');
+  const [mobileModo, setMobileModo] = useState<'lista' | '3d'>('lista');
   const [sentidoInverso, setSentidoInverso] = useState(true);
   const [detalhado, setDetalhado] = useState(false);
   const [busca, setBusca] = useState('');
@@ -297,6 +300,18 @@ export function MapaEstantesTab({
             </button>
             <button
               type="button"
+              onClick={() => setModoVisao('3d')}
+              className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1 cursor-pointer ${
+                modoVisao === '3d'
+                  ? 'bg-zinc-900 text-white'
+                  : 'text-zinc-600 hover:text-zinc-900'
+              }`}
+            >
+              <Box className="h-3.5 w-3.5" />
+              3D Isométrico
+            </button>
+            <button
+              type="button"
               onClick={() => setModoVisao('grade')}
               className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1 cursor-pointer ${
                 modoVisao === 'grade'
@@ -476,6 +491,9 @@ export function MapaEstantesTab({
                               {meta?.papel}
                             </span>
                           </div>
+                          <div className="text-[9px] font-mono leading-none text-zinc-400">
+                            {(meta ? meta.baseCm : 0) < 120 ? 'Manual' : 'Empilh.'}
+                          </div>
                         </div>
                         <div className="text-[9px] font-mono text-zinc-400 leading-none">
                           {(meta ? meta.baseCm / 100 : 0).toFixed(2)} m
@@ -542,8 +560,12 @@ export function MapaEstantesTab({
                                         if (dropTargetId === pos.id) setDropTargetId(null);
                                       }}
                                       onDrop={(e) => void handleDropPosicao(e, pos.id)}
-                                      title={`${pos.codigo} · ${pos.larguraOcupadaCm.toFixed(0)}/${pos.larguraCm}cm · ${pos.totalCaixas} cx`}
-                                      className={`relative h-full min-w-0 flex items-end gap-[2px] px-[2px] pt-4 pb-[1px] cursor-pointer transition-all overflow-hidden ${
+                                      title={`${pos.codigo} · ${pos.larguraOcupadaCm.toFixed(0)}/${pos.larguraCm}cm · ${pos.totalCaixas} cx${
+                                        (pos.pesoTotalComPaleteKg ?? 0) > 0
+                                          ? ` · ~${Math.round(pos.pesoTotalComPaleteKg ?? 0)} kg`
+                                          : ''
+                                      }`}
+                                      className={`relative h-full min-w-0 flex flex-col justify-end px-[2px] pt-4 pb-0 cursor-pointer transition-all overflow-hidden ${
                                         isDropTarget
                                           ? 'bg-zinc-200 ring-2 ring-inset ring-zinc-900'
                                           : pos.temEstouro
@@ -569,92 +591,112 @@ export function MapaEstantesTab({
                                           Livre
                                         </div>
                                       ) : (
-                                        pos.itens.map((item) => {
-                                          const wPct =
-                                            pos.larguraCm > 0
-                                              ? Math.max(
-                                                  12,
-                                                  Math.min(
-                                                    100,
-                                                    (item.larguraOcupadaCm / pos.larguraCm) * 100,
-                                                  ),
-                                                )
-                                              : 30;
-                                          const hPct =
-                                            pos.alturaCm > 0
-                                              ? Math.max(
-                                                  18,
-                                                  Math.min(
-                                                    100,
-                                                    (item.alturaOcupadaCm / pos.alturaCm) * 100,
-                                                  ),
-                                                )
-                                              : 60;
-                                          const st = estiloItem(item, pos.temEstouro);
-                                          return (
-                                            <div
-                                              key={item.id}
-                                              draggable={canEdit}
-                                              onDragStart={(e) => {
-                                                if (!canEdit) return;
-                                                e.stopPropagation();
-                                                const p = {
-                                                  alocacaoId: item.id,
-                                                  origemPosicaoId: pos.id,
-                                                  produtoCodigo: item.produtoCodigo,
-                                                };
-                                                setDragInfo(p);
-                                                e.dataTransfer.effectAllowed = 'move';
-                                                e.dataTransfer.setData(
-                                                  'application/json',
-                                                  JSON.stringify(p),
-                                                );
-                                              }}
-                                              onDragEnd={() => {
-                                                setDragInfo(null);
-                                                setDropTargetId(null);
-                                              }}
-                                              title={`${item.produtoCodigo} — ${item.produtoDescricao} · ${item.fileirasLargura}fil×${item.camadasAltura}cam = ${item.totalCaixas} cx`}
-                                              style={{ width: `${wPct}%`, height: `${hPct}%` }}
-                                              className={`min-w-0 rounded-t-[2px] border flex flex-col justify-between p-[1px] overflow-hidden select-none ${st.box} ${
-                                                canEdit ? 'cursor-grab active:cursor-grabbing' : ''
-                                              }`}
-                                            >
-                                              <div className="flex items-center justify-between gap-0.5 leading-none">
-                                                <span className="font-mono text-[7.5px] font-bold truncate">
-                                                  {item.produtoCodigo}
-                                                </span>
-                                                {item.fixado && (
-                                                  <Lock className="h-2 w-2 opacity-60 shrink-0" />
-                                                )}
-                                              </div>
-                                              <div
-                                                className="flex-1 grid gap-[1px] mt-[1px]"
-                                                style={{
-                                                  gridTemplateRows: `repeat(${Math.min(
-                                                    4,
-                                                    Math.max(1, item.camadasAltura),
-                                                  )}, minmax(0, 1fr))`,
-                                                  gridTemplateColumns: `repeat(${Math.min(
-                                                    4,
-                                                    Math.max(1, item.fileirasLargura),
-                                                  )}, minmax(0, 1fr))`,
-                                                }}
-                                              >
-                                                {Array.from({
-                                                  length:
-                                                    Math.min(4, Math.max(1, item.camadasAltura)) *
-                                                    Math.min(4, Math.max(1, item.fileirasLargura)),
-                                                }).map((_, idx) => (
+                                        <>
+                                          <div className="flex-1 min-h-0 w-full flex items-end gap-[2px]">
+                                            {pos.itens.map((item) => {
+                                              const wPct =
+                                                pos.larguraCm > 0
+                                                  ? Math.max(
+                                                      12,
+                                                      Math.min(
+                                                        100,
+                                                        (item.larguraOcupadaCm / pos.larguraCm) *
+                                                          100,
+                                                      ),
+                                                    )
+                                                  : 30;
+                                              const hPct =
+                                                pos.alturaCm > 0
+                                                  ? Math.max(
+                                                      18,
+                                                      Math.min(
+                                                        100,
+                                                        (item.alturaOcupadaCm / pos.alturaCm) * 100,
+                                                      ),
+                                                    )
+                                                  : 60;
+                                              const st = estiloItem(item, pos.temEstouro);
+                                              return (
+                                                <div
+                                                  key={item.id}
+                                                  draggable={canEdit}
+                                                  onDragStart={(e) => {
+                                                    if (!canEdit) return;
+                                                    e.stopPropagation();
+                                                    const p = {
+                                                      alocacaoId: item.id,
+                                                      origemPosicaoId: pos.id,
+                                                      produtoCodigo: item.produtoCodigo,
+                                                    };
+                                                    setDragInfo(p);
+                                                    e.dataTransfer.effectAllowed = 'move';
+                                                    e.dataTransfer.setData(
+                                                      'application/json',
+                                                      JSON.stringify(p),
+                                                    );
+                                                  }}
+                                                  onDragEnd={() => {
+                                                    setDragInfo(null);
+                                                    setDropTargetId(null);
+                                                  }}
+                                                  title={`${item.produtoCodigo} — ${item.produtoDescricao} · ${item.fileirasLargura}fil×${item.camadasAltura}cam = ${item.totalCaixas} cx`}
+                                                  style={{ width: `${wPct}%`, height: `${hPct}%` }}
+                                                  className={`min-w-0 rounded-t-[2px] border flex flex-col justify-between p-[1px] overflow-hidden select-none ${st.box} ${
+                                                    canEdit ? 'cursor-grab active:cursor-grabbing' : ''
+                                                  }`}
+                                                >
+                                                  <div className="flex items-center justify-between gap-0.5 leading-none">
+                                                    <span className="font-mono text-[7.5px] font-bold truncate">
+                                                      {item.produtoCodigo}
+                                                    </span>
+                                                    {item.fixado && (
+                                                      <Lock className="h-2 w-2 opacity-60 shrink-0" />
+                                                    )}
+                                                  </div>
                                                   <div
-                                                    key={idx}
-                                                    className={`rounded-[1px] ${st.cell}`}
-                                                  />
-                                                ))}
-                                              </div>
+                                                    className="flex-1 grid gap-[1px] mt-[1px]"
+                                                    style={{
+                                                      gridTemplateRows: `repeat(${Math.min(
+                                                        4,
+                                                        Math.max(1, item.camadasAltura),
+                                                      )}, minmax(0, 1fr))`,
+                                                      gridTemplateColumns: `repeat(${Math.min(
+                                                        4,
+                                                        Math.max(1, item.fileirasLargura),
+                                                      )}, minmax(0, 1fr))`,
+                                                    }}
+                                                  >
+                                                    {Array.from({
+                                                      length:
+                                                        Math.min(4, Math.max(1, item.camadasAltura)) *
+                                                        Math.min(
+                                                          4,
+                                                          Math.max(1, item.fileirasLargura),
+                                                        ),
+                                                    }).map((_, idx) => (
+                                                      <div
+                                                        key={idx}
+                                                        className={`rounded-[1px] ${st.cell}`}
+                                                      />
+                                                    ))}
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                          {/* Palete PBR de madeira (tampo + 3 blocos com vãos do garfo) */}
+                                          <div
+                                            aria-hidden="true"
+                                            className="w-full h-[6px] shrink-0 flex flex-col mt-[1px]"
+                                          >
+                                            <div className="h-[2.5px] w-full bg-[#d9b782] border-y border-[#8c6d46]" />
+                                            <div className="flex-1 flex justify-between px-[3px]">
+                                              <span className="w-[14%] h-full bg-[#b0864d] border-x border-[#785d3b]" />
+                                              <span className="w-[14%] h-full bg-[#b0864d] border-x border-[#785d3b]" />
+                                              <span className="w-[14%] h-full bg-[#b0864d] border-x border-[#785d3b]" />
                                             </div>
-                                          );
-                                        })
+                                          </div>
+                                        </>
                                       )}
                                     </div>
                                   );
@@ -685,6 +727,9 @@ export function MapaEstantesTab({
                   <span className="inline-block w-3 h-1.5 bg-amber-500 rounded-xs" /> Longarina
                 </span>
                 <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-3 h-2 bg-[#d9b782] border border-[#8c6d46] rounded-xs" /> Palete
+                </span>
+                <span className="flex items-center gap-1.5">
                   <span className="inline-block w-3 h-2.5 bg-[#f2e4cc] border border-[#8c6d46] rounded-xs" /> Caixas
                 </span>
                 <span className="flex items-center gap-1.5">
@@ -700,6 +745,21 @@ export function MapaEstantesTab({
                   <Lock className="h-3 w-3 text-zinc-500" /> Fixado
                 </span>
               </div>
+            </div>
+          )}
+
+          {/* DESENHO 3D ISOMÉTRICO (Desktop) */}
+          {modoVisao === '3d' && (
+            <div className="hidden md:block">
+              <DesenhoPrateleira3dSvg
+                estrutura={estruturaAtiva}
+                posicoes={posicoes}
+                colunas={colunas}
+                andares={andares}
+                prodPorCodigo={prodPorCodigo}
+                termoBusca={busca}
+                onSelectPosicao={onSelectPosicao}
+              />
             </div>
           )}
 
@@ -909,6 +969,41 @@ export function MapaEstantesTab({
 
           {/* Visão Celular */}
           <div className="md:hidden space-y-2.5">
+            <div className="grid grid-cols-2 rounded-xl border border-zinc-200 bg-zinc-50 p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setMobileModo('lista')}
+                className={`py-2 min-h-[44px] rounded-lg font-semibold flex items-center justify-center gap-1.5 cursor-pointer ${
+                  mobileModo === 'lista' ? 'bg-zinc-900 text-white' : 'text-zinc-700'
+                }`}
+              >
+                <Layers className="h-3.5 w-3.5" />
+                Lista de Vãos
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileModo('3d')}
+                className={`py-2 min-h-[44px] rounded-lg font-semibold flex items-center justify-center gap-1.5 cursor-pointer ${
+                  mobileModo === '3d' ? 'bg-zinc-900 text-white' : 'text-zinc-700'
+                }`}
+              >
+                <Box className="h-3.5 w-3.5" />
+                3D Isométrico
+              </button>
+            </div>
+
+            {mobileModo === '3d' ? (
+              <DesenhoPrateleira3dSvg
+                estrutura={estruturaAtiva}
+                posicoes={posicoes}
+                colunas={colunas}
+                andares={andares}
+                prodPorCodigo={prodPorCodigo}
+                termoBusca={busca}
+                onSelectPosicao={onSelectPosicao}
+              />
+            ) : (
+              <>
             <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
@@ -960,30 +1055,37 @@ export function MapaEstantesTab({
                         {pos.papel === 'pulmao' ? 'Pulmão' : 'Picking'}
                       </StatusBadge>
                       <span className="text-[11px] text-zinc-500">
-                        {nivelUnico ? 'Pátio' : `Andar ${pos.andar}`} · {pos.alturaCm}cm
+                        {nivelUnico ? 'Pátio' : `Andar ${pos.andar}`} ·{' '}
+                        {pos.acessoEquipamento === 'empilhadeira' ? 'Empilh.' : 'Manual'}
                       </span>
                     </div>
                     <span className="font-mono text-xs font-bold text-zinc-700">
                       {pos.larguraOcupadaCm.toFixed(0)}/{pos.larguraCm.toFixed(0)}cm
+                      {(pos.pesoTotalComPaleteKg ?? 0) > 0
+                        ? ` · ~${Math.round(pos.pesoTotalComPaleteKg ?? 0)}kg`
+                        : ''}
                     </span>
                   </div>
 
                   {pos.itens.length > 0 && (
-                    <div className="flex items-end gap-1 h-4 bg-zinc-50 border-b-2 border-amber-500 px-1 rounded-t">
-                      {pos.itens.map((it) => {
-                        const w =
-                          pos.larguraCm > 0
-                            ? Math.max(10, Math.min(100, (it.larguraOcupadaCm / pos.larguraCm) * 100))
-                            : 25;
-                        const st = estiloItem(it, pos.temEstouro);
-                        return (
-                          <div
-                            key={it.id}
-                            style={{ width: `${w}%` }}
-                            className={`h-3 border rounded-t-[2px] ${st.box}`}
-                          />
-                        );
-                      })}
+                    <div className="bg-zinc-50 border-b-2 border-amber-500 px-1 pt-1 rounded-t">
+                      <div className="flex items-end gap-1 h-3.5">
+                        {pos.itens.map((it) => {
+                          const w =
+                            pos.larguraCm > 0
+                              ? Math.max(10, Math.min(100, (it.larguraOcupadaCm / pos.larguraCm) * 100))
+                              : 25;
+                          const st = estiloItem(it, pos.temEstouro);
+                          return (
+                            <div
+                              key={it.id}
+                              style={{ width: `${w}%` }}
+                              className={`h-3 border rounded-t-[2px] ${st.box}`}
+                            />
+                          );
+                        })}
+                      </div>
+                      <div className="h-[3px] w-full bg-[#d9b782] border-t border-[#8c6d46] mt-[1px]" />
                     </div>
                   )}
 
@@ -1014,6 +1116,8 @@ export function MapaEstantesTab({
                 </button>
               ))}
             </div>
+              </>
+            )}
           </div>
         </>
       )}

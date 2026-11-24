@@ -86,6 +86,7 @@ export interface AlocacaoItemView {
   alturaVaoCm: number;
   estouroAltura: boolean;
   coberturaMeses: number | null;
+  pesoEstimadoKg?: number | null;
 }
 
 export interface PosicaoComItens extends Posicao {
@@ -96,6 +97,10 @@ export interface PosicaoComItens extends Posicao {
   temEstouro: boolean;
   totalCaixas: number;
   totalUnidades: number;
+  pesoCargaKg?: number;
+  pesoTotalComPaleteKg?: number;
+  cotaBaseCm?: number;
+  acessoEquipamento?: 'manual' | 'empilhadeira' | string;
 }
 
 export type SituacaoAlocacao =
@@ -135,6 +140,9 @@ export interface ProdutoDimensao {
   caixaComprimentoCm: number | null;
   caixaLarguraCm: number | null;
   empilhamentoMax: number | null;
+  pesoUnitarioKg?: number | null;
+  pesoCaixaEstimadoKg?: number | null;
+  classeEmpilhamento?: 'base' | 'padrao' | 'topo' | string;
   insumoCaixaErp: string | null;
   insumoCaixaErpDesc: string | null;
   camadasOverride: number | null;
