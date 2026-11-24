@@ -76,8 +76,8 @@ export function MapaEstantesTab({
     }
     if (p?.ehColoracao) {
       return {
-        box: 'bg-amber-50 border-amber-400 text-amber-950',
-        cell: 'bg-amber-200/75',
+        box: 'bg-amber-100 border-amber-500 text-amber-950',
+        cell: 'bg-amber-300/70',
         borda: 'border-amber-500',
         dot: 'bg-amber-500',
       };
@@ -91,8 +91,8 @@ export function MapaEstantesTab({
       };
     }
     return {
-      box: 'bg-zinc-100 border-zinc-400 text-zinc-900',
-      cell: 'bg-zinc-300/75',
+      box: 'bg-[#f2e4cc] border-[#8c6d46] text-zinc-900',
+      cell: 'bg-[#d6b98d]/75',
       borda: 'border-zinc-400',
       dot: 'bg-zinc-400',
     };
@@ -280,7 +280,7 @@ export function MapaEstantesTab({
         <FilterBar
           busca={busca}
           onBusca={setBusca}
-          placeholder="Bipar código de barras, produto (ex.: 2.13.036, Argan) ou posição (A1)..."
+          placeholder="Bipar código de barras, produto (ex.: 2.13.036, Argan) ou vão (A1)..."
         >
           <div className="hidden md:flex items-center rounded-lg border border-zinc-200 bg-zinc-50 p-0.5">
             <button
@@ -398,7 +398,7 @@ export function MapaEstantesTab({
 
       {posicoes.length === 0 ? (
         <div className="panel-card p-8 text-center text-sm text-zinc-500">
-          Nenhuma posição cadastrada nesta estrutura. Acesse <strong>Galpões & Regras</strong> para gerar a grade.
+          Nenhum vão cadastrado nesta prateleira. Acesse <strong>Galpões & Regras</strong> para gerar a grade.
         </div>
       ) : (
         <>
@@ -462,7 +462,7 @@ export function MapaEstantesTab({
                         </div>
                         <div className="space-y-0.5">
                           <div className="text-[11px] font-bold text-zinc-800 leading-tight">
-                            {nivelUnico ? 'Pátio' : `Prat. ${andar}`}
+                            {nivelUnico ? 'Pátio' : `Andar ${andar}`}
                           </div>
                           <div className="text-[9.5px] font-mono text-zinc-500 leading-none">
                             {(alturaVaoCm / 100).toFixed(2)} m ·{' '}
@@ -482,10 +482,10 @@ export function MapaEstantesTab({
                         </div>
                       </div>
 
-                      {/* Montantes e longarinas em zinc industrial */}
+                      {/* Desenho físico 2D: montantes azuis e longarinas âmbar/laranja reais */}
                       <div className="flex-1 min-w-0 flex flex-col">
                         <div
-                          className="flex items-stretch bg-zinc-50/40 border-l-[5px] border-zinc-800"
+                          className="flex items-stretch bg-zinc-50/40 border-l-[5px] border-blue-700"
                           style={{ height: `${heightPx}px` }}
                         >
                           {colunas.map((col) => {
@@ -498,7 +498,7 @@ export function MapaEstantesTab({
                             return (
                               <div
                                 key={`2d-${andar}-${col}`}
-                                className={`flex-1 min-w-0 border-r-[5px] border-zinc-800 grid ${
+                                className={`flex-1 min-w-0 border-r-[5px] border-blue-700 grid ${
                                   slots.length > 1
                                     ? 'grid-cols-2 divide-x divide-zinc-200'
                                     : 'grid-cols-1'
@@ -663,8 +663,8 @@ export function MapaEstantesTab({
                             );
                           })}
                         </div>
-                        {/* Longarina neutra */}
-                        <div className="h-[5px] w-full bg-zinc-400 border-b border-zinc-500/60" />
+                        {/* Longarina laranja/âmbar real na base de cada andar */}
+                        <div className="h-[5px] w-full bg-amber-500 border-b border-amber-700/40" />
                       </div>
                     </div>
                   );
@@ -673,19 +673,25 @@ export function MapaEstantesTab({
                   <div className="w-[80px] shrink-0 text-right pr-1.5 text-[9.5px] font-mono font-semibold text-zinc-500">
                     Piso 0,00 m
                   </div>
-                  <div className="flex-1 h-[3px] bg-zinc-300 rounded-full" />
+                  <div className="flex-1 h-[3px] bg-zinc-400 rounded-full" />
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-4 pt-1 text-[11px] text-zinc-500">
                 <span className="flex items-center gap-1.5">
-                  <span className="inline-block w-3 h-2.5 bg-zinc-100 border border-zinc-400 rounded-xs" /> Linha
+                  <span className="inline-block w-3 h-2 bg-blue-700 rounded-xs" /> Montante
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-3 h-1.5 bg-amber-500 rounded-xs" /> Longarina
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-3 h-2.5 bg-[#f2e4cc] border border-[#8c6d46] rounded-xs" /> Caixas
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block w-3 h-2.5 bg-zinc-200 border border-zinc-700 rounded-xs" /> Kits
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="inline-block w-3 h-2.5 bg-amber-50 border border-amber-400 rounded-xs" /> Coloração
+                  <span className="inline-block w-3 h-2.5 bg-amber-100 border border-amber-500 rounded-xs" /> Coloração
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block w-3 h-2.5 bg-red-50 border border-red-500 rounded-xs" /> Estouro
@@ -709,29 +715,28 @@ export function MapaEstantesTab({
                 const papelAndar = refPos?.papel === 'pulmao' ? 'Pulmão' : 'Picking';
                 const minNv = Math.min(...niveis);
                 const maxNv = Math.max(...niveis);
-                const rotuloPrat = nivelUnico ? 'Pátio / Chão' : `Prateleira ${andar}`;
-                const rotuloPos =
-                  niveis.length > 1 ? `Posições ${minNv}–${maxNv}` : `Posição ${minNv}`;
+                const rotuloAndar = nivelUnico ? 'Pátio / Chão' : `Andar ${andar}`;
+                const rotuloVao = niveis.length > 1 ? `Vãos ${minNv}–${maxNv}` : `Vão ${minNv}`;
 
                 return (
                   <div key={andar} className="panel-card !p-2.5 space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 pb-1.5">
                       <div className="flex items-center gap-2">
                         <Layers className="h-3.5 w-3.5 text-zinc-500" />
-                        <span className="text-xs font-bold text-zinc-900">{rotuloPrat}</span>
+                        <span className="text-xs font-bold text-zinc-900">{rotuloAndar}</span>
                         <StatusBadge
                           variante={refPos?.papel === 'pulmao' ? 'aguardando' : 'saudavel'}
                         >
                           {papelAndar}
                         </StatusBadge>
                         <span className="text-[11px] font-mono text-zinc-500">
-                          {rotuloPos} · Vão {refPos?.alturaCm ?? 0} cm · Estrado{' '}
+                          {rotuloVao} · Vão {refPos?.alturaCm ?? 0} cm · Palete{' '}
                           {refPos?.larguraCm ?? 100}×{refPos?.comprimentoCm ?? 120} cm
                         </span>
                       </div>
                       {canEdit && (
                         <span className="text-[10px] text-zinc-400">
-                          Arraste um código para mover entre posições
+                          Arraste um código para mover entre vãos
                         </span>
                       )}
                     </div>
@@ -927,7 +932,7 @@ export function MapaEstantesTab({
                       : 'bg-white text-zinc-700 border-zinc-200'
                   }`}
                 >
-                  {nivelUnico ? 'Pátio' : `Prat. ${a}`}
+                  {nivelUnico ? 'Pátio' : `Andar ${a}`}
                 </button>
               ))}
             </div>
@@ -955,7 +960,7 @@ export function MapaEstantesTab({
                         {pos.papel === 'pulmao' ? 'Pulmão' : 'Picking'}
                       </StatusBadge>
                       <span className="text-[11px] text-zinc-500">
-                        {nivelUnico ? 'Pátio' : `Prat. ${pos.andar}`} · {pos.alturaCm}cm
+                        {nivelUnico ? 'Pátio' : `Andar ${pos.andar}`} · {pos.alturaCm}cm
                       </span>
                     </div>
                     <span className="font-mono text-xs font-bold text-zinc-700">
@@ -964,7 +969,7 @@ export function MapaEstantesTab({
                   </div>
 
                   {pos.itens.length > 0 && (
-                    <div className="flex items-end gap-1 h-4 bg-zinc-50 border-b-2 border-zinc-400 px-1 rounded-t">
+                    <div className="flex items-end gap-1 h-4 bg-zinc-50 border-b-2 border-amber-500 px-1 rounded-t">
                       {pos.itens.map((it) => {
                         const w =
                           pos.larguraCm > 0
@@ -983,7 +988,7 @@ export function MapaEstantesTab({
                   )}
 
                   {pos.itens.length === 0 ? (
-                    <div className="text-xs text-zinc-400">Posição livre</div>
+                    <div className="text-xs text-zinc-400">Vão livre</div>
                   ) : (
                     <div className="space-y-1">
                       {pos.itens.map((item) => {

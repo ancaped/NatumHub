@@ -20,6 +20,8 @@ import {
   rotuloGrupoAlocacao,
   salvarAlocacaoPosicao,
 } from './api';
+import { DesenhoPlantaVao } from './DesenhoPaleteSvg';
+import { calcularPlantaVao } from './paletizacao';
 import type { Caixa, Estrutura, PosicaoComItens, ProdutoDimensao } from './types';
 
 interface PosicaoDrawerProps {
@@ -162,7 +164,17 @@ export function PosicaoDrawer({
     setNovoFileiras(Math.max(1, fileirasCalc));
   }, [posicao, produtoEscolhido]);
 
-  if (!posicao) return null;
+  const gruposPorCodigo = useMemo(() => {
+    const m = new Map<string, { ehKit?: boolean; ehColoracao?: boolean }>();
+    for (const p of produtos) m.set(p.codigo, { ehKit: p.ehKit, ehColoracao: p.ehColoracao });
+    return m;
+  }, [produtos]);
+  const plantaVao = useMemo(
+    () => (posicao ? calcularPlantaVao(posicao, gruposPorCodigo) : null),
+    [posicao, gruposPorCodigo],
+  );
+
+  if (!posicao || !plantaVao) return null;
 
   const salvarPosicaoProps = async () => {
     const a = Number(alturaCm);
@@ -187,13 +199,13 @@ export function PosicaoDrawer({
       );
       avisar(
         aplicarAndar
-          ? `Prateleira ${posicao.andar} atualizada.`
-          : `Posição ${posicao.codigo} atualizada.`,
+          ? `Andar ${posicao.andar} atualizado.`
+          : `Vão ${posicao.codigo} atualizado.`,
         'sucesso',
       );
       await onSaved();
     } catch (e) {
-      avisar(e instanceof Error ? e.message : 'Erro ao atualizar posição.', 'erro');
+      avisar(e instanceof Error ? e.message : 'Erro ao atualizar vão.', 'erro');
     } finally {
       setSalvandoPos(false);
     }
@@ -293,14 +305,15 @@ export function PosicaoDrawer({
     previaCompNovo != null ? novoFileiras * previaCompNovo * Math.max(1, novoCamadas) : null;
 
   const caixaMap = new Map(caixas.map((c) => [c.id, c]));
+  const rotuloAndarSub = posicao.andar > 0 ? `Andar ${posicao.andar}` : 'Pátio';
 
   return (
     <Drawer
       isOpen={Boolean(posicao)}
       onClose={onClose}
       size="lg"
-      title={`Posição ${posicao.codigo}`}
-      subtitle={`Prateleira ${posicao.andar} · Posição ${posicao.nivel} · Vão ${posicao.alturaCm} cm`}
+      title={`Vão ${posicao.codigo}`}
+      subtitle={`${rotuloAndarSub} · Vão ${posicao.nivel} · Palete ${posicao.larguraCm}×${posicao.comprimentoCm} cm · Vão livre ${posicao.alturaCm} cm`}
       badge={
         <StatusBadge variante={posicao.papel === 'pulmao' ? 'aguardando' : 'saudavel'}>
           {posicao.papel === 'pulmao' ? 'Pulmão' : 'Picking'}
@@ -335,19 +348,32 @@ export function PosicaoDrawer({
           {posicao.temEstouro && (
             <div className="flex items-center gap-1.5 text-red-700 font-semibold">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              Há estouro de largura ou altura nesta posição.
+              Há estouro de largura ou altura neste vão.
             </div>
           )}
+        </div>
+
+        {/* Vista superior proporcional do palete no vão */}
+        <div className="panel-card !p-3 space-y-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h4 className="font-bold text-zinc-800 uppercase tracking-wider text-[11px]">
+              Planta do palete no vão
+            </h4>
+            <span className="font-mono text-[11px] text-zinc-500">
+              {posicao.larguraCm}×{posicao.comprimentoCm} cm (Alt. livre {posicao.alturaCm} cm)
+            </span>
+          </div>
+          <DesenhoPlantaVao planta={plantaVao} />
         </div>
 
         {/* Itens alocados */}
         <div className="space-y-2">
           <h4 className="font-bold text-zinc-800 uppercase tracking-wider text-[11px]">
-            Produtos nesta posição ({posicao.itens.length})
+            Produtos neste vão ({posicao.itens.length})
           </h4>
           {posicao.itens.length === 0 ? (
             <div className="p-4 rounded-xl border border-dashed border-zinc-300 text-zinc-500 text-center">
-              Posição vazia. Adicione um produto abaixo ou rode a sugestão automática.
+              Vão vazio. Adicione um produto abaixo ou rode a sugestão automática.
             </div>
           ) : (
             <div className="space-y-2">
@@ -480,7 +506,7 @@ export function PosicaoDrawer({
                             }
                             className="flex-1 min-w-[140px] px-2 py-1.5 border border-zinc-200 rounded-lg bg-zinc-50 text-xs font-mono"
                           >
-                            <option value="">Mover / copiar para posição...</option>
+                            <option value="">Mover / copiar para vão...</option>
                             {destinosDisponiveis.map((d) => (
                               <option key={d.id} value={d.id}>
                                 {d.codigo} ({d.papel === 'pulmao' ? 'Pulmão' : 'Pick'} · livre{' '}
@@ -535,7 +561,7 @@ export function PosicaoDrawer({
         {canEdit && (
           <div className="panel-card !p-3 space-y-3">
             <h4 className="font-bold text-zinc-800 uppercase tracking-wider text-[11px]">
-              Adicionar produto nesta posição
+              Adicionar produto neste vão
             </h4>
             <input
               type="text"
@@ -692,7 +718,7 @@ export function PosicaoDrawer({
                 checked={aplicarAndar}
                 onChange={(e) => setAplicarAndar(e.target.checked)}
               />
-              <span>Aplicar estas dimensões e papel a toda a Prateleira {posicao.andar}</span>
+              <span>Aplicar estas dimensões e papel a todo o Andar {posicao.andar}</span>
             </label>
             <button
               type="button"
@@ -700,7 +726,7 @@ export function PosicaoDrawer({
               onClick={salvarPosicaoProps}
               className="px-3 py-2 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-50 font-bold text-zinc-800 cursor-pointer"
             >
-              {salvandoPos ? 'Salvando...' : 'Salvar configuração da posição'}
+              {salvandoPos ? 'Salvando...' : 'Salvar configuração do vão'}
             </button>
           </div>
         )}

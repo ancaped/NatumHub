@@ -154,6 +154,8 @@ export function salvarCaixa(
     larguraCm: number;
     empilhamentoMax: number;
     insumoErpCodigo: string | null;
+    podeGirar?: boolean;
+    pesoBrutoKg?: number | null;
     ativo: boolean;
     observacoes: string | null;
   },

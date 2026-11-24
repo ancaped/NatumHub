@@ -881,6 +881,8 @@ mod tests {
             largura_cm: l,
             empilhamento_max: emp,
             insumo_erp_codigo: None,
+            pode_girar: true,
+            peso_bruto_kg: None,
             ativo: true,
             observacoes: None,
         }
@@ -1158,6 +1160,8 @@ mod tests {
             largura_cm: 15.8,
             empilhamento_max: 4,
             insumo_erp_codigo: None,
+            pode_girar: true,
+            peso_bruto_kg: None,
             ativo: true,
             observacoes: None,
         };

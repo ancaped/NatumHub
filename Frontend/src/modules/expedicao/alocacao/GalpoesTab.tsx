@@ -245,13 +245,13 @@ export function GalpoesTab({
       confirmarRotulo: 'Aplicar Grade',
       linhas: (d) => [
         { titulo: 'Colunas', detalhe: cols.join(', ') },
-        { titulo: 'Posições criadas', detalhe: String(d?.resultado?.criadas ?? d?.criadas ?? 0) },
+        { titulo: 'Vãos criados', detalhe: String(d?.resultado?.criadas ?? d?.criadas ?? 0) },
         {
-          titulo: 'Posições atualizadas',
+          titulo: 'Vãos atualizados',
           detalhe: String(d?.resultado?.atualizadas ?? d?.atualizadas ?? 0),
         },
         {
-          titulo: 'Posições desativadas',
+          titulo: 'Vãos desativados',
           detalhe: String(d?.resultado?.desativadas ?? d?.desativadas ?? 0),
         },
       ],
@@ -759,7 +759,7 @@ export function GalpoesTab({
         onClose={() => setDrawerGradeOpen(false)}
         size="lg"
         title={`Grade Física: ${estAtiva?.nome ?? ''}`}
-        subtitle="Configure colunas, prateleiras e altura livre dos vãos em cm"
+        subtitle="Configure colunas, andares e altura livre dos vãos em cm"
         footer={
           <div className="flex justify-end gap-2">
             <button
@@ -786,14 +786,14 @@ export function GalpoesTab({
               onClick={() => aplicarPresetEstrutura('estante')}
               className="px-2.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 font-bold cursor-pointer"
             >
-              Porta-paletes (6 prateleiras × 2)
+              Porta-paletes (6 andares × 2 vãos)
             </button>
             <button
               type="button"
               onClick={() => aplicarPresetEstrutura('patio')}
               className="px-2.5 py-1.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 font-bold cursor-pointer"
             >
-              Área de Pátio / Chão (1 nível)
+              Pátio / Chão (1 nível)
             </button>
           </div>
 
@@ -807,7 +807,7 @@ export function GalpoesTab({
               />
             </label>
             <label className="space-y-1">
-              <span className="font-semibold text-zinc-600 block">Largura posição (cm)</span>
+              <span className="font-semibold text-zinc-600 block">Largura do vão (cm)</span>
               <input
                 type="number"
                 step="0.1"
@@ -831,7 +831,7 @@ export function GalpoesTab({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-bold text-zinc-800">
-                Prateleiras / Níveis ({gradePrateleiras.length})
+                Andares da prateleira ({gradePrateleiras.length})
               </span>
               <button
                 type="button"
@@ -843,7 +843,7 @@ export function GalpoesTab({
                 }
                 className="px-2.5 py-1 rounded-lg border border-zinc-300 bg-white font-bold flex items-center gap-1 cursor-pointer"
               >
-                <Plus className="h-3.5 w-3.5" /> Adicionar prateleira
+                <Plus className="h-3.5 w-3.5" /> Adicionar andar
               </button>
             </div>
 
@@ -855,10 +855,10 @@ export function GalpoesTab({
                 <span className="font-mono font-bold w-28 text-zinc-900">
                   {gradePrateleiras.length === 1
                     ? 'Pátio (nível único)'
-                    : `Prateleira ${a.andar}`}
+                    : `Andar ${a.andar}`}
                 </span>
                 <label className="flex items-center gap-1">
-                  <span className="text-zinc-500">Vão (cm):</span>
+                  <span className="text-zinc-500">Alt. vão (cm):</span>
                   <input
                     type="number"
                     step="0.1"
@@ -895,8 +895,8 @@ export function GalpoesTab({
                   }}
                   className="px-2 py-1 border border-zinc-200 rounded-lg bg-white"
                 >
-                  <option value={2}>2 posições/col (ímpar/par)</option>
-                  <option value={1}>1 posição/col</option>
+                  <option value={2}>2 vãos/col (ímpar/par)</option>
+                  <option value={1}>1 vão/col</option>
                 </select>
                 {gradePrateleiras.length > 1 && idx === gradePrateleiras.length - 1 && (
                   <button
@@ -917,7 +917,7 @@ export function GalpoesTab({
               checked={gradeSubstituir}
               onChange={(e) => setGradeSubstituir(e.target.checked)}
             />
-            <span>Desativar posições antigas que ficarem fora desta grade</span>
+            <span>Desativar vãos antigos que ficarem fora desta grade</span>
           </label>
         </div>
       </Drawer>

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Box, CheckCircle2, Plus, Search, Wrench } from 'lucide-react';
+import { Box, CheckCircle2, Eye, Plus, Search, Wrench } from 'lucide-react';
 import Drawer from '../../geral/components/ui/Drawer';
 import {
   BotaoAcao,
@@ -17,6 +17,8 @@ import {
   type LinhaBase,
 } from '../../geral/lib/linhas';
 import { salvarCaixa, salvarVinculoProdutoCaixa } from './api';
+import { DesenhoCaixaIsometrico, DesenhoPlantaPalete } from './DesenhoPaleteSvg';
+import { calcularPaletizacao, type PadraoPaletizacao } from './paletizacao';
 import type { Caixa, InsumoCaixaErpNaoVinculado, ProdutoDimensao } from './types';
 
 function rotuloPendencia(s: string): string {
@@ -71,6 +73,13 @@ export function CaixasTab({
   const [cxLarg, setCxLarg] = useState('14.7');
   const [cxEmp, setCxEmp] = useState('4');
   const [cxInsumo, setCxInsumo] = useState('');
+  const [cxPodeGirar, setCxPodeGirar] = useState(true);
+  const [cxPeso, setCxPeso] = useState('');
+  const [padraoPreview, setPadraoPreview] = useState<PadraoPaletizacao>('amarracao');
+  const [camadaPreview, setCamadaPreview] = useState<'impar' | 'par'>('impar');
+  const [paleteLargCm, setPaleteLargCm] = useState(100);
+  const [paleteCompCm, setPaleteCompCm] = useState(120);
+  const [vaoAltCm, setVaoAltCm] = useState(74.1);
   const [salvandoCx, setSalvandoCx] = useState(false);
 
   // --- Conferência ERP + Lote ---
@@ -129,6 +138,31 @@ export function CaixasTab({
     [pendenciasFiltradas, mostrarTodasPend],
   );
 
+  const paletizacaoLive = useMemo(() => {
+    const pesoNum = cxPeso.trim() ? Number(cxPeso) : null;
+    return calcularPaletizacao(
+      {
+        alturaCm: Number(cxAlt) > 0 ? Number(cxAlt) : 20,
+        comprimentoCm: Number(cxComp) > 0 ? Number(cxComp) : 20,
+        larguraCm: Number(cxLarg) > 0 ? Number(cxLarg) : 15,
+        empilhamentoMax: Math.max(1, parseInt(cxEmp || '4', 10) || 4),
+        podeGirar: cxPodeGirar,
+        pesoBrutoKg: pesoNum != null && pesoNum > 0 ? pesoNum : null,
+      },
+      paleteLargCm,
+      paleteCompCm,
+      vaoAltCm,
+    );
+  }, [cxAlt, cxComp, cxLarg, cxEmp, cxPodeGirar, cxPeso, paleteLargCm, paleteCompCm, vaoAltCm]);
+
+  const layoutAtivo = useMemo(() => {
+    if (padraoPreview === 'rotacionado') {
+      return paletizacaoLive.rotacionado ?? paletizacaoLive.normal;
+    }
+    if (padraoPreview === 'amarracao') return paletizacaoLive.amarracao;
+    return paletizacaoLive.normal;
+  }, [paletizacaoLive, padraoPreview]);
+
   const abrirNovaCaixa = () => {
     setEditCxId(null);
     setCxCod('');
@@ -138,6 +172,10 @@ export function CaixasTab({
     setCxLarg('14.7');
     setCxEmp('4');
     setCxInsumo('');
+    setCxPodeGirar(true);
+    setCxPeso('');
+    setPadraoPreview('amarracao');
+    setCamadaPreview('impar');
     setDrawerOpen(true);
   };
 
@@ -150,13 +188,26 @@ export function CaixasTab({
     setCxLarg(String(c.larguraCm));
     setCxEmp(String(c.empilhamentoMax));
     setCxInsumo(c.insumoErpCodigo ?? '');
+    const gira = c.podeGirar !== false;
+    setCxPodeGirar(gira);
+    setCxPeso(c.pesoBrutoKg != null ? String(c.pesoBrutoKg) : '');
+    const calc = calcularPaletizacao(
+      { ...c, podeGirar: gira },
+      paleteLargCm,
+      paleteCompCm,
+      vaoAltCm,
+    );
+    setPadraoPreview(calc.melhorPadrao);
+    setCamadaPreview('impar');
     setDrawerOpen(true);
   };
 
   const gravarCaixa = async (e?: React.FormEvent) => {
     e?.preventDefault();
+    if (!canEdit) return;
     setSalvandoCx(true);
     try {
+      const pesoNum = cxPeso.trim() ? Number(cxPeso) : null;
       await salvarCaixa(
         editCxId,
         {
@@ -167,6 +218,8 @@ export function CaixasTab({
           larguraCm: Number(cxLarg),
           empilhamentoMax: Math.max(1, parseInt(cxEmp || '4', 10)),
           insumoErpCodigo: cxInsumo.trim() || null,
+          podeGirar: cxPodeGirar,
+          pesoBrutoKg: pesoNum != null && Number.isFinite(pesoNum) && pesoNum > 0 ? pesoNum : null,
           ativo: true,
           observacoes: null,
         },
@@ -226,6 +279,8 @@ export function CaixasTab({
           larguraCm: cx.larguraCm,
           empilhamentoMax: cx.empilhamentoMax,
           insumoErpCodigo: listaAtual.join(', '),
+          podeGirar: cx.podeGirar !== false,
+          pesoBrutoKg: cx.pesoBrutoKg ?? null,
           ativo: cx.ativo,
           observacoes: cx.observacoes,
         },
@@ -380,82 +435,103 @@ export function CaixasTab({
                   <th>Nome</th>
                   <th className="text-right">Alt × Comp × Larg (cm)</th>
                   <th className="text-center">Empilh. máx.</th>
+                  <th className="text-right">Lastro (100×120)</th>
                   <th>Insumo ERP</th>
                   <th className="text-right">Ações</th>
                 </tr>
               </thead>
               <tbody>
-                {caixas.map((c) => (
-                  <tr key={c.id}>
-                    <td className="font-mono font-bold text-zinc-900">CX {c.codigo}</td>
-                    <td>{c.nome}</td>
-                    <td className="text-right font-mono">
-                      {c.alturaCm} × {c.comprimentoCm} × {c.larguraCm}
-                    </td>
-                    <td className="text-center font-mono">{c.empilhamentoMax}</td>
-                    <td className="font-mono text-xs text-zinc-600">
-                      {c.insumoErpCodigo ?? '—'}
-                    </td>
-                    <td className="text-right">
-                      {canEdit && (
+                {caixas.map((c) => {
+                  const res = calcularPaletizacao(c, 100, 120, 74.1);
+                  const best = res[res.melhorPadrao] ?? res.normal;
+                  return (
+                    <tr key={c.id}>
+                      <td className="font-mono font-bold text-zinc-900">CX {c.codigo}</td>
+                      <td>{c.nome}</td>
+                      <td className="text-right font-mono">
+                        {c.alturaCm} × {c.comprimentoCm} × {c.larguraCm}
+                      </td>
+                      <td className="text-center font-mono">{c.empilhamentoMax}</td>
+                      <td className="text-right font-mono text-xs">
+                        <span className="font-bold text-zinc-900">{best.caixasPorLastro} cx</span>{' '}
+                        <span className="text-zinc-500">
+                          · {Math.round(best.aproveitamentoAreaPct)}%
+                        </span>
+                        {res.amarracao.temAmarracaoReal && (
+                          <span className="ml-1.5 text-[10px] font-sans font-semibold text-zinc-600">
+                            · Amarração
+                          </span>
+                        )}
+                      </td>
+                      <td className="font-mono text-xs text-zinc-600">
+                        {c.insumoErpCodigo ?? '—'}
+                      </td>
+                      <td className="text-right">
                         <div className="flex justify-end gap-2">
                           <button
                             type="button"
                             onClick={() => abrirEditarCaixa(c)}
-                            className="text-xs font-bold text-zinc-700 hover:underline cursor-pointer"
+                            className="text-xs font-bold text-zinc-700 hover:underline cursor-pointer inline-flex items-center gap-1"
                           >
-                            Editar
+                            <Eye className="h-3.5 w-3.5" />
+                            {canEdit ? 'Desenho / Editar' : 'Desenho'}
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => removerCaixa(c)}
-                            className="text-xs font-bold text-red-600 hover:underline cursor-pointer"
-                          >
-                            Excluir
-                          </button>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => removerCaixa(c)}
+                              className="text-xs font-bold text-red-600 hover:underline cursor-pointer"
+                            >
+                              Excluir
+                            </button>
+                          )}
                         </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </TabelaPainel>
           </div>
 
           <div className="md:hidden space-y-2">
-            {caixas.map((c) => (
-              <div key={c.id} className="panel-card !p-3 space-y-1.5 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <span className="font-mono font-bold text-zinc-900">CX {c.codigo}</span>
-                    <span className="text-zinc-600 ml-1.5">{c.nome}</span>
-                  </div>
-                  {canEdit && (
+            {caixas.map((c) => {
+              const res = calcularPaletizacao(c, 100, 120, 74.1);
+              const best = res[res.melhorPadrao] ?? res.normal;
+              return (
+                <div key={c.id} className="panel-card !p-3 space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="font-mono font-bold text-zinc-900">CX {c.codigo}</span>
+                      <span className="text-zinc-600 ml-1.5">{c.nome}</span>
+                    </div>
                     <div className="flex gap-2 shrink-0">
                       <button
                         type="button"
                         onClick={() => abrirEditarCaixa(c)}
-                        className="px-2.5 py-1.5 min-h-[38px] rounded-lg border border-zinc-200 font-semibold"
+                        className="px-2.5 py-2 min-h-[44px] rounded-lg border border-zinc-200 font-semibold"
                       >
-                        Editar
+                        {canEdit ? 'Desenho' : 'Ver'}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => removerCaixa(c)}
-                        className="px-2.5 py-1.5 min-h-[38px] rounded-lg border border-red-200 text-red-600 font-semibold"
-                      >
-                        Excluir
-                      </button>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => removerCaixa(c)}
+                          className="px-2.5 py-2 min-h-[44px] rounded-lg border border-red-200 text-red-600 font-semibold"
+                        >
+                          Excluir
+                        </button>
+                      )}
                     </div>
-                  )}
+                  </div>
+                  <div className="font-mono text-[11px] text-zinc-500">
+                    {c.alturaCm}×{c.comprimentoCm}×{c.larguraCm} cm · Lastro {best.caixasPorLastro} cx (
+                    {Math.round(best.aproveitamentoAreaPct)}%) · Empilh. máx. {c.empilhamentoMax}
+                    {c.insumoErpCodigo ? ` · ERP ${c.insumoErpCodigo}` : ''}
+                  </div>
                 </div>
-                <div className="font-mono text-[11px] text-zinc-500">
-                  {c.alturaCm}×{c.comprimentoCm}×{c.larguraCm} cm · Empilh. máx.{' '}
-                  {c.empilhamentoMax}
-                  {c.insumoErpCodigo ? ` · ERP ${c.insumoErpCodigo}` : ''}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}
@@ -798,116 +874,310 @@ export function CaixasTab({
         </div>
       )}
 
-      {/* Drawer canônico para Criar/Editar Caixa */}
+      {/* Drawer canônico para Criar/Editar Caixa + Desenhos Proporcionais e Paletização */}
       <Drawer
         isOpen={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        size="md"
-        title={editCxId ? `Editar Caixa ${cxCod}` : 'Nova Caixa de Embarque'}
-        subtitle="Informe código, medidas externas em cm e vínculo opcional com insumo 9.04.xxx"
+        size="xl"
+        title={
+          editCxId
+            ? canEdit
+              ? `Caixa ${cxCod} · Medidas e Paletização`
+              : `Caixa ${cxCod} · Desenho Técnico`
+            : 'Nova Caixa de Embarque'
+        }
+        subtitle="Dimensões proporcionais, arranjo no palete (0°, 90° e amarração) e vínculo 9.04.xxx"
         footer={
           <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={() => setDrawerOpen(false)}
-              className="px-3 py-2 text-xs font-bold rounded-xl border border-zinc-200 bg-white text-zinc-700 cursor-pointer"
+              className="px-3 py-2 min-h-[40px] text-xs font-bold rounded-xl border border-zinc-200 bg-white text-zinc-700 cursor-pointer"
             >
-              Cancelar
+              {canEdit ? 'Cancelar' : 'Fechar'}
             </button>
-            <button
-              type="button"
-              disabled={salvandoCx || !cxCod.trim() || !cxNome.trim()}
-              onClick={() => void gravarCaixa()}
-              className="px-4 py-2 text-xs font-bold rounded-xl bg-zinc-900 text-white disabled:opacity-50 cursor-pointer"
-            >
-              {salvandoCx ? 'Salvando...' : editCxId ? 'Salvar Caixa' : 'Cadastrar Caixa'}
-            </button>
+            {canEdit && (
+              <button
+                type="button"
+                disabled={salvandoCx || !cxCod.trim() || !cxNome.trim()}
+                onClick={() => void gravarCaixa()}
+                className="px-4 py-2 min-h-[40px] text-xs font-bold rounded-xl bg-zinc-900 text-white disabled:opacity-50 cursor-pointer"
+              >
+                {salvandoCx ? 'Salvando...' : editCxId ? 'Salvar Caixa' : 'Cadastrar Caixa'}
+              </button>
+            )}
           </div>
         }
       >
-        <form onSubmit={gravarCaixa} className="p-4 sm:p-5 space-y-3 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-            <label className="space-y-1">
-              <span className="font-semibold text-zinc-600 block">Código</span>
-              <input
-                required
-                value={cxCod}
-                onChange={(e) => setCxCod(e.target.value)}
-                placeholder="Ex: 29"
-                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white"
-              />
-            </label>
-            <label className="space-y-1 sm:col-span-2">
-              <span className="font-semibold text-zinc-600 block">Nome / Descrição</span>
-              <input
-                required
-                value={cxNome}
-                onChange={(e) => setCxNome(e.target.value)}
-                placeholder="Caixa 29 (20×23×15)"
-                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white"
-              />
-            </label>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <label className="space-y-1">
-              <span className="font-semibold text-zinc-600 block">Altura (cm)</span>
-              <input
-                required
-                type="number"
-                step="0.1"
-                value={cxAlt}
-                onChange={(e) => setCxAlt(e.target.value)}
-                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono"
-              />
-            </label>
-            <label className="space-y-1">
-              <span className="font-semibold text-zinc-600 block">Compr. (cm)</span>
-              <input
-                required
-                type="number"
-                step="0.1"
-                value={cxComp}
-                onChange={(e) => setCxComp(e.target.value)}
-                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono"
-              />
-            </label>
-            <label className="space-y-1">
-              <span className="font-semibold text-zinc-600 block">Largura (cm)</span>
-              <input
-                required
-                type="number"
-                step="0.1"
-                value={cxLarg}
-                onChange={(e) => setCxLarg(e.target.value)}
-                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono"
-              />
-            </label>
-            <label className="space-y-1">
-              <span className="font-semibold text-zinc-600 block">Empilh. máx.</span>
-              <input
-                required
-                type="number"
-                min={1}
-                value={cxEmp}
-                onChange={(e) => setCxEmp(e.target.value)}
-                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono"
-              />
-            </label>
-          </div>
-
-          <label className="space-y-1 block">
-            <span className="font-semibold text-zinc-600 block">
-              Insumo ERP (código na fórmula ou composição de kit, ex.: 9.04.063)
-            </span>
-            <input
-              value={cxInsumo}
-              onChange={(e) => setCxInsumo(e.target.value)}
-              placeholder="Opcional — separa múltiplos por vírgula"
-              className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono"
+        <div className="p-4 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-4 text-xs">
+          {/* Coluna esquerda (7 cols): Desenhos proporcionais de Caixa + Palete */}
+          <div className="lg:col-span-7 space-y-3">
+            <DesenhoCaixaIsometrico
+              alturaCm={Number(cxAlt) || 20}
+              comprimentoCm={Number(cxComp) || 20}
+              larguraCm={Number(cxLarg) || 15}
+              codigo={cxCod.trim() || undefined}
+              pesoBrutoKg={cxPeso.trim() ? Number(cxPeso) : null}
+              podeGirar={cxPodeGirar}
             />
-          </label>
-        </form>
+
+            <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-bold text-zinc-900">Simulador de Palete e Amarração</span>
+                <div className="flex flex-wrap items-center gap-1">
+                  {[
+                    { l: 100, c: 120, rotulo: '100×120' },
+                    { l: 100, c: 100, rotulo: '100×100' },
+                    { l: 80, c: 120, rotulo: '80×120' },
+                  ].map((p) => {
+                    const ativo = paleteLargCm === p.l && paleteCompCm === p.c;
+                    return (
+                      <button
+                        key={p.rotulo}
+                        type="button"
+                        onClick={() => {
+                          setPaleteLargCm(p.l);
+                          setPaleteCompCm(p.c);
+                        }}
+                        className={`px-2 py-1 rounded-md border font-mono text-[10.5px] font-semibold cursor-pointer ${
+                          ativo
+                            ? 'bg-zinc-900 text-white border-zinc-900'
+                            : 'bg-zinc-50 text-zinc-700 border-zinc-200 hover:bg-zinc-100'
+                        }`}
+                      >
+                        {p.rotulo}
+                      </button>
+                    );
+                  })}
+                  {[74.1, 100, 180].map((altVao) => (
+                    <button
+                      key={altVao}
+                      type="button"
+                      onClick={() => setVaoAltCm(altVao)}
+                      className={`px-2 py-1 rounded-md border font-mono text-[10.5px] font-semibold cursor-pointer ${
+                        vaoAltCm === altVao
+                          ? 'bg-zinc-900 text-white border-zinc-900'
+                          : 'bg-zinc-50 text-zinc-700 border-zinc-200 hover:bg-zinc-100'
+                      }`}
+                    >
+                      Vão {String(altVao).replace('.', ',')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="inline-flex flex-wrap rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 gap-0.5">
+                  {(
+                    [
+                      {
+                        id: 'normal' as const,
+                        label: `Normal (${paletizacaoLive.normal.caixasPorLastro})`,
+                        disabled: false,
+                      },
+                      {
+                        id: 'rotacionado' as const,
+                        label: `Girado 90° (${paletizacaoLive.rotacionado?.caixasPorLastro ?? '—'})`,
+                        disabled: !paletizacaoLive.rotacionado,
+                      },
+                      {
+                        id: 'amarracao' as const,
+                        label: `Amarração (${paletizacaoLive.amarracao.caixasPorLastro})`,
+                        disabled: false,
+                      },
+                    ] as const
+                  ).map((op) => {
+                    const sel = padraoPreview === op.id;
+                    const ehMelhor = paletizacaoLive.melhorPadrao === op.id;
+                    return (
+                      <button
+                        key={op.id}
+                        type="button"
+                        disabled={op.disabled}
+                        onClick={() => setPadraoPreview(op.id)}
+                        className={`px-2.5 py-1.5 rounded-md text-[11px] font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                          sel
+                            ? 'bg-zinc-900 text-white'
+                            : 'text-zinc-700 hover:bg-white'
+                        }`}
+                      >
+                        {op.label}
+                        {ehMelhor ? ' ★' : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setCamadaPreview('impar')}
+                    className={`px-2.5 py-1.5 rounded-md text-[11px] font-semibold cursor-pointer ${
+                      camadaPreview === 'impar' ? 'bg-zinc-900 text-white' : 'text-zinc-700'
+                    }`}
+                  >
+                    Camada 1, 3
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCamadaPreview('par')}
+                    className={`px-2.5 py-1.5 rounded-md text-[11px] font-semibold cursor-pointer ${
+                      camadaPreview === 'par' ? 'bg-zinc-900 text-white' : 'text-zinc-700'
+                    }`}
+                  >
+                    Camada 2, 4 (travada)
+                  </button>
+                </div>
+              </div>
+
+              <DesenhoPlantaPalete
+                layout={layoutAtivo}
+                paleteLarguraCm={paletizacaoLive.paleteLarguraCm}
+                paleteComprimentoCm={paletizacaoLive.paleteComprimentoCm}
+                camada={camadaPreview}
+              />
+
+              <div className="rounded-lg bg-zinc-50 border border-zinc-200 px-3 py-2 font-mono text-[11px] text-zinc-700 flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  <strong>{layoutAtivo.caixasPorLastro} cx/lastro</strong> (
+                  {layoutAtivo.aproveitamentoAreaPct.toFixed(0)}%) · {layoutAtivo.maxCamadas} cam. (
+                  {layoutAtivo.alturaPilhaCm} cm) ·{' '}
+                  <strong>{layoutAtivo.totalCaixasPalete} cx/palete</strong>
+                  {layoutAtivo.pesoTotalKg != null ? ` · ${layoutAtivo.pesoTotalKg} kg` : ''}
+                </span>
+                <span className="font-sans text-zinc-500">
+                  {layoutAtivo.temAmarracaoReal
+                    ? `${layoutAtivo.qtdNormais} normais + ${layoutAtivo.qtdRotacionadas} giradas 90°`
+                    : `Sobra ${layoutAtivo.sobraLarguraCm}×${layoutAtivo.sobraComprimentoCm} cm`}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Coluna direita (5 cols): Dados e restrições da caixa */}
+          <form onSubmit={gravarCaixa} className="lg:col-span-5 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <label className="space-y-1">
+                <span className="font-semibold text-zinc-600 block">Código</span>
+                <input
+                  required
+                  disabled={!canEdit}
+                  value={cxCod}
+                  onChange={(e) => setCxCod(e.target.value)}
+                  placeholder="Ex: 29"
+                  className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white disabled:bg-zinc-50"
+                />
+              </label>
+              <label className="space-y-1 sm:col-span-2">
+                <span className="font-semibold text-zinc-600 block">Nome / Descrição</span>
+                <input
+                  required
+                  disabled={!canEdit}
+                  value={cxNome}
+                  onChange={(e) => setCxNome(e.target.value)}
+                  placeholder="Caixa 29 (20×23×15)"
+                  className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white disabled:bg-zinc-50"
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <label className="space-y-1">
+                <span className="font-semibold text-zinc-600 block">Altura (cm)</span>
+                <input
+                  required
+                  disabled={!canEdit}
+                  type="number"
+                  step="0.1"
+                  value={cxAlt}
+                  onChange={(e) => setCxAlt(e.target.value)}
+                  className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono disabled:bg-zinc-50"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="font-semibold text-zinc-600 block">Compr. (cm)</span>
+                <input
+                  required
+                  disabled={!canEdit}
+                  type="number"
+                  step="0.1"
+                  value={cxComp}
+                  onChange={(e) => setCxComp(e.target.value)}
+                  className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono disabled:bg-zinc-50"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="font-semibold text-zinc-600 block">Largura (cm)</span>
+                <input
+                  required
+                  disabled={!canEdit}
+                  type="number"
+                  step="0.1"
+                  value={cxLarg}
+                  onChange={(e) => setCxLarg(e.target.value)}
+                  className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono disabled:bg-zinc-50"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="font-semibold text-zinc-600 block">Empilh. máx.</span>
+                <input
+                  required
+                  disabled={!canEdit}
+                  type="number"
+                  min={1}
+                  value={cxEmp}
+                  onChange={(e) => setCxEmp(e.target.value)}
+                  className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono disabled:bg-zinc-50"
+                />
+              </label>
+            </div>
+
+            <label className="space-y-1 block">
+              <span className="font-semibold text-zinc-600 block">
+                Peso bruto estimado por caixa (kg)
+              </span>
+              <input
+                disabled={!canEdit}
+                type="number"
+                step="0.1"
+                min={0.1}
+                value={cxPeso}
+                onChange={(e) => setCxPeso(e.target.value)}
+                placeholder="Opcional — usado no cálculo de carga do palete"
+                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono disabled:bg-zinc-50"
+              />
+            </label>
+
+            <label className="flex items-center gap-2 p-2.5 rounded-xl border border-zinc-200 bg-zinc-50/70 cursor-pointer">
+              <input
+                type="checkbox"
+                disabled={!canEdit}
+                checked={cxPodeGirar}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  setCxPodeGirar(next);
+                  if (!next && padraoPreview === 'rotacionado') setPadraoPreview('normal');
+                }}
+              />
+              <span className="font-semibold text-zinc-700">
+                Permitir girar 90° no palete (amarração)
+              </span>
+            </label>
+
+            <label className="space-y-1 block">
+              <span className="font-semibold text-zinc-600 block">
+                Insumo ERP (fórmula ou composição de kit, ex.: 9.04.063)
+              </span>
+              <input
+                disabled={!canEdit}
+                value={cxInsumo}
+                onChange={(e) => setCxInsumo(e.target.value)}
+                placeholder="Opcional — separa múltiplos por vírgula"
+                className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono disabled:bg-zinc-50"
+              />
+            </label>
+          </form>
+        </div>
       </Drawer>
     </div>
   );

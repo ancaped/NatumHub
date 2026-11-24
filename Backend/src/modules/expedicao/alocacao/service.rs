@@ -234,7 +234,7 @@ async fn carregar_posicoes(pool: &PgPool, estrutura_id: &str) -> Result<Vec<Posi
 
 async fn carregar_caixas(pool: &PgPool) -> Result<Vec<Caixa>, ErroApi> {
     let rows = sqlx::query(
-        "SELECT id, codigo, nome, altura_cm, comprimento_cm, largura_cm, empilhamento_max, insumo_erp_codigo, ativo, observacoes \
+        "SELECT id, codigo, nome, altura_cm, comprimento_cm, largura_cm, empilhamento_max, insumo_erp_codigo, pode_girar, peso_bruto_kg, ativo, observacoes \
          FROM expedicao_caixas ORDER BY codigo ASC",
     )
     .fetch_all(pool)
@@ -250,6 +250,8 @@ async fn carregar_caixas(pool: &PgPool) -> Result<Vec<Caixa>, ErroApi> {
             largura_cm: r.get("largura_cm"),
             empilhamento_max: r.get("empilhamento_max"),
             insumo_erp_codigo: r.get("insumo_erp_codigo"),
+            pode_girar: r.get("pode_girar"),
+            peso_bruto_kg: r.get("peso_bruto_kg"),
             ativo: r.get("ativo"),
             observacoes: r.get("observacoes"),
         })
@@ -1145,11 +1147,11 @@ pub async fn gerar_grade_estrutura(
         .filter(|c| !c.is_empty())
         .collect();
     if cols.is_empty() || input.andares.is_empty() {
-        return Err(ErroApi::invalido("Informe pelo menos 1 coluna e 1 prateleira."));
+        return Err(ErroApi::invalido("Informe pelo menos 1 coluna e 1 andar."));
     }
     for a in &input.andares {
         if a.andar <= 0 || a.altura_cm <= 0.0 {
-            return Err(ErroApi::invalido("Prateleira e altura (cm) devem ser positivos."));
+            return Err(ErroApi::invalido("Andar e altura (cm) devem ser positivos."));
         }
         validar_papel(&a.papel)?;
     }
@@ -1434,7 +1436,7 @@ pub async fn excluir_posicao(
 
 // --- Caixas ---
 
-fn validar_caixa_input(input: &CaixaInput) -> Result<(String, String, i32), ErroApi> {
+fn validar_caixa_input(input: &CaixaInput) -> Result<(String, String, i32, bool, Option<f64>), ErroApi> {
     let codigo = str_trim(Some(&input.codigo)).ok_or_else(|| ErroApi::invalido("Informe o código da caixa."))?;
     let nome = str_trim(Some(&input.nome)).ok_or_else(|| ErroApi::invalido("Informe o nome da caixa."))?;
     if input.altura_cm <= 0.0 || input.comprimento_cm <= 0.0 || input.largura_cm <= 0.0 {
@@ -1444,7 +1446,14 @@ fn validar_caixa_input(input: &CaixaInput) -> Result<(String, String, i32), Erro
     if emp <= 0 {
         return Err(ErroApi::invalido("Empilhamento máximo deve ser pelo menos 1."));
     }
-    Ok((codigo, nome, emp))
+    let pode_girar = input.pode_girar.unwrap_or(true);
+    let peso_bruto = input.peso_bruto_kg.filter(|p| p.is_finite());
+    if let Some(p) = peso_bruto {
+        if p <= 0.0 {
+            return Err(ErroApi::invalido("Peso bruto (kg) deve ser maior que zero quando informado."));
+        }
+    }
+    Ok((codigo, nome, emp, pode_girar, peso_bruto))
 }
 
 pub async fn criar_caixa(
@@ -1453,7 +1462,7 @@ pub async fn criar_caixa(
     input: CaixaInput,
     confirmar: bool,
 ) -> Result<RespostaAcao<Value>, ErroApi> {
-    let (codigo, nome, emp) = validar_caixa_input(&input)?;
+    let (codigo, nome, emp, pode_girar, peso_bruto) = validar_caixa_input(&input)?;
     let insumo_erp = str_trim(input.insumo_erp_codigo.as_deref());
     let obs = str_trim(input.observacoes.as_deref());
     let ativo = input.ativo.unwrap_or(true);
@@ -1473,8 +1482,8 @@ pub async fn criar_caixa(
             }
             sqlx::query(
                 "INSERT INTO expedicao_caixas \
-                 (id, codigo, nome, altura_cm, comprimento_cm, largura_cm, empilhamento_max, insumo_erp_codigo, ativo, observacoes) \
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+                 (id, codigo, nome, altura_cm, comprimento_cm, largura_cm, empilhamento_max, insumo_erp_codigo, pode_girar, peso_bruto_kg, ativo, observacoes) \
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
             )
             .bind(&id_c)
             .bind(&cod_c)
@@ -1484,6 +1493,8 @@ pub async fn criar_caixa(
             .bind(input.largura_cm)
             .bind(emp)
             .bind(&insumo_erp)
+            .bind(pode_girar)
+            .bind(peso_bruto)
             .bind(ativo)
             .bind(&obs)
             .execute(&mut **tx)
@@ -1497,6 +1508,8 @@ pub async fn criar_caixa(
                 "larguraCm": input.largura_cm,
                 "empilhamentoMax": emp,
                 "insumoErpCodigo": insumo_erp,
+                "podeGirar": pode_girar,
+                "pesoBrutoKg": peso_bruto,
             }))
         })
     })
@@ -1525,7 +1538,7 @@ pub async fn atualizar_caixa(
     input: CaixaInput,
     confirmar: bool,
 ) -> Result<RespostaAcao<Value>, ErroApi> {
-    let (codigo, nome, emp) = validar_caixa_input(&input)?;
+    let (codigo, nome, emp, pode_girar, peso_bruto) = validar_caixa_input(&input)?;
     let insumo_erp = str_trim(input.insumo_erp_codigo.as_deref());
     let obs = str_trim(input.observacoes.as_deref());
     let ativo = input.ativo.unwrap_or(true);
@@ -1557,7 +1570,8 @@ pub async fn atualizar_caixa(
             sqlx::query(
                 "UPDATE expedicao_caixas \
                  SET codigo = $2, nome = $3, altura_cm = $4, comprimento_cm = $5, largura_cm = $6, \
-                     empilhamento_max = $7, insumo_erp_codigo = $8, ativo = $9, observacoes = $10, updated_at = NOW() \
+                     empilhamento_max = $7, insumo_erp_codigo = $8, pode_girar = $9, peso_bruto_kg = $10, \
+                     ativo = $11, observacoes = $12, updated_at = NOW() \
                  WHERE id = $1",
             )
             .bind(&id_c)
@@ -1568,6 +1582,8 @@ pub async fn atualizar_caixa(
             .bind(input.largura_cm)
             .bind(emp)
             .bind(&insumo_erp)
+            .bind(pode_girar)
+            .bind(peso_bruto)
             .bind(ativo)
             .bind(&obs)
             .execute(&mut **tx)
@@ -1583,6 +1599,8 @@ pub async fn atualizar_caixa(
                     "larguraCm": input.largura_cm,
                     "empilhamentoMax": emp,
                     "insumoErpCodigo": insumo_erp,
+                    "podeGirar": pode_girar,
+                    "pesoBrutoKg": peso_bruto,
                     "ativo": ativo,
                 }
             }))
@@ -2217,7 +2235,7 @@ async fn carregar_mapa_caixas_produtos_tx(
         return Ok(HashMap::new());
     }
     let rows = sqlx::query(
-        "SELECT id, codigo, nome, altura_cm, comprimento_cm, largura_cm, empilhamento_max, insumo_erp_codigo, ativo, observacoes \
+        "SELECT id, codigo, nome, altura_cm, comprimento_cm, largura_cm, empilhamento_max, insumo_erp_codigo, pode_girar, peso_bruto_kg, ativo, observacoes \
          FROM expedicao_caixas WHERE ativo = TRUE",
     )
     .fetch_all(&mut *tx)
@@ -2234,6 +2252,8 @@ async fn carregar_mapa_caixas_produtos_tx(
             largura_cm: r.get("largura_cm"),
             empilhamento_max: r.get("empilhamento_max"),
             insumo_erp_codigo: r.get("insumo_erp_codigo"),
+            pode_girar: r.get("pode_girar"),
+            peso_bruto_kg: r.get("peso_bruto_kg"),
             ativo: r.get("ativo"),
             observacoes: r.get("observacoes"),
         })

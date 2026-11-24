@@ -48,6 +48,8 @@ pub struct Caixa {
     pub largura_cm: f64,
     pub empilhamento_max: i32,
     pub insumo_erp_codigo: Option<String>,
+    pub pode_girar: bool,
+    pub peso_bruto_kg: Option<f64>,
     pub ativo: bool,
     pub observacoes: Option<String>,
 }
@@ -289,6 +291,8 @@ pub struct CaixaInput {
     pub largura_cm: f64,
     pub empilhamento_max: Option<i32>,
     pub insumo_erp_codigo: Option<String>,
+    pub pode_girar: Option<bool>,
+    pub peso_bruto_kg: Option<f64>,
     pub ativo: Option<bool>,
     pub observacoes: Option<String>,
 }

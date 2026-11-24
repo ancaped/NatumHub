@@ -40,6 +40,8 @@ export interface Caixa {
   larguraCm: number;
   empilhamentoMax: number;
   insumoErpCodigo: string | null;
+  podeGirar?: boolean;
+  pesoBrutoKg?: number | null;
   ativo: boolean;
   observacoes: string | null;
 }
