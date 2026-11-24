@@ -86,36 +86,77 @@ fn rotulo_status_fallback(status_produto: Option<&str>) -> (&'static str, &'stat
     }
 }
 
-/// Serviço: busca produtos com a exata mesma formulação química de `code`, enriquecidos com o cálculo de estoque/demanda.
-pub async fn buscar_produtos_mesma_formulacao(
-    db: &crate::core::db::Db,
+/// Tolerância máxima em pontos percentuais por insumo para considerar que duas fórmulas
+/// geram a mesma massa de reator (absorve arredondamentos do ERP como 51,00% vs 51,01%).
+const TOLERANCIA_PCT_MESMA_FORMULA: f64 = 0.15;
+
+/// Consulta as linhas brutas de produtos com a mesma massa química de `code`: soma linhas
+/// repetidas do mesmo insumo (ex.: água dividida em etapas), ignora embalagem/rótulo (`UN`),
+/// usa proporção da quantidade quando `percentage` vier nulo/zerado e aplica pequena tolerância.
+async fn buscar_linhas_mesma_formulacao_em(
+    conn: &mut sqlx::PgConnection,
     code: &str,
-) -> Result<Vec<ProdutoMesmaFormulacao>, String> {
-    let pool = db.pool();
-    let clean_code = code.trim().to_string();
+) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
+    let clean_code = code.trim();
+    if clean_code.is_empty() {
+        return Ok(Vec::new());
+    }
 
     let query = r#"
-      WITH target_formula AS (
-        SELECT ingredient_code, ROUND(percentage::numeric, 4) as pct
-        FROM formulations
-        WHERE product_code = $1 AND percentage > 0
+      WITH raw_lines AS (
+        SELECT
+          TRIM(f.product_code) AS product_code,
+          TRIM(f.ingredient_code) AS ingredient_code,
+          COALESCE(f.percentage, 0)::float8 AS pct,
+          COALESCE(f.quantity, 0)::float8 AS qty
+        FROM formulations f
+        LEFT JOIN items i ON TRIM(i.code) = TRIM(f.ingredient_code)
+        WHERE COALESCE(UPPER(TRIM(i.unit)), '') <> 'UN'
+          AND (COALESCE(f.percentage, 0) > 0 OR COALESCE(f.quantity, 0) > 0)
+      ),
+      product_totals AS (
+        SELECT product_code, SUM(pct) AS sum_pct, SUM(qty) AS sum_qty
+        FROM raw_lines
+        GROUP BY product_code
+      ),
+      normalized AS (
+        SELECT
+          r.product_code,
+          r.ingredient_code,
+          SUM(
+            CASE
+              WHEN pt.sum_pct > 0 THEN r.pct
+              WHEN pt.sum_qty > 0 THEN (r.qty / pt.sum_qty) * 100.0
+              ELSE 0.0
+            END
+          ) AS pct
+        FROM raw_lines r
+        JOIN product_totals pt ON pt.product_code = r.product_code
+        WHERE (pt.sum_pct > 0 AND r.pct > 0) OR (pt.sum_pct <= 0 AND r.qty > 0)
+        GROUP BY r.product_code, r.ingredient_code
+      ),
+      target_formula AS (
+        SELECT ingredient_code, pct
+        FROM normalized
+        WHERE product_code = $1
       ),
       target_count AS (
-        SELECT COUNT(*)::bigint as total FROM target_formula
+        SELECT COUNT(*)::bigint AS total FROM target_formula
       ),
-      other_products AS (
-        SELECT f.product_code, COUNT(*)::bigint as ing_count
-        FROM formulations f
-        WHERE f.product_code != $1 AND f.percentage > 0
-        GROUP BY f.product_code
+      other_counts AS (
+        SELECT product_code, COUNT(*)::bigint AS ing_count
+        FROM normalized
+        WHERE product_code <> $1
+        GROUP BY product_code
         HAVING COUNT(*)::bigint = (SELECT total FROM target_count)
       ),
       matched_products AS (
-        SELECT op.product_code
-        FROM other_products op
-        JOIN formulations f ON f.product_code = op.product_code AND f.percentage > 0
-        JOIN target_formula tf ON tf.ingredient_code = f.ingredient_code AND ABS(ROUND(f.percentage::numeric, 4) - tf.pct) < 0.001
-        GROUP BY op.product_code
+        SELECT oc.product_code
+        FROM other_counts oc
+        JOIN normalized n ON n.product_code = oc.product_code
+        JOIN target_formula tf ON tf.ingredient_code = n.ingredient_code
+          AND ABS(n.pct - tf.pct) <= $2
+        GROUP BY oc.product_code
         HAVING COUNT(*)::bigint = (SELECT total FROM target_count)
       )
       SELECT p.codigo, p.descricao, p.base, p.base_codigo,
@@ -123,7 +164,7 @@ pub async fn buscar_produtos_mesma_formulacao(
              COALESCE(i.unit, 'UN'),
              op.status_produto
       FROM matched_products mp
-      JOIN produtos p ON p.codigo = mp.product_code
+      JOIN produtos p ON TRIM(p.codigo) = mp.product_code
       LEFT JOIN estoque_atual e ON e.codigo = p.codigo
       LEFT JOIN items i ON i.code = p.codigo
       LEFT JOIN overrides_produtos op ON op.codigo = p.codigo
@@ -131,9 +172,25 @@ pub async fn buscar_produtos_mesma_formulacao(
       ORDER BY p.descricao;
     "#;
 
-    let rows = sqlx::query(query)
-        .bind(&clean_code)
-        .fetch_all(pool)
+    sqlx::query(query)
+        .bind(clean_code)
+        .bind(TOLERANCIA_PCT_MESMA_FORMULA)
+        .fetch_all(&mut *conn)
+        .await
+}
+
+/// Serviço: busca produtos com a mesma formulação química de `code`, enriquecidos com o cálculo de estoque/demanda.
+pub async fn buscar_produtos_mesma_formulacao(
+    db: &crate::core::db::Db,
+    code: &str,
+) -> Result<Vec<ProdutoMesmaFormulacao>, String> {
+    let mut conn = db
+        .pool()
+        .acquire()
+        .await
+        .map_err(|e| format!("Erro ao abrir conexão: {}", e))?;
+
+    let rows = buscar_linhas_mesma_formulacao_em(&mut conn, code)
         .await
         .map_err(|e| format!("Erro ao buscar produtos com mesma formulação: {}", e))?;
 
@@ -674,5 +731,101 @@ mod tests {
             sqlx::query("DELETE FROM produtos WHERE codigo = $1").bind(cod).execute(pool).await.unwrap();
             sqlx::query("DELETE FROM items WHERE code = $1").bind(cod).execute(pool).await.unwrap();
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn mesma_formulacao_soma_insumos_repetidos_ignora_embalagem_e_aceita_arredondamento() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = sqlx::PgPool::connect(&url).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+
+        sqlx::query("INSERT INTO config_linhas (linha_prefix, nome_linha) VALUES ('99.', 'Teste') ON CONFLICT (linha_prefix) DO NOTHING")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        for (cod, desc) in [
+            ("99.14.007", "TESTE ATIVADOR 1L"),
+            ("99.14.014", "TESTE ATIVADOR 500ML"),
+            ("99.14.099", "TESTE ATIVADOR ARREDONDADO"),
+            ("99.13.069", "TESTE LISS 1L"),
+            ("99.13.076", "TESTE LISS 120ML"),
+            ("99.11.019", "TESTE SEM PERCENTUAL"),
+        ] {
+            sqlx::query("INSERT INTO produtos (codigo, descricao, linha_prefix) VALUES ($1, $2, '99.') ON CONFLICT (codigo) DO NOTHING")
+                .bind(cod)
+                .bind(desc)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+        }
+        for (code, desc, unit) in [
+            ("T.MP.AGUA", "AGUA DESMINERALIZADA", "L"),
+            ("T.MP.CETO", "ALCOOL CETOESTEARILICO", "KG"),
+            ("T.EMB.1L", "FRASCO 1L", "UN"),
+            ("T.EMB.500", "FRASCO 500ML", "UN"),
+            ("T.ROT.1L", "ROTULO 1L", "UN"),
+        ] {
+            sqlx::query("INSERT INTO items (code, description, unit) VALUES ($1, $2, $3) ON CONFLICT (code) DO NOTHING")
+                .bind(code)
+                .bind(desc)
+                .bind(unit)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+        }
+
+        let linhas = [
+            // 99.14.007 (1L): água dividida 51.26437 + 29.92563 = 81.19 + embalagens 1L (pct 0)
+            ("99.14.007", "T.MP.AGUA", 0.5126437_f64, Some(51.26437_f64)),
+            ("99.14.007", "T.MP.AGUA", 0.2992563, Some(29.92563)),
+            ("99.14.007", "T.MP.CETO", 0.1881, Some(18.81)),
+            ("99.14.007", "T.EMB.1L", 1.0, Some(0.0)),
+            ("99.14.007", "T.ROT.1L", 1.0, Some(0.0)),
+            // 99.14.014 (500ml): água dividida 51.96437 + 29.22563 = 81.19 + embalagem 500ml
+            ("99.14.014", "T.MP.AGUA", 0.25982185, Some(51.96437)),
+            ("99.14.014", "T.MP.AGUA", 0.14612815, Some(29.22563)),
+            ("99.14.014", "T.MP.CETO", 0.09405, Some(18.81)),
+            ("99.14.014", "T.EMB.500", 1.0, Some(0.0)),
+            // 99.14.099: arredondamento pequeno (+0.02 / -0.02 pp) dentro da tolerância 0.15
+            ("99.14.099", "T.MP.AGUA", 0.8121, Some(81.21)),
+            ("99.14.099", "T.MP.CETO", 0.1879, Some(18.79)),
+            // 99.13.069 e 99.13.076: mesmos insumos, mas proporções 4 pp diferentes -> não são a mesma massa
+            ("99.13.069", "T.MP.AGUA", 0.80, Some(80.0)),
+            ("99.13.069", "T.MP.CETO", 0.20, Some(20.0)),
+            ("99.13.076", "T.MP.AGUA", 0.76, Some(76.0)),
+            ("99.13.076", "T.MP.CETO", 0.24, Some(24.0)),
+            // 99.11.019: mesma proporção química que 99.14.007, mas percentage NULL (normalizado pela qty)
+            ("99.11.019", "T.MP.AGUA", 0.8119, None),
+            ("99.11.019", "T.MP.CETO", 0.1881, None),
+            ("99.11.019", "T.EMB.500", 1.0, None),
+        ];
+        for (prod, ing, qty, pct) in linhas {
+            sqlx::query(
+                "INSERT INTO formulations (product_code, ingredient_code, description, quantity, percentage) VALUES ($1, $2, $2, $3, $4)",
+            )
+            .bind(prod)
+            .bind(ing)
+            .bind(qty)
+            .bind(pct)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        }
+
+        let rows = buscar_linhas_mesma_formulacao_em(&mut *tx, "99.14.007").await.unwrap();
+        let codigos: Vec<String> = rows.iter().map(|r| r.get::<String, _>(0)).collect();
+        assert!(codigos.iter().any(|c| c == "99.14.014"), "deve encontrar quando água repetida soma 81,19% e embalagem muda: {codigos:?}");
+        assert!(codigos.iter().any(|c| c == "99.14.099"), "deve aceitar pequena tolerância de arredondamento (0,02 pp): {codigos:?}");
+        assert!(codigos.iter().any(|c| c == "99.11.019"), "deve normalizar por quantidade quando percentage vem nulo: {codigos:?}");
+        assert!(!codigos.iter().any(|c| c == "99.13.069"), "não deve misturar fórmulas com diferença relevante");
+
+        let outro_sentido = buscar_linhas_mesma_formulacao_em(&mut *tx, "99.13.076").await.unwrap();
+        assert!(
+            !outro_sentido.iter().any(|r| r.get::<String, _>(0) == "99.13.069"),
+            "diferença de 4 pp entre 120ml e 1L não é mesma massa de reator"
+        );
+
+        tx.rollback().await.unwrap();
     }
 }
