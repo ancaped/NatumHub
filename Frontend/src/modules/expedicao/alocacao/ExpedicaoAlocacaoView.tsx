@@ -188,6 +188,7 @@ export default function ExpedicaoAlocacaoView({
               onChangeEstrutura={setEstruturaId}
               posicoes={painel.posicoes}
               produtos={painel.produtos}
+              caixas={painel.caixas}
               onSelectPosicao={(pos) => setPosicaoIdSelecionada(pos.id)}
               onAbrirProduto={(p) => setProdutoCodigoSelecionado(p.codigo)}
             />

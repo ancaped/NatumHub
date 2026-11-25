@@ -1,7 +1,14 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { distribuirEstoquePorAlocacao, gerarCaixasItem3d } from './caixas3d';
+import {
+  coresItemVao3d,
+  distribuirEstoquePorAlocacao,
+  gerarLayoutVao3d,
+  ordenarCaixas3dPorCamera,
+  type Caixa3dInstancia,
+  type CoresItem3d,
+} from './caixas3d';
 import type {
-  AlocacaoItemView,
+  Caixa,
   Estrutura,
   PosicaoComItens,
   ProdutoDimensao,
@@ -13,6 +20,7 @@ interface DesenhoPrateleira3dSvgProps {
   colunas: string[];
   andares: number[];
   prodPorCodigo: Map<string, ProdutoDimensao>;
+  caixas?: Caixa[];
   termoBusca: string;
   onSelectPosicao: (pos: PosicaoComItens) => void;
 }
@@ -22,32 +30,6 @@ interface CoresCaixa3d {
   front: string;
   side: string;
   stroke: string;
-}
-
-function coresCaixa(
-  estouro: boolean,
-  ehColoracao: boolean,
-  ehKit: boolean,
-  rotacionada = false,
-): CoresCaixa3d {
-  if (estouro) {
-    return rotacionada
-      ? { top: '#fecaca', front: '#fca5a5', side: '#f87171', stroke: '#dc2626' }
-      : { top: '#fee2e2', front: '#fecaca', side: '#fca5a5', stroke: '#dc2626' };
-  }
-  if (ehColoracao) {
-    return rotacionada
-      ? { top: '#fde9b4', front: '#fcd878', side: '#f6c33b', stroke: '#d97706' }
-      : { top: '#fef3c7', front: '#fde68a', side: '#fcd34d', stroke: '#d97706' };
-  }
-  if (ehKit) {
-    return rotacionada
-      ? { top: '#dcdce0', front: '#c8c8ce', side: '#9595a0', stroke: '#3f3f46' }
-      : { top: '#e4e4e7', front: '#d4d4d8', side: '#a1a1aa', stroke: '#3f3f46' };
-  }
-  return rotacionada
-    ? { top: '#eee0c5', front: '#ddc398', side: '#c49c66', stroke: '#8c6d46' }
-    : { top: '#f5ead6', front: '#e6cfa9', side: '#cfa974', stroke: '#8c6d46' };
 }
 
 /**
@@ -61,6 +43,7 @@ export function DesenhoPrateleira3dSvg({
   colunas,
   andares,
   prodPorCodigo,
+  caixas = [],
   termoBusca,
   onSelectPosicao,
 }: DesenhoPrateleira3dSvgProps) {
@@ -89,6 +72,12 @@ export function DesenhoPrateleira3dSvg({
     () => distribuirEstoquePorAlocacao(posicoes, prodPorCodigo),
     [posicoes, prodPorCodigo],
   );
+
+  const caixaPorId = useMemo(() => {
+    const m = new Map<string, Caixa>();
+    for (const c of caixas) m.set(c.id, c);
+    return m;
+  }, [caixas]);
 
   // Ordenar andares de baixo para cima (painter's algorithm)
   const andaresAsc = useMemo(() => {
@@ -495,41 +484,20 @@ export function DesenhoPrateleira3dSvg({
     paleteH: number,
     altVao: number,
   ) => {
-    let cursorX = sx + 2;
     const hDisp = Math.max(10, altVao - paleteH);
-    const itemsLayout: Array<{
-      item: AlocacaoItemView;
-      xStart: number;
-      wItem: number;
-      hItem: number;
-      dItem: number;
-    }> = [];
+    const layout = gerarLayoutVao3d({
+      posicao: pos,
+      saldos,
+      caixaPorId,
+      modoQtd,
+      usarAmarracao: true,
+      zBase: 0,
+      alturaMaxCaixasCm: hDisp,
+      aplicarCulling: true,
+      dirSign,
+    });
 
-    for (const item of pos.itens) {
-      const wItem = Math.min(
-        Math.max(12, item.larguraOcupadaCm || 25),
-        sx + slotW - 3 - cursorX,
-      );
-      const dItem = Math.min(
-        Math.max(30, pos.comprimentoCm - 12),
-        Math.max(24, item.caixasComprimento * (item.caixaComprimentoCm ?? 20)),
-      );
-      const hItem = Math.min(
-        hDisp + (item.estouroAltura ? 10 : 0),
-        Math.max(12, item.alturaOcupadaCm || hDisp * 0.7),
-      );
-      if (wItem > 4) {
-        itemsLayout.push({ item, xStart: cursorX, wItem, hItem, dItem });
-      }
-      cursorX += wItem + 2;
-    }
-
-    const totalEstoqueVao = pos.itens.reduce(
-      (s, it) => s + (saldos.get(it.id)?.caixasEstoque ?? it.totalCaixas),
-      0,
-    );
-
-    if (modoQtd === 'estoque' && totalEstoqueVao === 0) {
+    if (modoQtd === 'estoque' && layout.totalEstoqueVao === 0) {
       const pText = toPt(sx + slotW * 0.46, pos.comprimentoCm * 0.42, zTrayTop + paleteH + 2);
       return (
         <g>
@@ -560,62 +528,59 @@ export function DesenhoPrateleira3dSvg({
       );
     }
 
-    const itemsOrdered = dirSign === 1 ? itemsLayout : [...itemsLayout].reverse();
-    const slotDepth = Math.max(24, pos.comprimentoCm - 10);
+    const visW = Math.max(20, slotW - 6);
+    const visD = Math.max(30, pos.comprimentoCm - 10);
+    const scaleX = visW / layout.wVao;
+    const scaleY = visD / layout.dVao;
 
-    return itemsOrdered.map(({ item, xStart, wItem, hItem }) => {
-      const saldo = saldos.get(item.id);
-      const qtdAlvo =
-        modoQtd === 'estoque'
-          ? (saldo?.caixasEstoque ?? item.totalCaixas)
-          : (saldo?.caixasCapacidade ?? item.totalCaixas);
-      const prodMeta = prodPorCodigo.get(item.produtoCodigo);
+    const todasCaixas: Array<Caixa3dInstancia & { cor: CoresItem3d }> = [];
+    for (const itemLayout of layout.itens) {
+      const prodMeta = prodPorCodigo.get(itemLayout.item.produtoCodigo);
+      const estouro = itemLayout.item.estouroAltura || pos.temEstouro;
+      for (const box of itemLayout.caixas) {
+        todasCaixas.push({
+          ...box,
+          x: sx + 3 + box.x * scaleX,
+          y: 5 + box.y * scaleY,
+          z: zTrayTop + paleteH + box.z,
+          dx: box.dx * scaleX,
+          dy: box.dy * scaleY,
+          dz: box.dz,
+          cor: coresItemVao3d(
+            itemLayout.itemIndex,
+            layout.itens.length,
+            estouro,
+            Boolean(prodMeta?.ehColoracao),
+            Boolean(prodMeta?.ehKit),
+            box.rotacionada,
+          ),
+        });
+      }
+    }
 
-      const { caixas } = gerarCaixasItem3d({
-        xStart,
-        yStart: 6,
-        zBase: zTrayTop + paleteH,
-        maxWidthCm: wItem,
-        slotDepthCm: slotDepth,
-        maxHeightCm: hItem,
-        fileirasLargura: item.fileirasLargura,
-        caixasComprimento: item.caixasComprimento,
-        camadasAltura: item.camadasAltura,
-        larguraOcupadaCm: wItem,
-        alturaOcupadaCm: hItem,
-        caixaLarguraCm: item.caixaLarguraCm,
-        caixaComprimentoCm: item.caixaComprimentoCm,
-        caixaAlturaCm: item.caixaAlturaCm,
-        qtdCaixasAlvo: qtdAlvo,
-        dirSign,
-        modoDetalhe: emFoco ? 'foco' : 'panorama',
-        usarAmarracao: true,
-      });
+    const ordenadas = ordenarCaixas3dPorCamera(
+      todasCaixas,
+      dirSign === 1 ? 35 : -35,
+    );
 
-      return (
-        <g key={`3d-item-${item.id}`}>
-          {caixas.map((box, bIdx) => (
-            <Box3D
-              key={`cx-${item.id}-${bIdx}`}
-              x={box.x}
-              y={box.y}
-              z={box.z}
-              dx={box.dx}
-              dy={box.dy}
-              dz={box.dz}
-              colors={coresCaixa(
-                item.estouroAltura || pos.temEstouro,
-                Boolean(prodMeta?.ehColoracao),
-                Boolean(prodMeta?.ehKit),
-                box.rotacionada,
-              )}
-              strokeWidth={emFoco ? 0.68 : 0.52}
-              drawTopFlap={emFoco && box.dx >= 8 && box.dy >= 8}
-            />
-          ))}
-        </g>
-      );
-    });
+    return (
+      <g>
+        {ordenadas.map((box, bIdx) => (
+          <Box3D
+            key={`cx-${pos.id}-${bIdx}`}
+            x={box.x}
+            y={box.y}
+            z={box.z}
+            dx={box.dx}
+            dy={box.dy}
+            dz={box.dz}
+            colors={box.cor}
+            strokeWidth={emFoco ? 0.68 : 0.5}
+            drawTopFlap={emFoco && box.dx >= 8 && box.dy >= 8}
+          />
+        ))}
+      </g>
+    );
   };
 
   return (
@@ -1085,51 +1050,52 @@ export function DesenhoPrateleira3dSvg({
               </p>
             ) : (
               <div className="mt-1.5 space-y-1">
-                {hoveredSlot.pos.itens.slice(0, 4).map((it) => {
-                  const saldo = saldos.get(it.id);
-                  const estCx = saldo?.caixasEstoque ?? it.totalCaixas;
-                  const capCx = saldo?.caixasCapacidade ?? it.totalCaixas;
-                  const temAmarracao =
-                    Boolean(it.caixaLarguraCm && it.caixaComprimentoCm) &&
-                    gerarCaixasItem3d({
-                      xStart: 0,
-                      yStart: 0,
-                      zBase: 0,
-                      maxWidthCm: Math.max(12, it.larguraOcupadaCm || 25),
-                      slotDepthCm: Math.max(24, hoveredSlot.pos.comprimentoCm - 10),
-                      maxHeightCm: Math.max(12, it.alturaOcupadaCm || 50),
-                      fileirasLargura: it.fileirasLargura,
-                      caixasComprimento: it.caixasComprimento,
-                      camadasAltura: it.camadasAltura,
-                      larguraOcupadaCm: Math.max(12, it.larguraOcupadaCm || 25),
-                      alturaOcupadaCm: Math.max(12, it.alturaOcupadaCm || 50),
-                      caixaLarguraCm: it.caixaLarguraCm,
-                      caixaComprimentoCm: it.caixaComprimentoCm,
-                      caixaAlturaCm: it.caixaAlturaCm,
-                      qtdCaixasAlvo: capCx,
-                      dirSign: 1,
-                      modoDetalhe: 'foco',
-                      usarAmarracao: true,
-                    }).amarrado;
-                  return (
-                    <div key={`tip-${it.id}`} className="text-[11px] leading-snug">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono font-semibold text-zinc-100">
-                          {it.produtoCodigo}
-                          {temAmarracao && (
-                            <span className="ml-1 font-sans text-[10px] font-normal text-zinc-400">
-                              · Amarração
-                            </span>
-                          )}
-                        </span>
-                        <span className="font-mono text-zinc-300 shrink-0">
-                          {estCx}/{capCx} cx
-                        </span>
+                {(() => {
+                  const hoverLayout = gerarLayoutVao3d({
+                    posicao: hoveredSlot.pos,
+                    saldos,
+                    caixaPorId,
+                    modoQtd,
+                    usarAmarracao: true,
+                    aplicarCulling: true,
+                    dirSign,
+                  });
+                  const totalItens = hoverLayout.itens.length;
+                  return hoverLayout.itens.slice(0, 4).map((itL) => {
+                    const it = itL.item;
+                    const prodMeta = prodPorCodigo.get(it.produtoCodigo);
+                    const corTip = coresItemVao3d(
+                      itL.itemIndex,
+                      totalItens,
+                      it.estouroAltura || hoveredSlot.pos.temEstouro,
+                      Boolean(prodMeta?.ehColoracao),
+                      Boolean(prodMeta?.ehKit),
+                      false,
+                    );
+                    return (
+                      <div key={`tip-${it.id}`} className="text-[11px] leading-snug">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono font-semibold text-zinc-100 inline-flex items-center gap-1.5">
+                            <span
+                              className="inline-block w-2.5 h-2.5 rounded-xs shrink-0 border border-white/25"
+                              style={{ backgroundColor: corTip.swatch }}
+                            />
+                            {it.produtoCodigo}
+                            {itL.amarrado && (
+                              <span className="font-sans text-[10px] font-normal text-zinc-400">
+                                · Amarração
+                              </span>
+                            )}
+                          </span>
+                          <span className="font-mono text-zinc-300 shrink-0">
+                            {itL.estCx}/{itL.capCx} cx
+                          </span>
+                        </div>
+                        <div className="truncate text-zinc-300">{it.produtoDescricao}</div>
                       </div>
-                      <div className="truncate text-zinc-300">{it.produtoDescricao}</div>
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
                 {hoveredSlot.pos.itens.length > 4 && (
                   <div className="text-[10px] text-zinc-400">
                     +{hoveredSlot.pos.itens.length - 4} itens neste vão

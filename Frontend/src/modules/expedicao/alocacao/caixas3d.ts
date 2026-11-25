@@ -62,7 +62,12 @@ function parEstavel(impar: CaixaNoPalete[], par: CaixaNoPalete[], nz: number): b
   if (nz >= 3 && !verificarApoioCamada(par, impar, 0.85, 1.5)) return false;
   return true;
 }
-import type { PosicaoComItens, ProdutoDimensao } from './types';
+import type {
+  AlocacaoItemView,
+  Caixa,
+  PosicaoComItens,
+  ProdutoDimensao,
+} from './types';
 
 export interface SaldoAlocacao {
   caixasEstoque: number;
@@ -647,5 +652,297 @@ export function gerarCaixasItem3d(
     ny,
     nz,
     amarrado: false,
+  };
+}
+
+export interface CoresItem3d {
+  top: string;
+  front: string;
+  side: string;
+  stroke: string;
+  swatch: string;
+}
+
+const PALETA_MULTI_ITEM: Array<{
+  normal: CoresItem3d;
+  rot: CoresItem3d;
+}> = [
+  {
+    normal: { top: '#f5ead6', front: '#e6cfa9', side: '#cfa974', stroke: '#7c5d36', swatch: '#e6cfa9' },
+    rot: { top: '#eee0c5', front: '#ddc398', side: '#c49c66', stroke: '#7c5d36', swatch: '#e6cfa9' },
+  },
+  {
+    normal: { top: '#e7eedd', front: '#d2dfc2', side: '#b2c69c', stroke: '#4d6439', swatch: '#c5d6b0' },
+    rot: { top: '#dde7d0', front: '#c5d6b0', side: '#a3b88c', stroke: '#4d6439', swatch: '#c5d6b0' },
+  },
+  {
+    normal: { top: '#e4ecf2', front: '#cad9e4', side: '#a3bccd', stroke: '#3e5c73', swatch: '#bfd1df' },
+    rot: { top: '#dae4ec', front: '#bdcfdd', side: '#94afc2', stroke: '#3e5c73', swatch: '#bfd1df' },
+  },
+  {
+    normal: { top: '#f5e2d4', front: '#e8c4ab', side: '#d39f7e', stroke: '#8a5233', swatch: '#e3b89b' },
+    rot: { top: '#eed6c5', front: '#dfb599', side: '#c7906e', stroke: '#8a5233', swatch: '#e3b89b' },
+  },
+  {
+    normal: { top: '#eae8e4', front: '#d6d3cd', side: '#b5b0a6', stroke: '#57534e', swatch: '#cbc7bf' },
+    rot: { top: '#e0ddd8', front: '#cac6be', side: '#a8a298', stroke: '#57534e', swatch: '#cbc7bf' },
+  },
+  {
+    normal: { top: '#f7efd2', front: '#ead9a4', side: '#d4bb70', stroke: '#7c6525', swatch: '#e3cf91' },
+    rot: { top: '#efe4bf', front: '#e1cd91', side: '#c8ae62', stroke: '#7c6525', swatch: '#e3cf91' },
+  },
+];
+
+/**
+ * Paleta 3D compartilhada entre a Prateleira 3D e o Palete 3D no vão.
+ * Vãos com 1 produto preservam o estilo clássico; vãos multi-produto recebem tons sóbrios distintos.
+ */
+export function coresItemVao3d(
+  itemIndex: number,
+  totalItensNoVao: number,
+  estouro: boolean,
+  ehColoracao: boolean,
+  ehKit: boolean,
+  rotacionada = false,
+): CoresItem3d {
+  if (estouro) {
+    return rotacionada
+      ? { top: '#fecaca', front: '#fca5a5', side: '#f87171', stroke: '#dc2626', swatch: '#fca5a5' }
+      : { top: '#fee2e2', front: '#fecaca', side: '#fca5a5', stroke: '#dc2626', swatch: '#fca5a5' };
+  }
+  if (totalItensNoVao >= 2) {
+    const entry = PALETA_MULTI_ITEM[Math.abs(itemIndex) % PALETA_MULTI_ITEM.length];
+    return rotacionada ? entry.rot : entry.normal;
+  }
+  if (ehColoracao) {
+    return rotacionada
+      ? { top: '#fde9b4', front: '#fcd878', side: '#f6c33b', stroke: '#d97706', swatch: '#fde68a' }
+      : { top: '#fef3c7', front: '#fde68a', side: '#fcd34d', stroke: '#d97706', swatch: '#fde68a' };
+  }
+  if (ehKit) {
+    return rotacionada
+      ? { top: '#dcdce0', front: '#c8c8ce', side: '#9595a0', stroke: '#3f3f46', swatch: '#d4d4d8' }
+      : { top: '#e4e4e7', front: '#d4d4d8', side: '#a1a1aa', stroke: '#3f3f46', swatch: '#d4d4d8' };
+  }
+  return rotacionada ? PALETA_MULTI_ITEM[0].rot : PALETA_MULTI_ITEM[0].normal;
+}
+
+function coberturaIntervalo(
+  minA: number,
+  maxA: number,
+  segs: Array<[number, number]>,
+): number {
+  const lenA = maxA - minA;
+  if (lenA <= 0 || segs.length === 0) return 0;
+  const clipped = segs
+    .map(([s, e]) => [Math.max(minA, s), Math.min(maxA, e)] as [number, number])
+    .filter(([s, e]) => e > s)
+    .sort((a, b) => a[0] - b[0]);
+  if (clipped.length === 0) return 0;
+  let coberto = 0;
+  let [curS, curE] = clipped[0];
+  for (let i = 1; i < clipped.length; i++) {
+    const [ns, ne] = clipped[i];
+    if (ns <= curE) {
+      curE = Math.max(curE, ne);
+    } else {
+      coberto += curE - curS;
+      curS = ns;
+      curE = ne;
+    }
+  }
+  coberto += curE - curS;
+  return coberto / lenA;
+}
+
+function cullarCaixasInternas(
+  caixas: Caixa3dInstancia[],
+  dirSign: 1 | -1,
+): Caixa3dInstancia[] {
+  if (caixas.length <= 4) return caixas;
+  const porCamada = new Map<number, Caixa3dInstancia[]>();
+  for (const b of caixas) {
+    const arr = porCamada.get(b.iz);
+    if (arr) arr.push(b);
+    else porCamada.set(b.iz, [b]);
+  }
+
+  const tolGap = 1.2;
+  return caixas.filter((a) => {
+    const acima = porCamada.get(a.iz + 1);
+    if (!acima || acima.length === 0) return true;
+    const mesmaCamada = porCamada.get(a.iz) ?? [];
+
+    // 1) Cobertura superior com expansão sutil para absorver folga entre caixas
+    const areaA = a.dx * a.dy;
+    let overlapTopo = 0;
+    for (const u of acima) {
+      const ix = Math.max(
+        0,
+        Math.min(a.x + a.dx, u.x + u.dx + tolGap) - Math.max(a.x, u.x - tolGap),
+      );
+      if (ix <= 0) continue;
+      const iy = Math.max(
+        0,
+        Math.min(a.y + a.dy, u.y + u.dy + tolGap) - Math.max(a.y, u.y - tolGap),
+      );
+      if (iy <= 0) continue;
+      overlapTopo += ix * iy;
+    }
+    if (areaA <= 0 || overlapTopo / areaA < 0.96) return true;
+
+    // 2) Cobertura frontal (caixas na mesma camada imediatamente em Y < a.y)
+    const segsFrente: Array<[number, number]> = [];
+    for (const b of mesmaCamada) {
+      if (b === a) continue;
+      if (b.y + b.dy <= a.y + 0.5 && b.y + b.dy >= a.y - 3.5) {
+        segsFrente.push([b.x - tolGap, b.x + b.dx + tolGap]);
+      }
+    }
+    if (coberturaIntervalo(a.x, a.x + a.dx, segsFrente) < 0.96) return true;
+
+    // 3) Cobertura lateral voltada para a câmera (dirSign = 1 -> +X, -1 -> -X)
+    const segsLado: Array<[number, number]> = [];
+    for (const b of mesmaCamada) {
+      if (b === a) continue;
+      const encostaLado =
+        dirSign === 1
+          ? b.x >= a.x + a.dx - 0.5 && b.x <= a.x + a.dx + 3.5
+          : b.x + b.dx <= a.x + 0.5 && b.x + b.dx >= a.x - 3.5;
+      if (encostaLado) {
+        segsLado.push([b.y - tolGap, b.y + b.dy + tolGap]);
+      }
+    }
+    if (coberturaIntervalo(a.y, a.y + a.dy, segsLado) < 0.96) return true;
+
+    return false;
+  });
+}
+
+export interface ItemVao3dLayout {
+  item: AlocacaoItemView;
+  itemIndex: number;
+  estCx: number;
+  capCx: number;
+  amarrado: boolean;
+  caixas: Caixa3dInstancia[];
+}
+
+export interface LayoutVao3d {
+  wVao: number;
+  dVao: number;
+  hVao: number;
+  larguraLivreCm: number;
+  itens: ItemVao3dLayout[];
+  totalEstoqueVao: number;
+}
+
+/**
+ * Fonte única do arranjo 3D de um vão, garantindo paridade física exata entre
+ * a Prateleira 3D completa e o Palete 3D girável do drawer.
+ */
+export function gerarLayoutVao3d(params: {
+  posicao: PosicaoComItens;
+  saldos: Map<string, SaldoAlocacao>;
+  caixaPorId: Map<string, Caixa>;
+  modoQtd: 'estoque' | 'capacidade';
+  usarAmarracao: boolean;
+  zBase?: number;
+  alturaMaxCaixasCm?: number;
+  aplicarCulling?: boolean;
+  dirSign?: 1 | -1;
+}): LayoutVao3d {
+  const {
+    posicao,
+    saldos,
+    caixaPorId,
+    modoQtd,
+    usarAmarracao,
+    zBase = 0,
+    alturaMaxCaixasCm,
+    aplicarCulling = false,
+    dirSign = 1,
+  } = params;
+
+  const wVao = posicao.larguraCm > 0 ? posicao.larguraCm : 100;
+  const dVao = posicao.comprimentoCm > 0 ? posicao.comprimentoCm : 120;
+  const hVao = posicao.alturaCm > 0 ? posicao.alturaCm : 74;
+  const hBase = alturaMaxCaixasCm ?? hVao;
+  const gap = posicao.itens.length > 1 ? 1.2 : 0;
+
+  let cursorX = 0;
+  let totalEstoqueVao = 0;
+  const itens: ItemVao3dLayout[] = [];
+
+  for (let itemIndex = 0; itemIndex < posicao.itens.length; itemIndex++) {
+    const item = posicao.itens[itemIndex];
+    const disp = Math.max(0, wVao - cursorX);
+    if (disp < 4) break;
+
+    const wEstimado =
+      item.larguraOcupadaCm > 0
+        ? item.larguraOcupadaCm
+        : Math.max(1, item.fileirasLargura) * (item.caixaLarguraCm ?? 20);
+    const wItem = Math.min(disp, Math.max(8, wEstimado));
+
+    const saldo = saldos.get(item.id);
+    const estCx = saldo?.caixasEstoque ?? item.totalCaixas;
+    const capCx = saldo?.caixasCapacidade ?? item.totalCaixas;
+    totalEstoqueVao += estCx;
+
+    const qtdAlvo = modoQtd === 'estoque' ? estCx : capCx;
+    const podeGirar = caixaPorId.get(item.caixaId ?? '')?.podeGirar !== false;
+    const hDisp = hBase + (item.estouroAltura || posicao.temEstouro ? 10 : 0);
+    const hTarget = Math.min(
+      hDisp,
+      Math.max(10, item.alturaOcupadaCm || hDisp * 0.75),
+    );
+
+    const res = gerarCaixasItem3d({
+      xStart: cursorX,
+      yStart: 0,
+      zBase,
+      maxWidthCm: disp,
+      slotDepthCm: dVao,
+      maxHeightCm: hDisp,
+      fileirasLargura: item.fileirasLargura,
+      caixasComprimento: item.caixasComprimento,
+      camadasAltura: item.camadasAltura,
+      larguraOcupadaCm: wItem,
+      alturaOcupadaCm: hTarget,
+      caixaLarguraCm: item.caixaLarguraCm,
+      caixaComprimentoCm: item.caixaComprimentoCm,
+      caixaAlturaCm: item.caixaAlturaCm,
+      qtdCaixasAlvo: qtdAlvo,
+      dirSign,
+      modoDetalhe: 'foco',
+      usarAmarracao,
+      podeGirar,
+      aplicarCulling: false,
+    });
+
+    const caixasFinais = aplicarCulling
+      ? cullarCaixasInternas(res.caixas, dirSign)
+      : res.caixas;
+
+    itens.push({
+      item,
+      itemIndex,
+      estCx,
+      capCx,
+      amarrado: res.amarrado,
+      caixas: caixasFinais,
+    });
+
+    cursorX += wItem + gap;
+  }
+
+  return {
+    wVao,
+    dVao,
+    hVao,
+    larguraLivreCm: Math.max(0, wVao - cursorX),
+    itens,
+    totalEstoqueVao,
   };
 }

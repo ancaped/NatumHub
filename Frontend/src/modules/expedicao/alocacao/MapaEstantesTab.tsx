@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { ArrowLeftRight, Building2, MapPin, ScanBarcode } from 'lucide-react';
 import { BotaoAcao, FilterBar, StatusBadge } from '../../geral/components/ui/ReportKit';
 import { DesenhoPrateleira3dSvg } from './DesenhoPrateleira3dSvg';
-import type { Estrutura, PosicaoComItens, ProdutoDimensao } from './types';
+import type { Caixa, Estrutura, PosicaoComItens, ProdutoDimensao } from './types';
 
 interface MapaEstantesTabProps {
   estruturas: Estrutura[];
@@ -10,6 +10,7 @@ interface MapaEstantesTabProps {
   onChangeEstrutura: (id: string) => void;
   posicoes: PosicaoComItens[];
   produtos: ProdutoDimensao[];
+  caixas?: Caixa[];
   onSelectPosicao: (pos: PosicaoComItens) => void;
   onAbrirProduto: (p: ProdutoDimensao) => void;
 }
@@ -20,6 +21,7 @@ export function MapaEstantesTab({
   onChangeEstrutura,
   posicoes,
   produtos,
+  caixas = [],
   onSelectPosicao,
   onAbrirProduto,
 }: MapaEstantesTabProps) {
@@ -281,6 +283,7 @@ export function MapaEstantesTab({
           colunas={colunas}
           andares={andares}
           prodPorCodigo={prodPorCodigo}
+          caixas={caixas}
           termoBusca={busca}
           onSelectPosicao={onSelectPosicao}
         />

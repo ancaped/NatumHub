@@ -1,9 +1,10 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, RotateCcw, RotateCw } from 'lucide-react';
 import {
+  coresItemVao3d,
   criarCamera3d,
   distribuirEstoquePorAlocacao,
-  gerarCaixasItem3d,
+  gerarLayoutVao3d,
   ordenarCaixas3dPorCamera,
   projetarPonto3d,
   type Caixa3dInstancia,
@@ -27,37 +28,11 @@ interface CorFace {
   frontX: string;
   frontY: string;
   stroke: string;
-  dot: string;
-}
-
-function coresBox(
-  estouro: boolean,
-  ehColoracao: boolean,
-  ehKit: boolean,
-  rotacionada: boolean,
-): CorFace {
-  if (estouro) {
-    return rotacionada
-      ? { top: '#fecaca', frontX: '#fca5a5', frontY: '#f87171', stroke: '#dc2626', dot: 'bg-red-500' }
-      : { top: '#fee2e2', frontX: '#fecaca', frontY: '#fca5a5', stroke: '#dc2626', dot: 'bg-red-500' };
-  }
-  if (ehColoracao) {
-    return rotacionada
-      ? { top: '#fde9b4', frontX: '#fcd878', frontY: '#f6c33b', stroke: '#d97706', dot: 'bg-amber-500' }
-      : { top: '#fef3c7', frontX: '#fde68a', frontY: '#fcd34d', stroke: '#d97706', dot: 'bg-amber-500' };
-  }
-  if (ehKit) {
-    return rotacionada
-      ? { top: '#dcdce0', frontX: '#c8c8ce', frontY: '#9595a0', stroke: '#3f3f46', dot: 'bg-zinc-700' }
-      : { top: '#e4e4e7', frontX: '#d4d4d8', frontY: '#a1a1aa', stroke: '#3f3f46', dot: 'bg-zinc-700' };
-  }
-  return rotacionada
-    ? { top: '#eee0c5', frontX: '#ddc398', frontY: '#c49c66', stroke: '#8c6d46', dot: 'bg-[#cfa974]' }
-    : { top: '#f5ead6', frontX: '#e6cfa9', frontY: '#cfa974', stroke: '#8c6d46', dot: 'bg-[#e6cfa9]' };
 }
 
 interface BoxRender extends Caixa3dInstancia {
   cor: CorFace;
+  itemId?: string;
   isPalete?: boolean;
   drawFlap?: boolean;
 }
@@ -73,8 +48,15 @@ export function DesenhoPalete3dGiravel({
   const [usarAmarracao, setUsarAmarracao] = useState(true);
   const [modoQtd, setModoQtd] = useState<'estoque' | 'capacidade'>('estoque');
   const [camadaMaxVisivel, setCamadaMaxVisivel] = useState<number | 'ALL'>('ALL');
+  const [itemFocadoId, setItemFocadoId] = useState<string | null>(null);
+  const [hoverItemId, setHoverItemId] = useState<string | null>(null);
   const [arrastando, setArrastando] = useState(false);
   const dragRef = useRef<{ startX: number; startYaw: number } | null>(null);
+
+  useEffect(() => {
+    setItemFocadoId(null);
+    setHoverItemId(null);
+  }, [posicao.id]);
 
   const wVao = posicao.larguraCm > 0 ? posicao.larguraCm : 100;
   const dVao = posicao.comprimentoCm > 0 ? posicao.comprimentoCm : 120;
@@ -109,101 +91,87 @@ export function DesenhoPalete3dGiravel({
       : 'ALL';
 
   const { itensInfo, caixasVisiveis, larguraLivreCm } = useMemo(() => {
-    let cursorX = 0;
+    const layout = gerarLayoutVao3d({
+      posicao,
+      saldos,
+      caixaPorId,
+      modoQtd,
+      usarAmarracao,
+      zBase: paleteH,
+      alturaMaxCaixasCm: hVao,
+      aplicarCulling: false,
+      dirSign: 1,
+    });
+
+    const totalItens = layout.itens.length;
     const boxes: BoxRender[] = [];
     const infos: Array<{
       item: AlocacaoItemView;
+      itemIndex: number;
       estCx: number;
       capCx: number;
       amarrado: boolean;
-      corDot: string;
+      swatch: string;
+      stroke: string;
     }> = [];
 
-    for (const item of posicao.itens) {
-      const disp = Math.max(0, wVao - cursorX);
-      if (disp < 4) break;
-      const wEstimado =
-        item.larguraOcupadaCm > 0
-          ? item.larguraOcupadaCm
-          : Math.max(1, item.fileirasLargura) * (item.caixaLarguraCm ?? 20);
-      const wItem = Math.min(disp, Math.max(8, wEstimado));
-      const saldo = saldos.get(item.id);
-      const estCx = saldo?.caixasEstoque ?? item.totalCaixas;
-      const capCx = saldo?.caixasCapacidade ?? item.totalCaixas;
-      const qtdAlvo = modoQtd === 'estoque' ? estCx : capCx;
-
-      const prod = prodPorCodigo.get(item.produtoCodigo);
-      const cxDef = item.caixaId ? caixaPorId.get(item.caixaId) : undefined;
-      const podeGirar = cxDef?.podeGirar !== false;
-      const hDisp = hVao + (item.estouroAltura || posicao.temEstouro ? 14 : 0);
-
-      const res = gerarCaixasItem3d({
-        xStart: cursorX,
-        yStart: 0,
-        zBase: paleteH,
-        maxWidthCm: disp,
-        slotDepthCm: dVao,
-        maxHeightCm: hDisp,
-        fileirasLargura: item.fileirasLargura,
-        caixasComprimento: item.caixasComprimento,
-        camadasAltura: item.camadasAltura,
-        larguraOcupadaCm: wItem,
-        alturaOcupadaCm: item.alturaOcupadaCm || hVao * 0.75,
-        caixaLarguraCm: item.caixaLarguraCm,
-        caixaComprimentoCm: item.caixaComprimentoCm,
-        caixaAlturaCm: item.caixaAlturaCm,
-        qtdCaixasAlvo: qtdAlvo,
-        dirSign: 1,
-        modoDetalhe: 'foco',
-        usarAmarracao,
-        podeGirar,
-        aplicarCulling: false,
-      });
-
-      const dotCor = coresBox(
-        item.estouroAltura || posicao.temEstouro,
-        Boolean(prod?.ehColoracao),
-        Boolean(prod?.ehKit),
+    for (const entry of layout.itens) {
+      const prod = prodPorCodigo.get(entry.item.produtoCodigo);
+      const estouro = entry.item.estouroAltura || posicao.temEstouro;
+      const ehColoracao = Boolean(prod?.ehColoracao);
+      const ehKit = Boolean(prod?.ehKit);
+      const baseCor = coresItemVao3d(
+        entry.itemIndex,
+        totalItens,
+        estouro,
+        ehColoracao,
+        ehKit,
         false,
-      ).dot;
+      );
 
       infos.push({
-        item,
-        estCx,
-        capCx,
-        amarrado: res.amarrado,
-        corDot: dotCor,
+        item: entry.item,
+        itemIndex: entry.itemIndex,
+        estCx: entry.estCx,
+        capCx: entry.capCx,
+        amarrado: entry.amarrado,
+        swatch: baseCor.swatch,
+        stroke: baseCor.stroke,
       });
 
-      for (const b of res.caixas) {
+      for (const b of entry.caixas) {
         if (camadaEfetiva !== 'ALL' && (b.camada ?? b.iz + 1) > camadaEfetiva) {
           continue;
         }
+        const c = coresItemVao3d(
+          entry.itemIndex,
+          totalItens,
+          estouro,
+          ehColoracao,
+          ehKit,
+          b.rotacionada,
+        );
         boxes.push({
           ...b,
-          cor: coresBox(
-            item.estouroAltura || posicao.temEstouro,
-            Boolean(prod?.ehColoracao),
-            Boolean(prod?.ehKit),
-            b.rotacionada,
-          ),
+          itemId: entry.item.id,
+          cor: {
+            top: c.top,
+            frontX: c.side,
+            frontY: c.front,
+            stroke: c.stroke,
+          },
           drawFlap: b.dx >= 8 && b.dy >= 8,
         });
       }
-
-      cursorX += wItem + (posicao.itens.length > 1 ? 1.5 : 0);
     }
 
-    const livre = Math.max(0, wVao - cursorX);
     return {
       itensInfo: infos,
       caixasVisiveis: ordenarCaixas3dPorCamera(boxes, yawDeg),
-      larguraLivreCm: livre,
+      larguraLivreCm: layout.larguraLivreCm,
     };
   }, [
     posicao,
-    wVao,
-    dVao,
     hVao,
     saldos,
     modoQtd,
@@ -214,12 +182,17 @@ export function DesenhoPalete3dGiravel({
     yawDeg,
   ]);
 
+  const activeFocusId = itemFocadoId ?? hoverItemId;
+  const itemFocadoObj = useMemo(
+    () => (itemFocadoId ? itensInfo.find((i) => i.item.id === itemFocadoId) ?? null : null),
+    [itensInfo, itemFocadoId],
+  );
+
   const cam = useMemo(
     () => criarCamera3d(yawDeg, vistaTopo ? 76 : 28),
     [yawDeg, vistaTopo],
   );
 
-  // Bounding box completo 360° centrado no volume do vão + palete
   const projHelper = useMemo(() => {
     const cx = wVao / 2;
     const cy = dVao / 2;
@@ -258,7 +231,6 @@ export function DesenhoPalete3dGiravel({
   const poly = (pts: Array<{ x: number; y: number }>) =>
     pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
 
-  // 9 tacos de madeira do palete PBR para mostrar vãos de garfo nos 4 lados
   const tacosPaleteOrdenados = useMemo(() => {
     const wTaco = Math.max(8, Math.round(wVao * 0.13));
     const dTaco = Math.max(9, Math.round(dVao * 0.12));
@@ -269,7 +241,6 @@ export function DesenhoPalete3dGiravel({
       frontX: '#9a733e',
       frontY: '#b88f54',
       stroke: '#6e502f',
-      dot: '',
     };
     const out: BoxRender[] = [];
     ys.forEach((ty, iy) => {
@@ -412,8 +383,68 @@ export function DesenhoPalete3dGiravel({
       }
     }
 
-    return <g key={key}>{faces}</g>;
+    const op =
+      !b.isPalete && activeFocusId && b.itemId && activeFocusId !== b.itemId
+        ? 0.2
+        : 1;
+
+    return (
+      <g
+        key={key}
+        opacity={op}
+        onClick={
+          b.itemId
+            ? (e) => {
+                e.stopPropagation();
+                setItemFocadoId((cur) => (cur === b.itemId ? null : b.itemId!));
+              }
+            : undefined
+        }
+        className={b.itemId ? 'cursor-pointer' : undefined}
+      >
+        {faces}
+      </g>
+    );
   };
+
+  // Posição das etiquetas sobre o topo de cada pilha de produto
+  const pilhaLabels = useMemo(() => {
+    const { toPt } = projHelper;
+    const labels: Array<{
+      itemId: string;
+      text: string;
+      x: number;
+      y: number;
+      stroke: string;
+      focado: boolean;
+      apagado: boolean;
+    }> = [];
+
+    for (const info of itensInfo) {
+      const boxesItem = caixasVisiveis.filter((b) => b.itemId === info.item.id);
+      if (boxesItem.length === 0) continue;
+      const maxZ = boxesItem.reduce((m, b) => Math.max(m, b.z), 0);
+      const topBoxes = boxesItem.filter((b) => b.z >= maxZ - 1);
+      const avgX =
+        topBoxes.reduce((s, b) => s + b.x + b.dx * 0.5, 0) / topBoxes.length;
+      const avgY =
+        topBoxes.reduce((s, b) => s + b.y + b.dy * 0.5, 0) / topBoxes.length;
+      const topZ = maxZ + (topBoxes[0]?.dz ?? 14) + 2.5;
+      const pt = toPt(avgX, avgY, topZ);
+      const focado = activeFocusId === info.item.id;
+      const showCodigo = itensInfo.length === 1 || focado;
+      labels.push({
+        itemId: info.item.id,
+        text: showCodigo ? info.item.produtoCodigo : `#${info.itemIndex + 1}`,
+        x: pt.x,
+        y: pt.y,
+        stroke: info.stroke,
+        focado,
+        apagado: Boolean(activeFocusId && !focado),
+      });
+    }
+    return labels;
+  }, [itensInfo, caixasVisiveis, projHelper, activeFocusId]);
 
   const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -439,14 +470,12 @@ export function DesenhoPalete3dGiravel({
     frontX: '#be9558',
     frontY: '#d9b782',
     stroke: '#785d3b',
-    dot: '',
   };
   const baseCor: CorFace = {
     top: '#c9a36a',
     frontX: '#8c6735',
     frontY: '#a98047',
     stroke: '#6e502f',
-    dot: '',
   };
 
   const pFrenteL = toPt(4, -13, 0);
@@ -600,7 +629,7 @@ export function DesenhoPalete3dGiravel({
           role="img"
           aria-label={`Palete 3D girável do vão ${posicao.codigo}`}
         >
-          {/* Base do vão no chão/longarina */}
+          {/* Base do vão */}
           <polygon
             points={poly([
               toPt(-2, -2, 0),
@@ -711,14 +740,16 @@ export function DesenhoPalete3dGiravel({
             />
           )}
 
-          {/* Caixas individuais com amarração e ordenação topológica 360° */}
+          {/* Caixas individuais com cores distintas por produto e clique para focar */}
           {caixasVisiveis.map((b, idx) => renderBox(b, `cx-g-${idx}`, 0.65))}
 
           {/* Envelope tracejado da altura livre do vão */}
           {(() => {
             const zTop = paleteH + hVao;
             const corEnv = posicao.temEstouro ? '#ef4444' : '#a1a1aa';
-            const segs: Array<[{ x: number; y: number; z: number }, { x: number; y: number; z: number }]> = [
+            const segs: Array<
+              [{ x: number; y: number; z: number }, { x: number; y: number; z: number }]
+            > = [
               [{ x: 0, y: 0, z: paleteH }, { x: 0, y: 0, z: zTop }],
               [{ x: wVao, y: 0, z: paleteH }, { x: wVao, y: 0, z: zTop }],
               [{ x: 0, y: dVao, z: paleteH }, { x: 0, y: dVao, z: zTop }],
@@ -746,32 +777,152 @@ export function DesenhoPalete3dGiravel({
               );
             });
           })()}
+
+          {/* Etiquetas de identificação (#1, #2... ou código) sobre cada pilha */}
+          {pilhaLabels.map((lbl) => {
+            const wPill = Math.max(20, lbl.text.length * 5.2 + 8);
+            const hPill = 13;
+            return (
+              <g
+                key={`pilha-lbl-${lbl.itemId}`}
+                transform={`translate(${lbl.x.toFixed(1)}, ${(lbl.y - 4).toFixed(1)})`}
+                opacity={lbl.apagado ? 0.25 : 1}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setItemFocadoId((cur) => (cur === lbl.itemId ? null : lbl.itemId));
+                }}
+                className="cursor-pointer"
+              >
+                <rect
+                  x={-wPill / 2}
+                  y={-hPill / 2}
+                  width={wPill}
+                  height={hPill}
+                  rx={4}
+                  fill={lbl.focado ? '#18181b' : '#ffffff'}
+                  fillOpacity={0.94}
+                  stroke={lbl.focado ? '#18181b' : lbl.stroke}
+                  strokeWidth={lbl.focado ? 1.1 : 0.85}
+                />
+                <text
+                  x={0}
+                  y={3.2}
+                  textAnchor="middle"
+                  fontSize={7.8}
+                  fontFamily="ui-monospace, monospace"
+                  fontWeight={700}
+                  fill={lbl.focado ? '#ffffff' : '#18181b'}
+                >
+                  {lbl.text}
+                </text>
+              </g>
+            );
+          })}
         </svg>
       </div>
 
-      {/* Legenda dos itens + dica de giro */}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-600">
-        <div className="flex flex-wrap items-center gap-2.5">
-          {itensInfo.length === 0 ? (
-            <span className="text-zinc-400">Palete livre ({posicao.larguraCm}×{posicao.comprimentoCm} cm)</span>
-          ) : (
-            itensInfo.map((info) => (
-              <span key={`leg-${info.item.id}`} className="inline-flex items-center gap-1.5">
-                <span className={`inline-block w-2.5 h-2.5 rounded-xs border border-zinc-500/40 ${info.corDot}`} />
-                <span className="font-mono font-bold text-zinc-900">{info.item.produtoCodigo}</span>
-                <span className="font-mono text-zinc-500">
-                  {info.estCx}/{info.capCx}cx
-                </span>
-                {usarAmarracao && info.amarrado && (
-                  <span className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 font-semibold text-[10px]">
-                    Amarração
-                  </span>
-                )}
+      {/* Legenda clicável por produto + foco individual */}
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-600">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {itensInfo.length === 0 ? (
+              <span className="text-zinc-400">
+                Palete livre ({posicao.larguraCm}×{posicao.comprimentoCm} cm)
               </span>
-            ))
-          )}
+            ) : (
+              itensInfo.map((info) => {
+                const selecionado = itemFocadoId === info.item.id;
+                const multi = itensInfo.length >= 2;
+                return (
+                  <button
+                    key={`leg-${info.item.id}`}
+                    type="button"
+                    onClick={() =>
+                      setItemFocadoId((cur) => (cur === info.item.id ? null : info.item.id))
+                    }
+                    onMouseEnter={() => setHoverItemId(info.item.id)}
+                    onMouseLeave={() => setHoverItemId(null)}
+                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-left cursor-pointer transition-colors ${
+                      selecionado
+                        ? 'bg-zinc-900 text-white border-zinc-900'
+                        : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
+                    }`}
+                    title={`${info.item.produtoCodigo} — ${info.item.produtoDescricao}`}
+                  >
+                    <span
+                      className="inline-block w-2.5 h-2.5 rounded-xs shrink-0 border border-black/20"
+                      style={{ backgroundColor: info.swatch }}
+                    />
+                    {multi && (
+                      <span
+                        className={`font-mono text-[10px] font-bold ${
+                          selecionado ? 'text-zinc-300' : 'text-zinc-500'
+                        }`}
+                      >
+                        #{info.itemIndex + 1}
+                      </span>
+                    )}
+                    <span className="font-mono font-bold">
+                      {info.item.produtoCodigo}
+                    </span>
+                    <span
+                      className={`font-mono text-[10px] ${
+                        selecionado ? 'text-zinc-300' : 'text-zinc-500'
+                      }`}
+                    >
+                      {info.estCx}/{info.capCx}cx
+                    </span>
+                    {usarAmarracao && info.amarrado && (
+                      <span
+                        className={`px-1 py-0.2 rounded text-[9px] font-semibold ${
+                          selecionado
+                            ? 'bg-zinc-700 text-zinc-100'
+                            : 'bg-zinc-100 text-zinc-700'
+                        }`}
+                      >
+                        Amarração
+                      </span>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+          <span className="text-[10px] text-zinc-400">
+            {itensInfo.length >= 2 ? 'Clique no item para isolar · ' : ''}
+            Arraste para girar 360°
+          </span>
         </div>
-        <span className="text-[10px] text-zinc-400">Arraste para girar 360°</span>
+
+        {itemFocadoObj && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-zinc-100/80 px-2.5 py-1.5 text-[11px]">
+            <div className="min-w-0 flex items-center gap-1.5">
+              <span
+                className="inline-block w-2.5 h-2.5 rounded-xs shrink-0 border border-black/20"
+                style={{ backgroundColor: itemFocadoObj.swatch }}
+              />
+              <span className="font-mono font-bold text-zinc-900">
+                {itensInfo.length >= 2 ? `#${itemFocadoObj.itemIndex + 1} · ` : ''}
+                {itemFocadoObj.item.produtoCodigo}
+              </span>
+              <span className="truncate text-zinc-700">
+                — {itemFocadoObj.item.produtoDescricao}
+              </span>
+              {itemFocadoObj.item.caixaCodigo && (
+                <span className="font-mono text-zinc-500 shrink-0">
+                  · CX {itemFocadoObj.item.caixaCodigo}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setItemFocadoId(null)}
+              className="font-semibold text-zinc-700 hover:text-zinc-900 underline cursor-pointer shrink-0"
+            >
+              Ver todos
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

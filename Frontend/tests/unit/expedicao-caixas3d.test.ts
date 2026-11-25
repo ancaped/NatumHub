@@ -1,13 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  coresItemVao3d,
   distribuirEstoquePorAlocacao,
   gerarCaixasItem3d,
+  gerarLayoutVao3d,
   ordenarCaixas3dPorCamera,
 } from '../../src/modules/expedicao/alocacao/caixas3d';
 import { verificarApoioCamada } from '../../src/modules/expedicao/alocacao/paletizacao';
 import type {
   AlocacaoItemView,
+  Caixa,
   PosicaoComItens,
   ProdutoDimensao,
 } from '../../src/modules/expedicao/alocacao/types';
@@ -416,6 +419,117 @@ test('gerarCaixasItem3d não deixa pontas flutuando em caso de caixa quase quadr
       `Camada ${i + 2} não pode ter ponta flutuando sobre camada ${i + 1}`,
     );
   }
+});
+
+test('gerarLayoutVao3d mantém paridade física entre Prateleira 3D (com culling) e Palete 3D (sem culling)', () => {
+  const itemA = makeItem({
+    id: 'al-a',
+    produtoCodigo: '2.11.054',
+    fileirasLargura: 3,
+    caixasComprimento: 4,
+    camadasAltura: 4,
+    caixaId: 'cx-9',
+    caixaLarguraCm: 19,
+    caixaComprimentoCm: 29,
+    caixaAlturaCm: 18,
+    larguraOcupadaCm: 57,
+    alturaOcupadaCm: 72,
+    totalCaixas: 48,
+  });
+  const itemB = makeItem({
+    id: 'al-b',
+    produtoCodigo: '2.13.039',
+    fileirasLargura: 2,
+    caixasComprimento: 3,
+    camadasAltura: 3,
+    caixaId: 'cx-fix',
+    caixaLarguraCm: 20,
+    caixaComprimentoCm: 35,
+    caixaAlturaCm: 20,
+    larguraOcupadaCm: 40,
+    alturaOcupadaCm: 60,
+    totalCaixas: 18,
+  });
+  const pos = makePos('p-b2', 'B2', 'picking', 1, [itemA, itemB]);
+  const prods = new Map<string, ProdutoDimensao>([
+    ['2.11.054', makeProd({ codigo: '2.11.054', estoqueCaixas: 60 })],
+    ['2.13.039', makeProd({ codigo: '2.13.039', estoqueCaixas: 20 })],
+  ]);
+  const saldos = distribuirEstoquePorAlocacao([pos], prods);
+  const caixasMap = new Map<string, Caixa>([
+    [
+      'cx-fix',
+      {
+        id: 'cx-fix',
+        codigo: 'FIX',
+        nome: 'Sem giro',
+        alturaCm: 20,
+        comprimentoCm: 35,
+        larguraCm: 20,
+        empilhamentoMax: 4,
+        insumoErpCodigo: null,
+        podeGirar: false,
+        ativo: true,
+        observacoes: null,
+      },
+    ],
+  ]);
+
+  const palete = gerarLayoutVao3d({
+    posicao: pos,
+    saldos,
+    caixaPorId: caixasMap,
+    modoQtd: 'capacidade',
+    usarAmarracao: true,
+    aplicarCulling: false,
+    dirSign: 1,
+  });
+  const prateleira = gerarLayoutVao3d({
+    posicao: pos,
+    saldos,
+    caixaPorId: caixasMap,
+    modoQtd: 'capacidade',
+    usarAmarracao: true,
+    aplicarCulling: true,
+    dirSign: 1,
+  });
+
+  assert.equal(prateleira.itens.length, palete.itens.length);
+  for (let i = 0; i < palete.itens.length; i++) {
+    assert.equal(prateleira.itens[i].amarrado, palete.itens[i].amarrado);
+    // podeGirar = false no itemB impede rotação nos dois modos
+    if (palete.itens[i].item.id === 'al-b') {
+      assert.equal(palete.itens[i].amarrado, false);
+      assert.ok(palete.itens[i].caixas.every((c) => !c.rotacionada));
+      assert.ok(prateleira.itens[i].caixas.every((c) => !c.rotacionada));
+    }
+
+    // Fila frontal (menor Y) idêntica nos dois modos
+    const minYP = Math.min(...palete.itens[i].caixas.map((c) => c.y));
+    const frontPal = palete.itens[i].caixas.filter((c) => Math.abs(c.y - minYP) < 1);
+    const frontPrat = prateleira.itens[i].caixas.filter((c) => Math.abs(c.y - minYP) < 1);
+    assert.equal(frontPrat.length, frontPal.length);
+
+    // Camada superior (maior Z) idêntica nos dois modos
+    const maxZP = Math.max(...palete.itens[i].caixas.map((c) => c.z));
+    const topPal = palete.itens[i].caixas.filter((c) => Math.abs(c.z - maxZP) < 1);
+    const topPrat = prateleira.itens[i].caixas.filter((c) => Math.abs(c.z - maxZP) < 1);
+    assert.equal(topPrat.length, topPal.length);
+
+    // Culling reduz caixas internas sem alterar faces visíveis em pilhas densas
+    assert.ok(prateleira.itens[i].caixas.length < palete.itens[i].caixas.length);
+  }
+});
+
+test('coresItemVao3d atribui cores distintas para múltiplos produtos no mesmo vão', () => {
+  const swatches = [0, 1, 2, 3, 4].map(
+    (idx) => coresItemVao3d(idx, 5, false, false, false, false).swatch,
+  );
+  assert.equal(new Set(swatches).size, 5);
+  assert.equal(
+    coresItemVao3d(0, 1, false, false, false, false).swatch,
+    coresItemVao3d(1, 1, false, false, false, false).swatch,
+  );
 });
 
 test('gerarCaixasItem3d com podeGirar=false não rotaciona nenhuma caixa', () => {
