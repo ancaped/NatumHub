@@ -448,6 +448,113 @@ pub struct AlocacaoExistente {
     pub largura_ocupada_cm: f64,
 }
 
+/// Prioridade da etapa da OP para ordenação na Expedição (1 = mais próxima de chegar).
+pub fn prioridade_etapa_op(etapa: &str) -> i32 {
+    match etapa.trim() {
+        "Envase" | "Ordem Parcial" | "Rotulagem" => 1,
+        "Liberado para Envase" => 2,
+        "Produzido" => 3,
+        _ => 9,
+    }
+}
+
+/// Converte o lote em unidades pendentes: prioriza quantidade programada em envase (> 1 un) ou kg / peso unitário.
+pub fn calcular_unidades_op(
+    kg: f64,
+    prog_envase_un: Option<f64>,
+    peso_unit_kg: Option<f64>,
+    envasado_parcial: f64,
+) -> i32 {
+    let bruto = if let Some(u) = prog_envase_un.filter(|&v| v.is_finite() && v > 1.0) {
+        u.round()
+    } else if let Some(pu) = peso_unit_kg.filter(|&v| v.is_finite() && v > 0.0) {
+        (kg.max(0.0) / pu).round()
+    } else {
+        0.0
+    };
+    (bruto - envasado_parcial.max(0.0)).max(0.0).round() as i32
+}
+
+/// Avalia se o endereço atual comporta o estoque + caixas chegando de OP.
+pub fn classificar_espaco_op(
+    qtde_cx: Option<i32>,
+    estoque_cx: Option<i32>,
+    op_cx: i32,
+    cap_alocada_cx: i32,
+    tem_endereco: bool,
+) -> (String, i32) {
+    if qtde_cx.unwrap_or(0) <= 0 {
+        return ("sem_qtde_cx".into(), 0);
+    }
+    if !tem_endereco {
+        return ("sem_endereco".into(), op_cx.max(1));
+    }
+    let necessidade = estoque_cx.unwrap_or(0).max(0) + op_cx.max(0);
+    let deficit = (necessidade - cap_alocada_cx.max(0)).max(0);
+    if deficit > 0 {
+        ("falta_espaco".into(), deficit)
+    } else {
+        ("ok".into(), 0)
+    }
+}
+
+fn score_ergonomia_paleteira(prod: &ProdutoDimensao, cota_base_cm: f64, papel_alvo: &str) -> i32 {
+    let eh_chao = cota_base_cm <= 1.0;
+    let eh_manual = acesso_equipamento_por_cota(cota_base_cm) == "manual";
+    if papel_alvo == "picking" {
+        if prod.classe_empilhamento == "base" {
+            if eh_chao {
+                0
+            } else if eh_manual {
+                2
+            } else {
+                8
+            }
+        } else if prod.curva_abc == "A" {
+            if eh_manual { 0 } else { 6 }
+        } else if prod.curva_abc == "B" {
+            if eh_manual { 0 } else { 3 }
+        } else if eh_manual {
+            0
+        } else {
+            1
+        }
+    } else if prod.classe_empilhamento == "base" && !eh_manual {
+        2
+    } else {
+        0
+    }
+}
+
+fn descrever_motivo_escolha(
+    prod: &ProdutoDimensao,
+    pos: &Posicao,
+    acesso: &str,
+    papel_alvo: &str,
+    considerar_ops: bool,
+) -> String {
+    if papel_alvo == "pulmao" {
+        if considerar_ops && prod.op_pendente_caixas > 0 {
+            return format!("Pulmão + OP (+{} cx)", prod.op_pendente_caixas);
+        }
+        return if pos.compartilhado_fracionado {
+            "Pulmão compartilhado".into()
+        } else {
+            "Pulmão · excedente".into()
+        };
+    }
+    if prod.classe_empilhamento == "base" && acesso == "manual" {
+        return "Caixa pesada · acesso chão/manual".into();
+    }
+    if pos.compartilhado_fracionado && (prod.curva_abc == "C" || prod.eh_coloracao) {
+        return format!("Curva {} · vão compartilhado", prod.curva_abc);
+    }
+    if acesso == "manual" {
+        return format!("Curva {} · acesso manual", prod.curva_abc);
+    }
+    format!("Curva {} · picking", prod.curva_abc)
+}
+
 fn vao_elegivel_sugestao(pos: &Posicao, papel: &str) -> bool {
     let tipo = pos.tipo_ocupacao.trim();
     pos.ativo && pos.papel == papel && (tipo.is_empty() || tipo == "padrao")
@@ -470,7 +577,7 @@ fn score_compartilhado(prod: &ProdutoDimensao, pos: &Posicao) -> i32 {
     }
 }
 
-/// Motor de sugestão híbrida: zona por linha (principal) + Curva ABC + Picking (níveis baixos) / Pulmão (níveis altos).
+/// Motor de sugestão híbrida: zona por linha (principal) + Curva ABC + Picking (níveis baixos/manual) / Pulmão (níveis altos) + OPs chegando.
 pub fn sugerir_alocacao(
     estrutura_id: &str,
     posicoes: &[Posicao],
@@ -480,8 +587,10 @@ pub fn sugerir_alocacao(
     linhas_permitidas: &[String],
     manter_fixados: bool,
     limpar_nao_fixados: bool,
+    considerar_ops_chegando: bool,
 ) -> SugestaoResultado {
     let caixa_map: HashMap<&str, &Caixa> = caixas.iter().map(|c| (c.id.as_str(), c)).collect();
+    let cotas_base = calcular_cotas_base_andares(posicoes);
 
     let mut removidas_count = 0usize;
     let mut largura_usada: HashMap<String, f64> = HashMap::new();
@@ -668,9 +777,15 @@ pub fn sugerir_alocacao(
             rest_pick = (prod.caixas_necessarias_picking - fix_pick).max(0);
         }
         let mut rest_pulm = (prod.caixas_necessarias_pulmao - fix_pulm).max(0);
+        if considerar_ops_chegando && prod.op_pendente_caixas > 0 {
+            let pico_total = prod.estoque_caixas.unwrap_or(0).max(0) + prod.op_pendente_caixas;
+            let meta_planejada = min_pick + prod.caixas_necessarias_pulmao;
+            let excedente_op = (pico_total - meta_planejada).max(0);
+            rest_pulm += excedente_op;
+        }
         let mut precisa_picking = fix_pick == 0 || rest_pick > 0;
 
-        // 1) Picking: tenta alocar 1 endereço (nível baixo) para o varejo / acesso rápido
+        // 1) Picking: tenta alocar 1 endereço (nível baixo / manual) para o varejo / acesso rápido
         if precisa_picking && !picking_pos.is_empty() {
             let mut melhor_idx: Option<(i32, usize, i32, i32, i32)> = None;
             // Tuple score (menor vence): (prioridade_compatibilidade, ordem_posicao, fileiras_a_alocar, camadas, comp)
@@ -702,13 +817,9 @@ pub fn sugerir_alocacao(
                     .get(&pos.id)
                     .is_some_and(|s| s.contains(cid));
                 let vazio = usada <= EPS;
+                let cota = cotas_base.get(&pos.andar).copied().unwrap_or(0.0);
 
-                // Prioridade:
-                // 0: cabe tudo + mesma linha + mesma caixa
-                // 1: cabe tudo + mesma linha
-                // 2: cabe tudo + vazio (novo vão) ou mesma caixa
-                // 3: cabe tudo + outro
-                // 4..7: parcial (pelo menos 1 fileira)
+                // Prioridade: combina agrupamento + compartilhado + ergonomia (menos paleteira)
                 let base_prio = if mesma_linha && mesma_caixa {
                     0
                 } else if mesma_linha {
@@ -717,7 +828,8 @@ pub fn sugerir_alocacao(
                     2
                 } else {
                     3
-                } + score_compartilhado(prod, pos);
+                } + score_compartilhado(prod, pos)
+                    + score_ergonomia_paleteira(prod, cota, "picking");
                 let prio = if cabe_tudo { base_prio } else { base_prio + 10 };
                 let fil_escolhidas = desejadas.min(max_fil).max(1);
                 let cand = (prio, idx, fil_escolhidas, cam, comp);
@@ -740,6 +852,9 @@ pub fn sugerir_alocacao(
                     .insert(cid.clone());
                 pares_ocupados.insert((pos.id.clone(), prod.codigo.clone()));
 
+                let cota = cotas_base.get(&pos.andar).copied().unwrap_or(0.0);
+                let acesso = acesso_equipamento_por_cota(cota).to_string();
+                let motivo = descrever_motivo_escolha(prod, pos, &acesso, "picking", considerar_ops_chegando);
                 let tot_cx = fil * comp * cam;
                 let tot_un = tot_cx * qtde_cx;
                 propostas.push(SugestaoProposta {
@@ -750,6 +865,8 @@ pub fn sugerir_alocacao(
                     posicao_id: pos.id.clone(),
                     posicao_codigo: pos.codigo.clone(),
                     papel: pos.papel.clone(),
+                    acesso_equipamento: acesso,
+                    motivo_escolha: motivo,
                     fileiras_largura: fil,
                     camadas_altura: cam,
                     total_caixas: tot_cx,
@@ -763,11 +880,10 @@ pub fn sugerir_alocacao(
             }
         }
 
-        // 2) Pulmão: aloca excedente ou demanda atacadista nos níveis altos
+        // 2) Pulmão: aloca excedente, atacado ou chegada de OP nos níveis altos
         let mut faltou_pulmao = false;
         if rest_pulm > 0 {
             let mut rem = rest_pulm;
-            // Ordena posições compatíveis tentando agrupar mesma linha/caixa antes de abrir novas
             while rem > 0 {
                 let mut escolhido: Option<(i32, usize, i32, i32, i32)> = None;
                 for (idx, pos) in pulmao_pos.iter().enumerate() {
@@ -796,6 +912,7 @@ pub fn sugerir_alocacao(
                         .get(&pos.id)
                         .is_some_and(|s| s.contains(cid));
                     let vazio = usada <= EPS;
+                    let cota = cotas_base.get(&pos.andar).copied().unwrap_or(0.0);
 
                     let base_prio = if mesma_linha && mesma_caixa {
                         0
@@ -805,7 +922,8 @@ pub fn sugerir_alocacao(
                         2
                     } else {
                         3
-                    } + score_compartilhado(prod, pos);
+                    } + score_compartilhado(prod, pos)
+                        + score_ergonomia_paleteira(prod, cota, "pulmao");
                     let prio = if cabe_tudo { base_prio } else { base_prio + 10 };
                     let fil = desejadas.min(max_fil).max(1);
                     let cand = (prio, idx, fil, cam, comp);
@@ -831,6 +949,9 @@ pub fn sugerir_alocacao(
                     .insert(cid.clone());
                 pares_ocupados.insert((pos.id.clone(), prod.codigo.clone()));
 
+                let cota = cotas_base.get(&pos.andar).copied().unwrap_or(0.0);
+                let acesso = acesso_equipamento_por_cota(cota).to_string();
+                let motivo = descrever_motivo_escolha(prod, pos, &acesso, "pulmao", considerar_ops_chegando);
                 let tot_cx = fil * comp * cam;
                 let tot_un = tot_cx * qtde_cx;
                 propostas.push(SugestaoProposta {
@@ -841,6 +962,8 @@ pub fn sugerir_alocacao(
                     posicao_id: pos.id.clone(),
                     posicao_codigo: pos.codigo.clone(),
                     papel: pos.papel.clone(),
+                    acesso_equipamento: acesso,
+                    motivo_escolha: motivo,
                     fileiras_largura: fil,
                     camadas_altura: cam,
                     total_caixas: tot_cx,
@@ -887,6 +1010,19 @@ pub fn sugerir_alocacao(
         soma_pct / (ativas.len() as f64)
     };
 
+    let propostas_manual_count = propostas
+        .iter()
+        .filter(|p| p.acesso_equipamento == "manual")
+        .count();
+    let propostas_empilhadeira_count = propostas
+        .iter()
+        .filter(|p| p.acesso_equipamento == "empilhadeira")
+        .count();
+    let produtos_com_op_cobertos = produtos_com_proposta
+        .iter()
+        .filter(|cod| prod_map.get(cod.as_str()).is_some_and(|p| p.op_pendente_caixas > 0))
+        .count();
+
     let resumo = SugestaoResumo {
         estrutura_id: estrutura_id.to_string(),
         removidas_count,
@@ -895,6 +1031,9 @@ pub fn sugerir_alocacao(
         posicoes_usadas,
         nao_alocados_count: nao_alocados.len(),
         ocupacao_media_pct,
+        propostas_manual_count,
+        propostas_empilhadeira_count,
+        produtos_com_op_cobertos,
     };
 
     SugestaoResultado {
@@ -1089,6 +1228,10 @@ mod tests {
             total_unidades_alocadas: 0,
             cobertura_meses_alocada: None,
             situacao_alocacao: "sem_endereco".into(),
+            op_pendente_unidades: 0,
+            op_pendente_caixas: 0,
+            op_pendente_lotes: 0,
+            op_proxima_etapa: None,
         };
         let mut prods = vec![mk("p1", 700.0), mk("p2", 200.0), mk("p3", 100.0)];
         aplicar_curva_abc(&mut prods);
@@ -1170,6 +1313,10 @@ mod tests {
             total_unidades_alocadas: 432,
             cobertura_meses_alocada: Some(4.32),
             situacao_alocacao: "ok".into(),
+            op_pendente_unidades: 0,
+            op_pendente_caixas: 0,
+            op_pendente_lotes: 0,
+            op_proxima_etapa: None,
         };
         let p_kit = ProdutoDimensao {
             codigo: "2.12.052".into(),
@@ -1226,6 +1373,10 @@ mod tests {
             total_unidades_alocadas: 0,
             cobertura_meses_alocada: None,
             situacao_alocacao: "sem_endereco".into(),
+            op_pendente_unidades: 0,
+            op_pendente_caixas: 0,
+            op_pendente_lotes: 0,
+            op_proxima_etapa: None,
         };
         let res = sugerir_alocacao(
             "est",
@@ -1234,6 +1385,7 @@ mod tests {
             &existentes,
             &[p_varejo, p_kit],
             &[],
+            true,
             true,
             true,
         );
@@ -1340,6 +1492,10 @@ mod tests {
             total_unidades_alocadas: 0,
             cobertura_meses_alocada: None,
             situacao_alocacao: "sem_endereco".into(),
+            op_pendente_unidades: 0,
+            op_pendente_caixas: 0,
+            op_pendente_lotes: 0,
+            op_proxima_etapa: None,
         }
     }
 
@@ -1395,6 +1551,7 @@ mod tests {
             &[],
             &prods,
             &["2".to_string()],
+            true,
             true,
             true,
         );
@@ -1470,6 +1627,7 @@ mod tests {
             &["2".into(), "kits:2".into()],
             true,
             true,
+            true,
         );
         assert_eq!(res.propostas.len(), 2);
         assert_eq!(res.propostas[0].produto_codigo, "2.11.001");
@@ -1531,6 +1689,7 @@ mod tests {
             &[],
             true,
             true,
+            true,
         );
         assert_eq!(res.propostas.len(), 1);
         assert_eq!(res.propostas[0].posicao_codigo, "C1");
@@ -1562,6 +1721,7 @@ mod tests {
             &[],
             true,
             true,
+            true,
         );
         assert_eq!(res_a.propostas[0].posicao_codigo, "B1");
 
@@ -1574,7 +1734,109 @@ mod tests {
             &[],
             true,
             true,
+            true,
         );
         assert_eq!(res_c.propostas[0].posicao_codigo, "A1");
+    }
+
+    #[test]
+    fn conversao_op_kg_para_unidades_e_classificacao_espaco() {
+        assert_eq!(prioridade_etapa_op("Envase"), 1);
+        assert_eq!(prioridade_etapa_op("Liberado para Envase"), 2);
+        assert_eq!(prioridade_etapa_op("Produzido"), 3);
+
+        assert_eq!(calcular_unidades_op(140.0, None, Some(0.25), 0.0), 560);
+        assert_eq!(calcular_unidades_op(100.0, Some(500.0), Some(0.25), 120.0), 380);
+        assert_eq!(calcular_unidades_op(1000.0, Some(200.0), Some(5.0), 0.0), 200);
+
+        assert_eq!(
+            classificar_espaco_op(None, Some(10), 5, 20, true),
+            ("sem_qtde_cx".into(), 0)
+        );
+        assert_eq!(
+            classificar_espaco_op(Some(12), Some(10), 5, 0, false),
+            ("sem_endereco".into(), 5)
+        );
+        assert_eq!(
+            classificar_espaco_op(Some(12), Some(20), 15, 24, true),
+            ("falta_espaco".into(), 11)
+        );
+        assert_eq!(
+            classificar_espaco_op(Some(12), Some(10), 10, 24, true),
+            ("ok".into(), 0)
+        );
+    }
+
+    #[test]
+    fn sugestao_prioriza_chao_para_pesados_e_manual_para_curva_a() {
+        let cx9 = caixa_exemplo("9", 22.5, 19.5, 14.7, 4);
+        let mut alt_emp = pos_exemplo("A5", 1, 5, "picking", 74.0);
+        alt_emp.andar = 3;
+        let mut alt_man = pos_exemplo("B3", 2, 3, "picking", 74.0);
+        alt_man.andar = 2;
+        let mut chao = pos_exemplo("C1", 3, 1, "picking", 74.0);
+        chao.andar = 1;
+
+        let mut pesado = prod_teste_abc("2.11.001", "SHAMPOO 5L PESADO", "2.11", Some("2"), 900.0, None);
+        pesado.classe_empilhamento = "base".into();
+        aplicar_curva_abc(std::slice::from_mut(&mut pesado));
+
+        let res = sugerir_alocacao(
+            "est",
+            &[alt_emp, alt_man, chao],
+            &[cx9],
+            &[],
+            &[pesado],
+            &[],
+            true,
+            true,
+            true,
+        );
+        assert_eq!(res.propostas.len(), 1);
+        assert_eq!(res.propostas[0].posicao_codigo, "C1");
+        assert_eq!(res.propostas[0].acesso_equipamento, "manual");
+        assert_eq!(res.resumo.propostas_manual_count, 1);
+        assert_eq!(res.resumo.propostas_empilhadeira_count, 0);
+    }
+
+    #[test]
+    fn sugestao_reserva_pulmao_quando_considerar_ops_chegando_ativo() {
+        let cx9 = caixa_exemplo("9", 22.5, 19.5, 14.7, 4);
+        let p_pick = pos_exemplo("A1", 1, 1, "picking", 74.1);
+        let p_pulm = pos_exemplo("A9", 1, 9, "pulmao", 74.0);
+
+        let mut p = prod_teste_abc("2.11.001", "SHAMPOO COM OP", "2.11", Some("2"), 600.0, None);
+        p.estoque_caixas = Some(40);
+        p.caixas_necessarias_picking = 2;
+        p.caixas_necessarias_pulmao = 0;
+        p.op_pendente_caixas = 30;
+        aplicar_curva_abc(std::slice::from_mut(&mut p));
+
+        let sem_op = sugerir_alocacao(
+            "est",
+            &[p_pick.clone(), p_pulm.clone()],
+            &[cx9.clone()],
+            &[],
+            &[p.clone()],
+            &[],
+            true,
+            true,
+            false,
+        );
+        assert!(sem_op.propostas.iter().all(|pr| pr.papel == "picking"));
+
+        let com_op = sugerir_alocacao(
+            "est",
+            &[p_pick, p_pulm],
+            &[cx9],
+            &[],
+            &[p],
+            &[],
+            true,
+            true,
+            true,
+        );
+        assert!(com_op.propostas.iter().any(|pr| pr.papel == "pulmao"));
+        assert_eq!(com_op.resumo.produtos_com_op_cobertos, 1);
     }
 }

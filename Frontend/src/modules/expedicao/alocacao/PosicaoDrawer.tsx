@@ -650,6 +650,7 @@ export function PosicaoDrawer({
                   : item.totalCaixas;
                 const totalUnPrev = item.qtdeCx ? totalCxPrev * item.qtdeCx : item.totalUnidades;
                 const estouroPrev = cx ? altPrev > posicao.alturaCm + 1e-6 : item.estouroAltura;
+                const prodItem = produtos.find((p) => p.codigo === item.produtoCodigo);
 
                 return (
                   <div
@@ -665,6 +666,11 @@ export function PosicaoDrawer({
                           {item.caixaCodigo && (
                             <span className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 font-semibold text-[10px]">
                               CX {item.caixaCodigo}
+                            </span>
+                          )}
+                          {(prodItem?.opPendenteCaixas ?? 0) > 0 && (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 font-semibold text-[10px]">
+                              +{prodItem?.opPendenteCaixas} cx em OP ({prodItem?.opProximaEtapa ?? 'Produção'})
                             </span>
                           )}
                           {estouroPrev && (

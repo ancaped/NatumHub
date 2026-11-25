@@ -6,6 +6,7 @@ import type {
   ImportarMapaItemInput,
   ImportarMapaLoteResultado,
   MoverAlocacaoInput,
+  OpsChegandoResponse,
   PainelAlocacaoResponse,
   ProdutoCaixaLoteInput,
   ProdutoDimensao,
@@ -62,6 +63,18 @@ export function fetchPainelAlocacao(params: PainelParams): Promise<PainelAlocaca
   return apiJson<PainelAlocacaoResponse>(`/expedicao/alocacao/painel?${qs.toString()}`);
 }
 
+export function fetchOpsChegando(params: {
+  estruturaId?: string;
+  etapa?: string;
+  apenasAlertas?: boolean;
+}): Promise<OpsChegandoResponse> {
+  const qs = new URLSearchParams();
+  if (params.estruturaId) qs.set('estruturaId', params.estruturaId);
+  if (params.etapa) qs.set('etapa', params.etapa);
+  if (params.apenasAlertas) qs.set('apenasAlertas', 'true');
+  return apiJson<OpsChegandoResponse>(`/expedicao/alocacao/ops-chegando?${qs.toString()}`);
+}
+
 export function fetchClientesSugestao(search: string, janelaMeses: number): Promise<ClienteSugestao[]> {
   const qs = new URLSearchParams();
   if (search.trim()) qs.set('search', search.trim());
@@ -79,6 +92,7 @@ export function sugerirAlocacao(
     incluirSaindoDeLinha: boolean;
     manterFixados: boolean;
     limparNaoFixados: boolean;
+    considerarOpsChegando?: boolean;
   },
   confirmar: boolean,
 ): Promise<SugestaoResultado> {

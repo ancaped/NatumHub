@@ -17,6 +17,7 @@ const FAMILIAS: &[&str] = &["expedicao_alocacao", "expedicao_ecommerce", "expedi
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/expedicao/alocacao/painel", get(handlers::get_painel))
+        .route("/api/expedicao/alocacao/ops-chegando", get(handlers::get_ops_chegando))
         .route("/api/expedicao/alocacao/clientes-sugestao", get(handlers::get_clientes_sugestao))
         .route("/api/expedicao/alocacao/estruturas", post(handlers::post_estrutura))
         .route(
@@ -70,6 +71,18 @@ pub fn acoes() -> Vec<Acao> {
                 param("metaMeses", "query", "número", false, "Meta de cobertura em meses (padrão 2.0)."),
                 param("usarMetaLinha", "query", "booleano", false, "Se true, usa o estoqueIdealMult da linha quando disponível."),
                 param("incluirInativos", "query", "booleano", false, "Se true, inclui produtos inativos/ocultos."),
+            ],
+        )
+        .com_familias(FAMILIAS),
+        Acao::leitura(
+            "listar_ops_chegando_expedicao",
+            "expedicao_alocacao",
+            "Lista as ordens de produção (OPs) em etapas próximas da Expedição (Envase, Ordem Parcial, Rotulagem, Liberado para Envase e Produzido), convertendo kg em unidades e caixas e apontando alertas de espaço ou falta de endereço.",
+            "/api/expedicao/alocacao/ops-chegando",
+            vec![
+                param("estruturaId", "query", "texto", false, "Id da estrutura física (padrão: primeira estrutura ativa)."),
+                param("etapa", "query", "texto", false, "Filtra por etapa exata (ex.: 'Envase', 'Liberado para Envase', 'Produzido')."),
+                param("apenasAlertas", "query", "booleano", false, "Se true, retorna apenas OPs com alerta de espaço ou sem endereço."),
             ],
         )
         .com_familias(FAMILIAS),

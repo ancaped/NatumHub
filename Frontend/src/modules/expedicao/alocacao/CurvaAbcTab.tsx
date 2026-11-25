@@ -537,6 +537,14 @@ export function CurvaAbcTab({
                         Est: {p.estoqueCaixas ?? Math.round(p.estoqueAtual)}
                         {p.estoqueCaixas != null ? 'cx' : 'un'}
                       </div>
+                      {(p.opPendenteCaixas ?? 0) > 0 && (
+                        <div
+                          className="text-[10px] text-amber-800 font-semibold"
+                          title={`${p.opPendenteLotes ?? 1} lote(s) em ${p.opProximaEtapa ?? 'OP'}`}
+                        >
+                          +{p.opPendenteCaixas}cx OP
+                        </div>
+                      )}
                     </td>
                     <td>
                       {enderecos.length === 0 ? (

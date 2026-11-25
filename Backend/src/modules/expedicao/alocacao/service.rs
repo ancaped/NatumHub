@@ -14,8 +14,9 @@ use crate::modules::geral::auth::models::AuthContext;
 use super::calculo::{
     acesso_equipamento_por_cota, agrupar_insumos_caixa_nao_vinculados, aplicar_curva_abc, arred2,
     calcular_camadas_compat_vao, calcular_cotas_base_andares, calcular_geometria_alocacao,
-    calcular_necessidades_caixas, calcular_peso_caixa_estimado_kg, classificar_empilhamento,
-    definir_grupo_alocacao, e_cliente_atacadista, elegibilidade_abc_efetiva,
+    calcular_necessidades_caixas, calcular_peso_caixa_estimado_kg, calcular_unidades_op,
+    classificar_espaco_op, classificar_empilhamento, definir_grupo_alocacao,
+    e_cliente_atacadista, elegibilidade_abc_efetiva, prioridade_etapa_op,
     situacao_alocacao_produto, sugerir_alocacao, AlocacaoExistente, TARA_PALETE_PBR_KG,
 };
 use super::models::*;
@@ -307,6 +308,67 @@ async fn carregar_atacadistas(pool: &PgPool) -> Result<Vec<Atacadista>, ErroApi>
         .collect())
 }
 
+#[derive(Debug, Clone)]
+struct OpBrutaRow {
+    lote_number: String,
+    etapa: String,
+    etapa_ordem: i32,
+    produto_codigo: String,
+    produto_descricao: String,
+    quantidade_kg: f64,
+    prog_envase_un: Option<f64>,
+    envasado_parcial: f64,
+    data_previsao: Option<String>,
+    motivo_espera: Option<String>,
+}
+
+async fn carregar_ops_ativas_brutas(pool: &PgPool) -> Result<Vec<OpBrutaRow>, ErroApi> {
+    let rows = sqlx::query(
+        "SELECT lcs.lote_number, lcs.custom_status, sm.item_code, \
+                COALESCE(NULLIF(TRIM(p.descricao), ''), sm.item_code) AS prod_desc, \
+                COALESCE(sm.quantity, 0)::double precision AS quantidade_kg, \
+                pe.pe_qty::double precision AS prog_envase_un, \
+                COALESCE(lcs.quantidade_envasada_parcial, 0)::double precision AS envasado_parcial, \
+                to_char(lcs.data_previsao AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY') AS data_prev, \
+                NULLIF(TRIM(lcs.motivo_espera), '') AS motivo_espera \
+         FROM lote_custom_status lcs \
+         JOIN stock_movements sm \
+           ON sm.document_number = lcs.lote_number \
+          AND sm.item_type = 'produto' \
+          AND sm.movement_type = 'entrada' \
+         LEFT JOIN produtos p ON p.codigo = sm.item_code \
+         LEFT JOIN ( \
+             SELECT lote_number, product_code, MAX(quantity) AS pe_qty \
+             FROM programacao_envase \
+             WHERE status_envase <> 'CONCLUIDO' \
+             GROUP BY lote_number, product_code \
+         ) pe ON pe.lote_number = lcs.lote_number AND pe.product_code = sm.item_code \
+         WHERE lcs.custom_status IN ('Envase', 'Ordem Parcial', 'Rotulagem', 'Liberado para Envase', 'Produzido') \
+           AND sm.quantity > 0",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let etapa: String = r.get("custom_status");
+        let etapa_ordem = prioridade_etapa_op(&etapa);
+        out.push(OpBrutaRow {
+            lote_number: r.get("lote_number"),
+            etapa,
+            etapa_ordem,
+            produto_codigo: r.get("item_code"),
+            produto_descricao: r.get("prod_desc"),
+            quantidade_kg: r.get("quantidade_kg"),
+            prog_envase_un: r.get("prog_envase_un"),
+            envasado_parcial: r.get("envasado_parcial"),
+            data_previsao: r.get("data_prev"),
+            motivo_espera: r.get("motivo_espera"),
+        });
+    }
+    Ok(out)
+}
+
 pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlocacaoResponse, ErroApi> {
     let janela_meses = q.janela_meses.unwrap_or(12).clamp(1, 36);
     let meta_meses = q.meta_meses.unwrap_or(2.0).clamp(0.25, 24.0);
@@ -331,6 +393,11 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
     };
     let caixas = carregar_caixas(pool).await?;
     let mut atacadistas = carregar_atacadistas(pool).await?;
+    let ops_brutas = carregar_ops_ativas_brutas(pool).await?;
+    let mut ops_por_prod: HashMap<String, Vec<&OpBrutaRow>> = HashMap::new();
+    for op in &ops_brutas {
+        ops_por_prod.entry(op.produto_codigo.clone()).or_default().push(op);
+    }
 
     // Mapa código de insumo ERP -> caixa_id (aceita múltiplos códigos separados por vírgula)
     let mut insumo_para_caixa: HashMap<String, String> = HashMap::new();
@@ -671,6 +738,33 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             nome_principal,
         );
 
+        let (op_pendente_unidades, op_pendente_caixas, op_pendente_lotes, op_proxima_etapa) =
+            if let Some(lista_ops) = ops_por_prod.get(&codigo) {
+                let mut soma_un = 0i32;
+                let mut melhor_ordem = i32::MAX;
+                let mut melhor_etapa: Option<String> = None;
+                for op in lista_ops {
+                    let un = calcular_unidades_op(
+                        op.quantidade_kg,
+                        op.prog_envase_un,
+                        peso_unitario,
+                        op.envasado_parcial,
+                    );
+                    soma_un += un;
+                    if op.etapa_ordem < melhor_ordem {
+                        melhor_ordem = op.etapa_ordem;
+                        melhor_etapa = Some(op.etapa.clone());
+                    }
+                }
+                let cx = qtde_cx_efetiva
+                    .filter(|&q| q > 0 && soma_un > 0)
+                    .map(|q| ((soma_un as f64) / (q as f64)).ceil() as i32)
+                    .unwrap_or(0);
+                (soma_un, cx, lista_ops.len(), melhor_etapa)
+            } else {
+                (0, 0, 0, None)
+            };
+
         produtos.push(ProdutoDimensao {
             codigo: codigo.clone(),
             descricao,
@@ -726,6 +820,10 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             total_unidades_alocadas: 0,
             cobertura_meses_alocada: None,
             situacao_alocacao: "sem_endereco".into(),
+            op_pendente_unidades,
+            op_pendente_caixas,
+            op_pendente_lotes,
+            op_proxima_etapa,
         });
     }
 
@@ -942,6 +1040,35 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         })
         .collect();
 
+    let mut ops_com_alerta_espaco = 0usize;
+    let prod_por_cod_resumo: HashMap<&str, &ProdutoDimensao> =
+        produtos.iter().map(|p| (p.codigo.as_str(), p)).collect();
+    for op in &ops_brutas {
+        if let Some(p) = prod_por_cod_resumo.get(op.produto_codigo.as_str()) {
+            let un = calcular_unidades_op(
+                op.quantidade_kg,
+                op.prog_envase_un,
+                p.peso_unitario_kg,
+                op.envasado_parcial,
+            );
+            let op_cx = p
+                .qtde_cx_efetiva
+                .filter(|&q| q > 0 && un > 0)
+                .map(|q| ((un as f64) / (q as f64)).ceil() as i32)
+                .unwrap_or(0);
+            let (sit, _) = classificar_espaco_op(
+                p.qtde_cx_efetiva,
+                p.estoque_caixas,
+                op_cx,
+                p.total_caixas_alocadas,
+                !p.alocacoes.is_empty(),
+            );
+            if sit != "ok" {
+                ops_com_alerta_espaco += 1;
+            }
+        }
+    }
+
     let resumo = PainelResumo {
         total_produtos: produtos.len(),
         alocados,
@@ -956,6 +1083,8 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         } else {
             soma_pct / (ativas_count as f64)
         },
+        ops_chegando_count: ops_brutas.len(),
+        ops_com_alerta_espaco,
     };
 
     Ok(PainelAlocacaoResponse {
@@ -970,6 +1099,136 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         produtos,
         insumos_caixa_erp,
         resumo,
+    })
+}
+
+pub async fn listar_ops_chegando(
+    pool: &PgPool,
+    q: &OpsChegandoQuery,
+) -> Result<OpsChegandoResponse, ErroApi> {
+    let painel = carregar_painel(
+        pool,
+        &PainelQuery {
+            estrutura_id: q.estrutura_id.clone(),
+            janela_meses: Some(12),
+            meta_meses: Some(2.0),
+            usar_meta_linha: Some(true),
+            incluir_inativos: Some(false),
+        },
+    )
+    .await?;
+    let ops_brutas = carregar_ops_ativas_brutas(pool).await?;
+    let prod_map: HashMap<&str, &ProdutoDimensao> = painel
+        .produtos
+        .iter()
+        .map(|p| (p.codigo.as_str(), p))
+        .collect();
+
+    let etapa_filtro = str_trim(q.etapa.as_deref()).map(|s| s.to_ascii_lowercase());
+    let apenas_alertas = q.apenas_alertas.unwrap_or(false);
+
+    let mut itens: Vec<OpChegandoItem> = Vec::new();
+    let mut em_envase_rotulagem = 0usize;
+    let mut liberado_envase = 0usize;
+    let mut produzido = 0usize;
+    let mut sem_endereco = 0usize;
+    let mut falta_espaco = 0usize;
+    let mut total_caixas_chegando = 0i32;
+
+    for op in ops_brutas {
+        let prod = prod_map.get(op.produto_codigo.as_str()).copied();
+        let peso_unit = prod
+            .and_then(|p| p.peso_unitario_kg)
+            .or_else(|| peso_unitario_kg(&op.produto_descricao, false));
+        let un = calcular_unidades_op(
+            op.quantidade_kg,
+            op.prog_envase_un,
+            peso_unit,
+            op.envasado_parcial,
+        );
+        let qtde_cx = prod.and_then(|p| p.qtde_cx_efetiva);
+        let caixas_chegando = qtde_cx
+            .filter(|&c| c > 0 && un > 0)
+            .map(|c| ((un as f64) / (c as f64)).ceil() as i32)
+            .unwrap_or(0);
+        let estoque_caixas = prod.and_then(|p| p.estoque_caixas);
+        let cap_alocada = prod.map(|p| p.total_caixas_alocadas).unwrap_or(0);
+        let tem_end = prod.is_some_and(|p| !p.alocacoes.is_empty());
+
+        let (situacao_espaco, deficit_caixas) =
+            classificar_espaco_op(qtde_cx, estoque_caixas, caixas_chegando, cap_alocada, tem_end);
+
+        match op.etapa_ordem {
+            1 => em_envase_rotulagem += 1,
+            2 => liberado_envase += 1,
+            3 => produzido += 1,
+            _ => {}
+        }
+        if situacao_espaco == "sem_endereco" {
+            sem_endereco += 1;
+        } else if situacao_espaco == "falta_espaco" {
+            falta_espaco += 1;
+        }
+        total_caixas_chegando += caixas_chegando;
+
+        if let Some(ref ef) = etapa_filtro {
+            if op.etapa.to_ascii_lowercase() != *ef {
+                continue;
+            }
+        }
+        if apenas_alertas && situacao_espaco == "ok" {
+            continue;
+        }
+
+        itens.push(OpChegandoItem {
+            lote_number: op.lote_number,
+            etapa: op.etapa,
+            etapa_ordem: op.etapa_ordem,
+            produto_codigo: op.produto_codigo,
+            produto_descricao: prod
+                .map(|p| p.descricao.clone())
+                .unwrap_or(op.produto_descricao),
+            grupo_alocacao: prod
+                .map(|p| p.grupo_alocacao.clone())
+                .unwrap_or_default(),
+            grupo_alocacao_nome: prod
+                .map(|p| p.grupo_alocacao_nome.clone())
+                .unwrap_or_default(),
+            quantidade_kg: op.quantidade_kg,
+            unidades_estimadas: un,
+            caixas_chegando,
+            qtde_cx_efetiva: qtde_cx,
+            estoque_caixas,
+            capacidade_alocada_caixas: cap_alocada,
+            deficit_caixas,
+            situacao_espaco,
+            enderecos_picking: prod.map(|p| p.enderecos_picking.clone()).unwrap_or_default(),
+            enderecos_pulmao: prod.map(|p| p.enderecos_pulmao.clone()).unwrap_or_default(),
+            data_previsao: op.data_previsao,
+            motivo_espera: op.motivo_espera,
+        });
+    }
+
+    itens.sort_by(|a, b| {
+        a.etapa_ordem
+            .cmp(&b.etapa_ordem)
+            .then_with(|| b.deficit_caixas.cmp(&a.deficit_caixas))
+            .then_with(|| b.caixas_chegando.cmp(&a.caixas_chegando))
+            .then_with(|| a.lote_number.cmp(&b.lote_number))
+    });
+
+    Ok(OpsChegandoResponse {
+        estrutura_ativa_id: painel.estrutura_ativa_id,
+        resumo: OpsChegandoResumo {
+            total_ops: em_envase_rotulagem + liberado_envase + produzido,
+            em_envase_rotulagem,
+            liberado_envase,
+            produzido,
+            sem_endereco,
+            falta_espaco,
+            total_caixas_chegando,
+        },
+        itens,
     })
 }
 
@@ -2292,6 +2551,7 @@ pub async fn aplicar_sugestao(
     let manter_fixados = input.manter_fixados.unwrap_or(true);
     let limpar_nao_fixados = input.limpar_nao_fixados.unwrap_or(true);
     let incluir_saindo = input.incluir_saindo_de_linha.unwrap_or(true);
+    let considerar_ops_chegando = input.considerar_ops_chegando.unwrap_or(true);
     let filtro_linha = str_trim(input.linha_prefix.as_deref());
 
     let posicoes_raw: Vec<Posicao> = painel.posicoes.iter().map(|p| p.posicao.clone()).collect();
@@ -2358,6 +2618,7 @@ pub async fn aplicar_sugestao(
         &linhas_permitidas,
         manter_fixados,
         limpar_nao_fixados,
+        considerar_ops_chegando,
     );
 
     let est_id = painel.estrutura_ativa_id.clone();

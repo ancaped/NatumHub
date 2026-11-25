@@ -174,6 +174,10 @@ export interface ProdutoDimensao {
   totalUnidadesAlocadas: number;
   coberturaMesesAlocada: number | null;
   situacaoAlocacao: SituacaoAlocacao | string;
+  opPendenteUnidades?: number;
+  opPendenteCaixas?: number;
+  opPendenteLotes?: number;
+  opProximaEtapa?: string | null;
 }
 
 export interface InsumoCaixaErpNaoVinculado {
@@ -193,6 +197,8 @@ export interface PainelResumo {
   totalPosicoes: number;
   posicoesOcupadas: number;
   ocupacaoMediaPct: number;
+  opsChegandoCount?: number;
+  opsComAlertaEspaco?: number;
 }
 
 export interface PainelAlocacaoResponse {
@@ -225,6 +231,8 @@ export interface SugestaoProposta {
   posicaoId: string;
   posicaoCodigo: string;
   papel: string;
+  acessoEquipamento?: 'manual' | 'empilhadeira' | string;
+  motivoEscolha?: string;
   fileirasLargura: number;
   camadasAltura: number;
   totalCaixas: number;
@@ -247,6 +255,47 @@ export interface SugestaoResumo {
   posicoesUsadas: number;
   naoAlocadosCount: number;
   ocupacaoMediaPct: number;
+  propostasManualCount?: number;
+  propostasEmpilhadeiraCount?: number;
+  produtosComOpCobertos?: number;
+}
+
+export interface OpChegandoItem {
+  loteNumber: string;
+  etapa: string;
+  etapaOrdem: number;
+  produtoCodigo: string;
+  produtoDescricao: string;
+  grupoAlocacao: string;
+  grupoAlocacaoNome: string;
+  quantidadeKg: number;
+  unidadesEstimadas: number;
+  caixasChegando: number;
+  qtdeCxEfetiva: number | null;
+  estoqueCaixas: number | null;
+  capacidadeAlocadaCaixas: number;
+  deficitCaixas: number;
+  situacaoEspaco: 'ok' | 'falta_espaco' | 'sem_endereco' | 'sem_qtde_cx' | string;
+  enderecosPicking: string[];
+  enderecosPulmao: string[];
+  dataPrevisao: string | null;
+  motivoEspera: string | null;
+}
+
+export interface OpsChegandoResumo {
+  totalOps: number;
+  emEnvaseRotulagem: number;
+  liberadoEnvase: number;
+  produzido: number;
+  semEndereco: number;
+  faltaEspaco: number;
+  totalCaixasChegando: number;
+}
+
+export interface OpsChegandoResponse {
+  estruturaAtivaId: string;
+  resumo: OpsChegandoResumo;
+  itens: OpChegandoItem[];
 }
 
 export interface SugestaoResultado {

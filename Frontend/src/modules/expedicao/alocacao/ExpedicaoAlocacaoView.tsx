@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Box, Building2, Download, Grid3X3, ListOrdered, RefreshCw } from 'lucide-react';
+import { Box, Building2, Download, Factory, Grid3X3, ListOrdered, RefreshCw, Sparkles } from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
 import { BotaoAcao, ReportHeader } from '../../geral/components/ui/ReportKit';
 import { useAviso } from '../../geral/components/ui/Aviso';
@@ -19,6 +19,7 @@ import { PosicaoDrawer } from './PosicaoDrawer';
 import { ProdutoAlocacaoDrawer } from './ProdutoAlocacaoDrawer';
 import { SugestaoDrawer } from './SugestaoDrawer';
 import { ImportarPlanilhaDrawer } from './ImportarPlanilhaDrawer';
+import { OpsChegandoDrawer } from './OpsChegandoDrawer';
 import type { PainelAlocacaoResponse, ProdutoDimensao } from './types';
 
 type TabId = 'mapa' | 'abc' | 'caixas' | 'galpoes';
@@ -47,6 +48,7 @@ export default function ExpedicaoAlocacaoView({
   const [produtoCodigoSelecionado, setProdutoCodigoSelecionado] = useState<string | null>(null);
   const [sugestaoOpen, setSugestaoOpen] = useState<boolean>(false);
   const [importarOpen, setImportarOpen] = useState<boolean>(false);
+  const [opsDrawerOpen, setOpsDrawerOpen] = useState<boolean>(false);
 
   const { avisar, aviso } = useAviso();
   const { pedir: pedirPrevia, elemento: elementoPrevia } = usePreviaServidor(avisar);
@@ -163,6 +165,30 @@ export default function ExpedicaoAlocacaoView({
         subtitulo={subtitulo}
         acoes={
           <div className="flex flex-wrap gap-1.5">
+            {painel && (
+              <BotaoAcao
+                onClick={() => setOpsDrawerOpen(true)}
+                title="Ver lotes chegando da Produção e comparar com espaço nos vãos"
+              >
+                <Factory className="h-3.5 w-3.5" />
+                OPs ({painel.resumo.opsChegandoCount ?? 0})
+                {(painel.resumo.opsComAlertaEspaco ?? 0) > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 font-mono text-[10px] font-bold">
+                    {painel.resumo.opsComAlertaEspaco} alerta
+                    {(painel.resumo.opsComAlertaEspaco ?? 0) > 1 ? 's' : ''}
+                  </span>
+                )}
+              </BotaoAcao>
+            )}
+            {canEdit && painel && (
+              <BotaoAcao
+                onClick={() => setSugestaoOpen(true)}
+                title="Simular e aplicar organização automática nos vãos"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Organizar
+              </BotaoAcao>
+            )}
             <BotaoAcao onClick={exportarExcel} disabled={!painel} primario>
               <Download className="h-3.5 w-3.5" />
               Exportar .xlsx
@@ -304,6 +330,31 @@ export default function ExpedicaoAlocacaoView({
         estruturaNome={estruturaAtivaObj?.nome ?? painel?.estruturaAtivaId ?? ''}
         onClose={() => setImportarOpen(false)}
         onApplied={carregar}
+        avisar={avisar}
+      />
+
+      <OpsChegandoDrawer
+        open={opsDrawerOpen}
+        estruturaId={painel?.estruturaAtivaId ?? ''}
+        canEdit={canEdit}
+        onClose={() => setOpsDrawerOpen(false)}
+        onAbrirPosicaoCodigo={(codigo) => {
+          const alvo = painel?.posicoes.find(
+            (p) => p.codigo.toUpperCase() === codigo.toUpperCase(),
+          );
+          if (!alvo) {
+            avisar(`Vão ${codigo} não pertence à estrutura ativa.`, 'erro');
+            return;
+          }
+          setOpsDrawerOpen(false);
+          setAba('mapa');
+          setPosicaoIdSelecionada(alvo.id);
+        }}
+        onAbrirProdutoCodigo={(codigo) => {
+          setOpsDrawerOpen(false);
+          setProdutoCodigoSelecionado(codigo);
+        }}
+        onAbrirSugestao={() => setSugestaoOpen(true)}
         avisar={avisar}
       />
     </AppLayout>

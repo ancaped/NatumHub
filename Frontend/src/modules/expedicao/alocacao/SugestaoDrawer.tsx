@@ -35,6 +35,7 @@ export function SugestaoDrawer({
   const [incluirSaindo, setIncluirSaindo] = useState(true);
   const [manterFixados, setManterFixados] = useState(true);
   const [limparNaoFixados, setLimparNaoFixados] = useState(true);
+  const [considerarOpsChegando, setConsiderarOpsChegando] = useState(true);
 
   const [calculando, setCalculando] = useState(false);
   const [aplicando, setAplicando] = useState(false);
@@ -67,6 +68,7 @@ export function SugestaoDrawer({
             incluirSaindoDeLinha: incluirSaindo,
             manterFixados,
             limparNaoFixados,
+            considerarOpsChegando,
           },
           false,
         );
@@ -92,6 +94,7 @@ export function SugestaoDrawer({
     incluirSaindo,
     manterFixados,
     limparNaoFixados,
+    considerarOpsChegando,
     avisar,
   ]);
 
@@ -110,6 +113,7 @@ export function SugestaoDrawer({
           incluirSaindoDeLinha: incluirSaindo,
           manterFixados,
           limparNaoFixados,
+          considerarOpsChegando,
         },
         true,
       );
@@ -217,6 +221,14 @@ export function SugestaoDrawer({
                 />
                 <span>Incluir produtos saindo de linha</span>
               </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={considerarOpsChegando}
+                  onChange={(e) => setConsiderarOpsChegando(e.target.checked)}
+                />
+                <span>Reservar pulmão para OPs chegando</span>
+              </label>
             </div>
           </div>
         </div>
@@ -227,18 +239,39 @@ export function SugestaoDrawer({
           </div>
         ) : previa ? (
           <>
-            <div className="panel-card !p-3 flex flex-wrap gap-4 justify-between items-center">
-              <div className="flex items-center gap-2 font-bold text-zinc-900">
-                <Sparkles className="h-4 w-4" />
-                Prévia: {previa.resumo.propostasCount} alocações para{' '}
-                {previa.resumo.produtosAlocados} produtos ({previa.resumo.posicoesUsadas} posições ·
-                ocupação média {previa.resumo.ocupacaoMediaPct.toFixed(0)}%)
+            <div className="panel-card !p-3 space-y-1.5">
+              <div className="flex flex-wrap gap-3 justify-between items-center">
+                <div className="flex items-center gap-2 font-bold text-zinc-900">
+                  <Sparkles className="h-4 w-4 shrink-0" />
+                  Prévia: {previa.resumo.propostasCount} alocações para{' '}
+                  {previa.resumo.produtosAlocados} produtos ({previa.resumo.posicoesUsadas} posições ·
+                  ocupação média {previa.resumo.ocupacaoMediaPct.toFixed(0)}%)
+                </div>
+                {previa.resumo.removidasCount > 0 && (
+                  <span className="text-zinc-500">
+                    Substitui {previa.resumo.removidasCount} alocações não fixadas
+                  </span>
+                )}
               </div>
-              {previa.resumo.removidasCount > 0 && (
-                <span className="text-zinc-500">
-                  Substitui {previa.resumo.removidasCount} alocações não fixadas
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-600">
+                <span>
+                  Acesso manual (sem paleteira):{' '}
+                  <strong className="font-mono text-zinc-900">
+                    {previa.resumo.propostasManualCount ?? 0}
+                  </strong>
                 </span>
-              )}
+                <span>
+                  Empilhadeira:{' '}
+                  <strong className="font-mono text-zinc-900">
+                    {previa.resumo.propostasEmpilhadeiraCount ?? 0}
+                  </strong>
+                </span>
+                {(previa.resumo.produtosComOpCobertos ?? 0) > 0 && (
+                  <span className="text-amber-800 font-semibold">
+                    {previa.resumo.produtosComOpCobertos} itens com OP chegando previstos
+                  </span>
+                )}
+              </div>
             </div>
 
             {previa.naoAlocados.length > 0 && (
@@ -279,16 +312,24 @@ export function SugestaoDrawer({
                       className="px-3 py-2 flex items-center justify-between gap-2"
                     >
                       <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <span className="font-mono font-bold text-zinc-900">
                             {p.posicaoCodigo}
                           </span>
                           <span className="text-[10px] uppercase px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-700 font-bold">
                             {p.papel}
                           </span>
+                          {p.acessoEquipamento && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded border border-zinc-200 text-zinc-600 font-semibold">
+                              {p.acessoEquipamento === 'empilhadeira' ? 'Empilh.' : 'Manual'}
+                            </span>
+                          )}
                           <span className="font-mono text-zinc-700">{p.produtoCodigo}</span>
                         </div>
-                        <div className="text-zinc-500 truncate">{p.produtoDescricao}</div>
+                        <div className="text-zinc-500 truncate">
+                          {p.produtoDescricao}
+                          {p.motivoEscolha ? ` · ${p.motivoEscolha}` : ''}
+                        </div>
                       </div>
                       <div className="text-right font-mono shrink-0">
                         <div className="font-bold text-zinc-900">{p.totalCaixas} cx</div>

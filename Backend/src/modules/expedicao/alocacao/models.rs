@@ -182,6 +182,10 @@ pub struct ProdutoDimensao {
     pub total_unidades_alocadas: i32,
     pub cobertura_meses_alocada: Option<f64>,
     pub situacao_alocacao: String,
+    pub op_pendente_unidades: i32,
+    pub op_pendente_caixas: i32,
+    pub op_pendente_lotes: usize,
+    pub op_proxima_etapa: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,6 +209,8 @@ pub struct PainelResumo {
     pub total_posicoes: usize,
     pub posicoes_ocupadas: usize,
     pub ocupacao_media_pct: f64,
+    pub ops_chegando_count: usize,
+    pub ops_com_alerta_espaco: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -357,6 +363,7 @@ pub struct SugerirInput {
     pub incluir_saindo_de_linha: Option<bool>,
     pub manter_fixados: Option<bool>,
     pub limpar_nao_fixados: Option<bool>,
+    pub considerar_ops_chegando: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -369,6 +376,8 @@ pub struct SugestaoProposta {
     pub posicao_id: String,
     pub posicao_codigo: String,
     pub papel: String,
+    pub acesso_equipamento: String,
+    pub motivo_escolha: String,
     pub fileiras_largura: i32,
     pub camadas_altura: i32,
     pub total_caixas: i32,
@@ -395,6 +404,61 @@ pub struct SugestaoResumo {
     pub posicoes_usadas: usize,
     pub nao_alocados_count: usize,
     pub ocupacao_media_pct: f64,
+    pub propostas_manual_count: usize,
+    pub propostas_empilhadeira_count: usize,
+    pub produtos_com_op_cobertos: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsChegandoQuery {
+    pub estrutura_id: Option<String>,
+    pub etapa: Option<String>,
+    pub apenas_alertas: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpChegandoItem {
+    pub lote_number: String,
+    pub etapa: String,
+    pub etapa_ordem: i32,
+    pub produto_codigo: String,
+    pub produto_descricao: String,
+    pub grupo_alocacao: String,
+    pub grupo_alocacao_nome: String,
+    pub quantidade_kg: f64,
+    pub unidades_estimadas: i32,
+    pub caixas_chegando: i32,
+    pub qtde_cx_efetiva: Option<i32>,
+    pub estoque_caixas: Option<i32>,
+    pub capacidade_alocada_caixas: i32,
+    pub deficit_caixas: i32,
+    pub situacao_espaco: String,
+    pub enderecos_picking: Vec<String>,
+    pub enderecos_pulmao: Vec<String>,
+    pub data_previsao: Option<String>,
+    pub motivo_espera: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsChegandoResumo {
+    pub total_ops: usize,
+    pub em_envase_rotulagem: usize,
+    pub liberado_envase: usize,
+    pub produzido: usize,
+    pub sem_endereco: usize,
+    pub falta_espaco: usize,
+    pub total_caixas_chegando: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsChegandoResponse {
+    pub estrutura_ativa_id: String,
+    pub resumo: OpsChegandoResumo,
+    pub itens: Vec<OpChegandoItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -47,6 +47,14 @@ pub async fn get_painel(
     Ok((StatusCode::OK, Json(painel)).into_response())
 }
 
+pub async fn get_ops_chegando(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<OpsChegandoQuery>,
+) -> Result<Response, ErroApi> {
+    let ops = service::listar_ops_chegando(state.db.pool(), &q).await?;
+    Ok((StatusCode::OK, Json(ops)).into_response())
+}
+
 pub async fn get_clientes_sugestao(
     State(state): State<Arc<AppState>>,
     Query(q): Query<ClientesSugestaoQuery>,

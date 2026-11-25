@@ -168,6 +168,17 @@ export function ProdutoAlocacaoDrawer({
               {produto.estoqueCaixas != null ? ` (${produto.estoqueCaixas} cx)` : ''}
             </span>
           </div>
+          {(produto.opPendenteCaixas ?? 0) > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-2.5 py-1.5 text-[11px] text-amber-900 flex flex-wrap items-center justify-between gap-2">
+              <span>
+                OP chegando ({produto.opProximaEtapa ?? 'Produção'} · {produto.opPendenteLotes ?? 1}{' '}
+                lote{(produto.opPendenteLotes ?? 1) > 1 ? 's' : ''})
+              </span>
+              <strong className="font-mono">
+                +{produto.opPendenteCaixas} cx (~{(produto.opPendenteUnidades ?? 0).toLocaleString('pt-BR')} un)
+              </strong>
+            </div>
+          )}
         </div>
 
         {/* Demanda Varejo x Atacado */}
