@@ -5,6 +5,7 @@ import {
   gerarCaixasItem3d,
   ordenarCaixas3dPorCamera,
 } from '../../src/modules/expedicao/alocacao/caixas3d';
+import { verificarApoioCamada } from '../../src/modules/expedicao/alocacao/paletizacao';
 import type {
   AlocacaoItemView,
   PosicaoComItens,
@@ -370,6 +371,50 @@ test('gerarCaixasItem3d calcula amarração real com espelhamento de camada e re
   for (const b of res.caixas) {
     assert.ok(b.x >= 5 && b.x + b.dx <= 5 + res.footprintW + 0.01);
     assert.ok(b.y >= 6 && b.y + b.dy <= 6 + res.footprintD + 0.01);
+  }
+
+  // Camada 2 deve estar fisicamente apoiada sobre a camada 1 sem ponta flutuando
+  const toRects = (arr: typeof c1) =>
+    arr.map((b) => ({ x: b.x, y: b.y, w: b.dx + 1.5, h: b.dy + 1.5, rotacionada: b.rotacionada }));
+  assert.equal(verificarApoioCamada(toRects(c1), toRects(c2), 0.85, 1.5), true);
+});
+
+test('gerarCaixasItem3d não deixa pontas flutuando em caso de caixa quase quadrada (ex.: CX 132 em Vão A11)', () => {
+  const res = gerarCaixasItem3d({
+    xStart: 0,
+    yStart: 0,
+    zBase: 11,
+    maxWidthCm: 100,
+    slotDepthCm: 120,
+    maxHeightCm: 74,
+    fileirasLargura: 3,
+    caixasComprimento: 4,
+    camadasAltura: 4,
+    larguraOcupadaCm: 79.2,
+    alturaOcupadaCm: 72,
+    caixaLarguraCm: 26.4,
+    caixaComprimentoCm: 24.4,
+    caixaAlturaCm: 18,
+    qtdCaixasAlvo: 48,
+    dirSign: 1,
+    modoDetalhe: 'foco',
+    usarAmarracao: true,
+    podeGirar: true,
+    aplicarCulling: false,
+  });
+
+  const porCamada = [1, 2, 3, 4].map((cam) =>
+    res.caixas
+      .filter((c) => c.camada === cam)
+      .map((c) => ({ x: c.x, y: c.y, w: c.dx, h: c.dy, rotacionada: c.rotacionada })),
+  );
+
+  for (let i = 0; i < porCamada.length - 1; i++) {
+    assert.equal(
+      verificarApoioCamada(porCamada[i], porCamada[i + 1], 0.85, 1.5),
+      true,
+      `Camada ${i + 2} não pode ter ponta flutuando sobre camada ${i + 1}`,
+    );
   }
 });
 

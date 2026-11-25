@@ -1,4 +1,67 @@
-import { calcularPaletizacao, type CaixaNoPalete } from './paletizacao';
+import {
+  calcularPaletizacao,
+  verificarApoioCamada,
+  type CaixaNoPalete,
+} from './paletizacao';
+
+function espelharEixo(
+  caixas: CaixaNoPalete[],
+  refW: number,
+  refD: number,
+  eixo: 'xy' | 'y' | 'x',
+): CaixaNoPalete[] {
+  return caixas.map((c) => ({
+    x: eixo === 'y' ? c.x : Number(Math.max(0, refW - (c.x + c.w)).toFixed(3)),
+    y: eixo === 'x' ? c.y : Number(Math.max(0, refD - (c.y + c.h)).toFixed(3)),
+    w: c.w,
+    h: c.h,
+    rotacionada: c.rotacionada,
+  }));
+}
+
+function layoutsIguais(a: CaixaNoPalete[], b: CaixaNoPalete[]): boolean {
+  if (a.length !== b.length) return false;
+  const sortFn = (u: CaixaNoPalete, v: CaixaNoPalete) =>
+    u.x - v.x || u.y - v.y || u.w - v.w || u.h - v.h;
+  const sa = [...a].sort(sortFn);
+  const sb = [...b].sort(sortFn);
+  return sa.every(
+    (c, idx) =>
+      Math.abs(c.x - sb[idx].x) < 0.2 &&
+      Math.abs(c.y - sb[idx].y) < 0.2 &&
+      Math.abs(c.w - sb[idx].w) < 0.2 &&
+      Math.abs(c.h - sb[idx].h) < 0.2,
+  );
+}
+
+function centralizarSobre(
+  molde: CaixaNoPalete[],
+  refMaxX: number,
+  refMaxY: number,
+  limW: number,
+  limD: number,
+): CaixaNoPalete[] | null {
+  if (molde.length === 0) return null;
+  const mMaxX = molde.reduce((m, c) => Math.max(m, c.x + c.w), 0);
+  const mMaxY = molde.reduce((m, c) => Math.max(m, c.y + c.h), 0);
+  const dx = Math.max(0, Math.min(limW - mMaxX, (refMaxX - mMaxX) / 2));
+  const dy = Math.max(0, Math.min(limD - mMaxY, (refMaxY - mMaxY) / 2));
+  const out = molde.map((c) => ({
+    ...c,
+    x: Number((c.x + dx).toFixed(3)),
+    y: Number((c.y + dy).toFixed(3)),
+  }));
+  const cabe = out.every(
+    (c) => c.x >= -1e-6 && c.x + c.w <= limW + 1e-6 && c.y >= -1e-6 && c.y + c.h <= limD + 1e-6,
+  );
+  return cabe ? out : null;
+}
+
+function parEstavel(impar: CaixaNoPalete[], par: CaixaNoPalete[], nz: number): boolean {
+  if (!verificarApoioCamada(impar, par, 0.85, 1.5)) return false;
+  if (nz >= 3 && !verificarApoioCamada(par, impar, 0.85, 1.5)) return false;
+  return true;
+}
 import type { PosicaoComItens, ProdutoDimensao } from './types';
 
 export interface SaldoAlocacao {
@@ -407,21 +470,49 @@ export function gerarCaixasItem3d(
     );
 
     if (resPal.amarracao.temAmarracaoReal && resPal.amarracao.caixasPorLastro > 0) {
-      camadaImpar = resPal.amarracao.caixasImpar;
-      camadaPar = resPal.amarracao.caixasPar;
-      amarrado = true;
+      const impar = resPal.amarracao.caixasImpar;
+      const maxX = impar.reduce((m, c) => Math.max(m, c.x + c.w), 0);
+      const maxY = impar.reduce((m, c) => Math.max(m, c.y + c.h), 0);
+      const candidatosPar = (['xy', 'y', 'x'] as const).map((eixo) =>
+        espelharEixo(impar, maxX, maxY, eixo),
+      );
+      const parEscolhido = candidatosPar.find(
+        (cand) => !layoutsIguais(impar, cand) && parEstavel(impar, cand, nz),
+      );
+
+      camadaImpar = impar;
+      if (parEscolhido) {
+        camadaPar = parEscolhido;
+        amarrado = true;
+      } else {
+        camadaPar = impar;
+        amarrado = false;
+      }
       footprintD = depthDisponivel;
     } else if (
+      nz > 1 &&
       resPal.rotacionado &&
       resPal.rotacionado.caixasPorLastro > 0 &&
       resPal.normal.caixasPorLastro > 0 &&
       Math.abs(caixaLarguraCm - caixaComprimentoCm) > 0.5 &&
       resPal.rotacionado.caixasPorLastro >= Math.floor(resPal.normal.caixasPorLastro * 0.85)
     ) {
-      camadaImpar = resPal.normal.caixasImpar;
-      camadaPar = resPal.rotacionado.caixasImpar;
-      amarrado = nz > 1;
-      footprintD = depthDisponivel;
+      const impar = resPal.normal.caixasImpar;
+      const maxX = impar.reduce((m, c) => Math.max(m, c.x + c.w), 0);
+      const maxY = impar.reduce((m, c) => Math.max(m, c.y + c.h), 0);
+      const rotCentralizado = centralizarSobre(
+        resPal.rotacionado.caixasImpar,
+        maxX,
+        maxY,
+        footprintW,
+        depthDisponivel,
+      );
+      if (rotCentralizado && parEstavel(impar, rotCentralizado, nz)) {
+        camadaImpar = impar;
+        camadaPar = rotCentralizado;
+        amarrado = true;
+        footprintD = depthDisponivel;
+      }
     }
   }
 

@@ -81,14 +81,60 @@ function arred(n: number): number {
   return Number(n.toFixed(3));
 }
 
-function espelharCamada(caixas: CaixaNoPalete[], wPalete: number, dPalete: number): CaixaNoPalete[] {
+function espelharCamada(
+  caixas: CaixaNoPalete[],
+  refW: number,
+  refD: number,
+): CaixaNoPalete[] {
   return caixas.map((c) => ({
-    x: arred(wPalete - (c.x + c.w)),
-    y: arred(dPalete - (c.y + c.h)),
+    x: arred(Math.max(0, refW - (c.x + c.w))),
+    y: arred(Math.max(0, refD - (c.y + c.h))),
     w: c.w,
     h: c.h,
     rotacionada: c.rotacionada,
   }));
+}
+
+/**
+ * Verifica fisicamente se todas as caixas da camada superior têm apoio real
+ * sobre a camada inferior (sem pontas flutuando além do balanço tolerado).
+ */
+export function verificarApoioCamada(
+  base: CaixaNoPalete[],
+  topo: CaixaNoPalete[],
+  minApoioPct = 0.85,
+  maxBalancoCm = 1.5,
+): boolean {
+  if (base.length === 0 || topo.length === 0) return false;
+  const baseMinX = base.reduce((m, c) => Math.min(m, c.x), Infinity);
+  const baseMaxX = base.reduce((m, c) => Math.max(m, c.x + c.w), -Infinity);
+  const baseMinY = base.reduce((m, c) => Math.min(m, c.y), Infinity);
+  const baseMaxY = base.reduce((m, c) => Math.max(m, c.y + c.h), -Infinity);
+
+  for (const t of topo) {
+    if (
+      t.x < baseMinX - maxBalancoCm ||
+      t.x + t.w > baseMaxX + maxBalancoCm ||
+      t.y < baseMinY - maxBalancoCm ||
+      t.y + t.h > baseMaxY + maxBalancoCm
+    ) {
+      return false;
+    }
+    const areaT = t.w * t.h;
+    if (areaT <= 0) return false;
+    let overlap = 0;
+    for (const b of base) {
+      const ix = Math.max(0, Math.min(t.x + t.w, b.x + b.w) - Math.max(t.x, b.x));
+      if (ix <= 0) continue;
+      const iy = Math.max(0, Math.min(t.y + t.h, b.y + b.h) - Math.max(t.y, b.y));
+      if (iy <= 0) continue;
+      overlap += ix * iy;
+    }
+    if (overlap / areaT < minApoioPct) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function gradeUniforme(
@@ -151,7 +197,7 @@ function montarLayout(
     padrao,
     rotulo,
     caixasImpar,
-    caixasPar: espelharCamada(caixasImpar, wPalete, dPalete),
+    caixasPar: espelharCamada(caixasImpar, maxX > 0 ? maxX : wPalete, maxY > 0 ? maxY : dPalete),
     caixasPorLastro: count,
     aproveitamentoAreaPct,
     sobraLarguraCm: Number(Math.max(0, wPalete - maxX).toFixed(1)),
