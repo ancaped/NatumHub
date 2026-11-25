@@ -64,6 +64,7 @@ export interface BlocoVaoPlanta {
   estouroLargura: boolean;
   ehKit: boolean;
   ehColoracao: boolean;
+  empilhadoSobre?: string | null;
 }
 
 export interface PlantaVaoResultado {
@@ -407,25 +408,32 @@ export function calcularPlantaVao(
   const hVao = posicao.alturaCm > 0 ? posicao.alturaCm : 74.1;
 
   let cursorX = 0;
-  const blocos: BlocoVaoPlanta[] = posicao.itens.map((item) => {
-    const largCx =
-      item.caixaLarguraCm && item.caixaLarguraCm > 0
-        ? item.caixaLarguraCm
-        : item.fileirasLargura > 0 && item.larguraOcupadaCm > 0
-          ? item.larguraOcupadaCm / item.fileirasLargura
-          : 15;
-    const compCx =
-      item.caixaComprimentoCm && item.caixaComprimentoCm > 0
-        ? item.caixaComprimentoCm
-        : 20;
+  const bases = new Map<string, { x: number; w: number; h: number }>();
+  const blocos: BlocoVaoPlanta[] = [];
+
+  for (const item of posicao.itens) {
+    if (item.empilhadoSobre) continue;
+    const rot = item.orientacaoEfetiva === 'rotacionado';
+    const largCx = rot
+      ? (item.caixaComprimentoCm && item.caixaComprimentoCm > 0 ? item.caixaComprimentoCm : 20)
+      : (item.caixaLarguraCm && item.caixaLarguraCm > 0
+          ? item.caixaLarguraCm
+          : item.fileirasLargura > 0 && item.larguraOcupadaCm > 0
+            ? item.larguraOcupadaCm / item.fileirasLargura
+            : 15);
+    const compCx = rot
+      ? (item.caixaLarguraCm && item.caixaLarguraCm > 0 ? item.caixaLarguraCm : 15)
+      : (item.caixaComprimentoCm && item.caixaComprimentoCm > 0
+          ? item.caixaComprimentoCm
+          : 20);
     const w = arred(Math.max(1, item.fileirasLargura) * largCx);
     const prof = Math.max(1, item.caixasComprimento || 1);
     const h = arred(Math.min(dVao, prof * compCx));
     const x = arred(cursorX);
     cursorX = arred(cursorX + w);
     const meta = gruposPorCodigo?.get(item.produtoCodigo);
-
-    return {
+    bases.set(item.produtoCodigo, { x, w, h });
+    blocos.push({
       alocacaoId: item.id,
       produtoCodigo: item.produtoCodigo,
       produtoDescricao: item.produtoDescricao,
@@ -442,8 +450,39 @@ export function calcularPlantaVao(
       estouroLargura: cursorX > wVao + 0.1,
       ehKit: Boolean(meta?.ehKit),
       ehColoracao: Boolean(meta?.ehColoracao),
-    };
-  });
+      empilhadoSobre: null,
+    });
+  }
+
+  for (const item of posicao.itens) {
+    if (!item.empilhadoSobre) continue;
+    const b = bases.get(item.empilhadoSobre);
+    const w = arred(item.larguraOcupadaCm > 0 ? item.larguraOcupadaCm : 20);
+    const compCx = item.caixaComprimentoCm && item.caixaComprimentoCm > 0 ? item.caixaComprimentoCm : 20;
+    const prof = Math.max(1, item.caixasComprimento || 1);
+    const h = arred(Math.min(dVao, prof * compCx));
+    const x = b ? arred(b.x + Math.max(0, (b.w - w) / 2)) : 0;
+    const meta = gruposPorCodigo?.get(item.produtoCodigo);
+    blocos.push({
+      alocacaoId: item.id,
+      produtoCodigo: item.produtoCodigo,
+      produtoDescricao: item.produtoDescricao,
+      caixaCodigo: item.caixaCodigo,
+      x,
+      y: 0,
+      w,
+      h,
+      fileiras: Math.max(1, item.fileirasLargura),
+      profundidade: prof,
+      camadas: Math.max(1, item.camadasAltura),
+      totalCaixas: item.totalCaixas,
+      estouroAltura: item.estouroAltura,
+      estouroLargura: false,
+      ehKit: Boolean(meta?.ehKit),
+      ehColoracao: Boolean(meta?.ehColoracao),
+      empilhadoSobre: item.empilhadoSobre,
+    });
+  }
 
   const ocupada = cursorX > 0 ? cursorX : posicao.larguraOcupadaCm;
   return {

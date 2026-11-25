@@ -185,6 +185,8 @@ export function salvarAlocacaoPosicao(
     camadasAltura: number;
     fixado: boolean;
     observacoes: string | null;
+    orientacaoModo?: 'auto' | 'normal' | 'rotacionado' | 'amarracao' | string;
+    empilhadoSobre?: string | null;
   },
   confirmar = true,
 ) {

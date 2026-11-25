@@ -471,7 +471,12 @@ export function CaixasTab({
                       <td className="font-mono font-bold text-zinc-900">CX {c.codigo}</td>
                       <td>{c.nome}</td>
                       <td className="text-right font-mono">
-                        {c.alturaCm} × {c.comprimentoCm} × {c.larguraCm}
+                        <span>
+                          {c.alturaCm} × {c.comprimentoCm} × {c.larguraCm}
+                        </span>
+                        <span className="block text-[10px] text-zinc-500">
+                          {((c.alturaCm * c.comprimentoCm * c.larguraCm) / 1000).toFixed(1)} L
+                        </span>
                       </td>
                       <td className="text-center font-mono">{c.empilhamentoMax}</td>
                       <td className="text-right font-mono text-xs">
@@ -1059,6 +1064,19 @@ export function CaixasTab({
                   {layoutAtivo.aproveitamentoAreaPct.toFixed(0)}%) · {layoutAtivo.maxCamadas} cam. (
                   {layoutAtivo.alturaPilhaCm} cm) ·{' '}
                   <strong>{layoutAtivo.totalCaixasPalete} cx/palete</strong>
+                  {' · '}
+                  {(
+                    ((layoutAtivo.totalCaixasPalete *
+                      ((Number(cxAlt) || 20) * (Number(cxComp) || 20) * (Number(cxLarg) || 15))) /
+                      Math.max(
+                        1,
+                        paletizacaoLive.paleteLarguraCm *
+                          paletizacaoLive.paleteComprimentoCm *
+                          paletizacaoLive.alturaVaoCm,
+                      )) *
+                    100
+                  ).toFixed(0)}
+                  % m³
                   {layoutAtivo.pesoTotalKg != null ? ` · ${layoutAtivo.pesoTotalKg} kg` : ''}
                 </span>
                 <span className="font-sans text-zinc-500">

@@ -524,8 +524,11 @@ export function CurvaAbcTab({
                     </td>
                     <td className="text-right font-mono whitespace-nowrap">
                       <div className="font-bold text-zinc-900">{p.mediaTotal.toFixed(1)}</div>
-                      <div className="text-[10px] text-zinc-500">
-                        {p.mediaVarejo.toFixed(0)}V · {p.mediaAtacado.toFixed(0)}A
+                      <div
+                        className="text-[10px] text-zinc-500"
+                        title="V = Varejo (andares manuais) · A = Atacado (pulmão)"
+                      >
+                        {p.mediaVarejo.toFixed(0)} Var · {p.mediaAtacado.toFixed(0)} Atac
                       </div>
                     </td>
                     <td className="text-center font-mono text-xs whitespace-nowrap">

@@ -14,13 +14,13 @@ use crate::modules::geral::auth::models::AuthContext;
 
 use super::calculo::{
     acesso_equipamento_por_cota, agrupar_insumos_caixa_nao_vinculados, aplicar_curva_abc, arred2,
-    calcular_camadas_compat_vao, calcular_cotas_base_andares, calcular_geometria_alocacao,
-    calcular_necessidades_caixas, calcular_peso_caixa_estimado_kg,
-    calcular_tarefas_reposicao_fefo, calcular_unidades_op, classificar_empilhamento,
-    classificar_espaco_op, classificar_validade_fefo, definir_grupo_alocacao,
-    e_cliente_atacadista, elegibilidade_abc_efetiva, prioridade_etapa_op,
-    situacao_alocacao_produto, sugerir_alocacao, sugerir_validade_padrao_24m,
-    AlocacaoExistente, TARA_PALETE_PBR_KG,
+    avaliar_estabilidade_vao, calcular_camadas_compat_vao, calcular_cotas_base_andares,
+    calcular_geometria_alocacao_com_modo, calcular_necessidades_caixas,
+    calcular_peso_caixa_estimado_kg, calcular_tarefas_reposicao_fefo, calcular_unidades_op,
+    classificar_empilhamento, classificar_espaco_op, classificar_validade_fefo,
+    definir_grupo_alocacao, e_cliente_atacadista, elegibilidade_abc_efetiva,
+    normalizar_orientacao_modo, prioridade_etapa_op, situacao_alocacao_produto, sugerir_alocacao,
+    sugerir_validade_padrao_24m, AlocacaoExistente, TARA_PALETE_PBR_KG,
 };
 use super::models::*;
 
@@ -654,6 +654,8 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         peso_caixa_estimado_kg: Option<f64>,
     }
     let mut fallback_map: HashMap<String, ProdMetaFallback> = HashMap::new();
+    let mut peso_cx_por_prod: HashMap<String, f64> = HashMap::new();
+    let mut classe_por_prod: HashMap<String, String> = HashMap::new();
     let mut produtos: Vec<ProdutoDimensao> = Vec::new();
     let janela_f = janela_meses as f64;
 
@@ -745,6 +747,10 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             classificar_empilhamento(peso_caixa_est, cx_ref.map(|c| c.empilhamento_max), eh_kit)
                 .to_string();
 
+        if let Some(p) = peso_caixa_est {
+            peso_cx_por_prod.insert(codigo.clone(), p);
+        }
+        classe_por_prod.insert(codigo.clone(), classe_emp.clone());
         fallback_map.insert(
             codigo.clone(),
             ProdMetaFallback {
@@ -903,16 +909,26 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         Vec::new()
     } else {
         sqlx::query(
-            "SELECT a.id, a.posicao_id, a.produto_codigo, a.fileiras_largura, a.camadas_altura, a.fixado, a.observacoes \
+            "SELECT a.id, a.posicao_id, a.produto_codigo, a.fileiras_largura, a.camadas_altura, a.fixado, a.observacoes, \
+                    COALESCE(a.orientacao_modo, 'auto') AS orientacao_modo, a.empilhado_sobre \
              FROM expedicao_alocacoes a \
              JOIN expedicao_posicoes pos ON pos.id = a.posicao_id \
              WHERE pos.estrutura_id = $1 \
-             ORDER BY pos.andar ASC, pos.coluna_ordem ASC, pos.lado ASC, a.produto_codigo ASC",
+             ORDER BY pos.andar ASC, pos.coluna_ordem ASC, pos.lado ASC, (a.empilhado_sobre IS NOT NULL) ASC, a.produto_codigo ASC",
         )
         .bind(&estrutura_ativa_id)
         .fetch_all(pool)
         .await?
     };
+
+    let mut base_count_por_pos: HashMap<String, usize> = HashMap::new();
+    for r in &aloc_rows {
+        let emp_sobre: Option<String> = r.get("empilhado_sobre");
+        if emp_sobre.as_deref().map(str::trim).filter(|s| !s.is_empty()).is_none() {
+            let pid: String = r.get("posicao_id");
+            *base_count_por_pos.entry(pid).or_insert(0) += 1;
+        }
+    }
 
     let mut itens_por_pos: HashMap<String, Vec<AlocacaoItemView>> = HashMap::new();
     let mut itens_por_prod: HashMap<String, Vec<AlocacaoItemView>> = HashMap::new();
@@ -925,6 +941,13 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         let camadas_altura: i32 = r.get("camadas_altura");
         let fixado: bool = r.get("fixado");
         let observacoes: Option<String> = r.get("observacoes");
+        let orientacao_modo = normalizar_orientacao_modo(r.try_get::<String, _>("orientacao_modo").ok().as_deref());
+        let empilhado_sobre: Option<String> = r
+            .try_get::<Option<String>, _>("empilhado_sobre")
+            .ok()
+            .flatten()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty() && s != &produto_codigo);
 
         let Some(pos) = pos_por_id.get(&posicao_id).copied() else {
             continue;
@@ -933,13 +956,19 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             continue;
         };
         let cx_ref = fb.caixa_id.as_ref().and_then(|cid| caixa_por_id.get(cid)).copied();
-        let geom = calcular_geometria_alocacao(
+        let unico_na_base = base_count_por_pos.get(&posicao_id).copied().unwrap_or(0) == 1 && empilhado_sobre.is_none();
+        let palete_inteiro = orientacao_modo == "amarracao"
+            || (unico_na_base
+                && cx_ref.is_some_and(|c| (fileiras_largura as f64) * c.largura_cm >= pos.largura_cm * 0.72));
+        let geom = calcular_geometria_alocacao_com_modo(
             pos,
             cx_ref,
             fileiras_largura,
             camadas_altura,
             fb.qtde_cx,
             fb.media_total,
+            &orientacao_modo,
+            palete_inteiro,
         );
 
         let peso_estimado_kg = fb
@@ -978,6 +1007,14 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             estouro_altura: geom.estouro_altura,
             cobertura_meses: geom.cobertura_meses,
             peso_estimado_kg,
+            orientacao_modo,
+            orientacao_efetiva: geom.orientacao_efetiva,
+            empilhado_sobre,
+            z_base_cm: 0.0,
+            volume_ocupado_m3: geom.volume_ocupado_m3,
+            amarrado: geom.amarrado,
+            apoio_pct: None,
+            alerta_estabilidade: None,
         };
         itens_por_pos.entry(posicao_id).or_default().push(view.clone());
         itens_por_prod.entry(produto_codigo).or_default().push(view);
@@ -999,9 +1036,28 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
     let mut ativas_count = 0usize;
 
     for pos in posicoes {
-        let itens = itens_por_pos.remove(&pos.id).unwrap_or_default();
+        let mut itens = itens_por_pos.remove(&pos.id).unwrap_or_default();
         let lotes = lotes_por_pos.remove(&pos.id).unwrap_or_default();
-        let larg_itens_cm: f64 = itens.iter().map(|i| i.largura_ocupada_cm).sum();
+        let _ = &fallback_map;
+        let (volume_vao_m3, volume_ocupado_m3, cubagem_pct, area_ocupada_pct, estabilidade_status, estabilidade_resumo) =
+            avaliar_estabilidade_vao(&pos, &mut itens, &peso_cx_por_prod, &classe_por_prod);
+        for it in &itens {
+            if let Some(list) = itens_por_prod.get_mut(&it.produto_codigo) {
+                for cur in list.iter_mut() {
+                    if cur.id == it.id {
+                        cur.z_base_cm = it.z_base_cm;
+                        cur.estouro_altura = it.estouro_altura;
+                        cur.apoio_pct = it.apoio_pct;
+                        cur.alerta_estabilidade = it.alerta_estabilidade.clone();
+                    }
+                }
+            }
+        }
+        let larg_itens_cm: f64 = itens
+            .iter()
+            .filter(|i| i.empilhado_sobre.is_none())
+            .map(|i| i.largura_ocupada_cm)
+            .sum();
         let (largura_ocupada_cm, ocupacao_pct, tem_estouro) =
             if itens.is_empty() && pos.tipo_ocupacao == "misto" {
                 let pct = pos.ocupacao_manual_pct.unwrap_or(50.0).clamp(0.0, 100.0);
@@ -1055,6 +1111,12 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             peso_total_com_palete_kg,
             cota_base_cm,
             acesso_equipamento,
+            volume_vao_m3,
+            volume_ocupado_m3,
+            cubagem_pct,
+            area_ocupada_pct,
+            estabilidade_status,
+            estabilidade_resumo,
         });
     }
 
@@ -2885,9 +2947,16 @@ pub async fn salvar_alocacao(
     }
     let fixado = input.fixado.unwrap_or(true);
     let obs = str_trim(input.observacoes.as_deref());
+    let orientacao_modo = normalizar_orientacao_modo(input.orientacao_modo.as_deref());
+    let empilhado_sobre = str_trim(input.empilhado_sobre.as_deref());
+    if empilhado_sobre.as_deref() == Some(produto_codigo.as_str()) {
+        return Err(ErroApi::invalido("Um produto não pode ser empilhado sobre si mesmo."));
+    }
 
     let pos_c = posicao_id.clone();
     let prod_c = produto_codigo.clone();
+    let emp_c = empilhado_sobre.clone();
+    let ori_c = orientacao_modo.clone();
     let r = executar_em_2_passos(pool, "salvar_alocacao_expedicao", confirmar, move |tx| {
         Box::pin(async move {
             let pos_cod: Option<String> =
@@ -2907,6 +2976,24 @@ pub async fn salvar_alocacao(
                 return Err(ErroApi::nao_encontrado(format!("Produto '{prod_c}' não encontrado.")));
             };
 
+            if let Some(ref base_cod) = emp_c {
+                let base_row: Option<Option<String>> = sqlx::query_scalar(
+                    "SELECT empilhado_sobre FROM expedicao_alocacoes WHERE posicao_id = $1 AND produto_codigo = $2",
+                )
+                .bind(&pos_c)
+                .bind(base_cod)
+                .fetch_optional(&mut **tx)
+                .await?;
+                let Some(base_emp_sobre) = base_row else {
+                    return Err(ErroApi::regra(format!(
+                        "O produto-base '{base_cod}' não está alocado neste vão."
+                    )));
+                };
+                if base_emp_sobre.as_deref() == Some(prod_c.as_str()) {
+                    return Err(ErroApi::regra("Empilhamento circular entre produtos no mesmo vão não é permitido."));
+                }
+            }
+
             let antes: Option<Value> = sqlx::query_scalar(
                 "SELECT to_jsonb(a) FROM expedicao_alocacoes a WHERE a.posicao_id = $1 AND a.produto_codigo = $2 FOR UPDATE",
             )
@@ -2922,13 +3009,15 @@ pub async fn salvar_alocacao(
                 .unwrap_or_else(|| slug_id("aloc"));
 
             sqlx::query(
-                "INSERT INTO expedicao_alocacoes (id, posicao_id, produto_codigo, fileiras_largura, camadas_altura, fixado, observacoes, updated_at) \
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,NOW()) \
+                "INSERT INTO expedicao_alocacoes (id, posicao_id, produto_codigo, fileiras_largura, camadas_altura, fixado, observacoes, orientacao_modo, empilhado_sobre, updated_at) \
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW()) \
                  ON CONFLICT (posicao_id, produto_codigo) DO UPDATE SET \
                     fileiras_largura = EXCLUDED.fileiras_largura, \
                     camadas_altura = EXCLUDED.camadas_altura, \
                     fixado = EXCLUDED.fixado, \
                     observacoes = EXCLUDED.observacoes, \
+                    orientacao_modo = EXCLUDED.orientacao_modo, \
+                    empilhado_sobre = EXCLUDED.empilhado_sobre, \
                     updated_at = NOW()",
             )
             .bind(&aloc_id)
@@ -2938,8 +3027,22 @@ pub async fn salvar_alocacao(
             .bind(input.camadas_altura)
             .bind(fixado)
             .bind(&obs)
+            .bind(&ori_c)
+            .bind(&emp_c)
             .execute(&mut **tx)
             .await?;
+
+            // Se passou a ficar sobre outro produto, não pode servir de base órfã ao mesmo tempo
+            if emp_c.is_some() {
+                sqlx::query(
+                    "UPDATE expedicao_alocacoes SET empilhado_sobre = NULL, updated_at = NOW() \
+                     WHERE posicao_id = $1 AND empilhado_sobre = $2",
+                )
+                .bind(&pos_c)
+                .bind(&prod_c)
+                .execute(&mut **tx)
+                .await?;
+            }
 
             Ok(json!({
                 "id": aloc_id,
@@ -2953,6 +3056,8 @@ pub async fn salvar_alocacao(
                     "camadasAltura": input.camadas_altura,
                     "fixado": fixado,
                     "observacoes": obs,
+                    "orientacaoModo": ori_c,
+                    "empilhadoSobre": emp_c,
                 }
             }))
         })
@@ -2983,20 +3088,64 @@ pub async fn excluir_alocacao(
     motivo: Option<&str>,
     confirmar: bool,
 ) -> Result<RespostaAcao<Value>, ErroApi> {
-    excluir_em_2_passos(
-        pool,
-        ctx,
-        "excluir_alocacao_expedicao",
-        "expedicao_alocacao",
-        "a alocação",
-        "Alocação removida da posição",
-        id,
-        "SELECT to_jsonb(a) FROM expedicao_alocacoes a WHERE a.id = $1 FOR UPDATE",
-        "DELETE FROM expedicao_alocacoes WHERE id = $1",
-        motivo,
-        confirmar,
-    )
-    .await
+    let motivo_limpo = exigir_motivo(confirmar, motivo, "exclusão de alocação")?;
+    let id_c = id.trim().to_string();
+    let r = executar_em_2_passos(pool, "excluir_alocacao_expedicao", confirmar, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query(
+                "SELECT a.posicao_id, a.produto_codigo, to_jsonb(a) AS antes \
+                 FROM expedicao_alocacoes a WHERE a.id = $1 FOR UPDATE",
+            )
+            .bind(&id_c)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| ErroApi::nao_encontrado("Alocação não encontrada."))?;
+            let pos_id: String = row.get("posicao_id");
+            let prod_cod: String = row.get("produto_codigo");
+            let antes: Value = row.get("antes");
+
+            sqlx::query(
+                "UPDATE expedicao_alocacoes SET empilhado_sobre = NULL, updated_at = NOW() \
+                 WHERE posicao_id = $1 AND empilhado_sobre = $2",
+            )
+            .bind(&pos_id)
+            .bind(&prod_cod)
+            .execute(&mut **tx)
+            .await?;
+
+            sqlx::query("DELETE FROM expedicao_alocacoes WHERE id = $1")
+                .bind(&id_c)
+                .execute(&mut **tx)
+                .await?;
+
+            Ok(json!({
+                "id": id_c,
+                "posicaoId": pos_id,
+                "produtoCodigo": prod_cod,
+                "antes": antes,
+                "motivo": motivo_limpo,
+            }))
+        })
+    })
+    .await?;
+
+    if confirmar {
+        registrar_auditoria(
+            pool,
+            ctx,
+            "excluir_alocacao_expedicao",
+            "expedicao_alocacao",
+            id,
+            &format!(
+                "Alocação removida da posição (produto {})",
+                r.resultado["produtoCodigo"].as_str().unwrap_or("")
+            ),
+            r.resultado.get("antes").cloned(),
+            None,
+        )
+        .await;
+    }
+    Ok(r)
 }
 
 // --- Sugestão Automática ---
@@ -3031,11 +3180,13 @@ async fn gravar_sugestao_tx(
     for prop in propostas {
         let id = slug_id("aloc");
         sqlx::query(
-            "INSERT INTO expedicao_alocacoes (id, posicao_id, produto_codigo, fileiras_largura, camadas_altura, fixado, updated_at) \
-             VALUES ($1,$2,$3,$4,$5,FALSE,NOW()) \
+            "INSERT INTO expedicao_alocacoes (id, posicao_id, produto_codigo, fileiras_largura, camadas_altura, fixado, orientacao_modo, empilhado_sobre, updated_at) \
+             VALUES ($1,$2,$3,$4,$5,FALSE,$6,$7,NOW()) \
              ON CONFLICT (posicao_id, produto_codigo) DO UPDATE SET \
                 fileiras_largura = EXCLUDED.fileiras_largura, \
                 camadas_altura = EXCLUDED.camadas_altura, \
+                orientacao_modo = EXCLUDED.orientacao_modo, \
+                empilhado_sobre = EXCLUDED.empilhado_sobre, \
                 updated_at = NOW()",
         )
         .bind(&id)
@@ -3043,6 +3194,8 @@ async fn gravar_sugestao_tx(
         .bind(&prop.produto_codigo)
         .bind(prop.fileiras_largura)
         .bind(prop.camadas_altura)
+        .bind(&prop.orientacao_modo)
+        .bind(&prop.empilhado_sobre)
         .execute(&mut *tx)
         .await?;
     }
@@ -3090,6 +3243,8 @@ pub async fn aplicar_sugestao(
             camadas_altura: i.camadas_altura,
             fixado: i.fixado,
             largura_ocupada_cm: i.largura_ocupada_cm,
+            orientacao_modo: i.orientacao_modo.clone(),
+            empilhado_sobre: i.empilhado_sobre.clone(),
         })
         .collect();
 
@@ -3307,6 +3462,7 @@ pub async fn mover_alocacao(
         Box::pin(async move {
             let orig = sqlx::query(
                 "SELECT a.id, a.posicao_id, a.produto_codigo, a.fileiras_largura, a.camadas_altura, a.fixado, a.observacoes, \
+                        COALESCE(a.orientacao_modo, 'auto') AS orientacao_modo, \
                         p.codigo AS pos_codigo, prod.descricao AS prod_desc \
                  FROM expedicao_alocacoes a \
                  JOIN expedicao_posicoes p ON p.id = a.posicao_id \
@@ -3329,6 +3485,7 @@ pub async fn mover_alocacao(
             let orig_cam: i32 = orig.get("camadas_altura");
             let orig_fixado: bool = orig.get("fixado");
             let orig_obs: Option<String> = orig.get("observacoes");
+            let orig_ori: String = orig.get("orientacao_modo");
 
             let dest = sqlx::query(
                 "SELECT id, codigo, altura_cm FROM expedicao_posicoes WHERE id = $1",
@@ -3374,8 +3531,8 @@ pub async fn mover_alocacao(
                 let novo_id = slug_id("aloc");
                 sqlx::query(
                     "INSERT INTO expedicao_alocacoes \
-                     (id, posicao_id, produto_codigo, fileiras_largura, camadas_altura, fixado, observacoes, updated_at) \
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())",
+                     (id, posicao_id, produto_codigo, fileiras_largura, camadas_altura, fixado, observacoes, orientacao_modo, updated_at) \
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())",
                 )
                 .bind(&novo_id)
                 .bind(&dest_c)
@@ -3384,12 +3541,21 @@ pub async fn mover_alocacao(
                 .bind(camadas)
                 .bind(orig_fixado)
                 .bind(&orig_obs)
+                .bind(&orig_ori)
                 .execute(&mut **tx)
                 .await?;
                 novo_id
             };
 
             if !copiar {
+                sqlx::query(
+                    "UPDATE expedicao_alocacoes SET empilhado_sobre = NULL, updated_at = NOW() \
+                     WHERE posicao_id = $1 AND empilhado_sobre = $2",
+                )
+                .bind(&orig_pos_id)
+                .bind(&prod_cod)
+                .execute(&mut **tx)
+                .await?;
                 sqlx::query("DELETE FROM expedicao_alocacoes WHERE id = $1")
                     .bind(&aloc_c)
                     .execute(&mut **tx)

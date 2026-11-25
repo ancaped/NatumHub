@@ -1221,14 +1221,29 @@ export function DesenhoPrateleira3dSvg({
                     ))}
                   </div>
                 )}
-                <div className="border-t border-zinc-700/80 pt-1 text-[10px] font-mono text-zinc-300 flex items-center justify-between gap-2">
+                <div className="border-t border-zinc-700/80 pt-1 text-[10px] font-mono text-zinc-300 flex flex-wrap items-center justify-between gap-2">
                   <span>
                     {hoveredSlot.pos.larguraOcupadaCm.toFixed(0)}/{hoveredSlot.pos.larguraCm}cm
+                    {(hoveredSlot.pos.volumeVaoM3 ?? 0) > 0
+                      ? ` · Cub ${(hoveredSlot.pos.cubagemPct ?? 0).toFixed(0)}% (${(hoveredSlot.pos.volumeOcupadoM3 ?? 0).toFixed(2)} m³)`
+                      : ''}
                   </span>
                   {(hoveredSlot.pos.pesoTotalComPaleteKg ?? 0) > 0 && (
                     <span>~{Math.round(hoveredSlot.pos.pesoTotalComPaleteKg ?? 0)} kg</span>
                   )}
                 </div>
+                {hoveredSlot.pos.estabilidadeResumo &&
+                  hoveredSlot.pos.estabilidadeStatus !== 'vazio' && (
+                    <div
+                      className={`text-[10px] font-semibold ${
+                        hoveredSlot.pos.estabilidadeStatus === 'alerta'
+                          ? 'text-red-300'
+                          : 'text-emerald-300'
+                      }`}
+                    >
+                      {hoveredSlot.pos.estabilidadeResumo}
+                    </div>
+                  )}
               </div>
             )}
           </div>

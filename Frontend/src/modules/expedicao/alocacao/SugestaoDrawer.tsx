@@ -138,7 +138,7 @@ export function SugestaoDrawer({
       onClose={onClose}
       size="lg"
       title="Sugerir Alocação Automática"
-      subtitle="Organização híbrida: zona por grupo (Linha / Kits próximos / Coloração) + Curva ABC + Picking / Pulmão"
+      subtitle="Cubagem e amarração inteligente: Varejo (manuais) × Pulmão (atacado/OPs) com empilhamento misto seguro"
       footer={
         <div className="flex justify-end gap-2">
           <button
@@ -255,17 +255,38 @@ export function SugestaoDrawer({
               </div>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-600">
                 <span>
-                  Acesso manual (sem paleteira):{' '}
+                  Cubagem média:{' '}
+                  <strong className="font-mono text-zinc-900">
+                    {(previa.resumo.cubagemMediaPct ?? 0).toFixed(0)}%
+                  </strong>
+                </span>
+                <span>
+                  Acesso manual (varejo):{' '}
                   <strong className="font-mono text-zinc-900">
                     {previa.resumo.propostasManualCount ?? 0}
                   </strong>
                 </span>
                 <span>
-                  Empilhadeira:{' '}
+                  Empilhadeira (pulmão):{' '}
                   <strong className="font-mono text-zinc-900">
                     {previa.resumo.propostasEmpilhadeiraCount ?? 0}
                   </strong>
                 </span>
+                {(previa.resumo.paletesAmarradosCount ?? 0) > 0 && (
+                  <span className="text-emerald-700 font-semibold">
+                    {previa.resumo.paletesAmarradosCount} amarrado(s)
+                  </span>
+                )}
+                {(previa.resumo.itensEmpilhadosMistosCount ?? 0) > 0 && (
+                  <span className="text-zinc-800 font-semibold">
+                    {previa.resumo.itensEmpilhadosMistosCount} empilhamento(s) misto(s)
+                  </span>
+                )}
+                {(previa.resumo.itensSoAtacadoNoPulmao ?? 0) > 0 && (
+                  <span className="text-zinc-700 font-semibold">
+                    {previa.resumo.itensSoAtacadoNoPulmao} só atacado direto no Pulmão
+                  </span>
+                )}
                 {(previa.resumo.produtosComOpCobertos ?? 0) > 0 && (
                   <span className="text-amber-800 font-semibold">
                     {previa.resumo.produtosComOpCobertos} itens com OP chegando previstos
@@ -322,6 +343,16 @@ export function SugestaoDrawer({
                           {p.acessoEquipamento && (
                             <span className="text-[10px] px-1.5 py-0.2 rounded border border-zinc-200 text-zinc-600 font-semibold">
                               {p.acessoEquipamento === 'empilhadeira' ? 'Empilh.' : 'Manual'}
+                            </span>
+                          )}
+                          {p.amarrado && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold">
+                              Amarrado
+                            </span>
+                          )}
+                          {p.empilhadoSobre && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-50 border border-amber-200 text-amber-800 font-semibold">
+                              Sobre {p.empilhadoSobre}
                             </span>
                           )}
                           <span className="font-mono text-zinc-700">{p.produtoCodigo}</span>

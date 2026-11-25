@@ -95,6 +95,14 @@ export interface AlocacaoItemView {
   estouroAltura: boolean;
   coberturaMeses: number | null;
   pesoEstimadoKg?: number | null;
+  orientacaoModo?: 'auto' | 'normal' | 'rotacionado' | 'amarracao' | string;
+  orientacaoEfetiva?: 'normal' | 'rotacionado' | 'amarracao' | string;
+  empilhadoSobre?: string | null;
+  zBaseCm?: number;
+  volumeOcupadoM3?: number;
+  amarrado?: boolean;
+  apoioPct?: number | null;
+  alertaEstabilidade?: string | null;
 }
 
 export interface AlocacaoLoteView {
@@ -136,6 +144,12 @@ export interface PosicaoComItens extends Posicao {
   pesoTotalComPaleteKg?: number;
   cotaBaseCm?: number;
   acessoEquipamento?: 'manual' | 'empilhadeira' | string;
+  volumeVaoM3?: number;
+  volumeOcupadoM3?: number;
+  cubagemPct?: number;
+  areaOcupadaPct?: number;
+  estabilidadeStatus?: 'vazio' | 'amarrado' | 'coluna_estavel' | 'misto_estavel' | 'alerta' | string;
+  estabilidadeResumo?: string;
 }
 
 export type SituacaoAlocacao =
@@ -267,6 +281,10 @@ export interface SugestaoProposta {
   totalCaixas: number;
   totalUnidades: number;
   larguraOcupadaCm: number;
+  orientacaoModo?: string;
+  empilhadoSobre?: string | null;
+  amarrado?: boolean;
+  volumeOcupadoM3?: number;
 }
 
 export interface SugestaoNaoAlocado {
@@ -287,6 +305,10 @@ export interface SugestaoResumo {
   propostasManualCount?: number;
   propostasEmpilhadeiraCount?: number;
   produtosComOpCobertos?: number;
+  cubagemMediaPct?: number;
+  paletesAmarradosCount?: number;
+  itensEmpilhadosMistosCount?: number;
+  itensSoAtacadoNoPulmao?: number;
 }
 
 export interface OpChegandoItem {

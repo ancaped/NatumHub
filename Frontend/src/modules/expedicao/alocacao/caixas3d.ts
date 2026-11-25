@@ -873,16 +873,32 @@ export function gerarLayoutVao3d(params: {
   let cursorX = 0;
   let totalEstoqueVao = 0;
   const itens: ItemVao3dLayout[] = [];
+  const basesLayout = new Map<
+    string,
+    { x0: number; y0: number; footprintW: number; footprintD: number; zTop: number }
+  >();
 
-  for (let itemIndex = 0; itemIndex < posicao.itens.length; itemIndex++) {
-    const item = posicao.itens[itemIndex];
-    const disp = Math.max(0, wVao - cursorX);
-    if (disp < 4) break;
+  const ordenados = posicao.itens
+    .map((item, itemIndex) => ({ item, itemIndex }))
+    .sort((a, b) => Number(Boolean(a.item.empilhadoSobre)) - Number(Boolean(b.item.empilhadoSobre)));
+
+  for (const { item, itemIndex } of ordenados) {
+    const ehSobreposto = Boolean(item.empilhadoSobre);
+    const baseAlvo = item.empilhadoSobre ? basesLayout.get(item.empilhadoSobre) : undefined;
+
+    const disp = baseAlvo ? baseAlvo.footprintW : Math.max(0, wVao - cursorX);
+    if (!baseAlvo && disp < 4) break;
+
+    const modoItem = item.orientacaoModo ?? 'auto';
+    const oriEfetiva = item.orientacaoEfetiva ?? 'normal';
+    const isRot = !item.amarrado && oriEfetiva === 'rotacionado';
+    const cxLarg = isRot ? item.caixaComprimentoCm : item.caixaLarguraCm;
+    const cxComp = isRot ? item.caixaLarguraCm : item.caixaComprimentoCm;
 
     const wEstimado =
       item.larguraOcupadaCm > 0
         ? item.larguraOcupadaCm
-        : Math.max(1, item.fileirasLargura) * (item.caixaLarguraCm ?? 20);
+        : Math.max(1, item.fileirasLargura) * (cxLarg ?? 20);
     const wItem = Math.min(disp, Math.max(8, wEstimado));
 
     const saldo = saldos.get(item.id);
@@ -891,33 +907,59 @@ export function gerarLayoutVao3d(params: {
     totalEstoqueVao += estCx;
 
     const qtdAlvo = modoQtd === 'estoque' ? estCx : capCx;
-    const podeGirar = caixaPorId.get(item.caixaId ?? '')?.podeGirar !== false;
-    const hDisp = hBase + (item.estouroAltura || posicao.temEstouro ? 10 : 0);
+    const cxPodeGirar = caixaPorId.get(item.caixaId ?? '')?.podeGirar !== false;
+    const usarAmarracaoItem =
+      modoItem === 'normal' || modoItem === 'rotacionado'
+        ? false
+        : modoItem === 'amarracao'
+          ? usarAmarracao && cxPodeGirar
+          : usarAmarracao && (Boolean(item.amarrado) || oriEfetiva === 'amarracao' || posicao.itens.length === 1);
+    const podeGirarItem =
+      modoItem === 'normal' || modoItem === 'rotacionado' ? false : cxPodeGirar;
+
+    const zBaseItem = baseAlvo ? baseAlvo.zTop + 0.6 : zBase;
+    const hDispTotal = hBase + (item.estouroAltura || posicao.temEstouro ? 10 : 0);
+    const hDispItem = baseAlvo
+      ? Math.max(8, hDispTotal - (baseAlvo.zTop - zBase))
+      : hDispTotal;
     const hTarget = Math.min(
-      hDisp,
-      Math.max(10, item.alturaOcupadaCm || hDisp * 0.75),
+      hDispItem,
+      Math.max(8, item.alturaOcupadaCm || hDispItem * 0.75),
     );
+    const depthSlot = baseAlvo ? baseAlvo.footprintD : dVao;
+    const xPos = baseAlvo
+      ? baseAlvo.x0 + Math.max(0, (baseAlvo.footprintW - wItem) / 2)
+      : cursorX;
+    const yPos = baseAlvo
+      ? baseAlvo.y0 +
+        Math.max(
+          0,
+          (baseAlvo.footprintD -
+            Math.min(baseAlvo.footprintD, Math.max(1, item.caixasComprimento) * (cxComp ?? 22))) /
+            2,
+        )
+      : 0;
 
     const res = gerarCaixasItem3d({
-      xStart: cursorX,
-      yStart: 0,
-      zBase,
+      xStart: xPos,
+      yStart: yPos,
+      zBase: zBaseItem,
       maxWidthCm: disp,
-      slotDepthCm: dVao,
-      maxHeightCm: hDisp,
+      slotDepthCm: depthSlot,
+      maxHeightCm: hDispItem,
       fileirasLargura: item.fileirasLargura,
       caixasComprimento: item.caixasComprimento,
       camadasAltura: item.camadasAltura,
       larguraOcupadaCm: wItem,
       alturaOcupadaCm: hTarget,
-      caixaLarguraCm: item.caixaLarguraCm,
-      caixaComprimentoCm: item.caixaComprimentoCm,
+      caixaLarguraCm: cxLarg,
+      caixaComprimentoCm: cxComp,
       caixaAlturaCm: item.caixaAlturaCm,
       qtdCaixasAlvo: qtdAlvo,
       dirSign,
       modoDetalhe: 'foco',
-      usarAmarracao,
-      podeGirar,
+      usarAmarracao: usarAmarracaoItem,
+      podeGirar: podeGirarItem,
       aplicarCulling: false,
     });
 
@@ -934,8 +976,19 @@ export function gerarLayoutVao3d(params: {
       caixas: caixasFinais,
     });
 
-    cursorX += wItem + gap;
+    if (!ehSobreposto) {
+      basesLayout.set(item.produtoCodigo, {
+        x0: xPos,
+        y0: yPos,
+        footprintW: res.footprintW,
+        footprintD: res.footprintD,
+        zTop: zBaseItem + res.heightMax,
+      });
+      cursorX += wItem + gap;
+    }
   }
+
+  itens.sort((a, b) => a.itemIndex - b.itemIndex);
 
   return {
     wVao,

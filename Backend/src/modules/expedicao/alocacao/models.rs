@@ -105,6 +105,14 @@ pub struct AlocacaoItemView {
     pub estouro_altura: bool,
     pub cobertura_meses: Option<f64>,
     pub peso_estimado_kg: Option<f64>,
+    pub orientacao_modo: String,
+    pub orientacao_efetiva: String,
+    pub empilhado_sobre: Option<String>,
+    pub z_base_cm: f64,
+    pub volume_ocupado_m3: f64,
+    pub amarrado: bool,
+    pub apoio_pct: Option<f64>,
+    pub alerta_estabilidade: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +132,12 @@ pub struct PosicaoComItens {
     pub peso_total_com_palete_kg: f64,
     pub cota_base_cm: f64,
     pub acesso_equipamento: String,
+    pub volume_vao_m3: f64,
+    pub volume_ocupado_m3: f64,
+    pub cubagem_pct: f64,
+    pub area_ocupada_pct: f64,
+    pub estabilidade_status: String,
+    pub estabilidade_resumo: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -353,6 +367,8 @@ pub struct AlocacaoUpsertInput {
     pub camadas_altura: i32,
     pub fixado: Option<bool>,
     pub observacoes: Option<String>,
+    pub orientacao_modo: Option<String>,
+    pub empilhado_sobre: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -386,6 +402,10 @@ pub struct SugestaoProposta {
     pub total_caixas: i32,
     pub total_unidades: i32,
     pub largura_ocupada_cm: f64,
+    pub orientacao_modo: String,
+    pub empilhado_sobre: Option<String>,
+    pub amarrado: bool,
+    pub volume_ocupado_m3: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -410,6 +430,10 @@ pub struct SugestaoResumo {
     pub propostas_manual_count: usize,
     pub propostas_empilhadeira_count: usize,
     pub produtos_com_op_cobertos: usize,
+    pub cubagem_media_pct: f64,
+    pub paletes_amarrados_count: usize,
+    pub itens_empilhados_mistos_count: usize,
+    pub itens_so_atacado_no_pulmao: usize,
 }
 
 #[derive(Debug, Deserialize)]

@@ -105,7 +105,16 @@ export function PosicaoDrawer({
   const [movendoLoteId, setMovendoLoteId] = useState<string | null>(null);
 
   const [edicoes, setEdicoes] = useState<
-    Record<string, { fileiras: number; camadas: number; fixado: boolean }>
+    Record<
+      string,
+      {
+        fileiras: number;
+        camadas: number;
+        fixado: boolean;
+        orientacaoModo: string;
+        empilhadoSobre: string | null;
+      }
+    >
   >({});
 
   useEffect(() => {
@@ -141,12 +150,23 @@ export function PosicaoDrawer({
     setLoteDataVal('');
     setDestinoMoverLote({});
     setQtdMoverLote({});
-    const map: Record<string, { fileiras: number; camadas: number; fixado: boolean }> = {};
+    const map: Record<
+      string,
+      {
+        fileiras: number;
+        camadas: number;
+        fixado: boolean;
+        orientacaoModo: string;
+        empilhadoSobre: string | null;
+      }
+    > = {};
     for (const item of posicao.itens) {
       map[item.id] = {
         fileiras: item.fileirasLargura,
         camadas: item.camadasAltura,
         fixado: item.fixado,
+        orientacaoModo: item.orientacaoModo ?? 'auto',
+        empilhadoSobre: item.empilhadoSobre ?? null,
       };
     }
     setEdicoes(map);
@@ -313,6 +333,8 @@ export function PosicaoDrawer({
           camadasAltura: Math.max(1, ed.camadas),
           fixado: ed.fixado,
           observacoes: null,
+          orientacaoModo: ed.orientacaoModo,
+          empilhadoSobre: ed.empilhadoSobre,
         },
         true,
       );
@@ -489,7 +511,7 @@ export function PosicaoDrawer({
       badge={
         <div className="flex flex-wrap items-center gap-1.5">
           <StatusBadge variante={posicao.papel === 'pulmao' ? 'aguardando' : 'saudavel'}>
-            {posicao.papel === 'pulmao' ? 'Pulmão' : 'Picking'}
+            {posicao.papel === 'pulmao' ? 'Pulmão · Atacado' : 'Varejo · Manual'}
           </StatusBadge>
           {tipoVaoAtual === 'misto' && (
             <StatusBadge variante="descontinuado">Palete Misto</StatusBadge>
@@ -574,6 +596,30 @@ export function PosicaoDrawer({
                   style={{ width: `${Math.min(100, Math.max(0, posicao.ocupacaoPct))}%` }}
                 />
               </div>
+              {(posicao.volumeVaoM3 ?? 0) > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] pt-0.5">
+                  <span className="font-mono text-zinc-700">
+                    Cubagem:{' '}
+                    <strong>
+                      {(posicao.volumeOcupadoM3 ?? 0).toFixed(2)} /{' '}
+                      {(posicao.volumeVaoM3 ?? 0).toFixed(2)} m³ (
+                      {(posicao.cubagemPct ?? 0).toFixed(0)}%)
+                    </strong>{' '}
+                    · Área lastro {(posicao.areaOcupadaPct ?? 0).toFixed(0)}%
+                  </span>
+                  {posicao.estabilidadeResumo && posicao.estabilidadeStatus !== 'vazio' && (
+                    <span
+                      className={`font-semibold ${
+                        posicao.estabilidadeStatus === 'alerta'
+                          ? 'text-red-700'
+                          : 'text-emerald-700'
+                      }`}
+                    >
+                      {posicao.estabilidadeResumo}
+                    </span>
+                  )}
+                </div>
+              )}
             </>
           )}
           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-600 pt-0.5">
@@ -772,6 +818,8 @@ export function PosicaoDrawer({
                   fileiras: item.fileirasLargura,
                   camadas: item.camadasAltura,
                   fixado: item.fixado,
+                  orientacaoModo: item.orientacaoModo ?? 'auto',
+                  empilhadoSobre: item.empilhadoSobre ?? null,
                 };
                 const cx = item.caixaId ? caixaMap.get(item.caixaId) : undefined;
                 const largPrev = cx ? ed.fileiras * cx.larguraCm : item.larguraOcupadaCm;
@@ -782,6 +830,10 @@ export function PosicaoDrawer({
                 const totalUnPrev = item.qtdeCx ? totalCxPrev * item.qtdeCx : item.totalUnidades;
                 const estouroPrev = cx ? altPrev > posicao.alturaCm + 1e-6 : item.estouroAltura;
                 const prodItem = produtos.find((p) => p.codigo === item.produtoCodigo);
+                const outrasBases = posicao.itens.filter(
+                  (o) => o.produtoCodigo !== item.produtoCodigo && !o.empilhadoSobre,
+                );
+                const cxPodeGirar = cx?.podeGirar !== false;
 
                 return (
                   <div
@@ -799,6 +851,22 @@ export function PosicaoDrawer({
                               CX {item.caixaCodigo}
                             </span>
                           )}
+                          {item.amarrado && (
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold text-[10px]">
+                              Amarrado
+                            </span>
+                          )}
+                          {!item.amarrado && item.orientacaoEfetiva === 'rotacionado' && (
+                            <span className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 font-semibold text-[10px]">
+                              Girado 90°
+                            </span>
+                          )}
+                          {item.empilhadoSobre && (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 font-semibold text-[10px]">
+                              Sobre {item.empilhadoSobre}
+                              {item.apoioPct != null ? ` · apoio ${Math.round(item.apoioPct)}%` : ''}
+                            </span>
+                          )}
                           {(prodItem?.opPendenteCaixas ?? 0) > 0 && (
                             <span className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 font-semibold text-[10px]">
                               +{prodItem?.opPendenteCaixas} cx em OP ({prodItem?.opProximaEtapa ?? 'Produção'})
@@ -811,6 +879,11 @@ export function PosicaoDrawer({
                         <p className="text-zinc-600 font-medium truncate">
                           {item.produtoDescricao}
                         </p>
+                        {item.alertaEstabilidade && (
+                          <p className="text-[11px] font-semibold text-red-700 mt-0.5">
+                            {item.alertaEstabilidade}
+                          </p>
+                        )}
                       </div>
                       {canEdit && (
                         <button
@@ -885,6 +958,9 @@ export function PosicaoDrawer({
                       <span className="text-zinc-600 font-mono text-[11px]">
                         {largPrev.toFixed(1)} cm · {totalCxPrev} cx ·{' '}
                         {totalUnPrev.toLocaleString('pt-BR')} un
+                        {(item.volumeOcupadoM3 ?? 0) > 0
+                          ? ` · ${(item.volumeOcupadoM3 ?? 0).toFixed(2)} m³`
+                          : ''}
                         {item.pesoEstimadoKg != null && item.pesoEstimadoKg > 0
                           ? ` · ~${Math.round(item.pesoEstimadoKg)} kg`
                           : ''}
@@ -893,6 +969,60 @@ export function PosicaoDrawer({
                           : ''}
                       </span>
                     </div>
+
+                    {canEdit && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                        <label className="flex items-center gap-1.5">
+                          <span className="text-zinc-500 font-semibold shrink-0">Orientação:</span>
+                          <select
+                            aria-label={`Orientação de ${item.produtoCodigo}`}
+                            value={ed.orientacaoModo}
+                            onChange={(e) =>
+                              setEdicoes((prev) => ({
+                                ...prev,
+                                [item.id]: { ...ed, orientacaoModo: e.target.value },
+                              }))
+                            }
+                            className="flex-1 min-w-0 px-2 py-1 border border-zinc-200 rounded-lg bg-zinc-50 text-xs"
+                          >
+                            <option value="auto">Automática</option>
+                            <option value="normal">Normal (0°)</option>
+                            <option value="rotacionado" disabled={!cxPodeGirar}>
+                              Girado (90°)
+                            </option>
+                            <option value="amarracao" disabled={!cxPodeGirar}>
+                              Amarração cruzada
+                            </option>
+                          </select>
+                        </label>
+                        {outrasBases.length > 0 && (
+                          <label className="flex items-center gap-1.5">
+                            <span className="text-zinc-500 font-semibold shrink-0">Empilhar:</span>
+                            <select
+                              aria-label={`Base vertical de ${item.produtoCodigo}`}
+                              value={ed.empilhadoSobre ?? ''}
+                              onChange={(e) =>
+                                setEdicoes((prev) => ({
+                                  ...prev,
+                                  [item.id]: {
+                                    ...ed,
+                                    empilhadoSobre: e.target.value || null,
+                                  },
+                                }))
+                              }
+                              className="flex-1 min-w-0 px-2 py-1 border border-zinc-200 rounded-lg bg-zinc-50 text-xs font-mono"
+                            >
+                              <option value="">Base do palete</option>
+                              {outrasBases.map((b) => (
+                                <option key={`bs-${b.id}`} value={b.produtoCodigo}>
+                                  Sobre {b.produtoCodigo}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                      </div>
+                    )}
 
                     {canEdit && (
                       <div className="space-y-2 pt-1.5 border-t border-zinc-100">

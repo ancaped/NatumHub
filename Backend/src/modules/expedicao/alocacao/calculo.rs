@@ -114,6 +114,223 @@ pub fn calcular_camadas_compat_vao(
     fallback_atual.max(1)
 }
 
+pub fn arred4(v: f64) -> f64 {
+    (v * 10_000.0).round() / 10_000.0
+}
+
+pub fn normalizar_orientacao_modo(raw: Option<&str>) -> String {
+    match raw.unwrap_or("auto").trim().to_ascii_lowercase().as_str() {
+        "normal" | "0" => "normal".into(),
+        "rotacionado" | "90" => "rotacionado".into(),
+        "amarracao" | "amarrado" => "amarracao".into(),
+        _ => "auto".into(),
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Rect2d {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+fn apoio_espelhado_retangulos(rects: &[Rect2d], pal_w: f64, pal_d: f64) -> f64 {
+    if rects.is_empty() {
+        return 0.0;
+    }
+    let espelhados: Vec<Rect2d> = rects
+        .iter()
+        .map(|r| Rect2d {
+            x: (pal_w - (r.x + r.w)).max(0.0),
+            y: (pal_d - (r.y + r.h)).max(0.0),
+            w: r.w,
+            h: r.h,
+        })
+        .collect();
+    let mut min_apoio = 100.0_f64;
+    for t in &espelhados {
+        let area_t = t.w * t.h;
+        if area_t <= EPS {
+            return 0.0;
+        }
+        let mut overlap = 0.0;
+        for b in rects {
+            let ix = (t.x + t.w).min(b.x + b.w) - t.x.max(b.x);
+            if ix <= 0.0 {
+                continue;
+            }
+            let iy = (t.y + t.h).min(b.y + b.h) - t.y.max(b.y);
+            if iy <= 0.0 {
+                continue;
+            }
+            overlap += ix * iy;
+        }
+        min_apoio = min_apoio.min((overlap / area_t) * 100.0);
+    }
+    min_apoio
+}
+
+#[derive(Debug, Clone)]
+pub struct MelhorLastro {
+    pub orientacao_efetiva: String,
+    pub caixas_por_lastro: i32,
+    pub caixas_comp: i32,
+    pub largura_caixa_efetiva_cm: f64,
+    pub profundidade_caixa_efetiva_cm: f64,
+    pub amarrado: bool,
+}
+
+/// Avalia orientações (0°, 90° e amarração mista em faixas) dentro da largura e profundidade do vão.
+pub fn calcular_melhor_lastro_faixa(
+    largura_disponivel_cm: f64,
+    profundidade_vao_cm: f64,
+    cx: &Caixa,
+    fileiras_largura: i32,
+    orientacao_modo: &str,
+    palete_inteiro: bool,
+) -> MelhorLastro {
+    let fil = fileiras_largura.max(1);
+    let comp_norm = caixas_comprimento(profundidade_vao_cm, cx.comprimento_cm);
+    let cap_norm = fil * comp_norm.max(0);
+    let modo = normalizar_orientacao_modo(Some(orientacao_modo));
+
+    let comp_rot = if cx.pode_girar {
+        caixas_comprimento(profundidade_vao_cm, cx.largura_cm)
+    } else {
+        0
+    };
+    let larg_rot_cabe = if cx.pode_girar && cx.comprimento_cm > EPS {
+        ((largura_disponivel_cm + EPS) / cx.comprimento_cm).floor() as i32
+    } else {
+        0
+    };
+    let cap_rot = if larg_rot_cabe >= fil {
+        fil * comp_rot.max(0)
+    } else {
+        0
+    };
+
+    // Partições de amarração em faixas (mesmo algoritmo de paletizacao.ts) quando palete_inteiro ou pedido explícito
+    let mut best_amar_qtd = 0i32;
+    let mut best_amar_mista = false;
+    if cx.pode_girar && (palete_inteiro || modo == "amarracao") && largura_disponivel_cm > EPS && profundidade_vao_cm > EPS {
+        let max_nx_norm = ((largura_disponivel_cm + EPS) / cx.largura_cm.max(EPS)).floor() as i32;
+        let max_ny_norm = ((profundidade_vao_cm + EPS) / cx.comprimento_cm.max(EPS)).floor() as i32;
+        let ny_rot_full = ((profundidade_vao_cm + EPS) / cx.largura_cm.max(EPS)).floor() as i32;
+        let nx_rot_full = ((largura_disponivel_cm + EPS) / cx.comprimento_cm.max(EPS)).floor() as i32;
+
+        for nx_n in 0..=max_nx_norm.max(0) {
+            let x_base = (nx_n as f64) * cx.largura_cm;
+            let nx_r = (((largura_disponivel_cm - x_base) + EPS) / cx.comprimento_cm.max(EPS)).floor() as i32;
+            let mut rects = Vec::new();
+            for ix in 0..nx_n {
+                for iy in 0..max_ny_norm {
+                    rects.push(Rect2d {
+                        x: (ix as f64) * cx.largura_cm,
+                        y: (iy as f64) * cx.comprimento_cm,
+                        w: cx.largura_cm,
+                        h: cx.comprimento_cm,
+                    });
+                }
+            }
+            for rx in 0..nx_r.max(0) {
+                for ry in 0..ny_rot_full.max(0) {
+                    rects.push(Rect2d {
+                        x: x_base + (rx as f64) * cx.comprimento_cm,
+                        y: (ry as f64) * cx.largura_cm,
+                        w: cx.comprimento_cm,
+                        h: cx.largura_cm,
+                    });
+                }
+            }
+            let q = rects.len() as i32;
+            let mista = nx_n > 0 && nx_r > 0 && ny_rot_full > 0 && max_ny_norm > 0;
+            if q > 0 && apoio_espelhado_retangulos(&rects, largura_disponivel_cm, profundidade_vao_cm) >= 80.0 {
+                if q > best_amar_qtd || (q == best_amar_qtd && mista && !best_amar_mista) {
+                    best_amar_qtd = q;
+                    best_amar_mista = mista;
+                }
+            }
+        }
+        for ny_n in 0..=max_ny_norm.max(0) {
+            let y_base = (ny_n as f64) * cx.comprimento_cm;
+            let ny_r = (((profundidade_vao_cm - y_base) + EPS) / cx.largura_cm.max(EPS)).floor() as i32;
+            let mut rects = Vec::new();
+            for iy in 0..ny_n {
+                for ix in 0..max_nx_norm {
+                    rects.push(Rect2d {
+                        x: (ix as f64) * cx.largura_cm,
+                        y: (iy as f64) * cx.comprimento_cm,
+                        w: cx.largura_cm,
+                        h: cx.comprimento_cm,
+                    });
+                }
+            }
+            for ry in 0..ny_r.max(0) {
+                for rx in 0..nx_rot_full.max(0) {
+                    rects.push(Rect2d {
+                        x: (rx as f64) * cx.comprimento_cm,
+                        y: y_base + (ry as f64) * cx.largura_cm,
+                        w: cx.comprimento_cm,
+                        h: cx.largura_cm,
+                    });
+                }
+            }
+            let q = rects.len() as i32;
+            let mista = ny_n > 0 && ny_r > 0 && nx_rot_full > 0 && max_nx_norm > 0;
+            if q > 0 && apoio_espelhado_retangulos(&rects, largura_disponivel_cm, profundidade_vao_cm) >= 80.0 {
+                if q > best_amar_qtd || (q == best_amar_qtd && mista && !best_amar_mista) {
+                    best_amar_qtd = q;
+                    best_amar_mista = mista;
+                }
+            }
+        }
+    }
+
+    let escolhido = match modo.as_str() {
+        "normal" => "normal",
+        "rotacionado" if cx.pode_girar && cap_rot > 0 => "rotacionado",
+        "amarracao" if cx.pode_girar && best_amar_qtd > 0 => "amarracao",
+        _ => {
+            if palete_inteiro && cx.pode_girar && best_amar_qtd >= cap_norm.max(cap_rot) && best_amar_qtd > 0 {
+                "amarracao"
+            } else if cx.pode_girar && cap_rot > cap_norm {
+                "rotacionado"
+            } else {
+                "normal"
+            }
+        }
+    };
+
+    match escolhido {
+        "amarracao" => MelhorLastro {
+            orientacao_efetiva: "amarracao".into(),
+            caixas_por_lastro: best_amar_qtd.max(cap_norm),
+            caixas_comp: (best_amar_qtd.max(cap_norm) / fil).max(1),
+            largura_caixa_efetiva_cm: cx.largura_cm,
+            profundidade_caixa_efetiva_cm: cx.comprimento_cm,
+            amarrado: best_amar_mista || best_amar_qtd > 0,
+        },
+        "rotacionado" => MelhorLastro {
+            orientacao_efetiva: "rotacionado".into(),
+            caixas_por_lastro: cap_rot.max(0),
+            caixas_comp: comp_rot.max(0),
+            largura_caixa_efetiva_cm: cx.comprimento_cm,
+            profundidade_caixa_efetiva_cm: cx.largura_cm,
+            amarrado: false,
+        },
+        _ => MelhorLastro {
+            orientacao_efetiva: "normal".into(),
+            caixas_por_lastro: cap_norm.max(0),
+            caixas_comp: comp_norm.max(0),
+            largura_caixa_efetiva_cm: cx.largura_cm,
+            profundidade_caixa_efetiva_cm: cx.comprimento_cm,
+            amarrado: false,
+        },
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GeometriaAlocacao {
     pub caixas_comp: i32,
@@ -124,15 +341,20 @@ pub struct GeometriaAlocacao {
     pub altura_ocupada_cm: f64,
     pub estouro_altura: bool,
     pub cobertura_meses: Option<f64>,
+    pub orientacao_efetiva: String,
+    pub amarrado: bool,
+    pub volume_ocupado_m3: f64,
 }
 
-pub fn calcular_geometria_alocacao(
+pub fn calcular_geometria_alocacao_com_modo(
     pos: &Posicao,
     caixa: Option<&Caixa>,
     fileiras_largura: i32,
     camadas_altura: i32,
     qtde_cx: Option<i32>,
     media_mensal_total: f64,
+    orientacao_modo: &str,
+    palete_inteiro: bool,
 ) -> GeometriaAlocacao {
     let Some(cx) = caixa else {
         return GeometriaAlocacao {
@@ -144,15 +366,33 @@ pub fn calcular_geometria_alocacao(
             altura_ocupada_cm: 0.0,
             estouro_altura: false,
             cobertura_meses: None,
+            orientacao_efetiva: "normal".into(),
+            amarrado: false,
+            volume_ocupado_m3: 0.0,
         };
     };
-    let comp = caixas_comprimento(pos.comprimento_cm, cx.comprimento_cm);
+    let fileiras_eff = fileiras_largura.max(1);
     let max_cam = max_camadas(pos.altura_cm, cx.altura_cm, cx.empilhamento_max);
     let camadas_eff = camadas_altura.max(1);
-    let fileiras_eff = fileiras_largura.max(1);
-    let total_caixas = fileiras_eff * comp.max(0) * camadas_eff;
+    let lastro = calcular_melhor_lastro_faixa(
+        pos.largura_cm,
+        pos.comprimento_cm,
+        cx,
+        fileiras_eff,
+        orientacao_modo,
+        palete_inteiro,
+    );
+    let total_caixas = if lastro.orientacao_efetiva == "amarracao" {
+        lastro.caixas_por_lastro * camadas_eff
+    } else {
+        fileiras_eff * lastro.caixas_comp.max(0) * camadas_eff
+    };
     let total_unidades = qtde_cx.filter(|&q| q > 0).map(|q| total_caixas * q).unwrap_or(0);
-    let largura_ocupada_cm = (fileiras_eff as f64) * cx.largura_cm;
+    let largura_ocupada_cm = if lastro.orientacao_efetiva == "amarracao" {
+        ((fileiras_eff as f64) * cx.largura_cm).min(pos.largura_cm)
+    } else {
+        (fileiras_eff as f64) * lastro.largura_caixa_efetiva_cm
+    };
     let altura_ocupada_cm = (camadas_eff as f64) * cx.altura_cm;
     let estouro_altura = altura_ocupada_cm > pos.altura_cm + EPS;
     let cobertura_meses = if media_mensal_total > 0.0 && total_unidades > 0 {
@@ -160,8 +400,11 @@ pub fn calcular_geometria_alocacao(
     } else {
         None
     };
+    let volume_unitario_m3 = (cx.altura_cm * cx.comprimento_cm * cx.largura_cm) / 1_000_000.0;
+    let volume_ocupado_m3 = arred4((total_caixas.max(0) as f64) * volume_unitario_m3);
+
     GeometriaAlocacao {
-        caixas_comp: comp,
+        caixas_comp: lastro.caixas_comp,
         max_cam,
         total_caixas,
         total_unidades,
@@ -169,7 +412,278 @@ pub fn calcular_geometria_alocacao(
         altura_ocupada_cm,
         estouro_altura,
         cobertura_meses,
+        orientacao_efetiva: lastro.orientacao_efetiva,
+        amarrado: lastro.amarrado && camadas_eff >= 2,
+        volume_ocupado_m3,
     }
+}
+
+pub fn calcular_geometria_alocacao(
+    pos: &Posicao,
+    caixa: Option<&Caixa>,
+    fileiras_largura: i32,
+    camadas_altura: i32,
+    qtde_cx: Option<i32>,
+    media_mensal_total: f64,
+) -> GeometriaAlocacao {
+    calcular_geometria_alocacao_com_modo(
+        pos,
+        caixa,
+        fileiras_largura,
+        camadas_altura,
+        qtde_cx,
+        media_mensal_total,
+        "normal",
+        false,
+    )
+}
+
+/// Validação física para empilhar uma pilha de caixas (`topo`) diretamente sobre outra (`base`) no mesmo palete.
+/// Exige: caber na altura livre, peso/classe não crescente (pesada embaixo, leve/kit em cima) e apoio ≥ 80%.
+pub fn validar_empilhamento_misto(
+    base_w: f64,
+    base_d: f64,
+    base_h: f64,
+    base_peso_cx: Option<f64>,
+    base_classe: &str,
+    topo_w: f64,
+    topo_d: f64,
+    topo_h: f64,
+    topo_peso_cx: Option<f64>,
+    topo_classe: &str,
+    altura_vao_cm: f64,
+) -> (bool, f64, Option<String>) {
+    if base_w <= EPS || base_d <= EPS || topo_w <= EPS || topo_d <= EPS {
+        return (false, 0.0, Some("Dimensões da caixa insuficientes para apoio".into()));
+    }
+    if base_h + topo_h > altura_vao_cm + EPS {
+        return (
+            false,
+            0.0,
+            Some(format!(
+                "Estouro na altura do vão ({:.1} + {:.1} > {:.1} cm)",
+                base_h, topo_h, altura_vao_cm
+            )),
+        );
+    }
+    if base_classe == "topo" {
+        return (
+            false,
+            0.0,
+            Some("Caixa frágil/kit na base: não suporta outra pilha em cima".into()),
+        );
+    }
+    if topo_classe == "base" && base_classe != "base" {
+        return (
+            false,
+            0.0,
+            Some("Caixa pesada em cima de caixa padrão: risco de esmagamento".into()),
+        );
+    }
+    if let (Some(pb), Some(pt)) = (base_peso_cx, topo_peso_cx) {
+        if pt > pb * 1.05 {
+            return (
+                false,
+                0.0,
+                Some(format!(
+                    "Caixa superior ({:.1} kg) é mais pesada que a base ({:.1} kg)",
+                    pt, pb
+                )),
+            );
+        }
+    }
+    let area_topo = topo_w * topo_d;
+    let inter_w = base_w.min(topo_w);
+    let inter_d = base_d.min(topo_d);
+    let apoio_pct = ((inter_w * inter_d) / area_topo * 100.0).min(100.0);
+    if topo_w > base_w + 3.0 || topo_d > base_d + 3.0 {
+        return (
+            false,
+            arred2(apoio_pct),
+            Some(format!(
+                "Balanço lateral excessivo (apoio {:.0}% < 80% / sobra > 1,5 cm)",
+                apoio_pct
+            )),
+        );
+    }
+    if apoio_pct < 80.0 - EPS {
+        return (
+            false,
+            arred2(apoio_pct),
+            Some(format!("Apoio insuficiente ({:.0}% < 80% mínimo)", apoio_pct)),
+        );
+    }
+    (true, arred2(apoio_pct), None)
+}
+
+/// Consolida cubagem real (`m³` e `%`), área de lastro (`%`), coordenadas verticais (`z_base_cm`)
+/// e estabilidade física (amarração / empilhamento misto / esbeltez) do vão.
+pub fn avaliar_estabilidade_vao(
+    pos: &Posicao,
+    itens: &mut [AlocacaoItemView],
+    peso_cx_por_prod: &HashMap<String, f64>,
+    classe_por_prod: &HashMap<String, String>,
+) -> (f64, f64, f64, f64, String, String) {
+    let volume_vao_m3 = arred4((pos.largura_cm * pos.comprimento_cm * pos.altura_cm) / 1_000_000.0);
+    if itens.is_empty() {
+        return (volume_vao_m3, 0.0, 0.0, 0.0, "vazio".into(), "Vão livre".into());
+    }
+
+    struct BaseGeo {
+        w: f64,
+        d: f64,
+        h: f64,
+        peso_cx: Option<f64>,
+        classe: String,
+    }
+
+    let mut bases_geo: HashMap<String, BaseGeo> = HashMap::new();
+    let mut area_base_cm2 = 0.0;
+    let area_vao_cm2 = (pos.largura_cm * pos.comprimento_cm).max(1.0);
+
+    for it in itens.iter() {
+        if it.empilhado_sobre.is_none() {
+            let prof_cx = match it.orientacao_efetiva.as_str() {
+                "rotacionado" => it.caixa_largura_cm.unwrap_or(20.0),
+                _ => it.caixa_comprimento_cm.unwrap_or(20.0),
+            };
+            let d = (it.caixas_comprimento.max(1) as f64) * prof_cx;
+            let d_eff = d.min(pos.comprimento_cm);
+            area_base_cm2 += it.largura_ocupada_cm * d_eff;
+            bases_geo.insert(
+                it.produto_codigo.clone(),
+                BaseGeo {
+                    w: it.largura_ocupada_cm,
+                    d: d_eff,
+                    h: it.altura_ocupada_cm,
+                    peso_cx: peso_cx_por_prod.get(&it.produto_codigo).copied(),
+                    classe: classe_por_prod
+                        .get(&it.produto_codigo)
+                        .cloned()
+                        .unwrap_or_else(|| "padrao".into()),
+                },
+            );
+        }
+    }
+
+    let mut volume_ocupado_m3 = 0.0;
+    let mut tem_misto = false;
+    let mut tem_amarrado = false;
+    let mut primeiro_alerta: Option<String> = None;
+
+    for it in itens.iter_mut() {
+        volume_ocupado_m3 += it.volume_ocupado_m3;
+        if let Some(ref base_cod) = it.empilhado_sobre {
+            tem_misto = true;
+            if let Some(base) = bases_geo.get(base_cod) {
+                it.z_base_cm = base.h;
+                it.estouro_altura = (base.h + it.altura_ocupada_cm) > pos.altura_cm + EPS;
+                let prof_topo = match it.orientacao_efetiva.as_str() {
+                    "rotacionado" => it.caixa_largura_cm.unwrap_or(20.0),
+                    _ => it.caixa_comprimento_cm.unwrap_or(20.0),
+                };
+                let d_topo = ((it.caixas_comprimento.max(1) as f64) * prof_topo).min(pos.comprimento_cm);
+                let topo_peso = peso_cx_por_prod.get(&it.produto_codigo).copied();
+                let topo_classe = classe_por_prod
+                    .get(&it.produto_codigo)
+                    .map(String::as_str)
+                    .unwrap_or("padrao");
+                let (ok, apoio, alerta) = validar_empilhamento_misto(
+                    base.w,
+                    base.d,
+                    base.h,
+                    base.peso_cx,
+                    &base.classe,
+                    it.largura_ocupada_cm,
+                    d_topo,
+                    it.altura_ocupada_cm,
+                    topo_peso,
+                    topo_classe,
+                    pos.altura_cm,
+                );
+                it.apoio_pct = Some(apoio);
+                if !ok {
+                    it.alerta_estabilidade = alerta.clone();
+                    if primeiro_alerta.is_none() {
+                        primeiro_alerta = alerta;
+                    }
+                }
+            } else {
+                it.z_base_cm = 0.0;
+                let msg = format!("Base {} ausente neste vão", base_cod);
+                it.alerta_estabilidade = Some(msg.clone());
+                if primeiro_alerta.is_none() {
+                    primeiro_alerta = Some(msg);
+                }
+            }
+        } else {
+            it.z_base_cm = 0.0;
+            it.apoio_pct = None;
+            if it.amarrado {
+                tem_amarrado = true;
+            } else if it.camadas_altura >= 3 {
+                let prof_cx = match it.orientacao_efetiva.as_str() {
+                    "rotacionado" => it.caixa_largura_cm.unwrap_or(20.0),
+                    _ => it.caixa_comprimento_cm.unwrap_or(20.0),
+                };
+                let d = ((it.caixas_comprimento.max(1) as f64) * prof_cx).max(1.0);
+                let menor_lado = it.largura_ocupada_cm.min(d).max(1.0);
+                if it.altura_ocupada_cm / menor_lado > 2.3 {
+                    let msg = "Pilha estreita sem amarração (esbeltez > 2,3x)".to_string();
+                    it.alerta_estabilidade = Some(msg.clone());
+                    if primeiro_alerta.is_none() {
+                        primeiro_alerta = Some(msg);
+                    }
+                }
+            }
+            if it.estouro_altura && it.alerta_estabilidade.is_none() {
+                let msg = format!(
+                    "Estouro de altura ({:.1} > {:.1} cm)",
+                    it.altura_ocupada_cm, pos.altura_cm
+                );
+                it.alerta_estabilidade = Some(msg.clone());
+                if primeiro_alerta.is_none() {
+                    primeiro_alerta = Some(msg);
+                }
+            }
+        }
+    }
+
+    let volume_ocupado_m3 = arred4(volume_ocupado_m3);
+    let cubagem_pct = if volume_vao_m3 > EPS {
+        arred2(((volume_ocupado_m3 / volume_vao_m3) * 100.0).min(150.0))
+    } else {
+        0.0
+    };
+    let area_ocupada_pct = arred2(((area_base_cm2 / area_vao_cm2) * 100.0).min(150.0));
+
+    let (status, resumo) = if let Some(alerta) = primeiro_alerta {
+        ("alerta".into(), alerta)
+    } else if tem_misto {
+        (
+            "misto_estavel".into(),
+            "Empilhamento misto seguro (apoio ≥ 80%, peso decrescente)".into(),
+        )
+    } else if tem_amarrado {
+        (
+            "amarrado".into(),
+            "Palete com amarração cruzada entre camadas".into(),
+        )
+    } else {
+        (
+            "coluna_estavel".into(),
+            "Empilhamento em coluna estável".into(),
+        )
+    };
+
+    (
+        volume_vao_m3,
+        volume_ocupado_m3,
+        cubagem_pct,
+        area_ocupada_pct,
+        status,
+        resumo,
+    )
 }
 
 pub const TARA_CAIXA_PADRAO_KG: f64 = 0.4;
@@ -427,6 +941,9 @@ pub fn calcular_necessidades_caixas(
     let qf = q as f64;
     let picking = if media_varejo > 0.0 {
         ((media_varejo * meta_meses) / qf).ceil().max(1.0) as i32
+    } else if media_atacado > 0.0 {
+        // Item 100% atacado vai direto para o Pulmão sem ocupar andares manuais de varejo
+        0
     } else if media_total > 0.0 {
         1
     } else {
@@ -449,6 +966,8 @@ pub struct AlocacaoExistente {
     pub camadas_altura: i32,
     pub fixado: bool,
     pub largura_ocupada_cm: f64,
+    pub orientacao_modo: String,
+    pub empilhado_sobre: Option<String>,
 }
 
 /// Prioridade da etapa da OP para ordenação na Expedição (1 = mais próxima de chegar).
@@ -580,7 +1099,148 @@ fn score_compartilhado(prod: &ProdutoDimensao, pos: &Posicao) -> i32 {
     }
 }
 
-/// Motor de sugestão híbrida: zona por linha (principal) + Curva ABC + Picking (níveis baixos/manual) / Pulmão (níveis altos) + OPs chegando.
+#[derive(Debug, Clone)]
+struct BasePilhaSnapshot {
+    produto_codigo: String,
+    grupo_alocacao: String,
+    peso_caixa_kg: Option<f64>,
+    classe_empilhamento: String,
+    w_cm: f64,
+    d_cm: f64,
+    h_ocupada_cm: f64,
+    ja_tem_topo: bool,
+}
+
+#[derive(Debug, Clone)]
+struct EscolhaLastroVao {
+    orientacao_modo: String,
+    fileiras: i32,
+    camadas: i32,
+    total_caixas: i32,
+    largura_ocupada_cm: f64,
+    profundidade_ocupada_cm: f64,
+    altura_ocupada_cm: f64,
+    amarrado: bool,
+    volume_ocupado_m3: f64,
+}
+
+fn escolher_melhor_encaixe_lastro(
+    pos: &Posicao,
+    livre_cm: f64,
+    usada_cm: f64,
+    cx: &Caixa,
+    camadas_override: Option<i32>,
+    qtd_desejada: i32,
+    papel: &str,
+) -> Option<EscolhaLastroVao> {
+    let max_cam = max_camadas(pos.altura_cm, cx.altura_cm, cx.empilhamento_max);
+    let cam = camadas_override
+        .map(|ov| ov.clamp(1, max_cam.max(1)))
+        .unwrap_or(max_cam);
+    if max_cam <= 0 || cam <= 0 {
+        return None;
+    }
+
+    let mut opcoes: Vec<EscolhaLastroVao> = Vec::new();
+    let orientations: &[&str] = if cx.pode_girar {
+        &["normal", "rotacionado"]
+    } else {
+        &["normal"]
+    };
+
+    for &ori in orientations {
+        let (w_cx, d_cx) = if ori == "rotacionado" {
+            (cx.comprimento_cm, cx.largura_cm)
+        } else {
+            (cx.largura_cm, cx.comprimento_cm)
+        };
+        if w_cx <= EPS || d_cx <= EPS || livre_cm + EPS < w_cx {
+            continue;
+        }
+        let comp = caixas_comprimento(pos.comprimento_cm, d_cx);
+        if comp <= 0 {
+            continue;
+        }
+        let max_fil = ((livre_cm + EPS) / w_cx).floor() as i32;
+        if max_fil <= 0 {
+            continue;
+        }
+        let cap_fil = comp * cam;
+        let desejadas = ((qtd_desejada.max(1) as f64) / (cap_fil as f64))
+            .ceil()
+            .max(1.0) as i32;
+        let fil = desejadas.min(max_fil).max(1);
+        let larg_add = (fil as f64) * w_cx;
+
+        // Se o item fica praticamente com o palete inteiro (vazio e ocupa ≥ 75% ou todas fileiras de um palete fechado no pulmão)
+        let vai_palete_inteiro = usada_cm <= EPS
+            && cx.pode_girar
+            && ((larg_add >= pos.largura_cm * 0.72) || (papel == "pulmao" && desejadas >= max_fil));
+
+        if vai_palete_inteiro {
+            let lastro_amar = calcular_melhor_lastro_faixa(
+                pos.largura_cm,
+                pos.comprimento_cm,
+                cx,
+                fil,
+                "amarracao",
+                true,
+            );
+            let tot_amar = lastro_amar.caixas_por_lastro * cam;
+            let tot_norm = fil * comp * cam;
+            if lastro_amar.amarrado && tot_amar >= tot_norm {
+                let vol_un = (cx.altura_cm * cx.comprimento_cm * cx.largura_cm) / 1_000_000.0;
+                opcoes.push(EscolhaLastroVao {
+                    orientacao_modo: "amarracao".into(),
+                    fileiras: max_fil.max(fil),
+                    camadas: cam,
+                    total_caixas: tot_amar,
+                    largura_ocupada_cm: ((max_fil.max(fil) as f64) * cx.largura_cm).min(pos.largura_cm),
+                    profundidade_ocupada_cm: pos.comprimento_cm,
+                    altura_ocupada_cm: (cam as f64) * cx.altura_cm,
+                    amarrado: cam >= 2,
+                    volume_ocupado_m3: arred4((tot_amar as f64) * vol_un),
+                });
+            }
+        }
+
+        let tot = fil * comp * cam;
+        let vol_un = (cx.altura_cm * cx.comprimento_cm * cx.largura_cm) / 1_000_000.0;
+        opcoes.push(EscolhaLastroVao {
+            orientacao_modo: ori.into(),
+            fileiras: fil,
+            camadas: cam,
+            total_caixas: tot,
+            largura_ocupada_cm: arred2(larg_add),
+            profundidade_ocupada_cm: arred2((comp as f64) * d_cx),
+            altura_ocupada_cm: arred2((cam as f64) * cx.altura_cm),
+            amarrado: false,
+            volume_ocupado_m3: arred4((tot as f64) * vol_un),
+        });
+    }
+
+    opcoes.into_iter().max_by(|a, b| {
+        let a_atende = a.total_caixas >= qtd_desejada;
+        let b_atende = b.total_caixas >= qtd_desejada;
+        a_atende
+            .cmp(&b_atende)
+            .then_with(|| a.amarrado.cmp(&b.amarrado))
+            .then_with(|| {
+                if a_atende && b_atende {
+                    // Se ambos atendem, prefere ocupar menos largura para deixar espaço livre no palete
+                    b.largura_ocupada_cm
+                        .partial_cmp(&a.largura_ocupada_cm)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.total_caixas.cmp(&b.total_caixas))
+                } else {
+                    a.total_caixas.cmp(&b.total_caixas)
+                }
+            })
+    })
+}
+
+/// Motor de sugestão híbrida: zona por linha (principal) + Curva ABC + Varejo (manuais) × Pulmão (atacadistas) +
+/// orientação/amarração + empilhamento misto seguro (peso decrescente, apoio ≥ 80%) + OPs chegando.
 pub fn sugerir_alocacao(
     estrutura_id: &str,
     posicoes: &[Posicao],
@@ -597,12 +1257,14 @@ pub fn sugerir_alocacao(
 
     let mut removidas_count = 0usize;
     let mut largura_usada: HashMap<String, f64> = HashMap::new();
+    let mut volume_usado_pos: HashMap<String, f64> = HashMap::new();
     let mut linhas_na_posicao: HashMap<String, HashSet<String>> = HashMap::new();
     let mut caixas_na_posicao: HashMap<String, HashSet<String>> = HashMap::new();
     let mut pares_ocupados: HashSet<(String, String)> = HashSet::new();
     let mut picking_fixo_caixas: HashMap<String, i32> = HashMap::new();
     let mut pulmao_fixo_caixas: HashMap<String, i32> = HashMap::new();
     let mut produtos_ja_alocados: HashSet<String> = HashSet::new();
+    let mut bases_por_posicao: HashMap<String, Vec<BasePilhaSnapshot>> = HashMap::new();
 
     let prod_map: HashMap<&str, &ProdutoDimensao> =
         produtos.iter().map(|p| (p.codigo.as_str(), p)).collect();
@@ -619,7 +1281,9 @@ pub fn sugerir_alocacao(
             removidas_count += 1;
             continue;
         }
-        *largura_usada.entry(ex.posicao_id.clone()).or_insert(0.0) += ex.largura_ocupada_cm;
+        if ex.empilhado_sobre.is_none() {
+            *largura_usada.entry(ex.posicao_id.clone()).or_insert(0.0) += ex.largura_ocupada_cm;
+        }
         pares_ocupados.insert((ex.posicao_id.clone(), ex.produto_codigo.clone()));
         produtos_ja_alocados.insert(ex.produto_codigo.clone());
 
@@ -641,17 +1305,59 @@ pub fn sugerir_alocacao(
             if let Some(pos) = pos_map.get(ex.posicao_id.as_str()) {
                 if let Some(cid) = &prod.caixa_id {
                     if let Some(cx) = caixa_map.get(cid.as_str()) {
-                        let comp = caixas_comprimento(pos.comprimento_cm, cx.comprimento_cm);
-                        let cap = ex.fileiras_largura * comp * ex.camadas_altura;
+                        let g = calcular_geometria_alocacao_com_modo(
+                            pos,
+                            Some(cx),
+                            ex.fileiras_largura,
+                            ex.camadas_altura,
+                            prod.qtde_cx_efetiva,
+                            prod.media_total,
+                            &ex.orientacao_modo,
+                            false,
+                        );
+                        *volume_usado_pos.entry(pos.id.clone()).or_insert(0.0) += g.volume_ocupado_m3;
                         if pos.papel == "picking" {
                             *picking_fixo_caixas
                                 .entry(prod.codigo.clone())
-                                .or_insert(0) += cap;
+                                .or_insert(0) += g.total_caixas;
                         } else {
                             *pulmao_fixo_caixas
                                 .entry(prod.codigo.clone())
-                                .or_insert(0) += cap;
+                                .or_insert(0) += g.total_caixas;
                         }
+                        if ex.empilhado_sobre.is_none() {
+                            let prof_cx = if g.orientacao_efetiva == "rotacionado" {
+                                cx.largura_cm
+                            } else {
+                                cx.comprimento_cm
+                            };
+                            bases_por_posicao.entry(pos.id.clone()).or_default().push(BasePilhaSnapshot {
+                                produto_codigo: prod.codigo.clone(),
+                                grupo_alocacao: prod.grupo_alocacao.clone(),
+                                peso_caixa_kg: prod.peso_caixa_estimado_kg,
+                                classe_empilhamento: prod.classe_empilhamento.clone(),
+                                w_cm: g.largura_ocupada_cm,
+                                d_cm: ((g.caixas_comp.max(1) as f64) * prof_cx).min(pos.comprimento_cm),
+                                h_ocupada_cm: g.altura_ocupada_cm,
+                                ja_tem_topo: false,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Marcar bases que já possuem topo dentre os existentes mantidos
+    for ex in existentes {
+        let manter = if ex.fixado { manter_fixados } else { !limpar_nao_fixados };
+        if !manter {
+            continue;
+        }
+        if let Some(ref base_cod) = ex.empilhado_sobre {
+            if let Some(lista) = bases_por_posicao.get_mut(&ex.posicao_id) {
+                for b in lista.iter_mut() {
+                    if &b.produto_codigo == base_cod {
+                        b.ja_tem_topo = true;
                     }
                 }
             }
@@ -747,11 +1453,16 @@ pub fn sugerir_alocacao(
             .then_with(|| a.codigo.cmp(&b.codigo))
     });
 
+    // Picking (Varejo): prioriza vãos com acesso manual (< 120 cm) antes de qualquer outro
     let mut picking_pos: Vec<&Posicao> = posicoes
         .iter()
         .filter(|p| vao_elegivel_sugestao(p, "picking"))
         .collect();
-    picking_pos.sort_by_key(|p| (p.andar, p.coluna_ordem, p.lado, p.nivel));
+    picking_pos.sort_by_key(|p| {
+        let cota = cotas_base.get(&p.andar).copied().unwrap_or(0.0);
+        let nao_manual = acesso_equipamento_por_cota(cota) != "manual";
+        (nao_manual, p.andar, p.coluna_ordem, p.lado, p.nivel)
+    });
 
     let mut pulmao_pos: Vec<&Posicao> = posicoes
         .iter()
@@ -761,6 +1472,7 @@ pub fn sugerir_alocacao(
 
     let mut propostas: Vec<SugestaoProposta> = Vec::new();
     let mut produtos_com_proposta: HashSet<String> = HashSet::new();
+    let mut itens_so_atacado_no_pulmao = 0usize;
 
     for prod in candidatos {
         let cid = prod.caixa_id.as_ref().unwrap();
@@ -774,11 +1486,15 @@ pub fn sugerir_alocacao(
         let fix_pick = picking_fixo_caixas.get(&prod.codigo).copied().unwrap_or(0);
         let fix_pulm = pulmao_fixo_caixas.get(&prod.codigo).copied().unwrap_or(0);
 
-        let min_pick = prod.caixas_necessarias_picking.max(1);
-        let mut rest_pick = (min_pick - fix_pick).max(0);
-        if fix_pick > 0 {
-            rest_pick = (prod.caixas_necessarias_picking - fix_pick).max(0);
-        }
+        // Se caixas_necessarias_picking == 0 (100% atacado), não ocupa andares manuais de varejo
+        let precisa_varejo = prod.caixas_necessarias_picking > 0 || prod.media_atacado <= 0.0;
+        let min_pick = if precisa_varejo {
+            prod.caixas_necessarias_picking.max(1)
+        } else {
+            0
+        };
+        let rest_pick = (min_pick - fix_pick).max(0);
+
         let mut rest_pulm = (prod.caixas_necessarias_pulmao - fix_pulm).max(0);
         if considerar_ops_chegando && prod.op_pendente_caixas > 0 {
             let pico_total = prod.estoque_caixas.unwrap_or(0).max(0) + prod.op_pendente_caixas;
@@ -786,43 +1502,38 @@ pub fn sugerir_alocacao(
             let excedente_op = (pico_total - meta_planejada).max(0);
             rest_pulm += excedente_op;
         }
-        let mut precisa_picking = fix_pick == 0 || rest_pick > 0;
+        if !precisa_varejo && fix_pick == 0 && (rest_pulm > 0 || fix_pulm > 0) {
+            itens_so_atacado_no_pulmao += 1;
+        }
+        let mut precisa_picking = precisa_varejo && (fix_pick == 0 || rest_pick > 0);
 
-        // 1) Picking: tenta alocar 1 endereço (nível baixo / manual) para o varejo / acesso rápido
+        // 1) Picking (Varejo / andares manuais): primeiro lado a lado/frente-fundo; só empilha sobre outra caixa se faltar lastro
         if precisa_picking && !picking_pos.is_empty() {
-            let mut melhor_idx: Option<(i32, usize, i32, i32, i32)> = None;
-            // Tuple score (menor vence): (prioridade_compatibilidade, ordem_posicao, fileiras_a_alocar, camadas, comp)
+            let mut melhor_lastro: Option<(i32, usize, EscolhaLastroVao)> = None;
             for (idx, pos) in picking_pos.iter().enumerate() {
                 if pares_ocupados.contains(&(pos.id.clone(), prod.codigo.clone())) {
                     continue;
                 }
                 let usada = largura_usada.get(&pos.id).copied().unwrap_or(0.0);
                 let livre = (pos.largura_cm - usada).max(0.0);
-                let comp = caixas_comprimento(pos.comprimento_cm, cx.comprimento_cm);
-                let max_cam = max_camadas(pos.altura_cm, cx.altura_cm, cx.empilhamento_max);
-                let cam = prod
-                    .camadas_override
-                    .map(|ov| ov.clamp(1, max_cam.max(1)))
-                    .unwrap_or(max_cam);
-                if comp <= 0 || max_cam <= 0 || cam <= 0 || livre + EPS < cx.largura_cm {
+                let Some(encaixe) = escolher_melhor_encaixe_lastro(
+                    pos,
+                    livre,
+                    usada,
+                    cx,
+                    prod.camadas_override,
+                    rest_pick.max(1),
+                    "picking",
+                ) else {
                     continue;
-                }
-                let cap_fileira = comp * cam;
-                let max_fil = ((livre + EPS) / cx.largura_cm).floor() as i32;
-                let desejadas = ((rest_pick.max(1) as f64) / (cap_fileira as f64))
-                    .ceil()
-                    .max(1.0) as i32;
-                let cabe_tudo = max_fil >= desejadas;
-                let mesma_linha = linhas_na_posicao
-                    .get(&pos.id)
-                    .is_some_and(|s| s.contains(&lg));
-                let mesma_caixa = caixas_na_posicao
-                    .get(&pos.id)
-                    .is_some_and(|s| s.contains(cid));
+                };
+                let max_fil_v = ((livre + EPS) / cx.largura_cm.min(cx.comprimento_cm).max(1.0)).floor() as i32;
+                let cabe_tudo = encaixe.total_caixas >= rest_pick.max(1) || max_fil_v >= encaixe.fileiras;
+                let mesma_linha = linhas_na_posicao.get(&pos.id).is_some_and(|s| s.contains(&lg));
+                let mesma_caixa = caixas_na_posicao.get(&pos.id).is_some_and(|s| s.contains(cid));
                 let vazio = usada <= EPS;
                 let cota = cotas_base.get(&pos.andar).copied().unwrap_or(0.0);
 
-                // Prioridade: combina agrupamento + compartilhado + ergonomia (menos paleteira)
                 let base_prio = if mesma_linha && mesma_caixa {
                     0
                 } else if mesma_linha {
@@ -834,32 +1545,39 @@ pub fn sugerir_alocacao(
                 } + score_compartilhado(prod, pos)
                     + score_ergonomia_paleteira(prod, cota, "picking");
                 let prio = if cabe_tudo { base_prio } else { base_prio + 10 };
-                let fil_escolhidas = desejadas.min(max_fil).max(1);
-                let cand = (prio, idx, fil_escolhidas, cam, comp);
-                if melhor_idx.as_ref().map_or(true, |m| (cand.0, cand.1) < (m.0, m.1)) {
-                    melhor_idx = Some(cand);
+                let melhor = melhor_lastro
+                    .as_ref()
+                    .map_or(true, |m| (prio, idx) < (m.0, m.1));
+                if melhor {
+                    melhor_lastro = Some((prio, idx, encaixe));
                 }
             }
 
-            if let Some((_, idx, fil, cam, comp)) = melhor_idx {
+            if let Some((_, idx, enc)) = melhor_lastro {
                 let pos = picking_pos[idx];
-                let larg_add = (fil as f64) * cx.largura_cm;
-                *largura_usada.entry(pos.id.clone()).or_insert(0.0) += larg_add;
-                linhas_na_posicao
-                    .entry(pos.id.clone())
-                    .or_default()
-                    .insert(lg.clone());
-                caixas_na_posicao
-                    .entry(pos.id.clone())
-                    .or_default()
-                    .insert(cid.clone());
+                *largura_usada.entry(pos.id.clone()).or_insert(0.0) += enc.largura_ocupada_cm;
+                *volume_usado_pos.entry(pos.id.clone()).or_insert(0.0) += enc.volume_ocupado_m3;
+                linhas_na_posicao.entry(pos.id.clone()).or_default().insert(lg.clone());
+                caixas_na_posicao.entry(pos.id.clone()).or_default().insert(cid.clone());
                 pares_ocupados.insert((pos.id.clone(), prod.codigo.clone()));
+                bases_por_posicao.entry(pos.id.clone()).or_default().push(BasePilhaSnapshot {
+                    produto_codigo: prod.codigo.clone(),
+                    grupo_alocacao: prod.grupo_alocacao.clone(),
+                    peso_caixa_kg: prod.peso_caixa_estimado_kg,
+                    classe_empilhamento: prod.classe_empilhamento.clone(),
+                    w_cm: enc.largura_ocupada_cm,
+                    d_cm: enc.profundidade_ocupada_cm.min(pos.comprimento_cm),
+                    h_ocupada_cm: enc.altura_ocupada_cm,
+                    ja_tem_topo: false,
+                });
 
                 let cota = cotas_base.get(&pos.andar).copied().unwrap_or(0.0);
                 let acesso = acesso_equipamento_por_cota(cota).to_string();
-                let motivo = descrever_motivo_escolha(prod, pos, &acesso, "picking", considerar_ops_chegando);
-                let tot_cx = fil * comp * cam;
-                let tot_un = tot_cx * qtde_cx;
+                let mut motivo = descrever_motivo_escolha(prod, pos, &acesso, "picking", considerar_ops_chegando);
+                if enc.amarrado {
+                    motivo = format!("{motivo} · amarrado");
+                }
+                let tot_un = enc.total_caixas * qtde_cx;
                 propostas.push(SugestaoProposta {
                     produto_codigo: prod.codigo.clone(),
                     produto_descricao: prod.descricao.clone(),
@@ -870,54 +1588,174 @@ pub fn sugerir_alocacao(
                     papel: pos.papel.clone(),
                     acesso_equipamento: acesso,
                     motivo_escolha: motivo,
-                    fileiras_largura: fil,
-                    camadas_altura: cam,
-                    total_caixas: tot_cx,
+                    fileiras_largura: enc.fileiras,
+                    camadas_altura: enc.camadas,
+                    total_caixas: enc.total_caixas,
                     total_unidades: tot_un,
-                    largura_ocupada_cm: larg_add,
+                    largura_ocupada_cm: enc.largura_ocupada_cm,
+                    orientacao_modo: enc.orientacao_modo,
+                    empilhado_sobre: None,
+                    amarrado: enc.amarrado,
+                    volume_ocupado_m3: enc.volume_ocupado_m3,
                 });
                 produtos_com_proposta.insert(prod.codigo.clone());
-                let faltou_pick = (rest_pick - tot_cx).max(0);
+                let faltou_pick = (rest_pick - enc.total_caixas).max(0);
                 rest_pulm += faltou_pick;
                 precisa_picking = false;
+            } else {
+                // Fallback no Varejo: não coube no lastro -> tenta empilhamento misto seguro sobre base existente
+                let mut melhor_topo: Option<(i32, usize, usize, EscolhaLastroVao)> = None;
+                for (pos_idx, pos) in picking_pos.iter().enumerate() {
+                    if pares_ocupados.contains(&(pos.id.clone(), prod.codigo.clone())) {
+                        continue;
+                    }
+                    let Some(bases) = bases_por_posicao.get(&pos.id) else {
+                        continue;
+                    };
+                    for (b_idx, base) in bases.iter().enumerate() {
+                        if base.ja_tem_topo || base.produto_codigo == prod.codigo {
+                            continue;
+                        }
+                        let h_livre = pos.altura_cm - base.h_ocupada_cm;
+                        if h_livre + EPS < cx.altura_cm {
+                            continue;
+                        }
+                        let max_cam_top = max_camadas(h_livre, cx.altura_cm, cx.empilhamento_max);
+                        if max_cam_top <= 0 {
+                            continue;
+                        }
+                        for &ori in if cx.pode_girar { &["normal", "rotacionado"][..] } else { &["normal"][..] } {
+                            let (tw_cx, td_cx) = if ori == "rotacionado" {
+                                (cx.comprimento_cm, cx.largura_cm)
+                            } else {
+                                (cx.largura_cm, cx.comprimento_cm)
+                            };
+                            if tw_cx <= EPS || td_cx <= EPS || tw_cx > base.w_cm + 3.0 {
+                                continue;
+                            }
+                            let max_fil_top = ((base.w_cm + EPS) / tw_cx).floor() as i32;
+                            let comp_top = caixas_comprimento(base.d_cm, td_cx);
+                            if max_fil_top <= 0 || comp_top <= 0 {
+                                continue;
+                            }
+                            let fil_top = max_fil_top.min(
+                                ((rest_pick.max(1) as f64) / ((comp_top * max_cam_top) as f64))
+                                    .ceil()
+                                    .max(1.0) as i32,
+                            );
+                            let tw = (fil_top as f64) * tw_cx;
+                            let td = (comp_top as f64) * td_cx;
+                            let th = (max_cam_top as f64) * cx.altura_cm;
+                            let (ok, _apoio, _) = validar_empilhamento_misto(
+                                base.w_cm,
+                                base.d_cm,
+                                base.h_ocupada_cm,
+                                base.peso_caixa_kg,
+                                &base.classe_empilhamento,
+                                tw,
+                                td,
+                                th,
+                                prod.peso_caixa_estimado_kg,
+                                &prod.classe_empilhamento,
+                                pos.altura_cm,
+                            );
+                            if !ok {
+                                continue;
+                            }
+                            let mesmo_grupo = if base.grupo_alocacao == prod.grupo_alocacao { 0 } else { 2 };
+                            let prio = mesmo_grupo + (pos_idx as i32);
+                            let tot_cx = fil_top * comp_top * max_cam_top;
+                            let vol_un = (cx.altura_cm * cx.comprimento_cm * cx.largura_cm) / 1_000_000.0;
+                            let enc = EscolhaLastroVao {
+                                orientacao_modo: ori.into(),
+                                fileiras: fil_top,
+                                camadas: max_cam_top,
+                                total_caixas: tot_cx,
+                                largura_ocupada_cm: arred2(tw),
+                                profundidade_ocupada_cm: arred2(td),
+                                altura_ocupada_cm: arred2(th),
+                                amarrado: false,
+                                volume_ocupado_m3: arred4((tot_cx as f64) * vol_un),
+                            };
+                            if melhor_topo.as_ref().map_or(true, |m| prio < m.0) {
+                                melhor_topo = Some((prio, pos_idx, b_idx, enc));
+                            }
+                        }
+                    }
+                }
+
+                if let Some((_, pos_idx, b_idx, enc)) = melhor_topo {
+                    let pos = picking_pos[pos_idx];
+                    let base_cod = bases_por_posicao[&pos.id][b_idx].produto_codigo.clone();
+                    bases_por_posicao.get_mut(&pos.id).unwrap()[b_idx].ja_tem_topo = true;
+                    *volume_usado_pos.entry(pos.id.clone()).or_insert(0.0) += enc.volume_ocupado_m3;
+                    pares_ocupados.insert((pos.id.clone(), prod.codigo.clone()));
+                    let cota = cotas_base.get(&pos.andar).copied().unwrap_or(0.0);
+                    let acesso = acesso_equipamento_por_cota(cota).to_string();
+                    let tot_un = enc.total_caixas * qtde_cx;
+                    propostas.push(SugestaoProposta {
+                        produto_codigo: prod.codigo.clone(),
+                        produto_descricao: prod.descricao.clone(),
+                        curva_abc: prod.curva_abc.clone(),
+                        linha_prefix: prod.linha_prefix.clone(),
+                        posicao_id: pos.id.clone(),
+                        posicao_codigo: pos.codigo.clone(),
+                        papel: pos.papel.clone(),
+                        acesso_equipamento: acesso,
+                        motivo_escolha: format!("Empilhado sobre {base_cod} (manual)"),
+                        fileiras_largura: enc.fileiras,
+                        camadas_altura: enc.camadas,
+                        total_caixas: enc.total_caixas,
+                        total_unidades: tot_un,
+                        largura_ocupada_cm: enc.largura_ocupada_cm,
+                        orientacao_modo: enc.orientacao_modo,
+                        empilhado_sobre: Some(base_cod),
+                        amarrado: false,
+                        volume_ocupado_m3: enc.volume_ocupado_m3,
+                    });
+                    produtos_com_proposta.insert(prod.codigo.clone());
+                    let faltou_pick = (rest_pick - enc.total_caixas).max(0);
+                    rest_pulm += faltou_pick;
+                    precisa_picking = false;
+                }
             }
         }
 
-        // 2) Pulmão: aloca excedente, atacado ou chegada de OP nos níveis altos
+        // 2) Pulmão (atacadistas, excedentes e OPs chegando): busca palete fechado amarrado p/ Curva A/B grande ou combina/empilha misto
         let mut faltou_pulmao = false;
         if rest_pulm > 0 {
             let mut rem = rest_pulm;
             while rem > 0 {
-                let mut escolhido: Option<(i32, usize, i32, i32, i32)> = None;
+                let mut escolhido: Option<(i32, usize, EscolhaLastroVao)> = None;
                 for (idx, pos) in pulmao_pos.iter().enumerate() {
                     if pares_ocupados.contains(&(pos.id.clone(), prod.codigo.clone())) {
                         continue;
                     }
                     let usada = largura_usada.get(&pos.id).copied().unwrap_or(0.0);
                     let livre = (pos.largura_cm - usada).max(0.0);
-                    let comp = caixas_comprimento(pos.comprimento_cm, cx.comprimento_cm);
-                    let max_cam = max_camadas(pos.altura_cm, cx.altura_cm, cx.empilhamento_max);
-                    let cam = prod
-                        .camadas_override
-                        .map(|ov| ov.clamp(1, max_cam.max(1)))
-                        .unwrap_or(max_cam);
-                    if comp <= 0 || max_cam <= 0 || cam <= 0 || livre + EPS < cx.largura_cm {
+                    let Some(encaixe) = escolher_melhor_encaixe_lastro(
+                        pos,
+                        livre,
+                        usada,
+                        cx,
+                        prod.camadas_override,
+                        rem,
+                        "pulmao",
+                    ) else {
                         continue;
-                    }
-                    let cap_fileira = comp * cam;
-                    let max_fil = ((livre + EPS) / cx.largura_cm).floor() as i32;
-                    let desejadas = ((rem as f64) / (cap_fileira as f64)).ceil().max(1.0) as i32;
-                    let cabe_tudo = max_fil >= desejadas;
-                    let mesma_linha = linhas_na_posicao
-                        .get(&pos.id)
-                        .is_some_and(|s| s.contains(&lg));
-                    let mesma_caixa = caixas_na_posicao
-                        .get(&pos.id)
-                        .is_some_and(|s| s.contains(cid));
+                    };
+                    let cabe_tudo = encaixe.total_caixas >= rem;
+                    let mesma_linha = linhas_na_posicao.get(&pos.id).is_some_and(|s| s.contains(&lg));
+                    let mesma_caixa = caixas_na_posicao.get(&pos.id).is_some_and(|s| s.contains(cid));
                     let vazio = usada <= EPS;
                     let cota = cotas_base.get(&pos.andar).copied().unwrap_or(0.0);
 
-                    let base_prio = if mesma_linha && mesma_caixa {
+                    // Curva A/B com grande volume prefere palete vazio fechado com amarração
+                    let pref_palete_fechado = (prod.curva_abc == "A" || prod.curva_abc == "B")
+                        && encaixe.largura_ocupada_cm >= pos.largura_cm * 0.65;
+                    let base_prio = if pref_palete_fechado {
+                        if vazio { 0 } else if mesma_linha { 2 } else { 4 }
+                    } else if mesma_linha && mesma_caixa {
                         0
                     } else if mesma_linha {
                         1
@@ -928,53 +1766,177 @@ pub fn sugerir_alocacao(
                     } + score_compartilhado(prod, pos)
                         + score_ergonomia_paleteira(prod, cota, "pulmao");
                     let prio = if cabe_tudo { base_prio } else { base_prio + 10 };
-                    let fil = desejadas.min(max_fil).max(1);
-                    let cand = (prio, idx, fil, cam, comp);
-                    if escolhido.as_ref().map_or(true, |m| (cand.0, cand.1) < (m.0, m.1)) {
-                        escolhido = Some(cand);
+                    if escolhido.as_ref().map_or(true, |m| (prio, idx) < (m.0, m.1)) {
+                        escolhido = Some((prio, idx, encaixe));
                     }
                 }
 
-                let Some((_, idx, fil, cam, comp)) = escolhido else {
+                if let Some((_, idx, enc)) = escolhido {
+                    let pos = pulmao_pos[idx];
+                    *largura_usada.entry(pos.id.clone()).or_insert(0.0) += enc.largura_ocupada_cm;
+                    *volume_usado_pos.entry(pos.id.clone()).or_insert(0.0) += enc.volume_ocupado_m3;
+                    linhas_na_posicao.entry(pos.id.clone()).or_default().insert(lg.clone());
+                    caixas_na_posicao.entry(pos.id.clone()).or_default().insert(cid.clone());
+                    pares_ocupados.insert((pos.id.clone(), prod.codigo.clone()));
+                    bases_por_posicao.entry(pos.id.clone()).or_default().push(BasePilhaSnapshot {
+                        produto_codigo: prod.codigo.clone(),
+                        grupo_alocacao: prod.grupo_alocacao.clone(),
+                        peso_caixa_kg: prod.peso_caixa_estimado_kg,
+                        classe_empilhamento: prod.classe_empilhamento.clone(),
+                        w_cm: enc.largura_ocupada_cm,
+                        d_cm: enc.profundidade_ocupada_cm.min(pos.comprimento_cm),
+                        h_ocupada_cm: enc.altura_ocupada_cm,
+                        ja_tem_topo: false,
+                    });
+
+                    let cota = cotas_base.get(&pos.andar).copied().unwrap_or(0.0);
+                    let acesso = acesso_equipamento_por_cota(cota).to_string();
+                    let mut motivo = descrever_motivo_escolha(prod, pos, &acesso, "pulmao", considerar_ops_chegando);
+                    if enc.amarrado {
+                        motivo = format!("{motivo} · amarrado");
+                    }
+                    let tot_un = enc.total_caixas * qtde_cx;
+                    propostas.push(SugestaoProposta {
+                        produto_codigo: prod.codigo.clone(),
+                        produto_descricao: prod.descricao.clone(),
+                        curva_abc: prod.curva_abc.clone(),
+                        linha_prefix: prod.linha_prefix.clone(),
+                        posicao_id: pos.id.clone(),
+                        posicao_codigo: pos.codigo.clone(),
+                        papel: pos.papel.clone(),
+                        acesso_equipamento: acesso,
+                        motivo_escolha: motivo,
+                        fileiras_largura: enc.fileiras,
+                        camadas_altura: enc.camadas,
+                        total_caixas: enc.total_caixas,
+                        total_unidades: tot_un,
+                        largura_ocupada_cm: enc.largura_ocupada_cm,
+                        orientacao_modo: enc.orientacao_modo,
+                        empilhado_sobre: None,
+                        amarrado: enc.amarrado,
+                        volume_ocupado_m3: enc.volume_ocupado_m3,
+                    });
+                    produtos_com_proposta.insert(prod.codigo.clone());
+                    rem = (rem - enc.total_caixas).max(0);
+                    continue;
+                }
+
+                // Tenta empilhar em cima de uma base no Pulmão se sobrou altura e o apoio é seguro
+                let mut melhor_topo_pulm: Option<(i32, usize, usize, EscolhaLastroVao)> = None;
+                for (pos_idx, pos) in pulmao_pos.iter().enumerate() {
+                    if pares_ocupados.contains(&(pos.id.clone(), prod.codigo.clone())) {
+                        continue;
+                    }
+                    let Some(bases) = bases_por_posicao.get(&pos.id) else {
+                        continue;
+                    };
+                    for (b_idx, base) in bases.iter().enumerate() {
+                        if base.ja_tem_topo || base.produto_codigo == prod.codigo {
+                            continue;
+                        }
+                        let h_livre = pos.altura_cm - base.h_ocupada_cm;
+                        if h_livre + EPS < cx.altura_cm {
+                            continue;
+                        }
+                        let max_cam_top = max_camadas(h_livre, cx.altura_cm, cx.empilhamento_max);
+                        if max_cam_top <= 0 {
+                            continue;
+                        }
+                        for &ori in if cx.pode_girar { &["normal", "rotacionado"][..] } else { &["normal"][..] } {
+                            let (tw_cx, td_cx) = if ori == "rotacionado" {
+                                (cx.comprimento_cm, cx.largura_cm)
+                            } else {
+                                (cx.largura_cm, cx.comprimento_cm)
+                            };
+                            if tw_cx <= EPS || td_cx <= EPS || tw_cx > base.w_cm + 3.0 {
+                                continue;
+                            }
+                            let max_fil_top = ((base.w_cm + EPS) / tw_cx).floor() as i32;
+                            let comp_top = caixas_comprimento(base.d_cm, td_cx);
+                            if max_fil_top <= 0 || comp_top <= 0 {
+                                continue;
+                            }
+                            let fil_top = max_fil_top.min(
+                                ((rem as f64) / ((comp_top * max_cam_top) as f64))
+                                    .ceil()
+                                    .max(1.0) as i32,
+                            );
+                            let tw = (fil_top as f64) * tw_cx;
+                            let td = (comp_top as f64) * td_cx;
+                            let th = (max_cam_top as f64) * cx.altura_cm;
+                            let (ok, _apoio, _) = validar_empilhamento_misto(
+                                base.w_cm,
+                                base.d_cm,
+                                base.h_ocupada_cm,
+                                base.peso_caixa_kg,
+                                &base.classe_empilhamento,
+                                tw,
+                                td,
+                                th,
+                                prod.peso_caixa_estimado_kg,
+                                &prod.classe_empilhamento,
+                                pos.altura_cm,
+                            );
+                            if !ok {
+                                continue;
+                            }
+                            let mesmo_grupo = if base.grupo_alocacao == prod.grupo_alocacao { 0 } else { 2 };
+                            let prio = mesmo_grupo + (pos_idx as i32);
+                            let tot_cx = fil_top * comp_top * max_cam_top;
+                            let vol_un = (cx.altura_cm * cx.comprimento_cm * cx.largura_cm) / 1_000_000.0;
+                            let enc = EscolhaLastroVao {
+                                orientacao_modo: ori.into(),
+                                fileiras: fil_top,
+                                camadas: max_cam_top,
+                                total_caixas: tot_cx,
+                                largura_ocupada_cm: arred2(tw),
+                                profundidade_ocupada_cm: arred2(td),
+                                altura_ocupada_cm: arred2(th),
+                                amarrado: false,
+                                volume_ocupado_m3: arred4((tot_cx as f64) * vol_un),
+                            };
+                            if melhor_topo_pulm.as_ref().map_or(true, |m| prio < m.0) {
+                                melhor_topo_pulm = Some((prio, pos_idx, b_idx, enc));
+                            }
+                        }
+                    }
+                }
+
+                if let Some((_, pos_idx, b_idx, enc)) = melhor_topo_pulm {
+                    let pos = pulmao_pos[pos_idx];
+                    let base_cod = bases_por_posicao[&pos.id][b_idx].produto_codigo.clone();
+                    bases_por_posicao.get_mut(&pos.id).unwrap()[b_idx].ja_tem_topo = true;
+                    *volume_usado_pos.entry(pos.id.clone()).or_insert(0.0) += enc.volume_ocupado_m3;
+                    pares_ocupados.insert((pos.id.clone(), prod.codigo.clone()));
+                    let cota = cotas_base.get(&pos.andar).copied().unwrap_or(0.0);
+                    let acesso = acesso_equipamento_por_cota(cota).to_string();
+                    let tot_un = enc.total_caixas * qtde_cx;
+                    propostas.push(SugestaoProposta {
+                        produto_codigo: prod.codigo.clone(),
+                        produto_descricao: prod.descricao.clone(),
+                        curva_abc: prod.curva_abc.clone(),
+                        linha_prefix: prod.linha_prefix.clone(),
+                        posicao_id: pos.id.clone(),
+                        posicao_codigo: pos.codigo.clone(),
+                        papel: pos.papel.clone(),
+                        acesso_equipamento: acesso,
+                        motivo_escolha: format!("Pulmão · sobre {base_cod}"),
+                        fileiras_largura: enc.fileiras,
+                        camadas_altura: enc.camadas,
+                        total_caixas: enc.total_caixas,
+                        total_unidades: tot_un,
+                        largura_ocupada_cm: enc.largura_ocupada_cm,
+                        orientacao_modo: enc.orientacao_modo,
+                        empilhado_sobre: Some(base_cod),
+                        amarrado: false,
+                        volume_ocupado_m3: enc.volume_ocupado_m3,
+                    });
+                    produtos_com_proposta.insert(prod.codigo.clone());
+                    rem = (rem - enc.total_caixas).max(0);
+                } else {
                     faltou_pulmao = true;
                     break;
-                };
-                let pos = pulmao_pos[idx];
-                let larg_add = (fil as f64) * cx.largura_cm;
-                *largura_usada.entry(pos.id.clone()).or_insert(0.0) += larg_add;
-                linhas_na_posicao
-                    .entry(pos.id.clone())
-                    .or_default()
-                    .insert(lg.clone());
-                caixas_na_posicao
-                    .entry(pos.id.clone())
-                    .or_default()
-                    .insert(cid.clone());
-                pares_ocupados.insert((pos.id.clone(), prod.codigo.clone()));
-
-                let cota = cotas_base.get(&pos.andar).copied().unwrap_or(0.0);
-                let acesso = acesso_equipamento_por_cota(cota).to_string();
-                let motivo = descrever_motivo_escolha(prod, pos, &acesso, "pulmao", considerar_ops_chegando);
-                let tot_cx = fil * comp * cam;
-                let tot_un = tot_cx * qtde_cx;
-                propostas.push(SugestaoProposta {
-                    produto_codigo: prod.codigo.clone(),
-                    produto_descricao: prod.descricao.clone(),
-                    curva_abc: prod.curva_abc.clone(),
-                    linha_prefix: prod.linha_prefix.clone(),
-                    posicao_id: pos.id.clone(),
-                    posicao_codigo: pos.codigo.clone(),
-                    papel: pos.papel.clone(),
-                    acesso_equipamento: acesso,
-                    motivo_escolha: motivo,
-                    fileiras_largura: fil,
-                    camadas_altura: cam,
-                    total_caixas: tot_cx,
-                    total_unidades: tot_un,
-                    largura_ocupada_cm: larg_add,
-                });
-                produtos_com_proposta.insert(prod.codigo.clone());
-                rem = (rem - tot_cx).max(0);
+                }
             }
         }
 
@@ -997,20 +1959,31 @@ pub fn sugerir_alocacao(
 
     let mut posicoes_usadas = 0usize;
     let mut soma_pct = 0.0;
+    let mut soma_cub_pct = 0.0;
     let ativas: Vec<&Posicao> = posicoes.iter().filter(|p| p.ativo).collect();
     for pos in &ativas {
         let u = largura_usada.get(&pos.id).copied().unwrap_or(0.0);
-        if u > EPS {
+        let vol_usado = volume_usado_pos.get(&pos.id).copied().unwrap_or(0.0);
+        if u > EPS || vol_usado > EPS {
             posicoes_usadas += 1;
         }
         if pos.largura_cm > 0.0 {
             soma_pct += ((u / pos.largura_cm) * 100.0).min(100.0);
+        }
+        let vol_vao = (pos.largura_cm * pos.comprimento_cm * pos.altura_cm) / 1_000_000.0;
+        if vol_vao > EPS && vol_usado > EPS {
+            soma_cub_pct += ((vol_usado / vol_vao) * 100.0).min(100.0);
         }
     }
     let ocupacao_media_pct = if ativas.is_empty() {
         0.0
     } else {
         soma_pct / (ativas.len() as f64)
+    };
+    let cubagem_media_pct = if posicoes_usadas == 0 {
+        0.0
+    } else {
+        arred2(soma_cub_pct / (posicoes_usadas as f64))
     };
 
     let propostas_manual_count = propostas
@@ -1020,6 +1993,11 @@ pub fn sugerir_alocacao(
     let propostas_empilhadeira_count = propostas
         .iter()
         .filter(|p| p.acesso_equipamento == "empilhadeira")
+        .count();
+    let paletes_amarrados_count = propostas.iter().filter(|p| p.amarrado).count();
+    let itens_empilhados_mistos_count = propostas
+        .iter()
+        .filter(|p| p.empilhado_sobre.is_some())
         .count();
     let produtos_com_op_cobertos = produtos_com_proposta
         .iter()
@@ -1037,6 +2015,10 @@ pub fn sugerir_alocacao(
         propostas_manual_count,
         propostas_empilhadeira_count,
         produtos_com_op_cobertos,
+        cubagem_media_pct,
+        paletes_amarrados_count,
+        itens_empilhados_mistos_count,
+        itens_so_atacado_no_pulmao,
     };
 
     SugestaoResultado {
@@ -1444,6 +2426,8 @@ mod tests {
             camadas_altura: 3,
             fixado: true,
             largura_ocupada_cm: 29.4,
+            orientacao_modo: "auto".into(),
+            empilhado_sobre: None,
         }];
         let p_varejo = ProdutoDimensao {
             codigo: "2.11.001".into(),
@@ -2091,6 +3075,14 @@ mod tests {
                 estouro_altura: false,
                 cobertura_meses: Some(1.0),
                 peso_estimado_kg: None,
+                orientacao_modo: "auto".into(),
+                orientacao_efetiva: "normal".into(),
+                empilhado_sobre: None,
+                z_base_cm: 0.0,
+                volume_ocupado_m3: 0.1,
+                amarrado: false,
+                apoio_pct: None,
+                alerta_estabilidade: None,
             }],
             lotes: vec![],
             largura_ocupada_cm: 30.0,
@@ -2103,6 +3095,12 @@ mod tests {
             peso_total_com_palete_kg: 0.0,
             cota_base_cm: 0.0,
             acesso_equipamento: "manual".into(),
+            volume_vao_m3: 0.89,
+            volume_ocupado_m3: 0.1,
+            cubagem_pct: 11.2,
+            area_ocupada_pct: 25.0,
+            estabilidade_status: "coluna_estavel".into(),
+            estabilidade_resumo: "Estável".into(),
         }];
 
         let lotes = vec![
@@ -2146,5 +3144,156 @@ mod tests {
         assert_eq!(tarefas[0].lote, "15500");
         assert_eq!(tarefas[0].origem_posicao_codigo, "A7");
         assert_eq!(tarefas[0].destino_posicao_codigo, "A1");
+    }
+
+    #[test]
+    fn produto_so_atacado_nao_ocupa_andar_manual() {
+        let (pick, pulm, tot) = calcular_necessidades_caixas(0.0, 100.0, 100.0, 2.0, Some(10));
+        assert_eq!(pick, 0);
+        assert_eq!(pulm, 20);
+        assert_eq!(tot, 20);
+
+        let cx9 = caixa_exemplo("9", 22.5, 19.5, 14.7, 4);
+        let p_pick = pos_exemplo("A1", 1, 1, "picking", 74.1);
+        let p_pulm = pos_exemplo("A9", 1, 9, "pulmao", 74.0);
+
+        let mut p_atac = prod_teste_abc("2.11.090", "PRODUTO SO ATACADO", "2.11", Some("2"), 1200.0, None);
+        p_atac.vendas_varejo = 0.0;
+        p_atac.media_varejo = 0.0;
+        p_atac.vendas_atacado = 1200.0;
+        p_atac.media_atacado = 100.0;
+        p_atac.caixas_necessarias_picking = pick;
+        p_atac.caixas_necessarias_pulmao = pulm;
+        p_atac.caixas_necessarias_total = tot;
+        aplicar_curva_abc(std::slice::from_mut(&mut p_atac));
+
+        let res = sugerir_alocacao(
+            "est",
+            &[p_pick, p_pulm],
+            &[cx9],
+            &[],
+            &[p_atac],
+            &[],
+            true,
+            true,
+            true,
+        );
+        assert!(!res.propostas.is_empty());
+        assert!(res.propostas.iter().all(|pr| pr.papel == "pulmao"));
+        assert_eq!(res.resumo.itens_so_atacado_no_pulmao, 1);
+    }
+
+    #[test]
+    fn validacao_empilhamento_misto_peso_apoio_altura() {
+        // Leve sobre pesado com apoio 100% dentro da altura -> OK
+        let (ok, apoio, alerta) = validar_empilhamento_misto(
+            50.0, 80.0, 30.0, Some(15.0), "base",
+            45.0, 75.0, 30.0, Some(4.0), "topo",
+            74.1,
+        );
+        assert!(ok, "alerta inesperado: {:?}", alerta);
+        assert!((apoio - 100.0).abs() < 1e-6);
+
+        // Pesado sobre leve -> reprova
+        let (ok_peso, _, alerta_peso) = validar_empilhamento_misto(
+            50.0, 80.0, 30.0, Some(3.0), "topo",
+            40.0, 60.0, 25.0, Some(14.0), "base",
+            74.1,
+        );
+        assert!(!ok_peso);
+        assert!(alerta_peso.is_some());
+
+        // Apoio < 80% -> reprova
+        let (ok_apoio, _, alerta_apoio) = validar_empilhamento_misto(
+            40.0, 60.0, 30.0, Some(12.0), "base",
+            50.0, 80.0, 20.0, Some(4.0), "padrao",
+            74.1,
+        );
+        assert!(!ok_apoio);
+        assert!(alerta_apoio.is_some());
+
+        // Estouro de altura -> reprova
+        let (ok_alt, _, _) = validar_empilhamento_misto(
+            50.0, 80.0, 50.0, Some(12.0), "base",
+            45.0, 75.0, 35.0, Some(4.0), "padrao",
+            74.1,
+        );
+        assert!(!ok_alt);
+    }
+
+    #[test]
+    fn melhor_lastro_escolhe_amarracao_e_rotacao_90() {
+        let cx_rot = caixa_exemplo("ret", 20.0, 40.0, 30.0, 4);
+        // Em 100x120 com palete_inteiro=true, 30x40 aceita amarração mista com bom apoio
+        let l_amar = calcular_melhor_lastro_faixa(100.0, 120.0, &cx_rot, 3, "auto", true);
+        assert_eq!(l_amar.orientacao_efetiva, "amarracao");
+        assert!(l_amar.amarrado);
+        assert_eq!(l_amar.caixas_por_lastro, 10); // 6 normais + 4 rotacionadas (ganha do normal = 9)
+
+        // Em fileira única onde girado 90° cabe melhor ou sem giro fica normal
+        let mut cx_fixa = cx_rot.clone();
+        cx_fixa.pode_girar = false;
+        let l_norm = calcular_melhor_lastro_faixa(100.0, 120.0, &cx_fixa, 3, "auto", true);
+        assert_eq!(l_norm.orientacao_efetiva, "normal");
+        assert!(!l_norm.amarrado);
+    }
+
+    #[test]
+    fn sugestao_empilha_misto_quando_falta_largura_no_manual() {
+        // Base pesada ocupa 60 cm de um único vão de 100 cm; topo leve ocupa 55 cm (não cabe lado a lado pois 60+55=115 > 100),
+        // mas cabe perfeitamente empilhado em cima com apoio 100% e altura 25+25=50 <= 74.1 cm!
+        let mut cx_base = caixa_exemplo("cx_b", 25.0, 40.0, 60.0, 1);
+        cx_base.pode_girar = false;
+        let mut cx_topo = caixa_exemplo("cx_t", 25.0, 35.0, 55.0, 1);
+        cx_topo.pode_girar = false;
+
+        let pos_unico = pos_exemplo("A1", 1, 1, "picking", 74.1);
+
+        let mut p_base = prod_teste_abc("2.11.100", "BASE PESADA 15KG", "2.11", Some("2"), 900.0, None);
+        p_base.caixa_id = Some("cx_b".into());
+        p_base.caixa_codigo = Some("cx_b".into());
+        p_base.caixa_altura_cm = Some(25.0);
+        p_base.caixa_comprimento_cm = Some(40.0);
+        p_base.caixa_largura_cm = Some(60.0);
+        p_base.empilhamento_max = Some(1);
+        p_base.peso_caixa_estimado_kg = Some(15.0);
+        p_base.classe_empilhamento = "base".into();
+        p_base.caixas_necessarias_picking = 3;
+        p_base.caixas_necessarias_pulmao = 0;
+
+        let mut p_topo = prod_teste_abc("2.11.101", "TOPO LEVE 3KG", "2.11", Some("2"), 300.0, None);
+        p_topo.caixa_id = Some("cx_t".into());
+        p_topo.caixa_codigo = Some("cx_t".into());
+        p_topo.caixa_altura_cm = Some(25.0);
+        p_topo.caixa_comprimento_cm = Some(35.0);
+        p_topo.caixa_largura_cm = Some(55.0);
+        p_topo.empilhamento_max = Some(1);
+        p_topo.peso_caixa_estimado_kg = Some(3.0);
+        p_topo.classe_empilhamento = "topo".into();
+        p_topo.caixas_necessarias_picking = 3;
+        p_topo.caixas_necessarias_pulmao = 0;
+
+        let mut prods = vec![p_base, p_topo];
+        aplicar_curva_abc(&mut prods);
+
+        let res = sugerir_alocacao(
+            "est",
+            &[pos_unico],
+            &[cx_base, cx_topo],
+            &[],
+            &prods,
+            &[],
+            true,
+            true,
+            true,
+        );
+        assert_eq!(res.propostas.len(), 2);
+        let prop_topo = res
+            .propostas
+            .iter()
+            .find(|p| p.produto_codigo == "2.11.101")
+            .unwrap();
+        assert_eq!(prop_topo.empilhado_sobre.as_deref(), Some("2.11.100"));
+        assert_eq!(res.resumo.itens_empilhados_mistos_count, 1);
     }
 }

@@ -993,16 +993,60 @@ export function DesenhoPalete3dGiravel({
                         Amarração
                       </span>
                     )}
+                    {info.item.empilhadoSobre && (
+                      <span
+                        className={`px-1 py-0.2 rounded text-[9px] font-semibold ${
+                          selecionado
+                            ? 'bg-zinc-700 text-zinc-100'
+                            : 'bg-amber-50 border border-amber-200 text-amber-800'
+                        }`}
+                      >
+                        Sobre {info.item.empilhadoSobre}
+                      </span>
+                    )}
+                    {info.item.alertaEstabilidade && (
+                      <span
+                        className="px-1 py-0.2 rounded text-[9px] font-semibold bg-red-50 border border-red-200 text-red-700"
+                        title={info.item.alertaEstabilidade}
+                      >
+                        Alerta
+                      </span>
+                    )}
                   </button>
                 );
               })
             )}
           </div>
-          <span className="text-[10px] text-zinc-400">
-            {posicao.compartilhadoFracionado ? 'Compartilhado · ' : ''}
-            {itensInfo.length >= 2 ? 'Clique no item para isolar · ' : ''}
-            Arraste para girar 360°
-          </span>
+          <div className="flex flex-wrap items-center gap-2 text-[10px] text-zinc-500">
+            {(posicao.volumeVaoM3 ?? 0) > 0 && (
+              <span className="font-mono text-zinc-700">
+                Cubagem {(posicao.volumeOcupadoM3 ?? 0).toFixed(2)}/{(posicao.volumeVaoM3 ?? 0).toFixed(2)} m³ (
+                {(posicao.cubagemPct ?? 0).toFixed(0)}%)
+              </span>
+            )}
+            {posicao.estabilidadeResumo && posicao.estabilidadeStatus !== 'vazio' && (
+              <span
+                className={
+                  posicao.estabilidadeStatus === 'alerta'
+                    ? 'text-red-700 font-semibold'
+                    : 'text-emerald-700 font-semibold'
+                }
+              >
+                {posicao.estabilidadeStatus === 'amarrado'
+                  ? 'Amarrado'
+                  : posicao.estabilidadeStatus === 'misto_estavel'
+                    ? 'Misto seguro'
+                    : posicao.estabilidadeStatus === 'alerta'
+                      ? 'Alerta estabilidade'
+                      : 'Estável'}
+              </span>
+            )}
+            <span className="text-zinc-400">
+              {posicao.compartilhadoFracionado ? 'Compartilhado · ' : ''}
+              {itensInfo.length >= 2 ? 'Clique no item para isolar · ' : ''}
+              Arraste para girar 360°
+            </span>
+          </div>
         </div>
 
         {itemFocadoObj && (
