@@ -1,16 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Factory, MapPin, RefreshCw, Search, Sparkles } from 'lucide-react';
+import { Factory, MapPin, PackagePlus, RefreshCw, Search, Sparkles } from 'lucide-react';
 import Drawer from '../../geral/components/ui/Drawer';
 import { StatusBadge } from '../../geral/components/ui/ReportKit';
 import type { TipoAviso } from '../../geral/components/ui/Aviso';
-import { fetchOpsChegando } from './api';
-import type { OpChegandoItem, OpsChegandoResponse } from './types';
+import { fetchOpsChegando, salvarLotePosicao } from './api';
+import type { OpChegandoItem, OpsChegandoResponse, PosicaoComItens } from './types';
 
 interface OpsChegandoDrawerProps {
   open: boolean;
   estruturaId: string;
+  posicoes?: PosicaoComItens[];
   canEdit: boolean;
   onClose: () => void;
+  onSaved?: () => Promise<void>;
   onAbrirPosicaoCodigo: (codigo: string) => void;
   onAbrirProdutoCodigo: (codigo: string) => void;
   onAbrirSugestao: () => void;
@@ -45,8 +47,10 @@ function badgeEspaco(item: OpChegandoItem) {
 export function OpsChegandoDrawer({
   open,
   estruturaId,
+  posicoes = [],
   canEdit,
   onClose,
+  onSaved,
   onAbrirPosicaoCodigo,
   onAbrirProdutoCodigo,
   onAbrirSugestao,
@@ -56,6 +60,68 @@ export function OpsChegandoDrawer({
   const [carregando, setCarregando] = useState(false);
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState<FiltroModo>('TODAS');
+  const [entradaKey, setEntradaKey] = useState<string | null>(null);
+  const [entradaPosId, setEntradaPosId] = useState('');
+  const [entradaCaixas, setEntradaCaixas] = useState(1);
+  const [entradaValidade, setEntradaValidade] = useState('');
+  const [salvandoEntrada, setSalvandoEntrada] = useState(false);
+
+  const posicoesAtivas = useMemo(
+    () =>
+      posicoes
+        .filter((p) => p.ativo && (p.tipoOcupacao ?? 'padrao') === 'padrao')
+        .sort((a, b) => a.andar - b.andar || a.colunaOrdem - b.colunaOrdem || a.nivel - b.nivel),
+    [posicoes],
+  );
+
+  const abrirEntradaOp = (it: OpChegandoItem) => {
+    const k = `${it.loteNumber}-${it.produtoCodigo}`;
+    if (entradaKey === k) {
+      setEntradaKey(null);
+      return;
+    }
+    const prefCod = it.enderecosPulmao[0] ?? it.enderecosPicking[0];
+    const prefPos = prefCod
+      ? posicoesAtivas.find((p) => p.codigo.toUpperCase() === prefCod.toUpperCase())
+      : undefined;
+    setEntradaPosId(prefPos?.id ?? posicoesAtivas[0]?.id ?? '');
+    setEntradaCaixas(Math.max(1, it.caixasChegando || 1));
+    setEntradaValidade('');
+    setEntradaKey(k);
+  };
+
+  const confirmarEntradaOp = async (it: OpChegandoItem) => {
+    if (!entradaPosId) {
+      avisar('Escolha um vão de destino para dar entrada.', 'erro');
+      return;
+    }
+    setSalvandoEntrada(true);
+    try {
+      await salvarLotePosicao(
+        {
+          posicaoId: entradaPosId,
+          produtoCodigo: it.produtoCodigo,
+          lote: it.loteNumber,
+          caixas: Math.max(1, entradaCaixas),
+          dataValidade: entradaValidade || null,
+          garantirAlocacao: true,
+        },
+        true,
+      );
+      const posSel = posicoesAtivas.find((p) => p.id === entradaPosId);
+      avisar(
+        `Lote #${it.loteNumber} (${it.produtoCodigo}) registrado em ${posSel?.codigo ?? 'vão'} (${entradaCaixas} cx).`,
+        'sucesso',
+      );
+      setEntradaKey(null);
+      await onSaved?.();
+      await carregar();
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'Erro ao dar entrada do lote.', 'erro');
+    } finally {
+      setSalvandoEntrada(false);
+    }
+  };
 
   const carregar = async () => {
     setCarregando(true);
@@ -287,7 +353,82 @@ export function OpsChegandoDrawer({
                         ))}
                       </div>
                     )}
+                    {canEdit && posicoesAtivas.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => abrirEntradaOp(it)}
+                        className="px-2.5 py-1 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-800 font-semibold inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <PackagePlus className="h-3 w-3" />
+                        Dar entrada
+                      </button>
+                    )}
                   </div>
+
+                  {entradaKey === `${it.loteNumber}-${it.produtoCodigo}` && (
+                    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-2.5 space-y-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-semibold text-zinc-600 block">
+                            Vão destino
+                          </span>
+                          <select
+                            value={entradaPosId}
+                            onChange={(e) => setEntradaPosId(e.target.value)}
+                            className="w-full px-2 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono text-xs"
+                          >
+                            {posicoesAtivas.map((p) => (
+                              <option key={`ent-pos-${p.id}`} value={p.id}>
+                                {p.codigo} ({p.papel === 'pulmao' ? 'Pulmão' : 'Pick'})
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-semibold text-zinc-600 block">
+                            Caixas
+                          </span>
+                          <input
+                            type="number"
+                            min={1}
+                            value={entradaCaixas}
+                            onChange={(e) =>
+                              setEntradaCaixas(Math.max(1, parseInt(e.target.value || '1', 10)))
+                            }
+                            className="w-full px-2 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono text-xs"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-semibold text-zinc-600 block">
+                            Validade (opcional)
+                          </span>
+                          <input
+                            type="date"
+                            value={entradaValidade}
+                            onChange={(e) => setEntradaValidade(e.target.value)}
+                            className="w-full px-2 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono text-xs"
+                          />
+                        </label>
+                      </div>
+                      <div className="flex justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setEntradaKey(null)}
+                          className="px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-white text-zinc-600 font-semibold cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          disabled={salvandoEntrada}
+                          onClick={() => confirmarEntradaOp(it)}
+                          className="px-3 py-1.5 rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 font-semibold disabled:opacity-50 cursor-pointer"
+                        >
+                          {salvandoEntrada ? 'Gravando...' : 'Confirmar entrada'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {it.motivoEspera && (
                     <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">

@@ -5,11 +5,13 @@ import type {
   Estrutura,
   ImportarMapaItemInput,
   ImportarMapaLoteResultado,
+  LoteErpSugestao,
   MoverAlocacaoInput,
   OpsChegandoResponse,
   PainelAlocacaoResponse,
   ProdutoCaixaLoteInput,
   ProdutoDimensao,
+  ReposicaoFefoResponse,
   SugestaoResultado,
 } from './types';
 
@@ -73,6 +75,61 @@ export function fetchOpsChegando(params: {
   if (params.etapa) qs.set('etapa', params.etapa);
   if (params.apenasAlertas) qs.set('apenasAlertas', 'true');
   return apiJson<OpsChegandoResponse>(`/expedicao/alocacao/ops-chegando?${qs.toString()}`);
+}
+
+export function fetchReposicaoFefo(estruturaId?: string): Promise<ReposicaoFefoResponse> {
+  const qs = new URLSearchParams();
+  if (estruturaId) qs.set('estruturaId', estruturaId);
+  return apiJson<ReposicaoFefoResponse>(`/expedicao/alocacao/reposicao-fefo?${qs.toString()}`);
+}
+
+export function fetchLotesErpProduto(codigo: string): Promise<LoteErpSugestao[]> {
+  return apiJson<LoteErpSugestao[]>(
+    `/expedicao/alocacao/produtos/${encodeURIComponent(codigo)}/lotes-erp`,
+  );
+}
+
+export function salvarLotePosicao(
+  body: {
+    posicaoId: string;
+    produtoCodigo: string;
+    lote: string;
+    caixas: number;
+    dataFabricacao?: string | null;
+    dataValidade?: string | null;
+    observacoes?: string | null;
+    garantirAlocacao?: boolean;
+  },
+  confirmar = true,
+) {
+  const qs = confirmar ? '?confirmar=true' : '';
+  return apiJson(`/expedicao/alocacao/lotes${qs}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function moverLotePosicao(
+  body: {
+    loteId: string;
+    destinoPosicaoId: string;
+    caixas?: number;
+  },
+  confirmar = true,
+) {
+  const qs = confirmar ? '?confirmar=true' : '';
+  return apiJson<{
+    loteId: string;
+    lote: string;
+    produtoCodigo: string;
+    origemPosicaoCodigo: string;
+    destinoPosicaoCodigo: string;
+    caixasMovidas: number;
+    restanteOrigem: number;
+  }>(`/expedicao/alocacao/lotes/mover${qs}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
 
 export function fetchClientesSugestao(search: string, janelaMeses: number): Promise<ClienteSugestao[]> {

@@ -1208,6 +1208,19 @@ export function DesenhoPrateleira3dSvg({
                     +{hoveredSlot.pos.itens.length - 4} itens neste vão
                   </div>
                 )}
+                {(hoveredSlot.pos.lotes?.length ?? 0) > 0 && (
+                  <div className="border-t border-zinc-700/80 pt-1 text-[10px] font-mono text-amber-200 space-y-0.5">
+                    {(hoveredSlot.pos.lotes ?? []).slice(0, 2).map((l) => (
+                      <div key={`tip-lote-${l.id}`} className="flex justify-between gap-2">
+                        <span>FEFO #{l.lote}</span>
+                        <span>
+                          {l.caixas}cx
+                          {l.dataValidade ? ` · ${l.dataValidade.split('-').reverse().join('/')}` : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="border-t border-zinc-700/80 pt-1 text-[10px] font-mono text-zinc-300 flex items-center justify-between gap-2">
                   <span>
                     {hoveredSlot.pos.larguraOcupadaCm.toFixed(0)}/{hoveredSlot.pos.larguraCm}cm

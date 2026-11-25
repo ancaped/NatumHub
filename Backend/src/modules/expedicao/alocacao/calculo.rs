@@ -1,8 +1,11 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use chrono::{Datelike, NaiveDate};
+
 use super::models::{
-    AlocacaoItemView, Atacadista, Caixa, Posicao, ProdutoDimensao, SugestaoNaoAlocado,
-    SugestaoProposta, SugestaoResultado, SugestaoResumo,
+    AlocacaoItemView, AlocacaoLoteView, Atacadista, Caixa, Posicao, PosicaoComItens,
+    ProdutoDimensao, SugestaoNaoAlocado, SugestaoProposta, SugestaoResultado, SugestaoResumo,
+    TarefaReposicaoFefo,
 };
 
 const EPS: f64 = 1e-6;
@@ -1085,6 +1088,190 @@ pub fn agrupar_insumos_caixa_nao_vinculados(
     mapa
 }
 
+/// Classifica dias para vencer e status de validade FEFO em relação à data de referência `hoje`.
+pub fn classificar_validade_fefo(
+    data_validade: Option<NaiveDate>,
+    hoje: NaiveDate,
+) -> (Option<i64>, String) {
+    let Some(val) = data_validade else {
+        return (None, "sem_data".into());
+    };
+    let dias = (val - hoje).num_days();
+    let status = if dias < 0 {
+        "vencido"
+    } else if dias <= 90 {
+        "critico_90d"
+    } else if dias <= 180 {
+        "atencao_180d"
+    } else {
+        "ok"
+    };
+    (Some(dias), status.into())
+}
+
+/// Sugere validade padrão de +24 meses sobre a data de fabricação/envase.
+pub fn sugerir_validade_padrao_24m(data_fab: Option<NaiveDate>) -> Option<NaiveDate> {
+    let d = data_fab?;
+    let novo_ano = d.year() + 2;
+    NaiveDate::from_ymd_opt(novo_ano, d.month(), d.day())
+        .or_else(|| NaiveDate::from_ymd_opt(novo_ano, d.month(), 28))
+}
+
+/// Detecta violações FEFO (lote mais antigo no Pulmão que no Picking) e necessidade de reposição Pulmão → Picking.
+pub fn calcular_tarefas_reposicao_fefo(
+    lotes: &[AlocacaoLoteView],
+    posicoes: &[PosicaoComItens],
+) -> Vec<TarefaReposicaoFefo> {
+    let mut lotes_por_prod: HashMap<&str, Vec<&AlocacaoLoteView>> = HashMap::new();
+    for l in lotes {
+        if l.caixas > 0 {
+            lotes_por_prod.entry(l.produto_codigo.as_str()).or_default().push(l);
+        }
+    }
+
+    // Mapeia destinos Picking disponíveis por produto: (posicao_id, posicao_codigo, andar, capacidade_caixas)
+    let mut pick_por_prod: HashMap<&str, Vec<(&str, &str, i32, i32)>> = HashMap::new();
+    for pos in posicoes {
+        if !pos.posicao.ativo || pos.posicao.papel != "picking" {
+            continue;
+        }
+        for it in &pos.itens {
+            pick_por_prod
+                .entry(it.produto_codigo.as_str())
+                .or_default()
+                .push((
+                    pos.posicao.id.as_str(),
+                    pos.posicao.codigo.as_str(),
+                    pos.posicao.andar,
+                    it.total_caixas,
+                ));
+        }
+    }
+
+    let mut tarefas = Vec::new();
+
+    for (prod_cod, lista) in lotes_por_prod {
+        let mut pulmao: Vec<&AlocacaoLoteView> =
+            lista.iter().copied().filter(|l| l.papel == "pulmao").collect();
+        if pulmao.is_empty() {
+            continue;
+        }
+        pulmao.sort_by(|a, b| {
+            let va = a.data_validade.as_deref().unwrap_or("9999-12-31");
+            let vb = b.data_validade.as_deref().unwrap_or("9999-12-31");
+            va.cmp(vb).then_with(|| a.lote.cmp(&b.lote))
+        });
+
+        let picking: Vec<&AlocacaoLoteView> =
+            lista.iter().copied().filter(|l| l.papel == "picking").collect();
+
+        // Destino picking prioritário: onde já existe alocação no mapa ou onde já há lote no picking
+        let destino_info = pick_por_prod
+            .get(prod_cod)
+            .and_then(|v| v.iter().min_by_key(|x| x.2).copied())
+            .or_else(|| {
+                picking.first().map(|l| {
+                    (
+                        l.posicao_id.as_str(),
+                        l.posicao_codigo.as_str(),
+                        l.andar,
+                        l.caixas,
+                    )
+                })
+            });
+
+        let Some((dest_id, dest_cod, _andar, cap_picking)) = destino_info else {
+            continue;
+        };
+
+        let mais_antigo_pulmao = pulmao[0];
+        let mais_antigo_pick_val = picking
+            .iter()
+            .filter_map(|l| l.data_validade.as_deref())
+            .min();
+
+        let violacao_fefo = match (
+            mais_antigo_pulmao.data_validade.as_deref(),
+            mais_antigo_pick_val,
+        ) {
+            (Some(val_pulm), Some(val_pick)) => val_pulm < val_pick,
+            _ => false,
+        };
+
+        let caixas_no_picking: i32 = picking.iter().map(|l| l.caixas).sum();
+        let meta_reposicao = (cap_picking / 2).max(1);
+        let precisa_repor = caixas_no_picking == 0 || caixas_no_picking < meta_reposicao;
+
+        if violacao_fefo {
+            let sugeridas = if cap_picking > 0 {
+                mais_antigo_pulmao.caixas.min(cap_picking.max(1))
+            } else {
+                mais_antigo_pulmao.caixas
+            };
+            tarefas.push(TarefaReposicaoFefo {
+                tipo: "violacao_fefo".into(),
+                prioridade: 1,
+                produto_codigo: prod_cod.to_string(),
+                produto_descricao: mais_antigo_pulmao.produto_descricao.clone(),
+                lote_id: mais_antigo_pulmao.id.clone(),
+                lote: mais_antigo_pulmao.lote.clone(),
+                data_validade: mais_antigo_pulmao.data_validade.clone(),
+                dias_para_vencer: mais_antigo_pulmao.dias_para_vencer,
+                origem_posicao_id: mais_antigo_pulmao.posicao_id.clone(),
+                origem_posicao_codigo: mais_antigo_pulmao.posicao_codigo.clone(),
+                destino_posicao_id: dest_id.to_string(),
+                destino_posicao_codigo: dest_cod.to_string(),
+                caixas_disponiveis: mais_antigo_pulmao.caixas,
+                caixas_sugeridas: sugeridas.max(1),
+                motivo: format!(
+                    "Pulmão {} vence antes do Picking {} (FEFO)",
+                    mais_antigo_pulmao.posicao_codigo, dest_cod
+                ),
+            });
+        } else if precisa_repor {
+            let alvo = (cap_picking - caixas_no_picking).max(1);
+            let sugeridas = mais_antigo_pulmao.caixas.min(alvo).max(1);
+            tarefas.push(TarefaReposicaoFefo {
+                tipo: "reposicao_picking".into(),
+                prioridade: 2,
+                produto_codigo: prod_cod.to_string(),
+                produto_descricao: mais_antigo_pulmao.produto_descricao.clone(),
+                lote_id: mais_antigo_pulmao.id.clone(),
+                lote: mais_antigo_pulmao.lote.clone(),
+                data_validade: mais_antigo_pulmao.data_validade.clone(),
+                dias_para_vencer: mais_antigo_pulmao.dias_para_vencer,
+                origem_posicao_id: mais_antigo_pulmao.posicao_id.clone(),
+                origem_posicao_codigo: mais_antigo_pulmao.posicao_codigo.clone(),
+                destino_posicao_id: dest_id.to_string(),
+                destino_posicao_codigo: dest_cod.to_string(),
+                caixas_disponiveis: mais_antigo_pulmao.caixas,
+                caixas_sugeridas: sugeridas,
+                motivo: if caixas_no_picking == 0 {
+                    format!("Picking {} sem lote ativo; descer do Pulmão", dest_cod)
+                } else {
+                    format!(
+                        "Picking {} com {} cx (abaixo de 50% de {} cx)",
+                        dest_cod, caixas_no_picking, cap_picking
+                    )
+                },
+            });
+        }
+    }
+
+    tarefas.sort_by(|a, b| {
+        a.prioridade
+            .cmp(&b.prioridade)
+            .then_with(|| {
+                a.dias_para_vencer
+                    .unwrap_or(i64::MAX)
+                    .cmp(&b.dias_para_vencer.unwrap_or(i64::MAX))
+            })
+            .then_with(|| a.produto_codigo.cmp(&b.produto_codigo))
+    });
+
+    tarefas
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1838,5 +2025,126 @@ mod tests {
         );
         assert!(com_op.propostas.iter().any(|pr| pr.papel == "pulmao"));
         assert_eq!(com_op.resumo.produtos_com_op_cobertos, 1);
+    }
+
+    #[test]
+    fn classificacao_validade_fefo_e_sugestao_24m() {
+        let hoje = NaiveDate::from_ymd_opt(2026, 11, 25).unwrap();
+        assert_eq!(classificar_validade_fefo(None, hoje), (None, "sem_data".into()));
+        assert_eq!(
+            classificar_validade_fefo(NaiveDate::from_ymd_opt(2026, 11, 20), hoje),
+            (Some(-5), "vencido".into())
+        );
+        assert_eq!(
+            classificar_validade_fefo(NaiveDate::from_ymd_opt(2026, 12, 25), hoje),
+            (Some(30), "critico_90d".into())
+        );
+        assert_eq!(
+            classificar_validade_fefo(NaiveDate::from_ymd_opt(2027, 4, 10), hoje),
+            (Some(136), "atencao_180d".into())
+        );
+        assert_eq!(
+            classificar_validade_fefo(NaiveDate::from_ymd_opt(2028, 11, 25), hoje),
+            (Some(731), "ok".into())
+        );
+        assert_eq!(
+            sugerir_validade_padrao_24m(NaiveDate::from_ymd_opt(2024, 2, 29)),
+            NaiveDate::from_ymd_opt(2026, 2, 28)
+        );
+    }
+
+    #[test]
+    fn reposicao_fefo_detecta_violacao_e_ruptura_picking() {
+        let mut p_pick = pos_exemplo("A1", 1, 1, "picking", 74.1);
+        p_pick.id = "pos_pick".into();
+        let pos_com_itens = vec![PosicaoComItens {
+            posicao: p_pick,
+            itens: vec![AlocacaoItemView {
+                id: "al1".into(),
+                posicao_id: "pos_pick".into(),
+                posicao_codigo: "A1".into(),
+                estrutura_id: "est".into(),
+                papel: "picking".into(),
+                andar: 1,
+                nivel: 1,
+                produto_codigo: "2.13.036".into(),
+                produto_descricao: "BOTTOX 100G".into(),
+                linha_prefix: "2.13".into(),
+                nome_linha: "Hair".into(),
+                fileiras_largura: 2,
+                camadas_altura: 3,
+                fixado: true,
+                observacoes: None,
+                caixa_id: None,
+                caixa_codigo: None,
+                caixa_altura_cm: None,
+                caixa_comprimento_cm: None,
+                caixa_largura_cm: None,
+                caixas_comprimento: 4,
+                max_camadas: 3,
+                total_caixas: 24,
+                qtde_cx: Some(12),
+                total_unidades: 288,
+                largura_ocupada_cm: 30.0,
+                altura_ocupada_cm: 60.0,
+                altura_vao_cm: 74.1,
+                estouro_altura: false,
+                cobertura_meses: Some(1.0),
+                peso_estimado_kg: None,
+            }],
+            lotes: vec![],
+            largura_ocupada_cm: 30.0,
+            largura_livre_cm: 70.0,
+            ocupacao_pct: 30.0,
+            tem_estouro: false,
+            total_caixas: 24,
+            total_unidades: 288,
+            peso_carga_kg: 0.0,
+            peso_total_com_palete_kg: 0.0,
+            cota_base_cm: 0.0,
+            acesso_equipamento: "manual".into(),
+        }];
+
+        let lotes = vec![
+            AlocacaoLoteView {
+                id: "l_pick".into(),
+                posicao_id: "pos_pick".into(),
+                posicao_codigo: "A1".into(),
+                papel: "picking".into(),
+                andar: 1,
+                produto_codigo: "2.13.036".into(),
+                produto_descricao: "BOTTOX 100G".into(),
+                lote: "15900".into(),
+                caixas: 20,
+                data_fabricacao: Some("2026-10-01".into()),
+                data_validade: Some("2028-10-01".into()),
+                dias_para_vencer: Some(676),
+                status_validade: "ok".into(),
+                observacoes: None,
+            },
+            AlocacaoLoteView {
+                id: "l_pulm".into(),
+                posicao_id: "pos_pulm".into(),
+                posicao_codigo: "A7".into(),
+                papel: "pulmao".into(),
+                andar: 4,
+                produto_codigo: "2.13.036".into(),
+                produto_descricao: "BOTTOX 100G".into(),
+                lote: "15500".into(),
+                caixas: 10,
+                data_fabricacao: Some("2024-12-01".into()),
+                data_validade: Some("2026-12-15".into()),
+                dias_para_vencer: Some(20),
+                status_validade: "critico_90d".into(),
+                observacoes: None,
+            },
+        ];
+
+        let tarefas = calcular_tarefas_reposicao_fefo(&lotes, &pos_com_itens);
+        assert_eq!(tarefas.len(), 1);
+        assert_eq!(tarefas[0].tipo, "violacao_fefo");
+        assert_eq!(tarefas[0].lote, "15500");
+        assert_eq!(tarefas[0].origem_posicao_codigo, "A7");
+        assert_eq!(tarefas[0].destino_posicao_codigo, "A1");
     }
 }

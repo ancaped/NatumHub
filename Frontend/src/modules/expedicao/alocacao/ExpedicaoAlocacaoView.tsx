@@ -1,5 +1,15 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Box, Building2, Download, Factory, Grid3X3, ListOrdered, RefreshCw, Sparkles } from 'lucide-react';
+import {
+  Box,
+  Building2,
+  CalendarClock,
+  Download,
+  Factory,
+  Grid3X3,
+  ListOrdered,
+  RefreshCw,
+  Sparkles,
+} from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
 import { BotaoAcao, ReportHeader } from '../../geral/components/ui/ReportKit';
 import { useAviso } from '../../geral/components/ui/Aviso';
@@ -20,6 +30,7 @@ import { ProdutoAlocacaoDrawer } from './ProdutoAlocacaoDrawer';
 import { SugestaoDrawer } from './SugestaoDrawer';
 import { ImportarPlanilhaDrawer } from './ImportarPlanilhaDrawer';
 import { OpsChegandoDrawer } from './OpsChegandoDrawer';
+import { OperacaoDiariaDrawer } from './OperacaoDiariaDrawer';
 import type { PainelAlocacaoResponse, ProdutoDimensao } from './types';
 
 type TabId = 'mapa' | 'abc' | 'caixas' | 'galpoes';
@@ -49,6 +60,7 @@ export default function ExpedicaoAlocacaoView({
   const [sugestaoOpen, setSugestaoOpen] = useState<boolean>(false);
   const [importarOpen, setImportarOpen] = useState<boolean>(false);
   const [opsDrawerOpen, setOpsDrawerOpen] = useState<boolean>(false);
+  const [operacaoFefoOpen, setOperacaoFefoOpen] = useState<boolean>(false);
 
   const { avisar, aviso } = useAviso();
   const { pedir: pedirPrevia, elemento: elementoPrevia } = usePreviaServidor(avisar);
@@ -165,6 +177,20 @@ export default function ExpedicaoAlocacaoView({
         subtitulo={subtitulo}
         acoes={
           <div className="flex flex-wrap gap-1.5">
+            {painel && (
+              <BotaoAcao
+                onClick={() => setOperacaoFefoOpen(true)}
+                title="Abrir controle de lotes por validade (FEFO) e reposição Pulmão → Picking"
+              >
+                <CalendarClock className="h-3.5 w-3.5" />
+                FEFO ({painel.resumo.lotesAlocadosCount ?? 0})
+                {(painel.resumo.alertasFefoCount ?? 0) > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 font-mono text-[10px] font-bold">
+                    {painel.resumo.alertasFefoCount}
+                  </span>
+                )}
+              </BotaoAcao>
+            )}
             {painel && (
               <BotaoAcao
                 onClick={() => setOpsDrawerOpen(true)}
@@ -336,8 +362,10 @@ export default function ExpedicaoAlocacaoView({
       <OpsChegandoDrawer
         open={opsDrawerOpen}
         estruturaId={painel?.estruturaAtivaId ?? ''}
+        posicoes={painel?.posicoes ?? []}
         canEdit={canEdit}
         onClose={() => setOpsDrawerOpen(false)}
+        onSaved={carregar}
         onAbrirPosicaoCodigo={(codigo) => {
           const alvo = painel?.posicoes.find(
             (p) => p.codigo.toUpperCase() === codigo.toUpperCase(),
@@ -355,6 +383,24 @@ export default function ExpedicaoAlocacaoView({
           setProdutoCodigoSelecionado(codigo);
         }}
         onAbrirSugestao={() => setSugestaoOpen(true)}
+        avisar={avisar}
+      />
+
+      <OperacaoDiariaDrawer
+        open={operacaoFefoOpen}
+        estruturaId={painel?.estruturaAtivaId ?? ''}
+        canEdit={canEdit}
+        onClose={() => setOperacaoFefoOpen(false)}
+        onSaved={carregar}
+        onAbrirPosicaoId={(posId) => {
+          setOperacaoFefoOpen(false);
+          setAba('mapa');
+          setPosicaoIdSelecionada(posId);
+        }}
+        onAbrirProdutoCodigo={(codigo) => {
+          setOperacaoFefoOpen(false);
+          setProdutoCodigoSelecionado(codigo);
+        }}
         avisar={avisar}
       />
     </AppLayout>

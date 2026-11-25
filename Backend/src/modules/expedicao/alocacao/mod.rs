@@ -56,6 +56,14 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/api/expedicao/alocacao/abc-lote", post(handlers::post_abc_lote))
         .route("/api/expedicao/alocacao/importar-lote", post(handlers::post_importar_lote))
+        .route("/api/expedicao/alocacao/reposicao-fefo", get(handlers::get_reposicao_fefo))
+        .route(
+            "/api/expedicao/alocacao/produtos/:codigo/lotes-erp",
+            get(handlers::get_lotes_erp_produto),
+        )
+        .route("/api/expedicao/alocacao/lotes", post(handlers::post_salvar_lote))
+        .route("/api/expedicao/alocacao/lotes/mover", post(handlers::post_mover_lote))
+        .route("/api/expedicao/alocacao/lotes/:id", delete(handlers::delete_lote))
 }
 
 pub fn acoes() -> Vec<Acao> {
@@ -83,6 +91,26 @@ pub fn acoes() -> Vec<Acao> {
                 param("estruturaId", "query", "texto", false, "Id da estrutura física (padrão: primeira estrutura ativa)."),
                 param("etapa", "query", "texto", false, "Filtra por etapa exata (ex.: 'Envase', 'Liberado para Envase', 'Produzido')."),
                 param("apenasAlertas", "query", "booleano", false, "Se true, retorna apenas OPs com alerta de espaço ou sem endereço."),
+            ],
+        )
+        .com_familias(FAMILIAS),
+        Acao::leitura(
+            "listar_reposicao_fefo_expedicao",
+            "expedicao_alocacao",
+            "Lista lotes alocados por vão ordenados por validade (FEFO), detecta violações FEFO (lote mais antigo no Pulmão que no Picking) e gera a fila de reposição Pulmão → Picking.",
+            "/api/expedicao/alocacao/reposicao-fefo",
+            vec![
+                param("estruturaId", "query", "texto", false, "Id da estrutura física (padrão: primeira estrutura ativa)."),
+            ],
+        )
+        .com_familias(FAMILIAS),
+        Acao::leitura(
+            "listar_lotes_erp_produto_expedicao",
+            "expedicao_alocacao",
+            "Lista os últimos lotes fabricados no ERP (erp_lotes_laudos) para um produto, com data de fabricação e validade sugerida (+24 meses) para preenchimento rápido no endereço.",
+            "/api/expedicao/alocacao/produtos/:codigo/lotes-erp",
+            vec![
+                param("codigo", "caminho", "texto", true, "Código do produto acabado (ex.: 2.13.036)."),
             ],
         )
         .com_familias(FAMILIAS),

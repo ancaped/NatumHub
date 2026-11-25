@@ -288,3 +288,52 @@ pub async fn post_abc_lote(
     let r = service::atualizar_elegibilidade_abc_lote(state.db.pool(), &ctx, body, c.confirmar).await?;
     Ok((StatusCode::OK, Json(service::resposta_json(r))).into_response())
 }
+
+pub async fn get_reposicao_fefo(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<ReposicaoFefoQuery>,
+) -> Result<Response, ErroApi> {
+    let res = service::listar_reposicao_fefo(state.db.pool(), &q).await?;
+    Ok((StatusCode::OK, Json(res)).into_response())
+}
+
+pub async fn get_lotes_erp_produto(
+    State(state): State<Arc<AppState>>,
+    Path(codigo): Path<String>,
+) -> Result<Response, ErroApi> {
+    let lista = service::listar_lotes_erp_produto(state.db.pool(), &codigo).await?;
+    Ok((StatusCode::OK, Json(lista)).into_response())
+}
+
+pub async fn post_salvar_lote(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<SalvarLotePosicaoInput>,
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    let r = service::salvar_lote_posicao(state.db.pool(), &ctx, body, c.confirmar).await?;
+    Ok((StatusCode::OK, Json(service::resposta_json(r))).into_response())
+}
+
+pub async fn post_mover_lote(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+    Json(body): Json<MoverLoteInput>,
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    let r = service::mover_lote_posicao(state.db.pool(), &ctx, body, c.confirmar).await?;
+    Ok((StatusCode::OK, Json(service::resposta_json(r))).into_response())
+}
+
+pub async fn delete_lote(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+    Query(q): Query<ConfirmarMotivo>,
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    let r = service::excluir_lote_posicao(state.db.pool(), &ctx, &id, q.motivo.as_deref(), q.confirmar).await?;
+    Ok((StatusCode::OK, Json(service::resposta_json(r))).into_response())
+}

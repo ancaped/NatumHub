@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Copy,
+  CalendarClock,
 } from 'lucide-react';
 import Drawer from '../../geral/components/ui/Drawer';
 import { StatusBadge } from '../../geral/components/ui/ReportKit';
@@ -16,12 +17,21 @@ import type { PedidoPrevia } from '../../producao/lib/usePreviaServidor';
 import type { LinhaBase } from '../../geral/lib/linhas';
 import {
   atualizarPosicao,
+  fetchLotesErpProduto,
+  moverLotePosicao,
   produtoForaDasLinhasDaEstante,
   rotuloGrupoAlocacao,
   salvarAlocacaoPosicao,
+  salvarLotePosicao,
 } from './api';
 import { DesenhoPalete3dGiravel } from './DesenhoPalete3dGiravel';
-import type { Caixa, Estrutura, PosicaoComItens, ProdutoDimensao } from './types';
+import type {
+  Caixa,
+  Estrutura,
+  LoteErpSugestao,
+  PosicaoComItens,
+  ProdutoDimensao,
+} from './types';
 
 interface PosicaoDrawerProps {
   posicao: PosicaoComItens | null;
@@ -81,6 +91,19 @@ export function PosicaoDrawer({
   const [destinoMover, setDestinoMover] = useState<Record<string, string>>({});
   const [movendoId, setMovendoId] = useState<string | null>(null);
 
+  const [formLoteAberto, setFormLoteAberto] = useState(false);
+  const [loteProdCodigo, setLoteProdCodigo] = useState('');
+  const [loteNum, setLoteNum] = useState('');
+  const [loteCaixas, setLoteCaixas] = useState(1);
+  const [loteDataFab, setLoteDataFab] = useState('');
+  const [loteDataVal, setLoteDataVal] = useState('');
+  const [salvandoLote, setSalvandoLote] = useState(false);
+  const [lotesErp, setLotesErp] = useState<LoteErpSugestao[]>([]);
+  const [carregandoLotesErp, setCarregandoLotesErp] = useState(false);
+  const [destinoMoverLote, setDestinoMoverLote] = useState<Record<string, string>>({});
+  const [qtdMoverLote, setQtdMoverLote] = useState<Record<string, number>>({});
+  const [movendoLoteId, setMovendoLoteId] = useState<string | null>(null);
+
   const [edicoes, setEdicoes] = useState<
     Record<string, { fileiras: number; camadas: number; fixado: boolean }>
   >({});
@@ -110,6 +133,14 @@ export function PosicaoDrawer({
     setNovoCamadas(1);
     setNovoFixado(true);
     setDestinoMover({});
+    setFormLoteAberto(false);
+    setLoteProdCodigo(posicao.itens[0]?.produtoCodigo ?? '');
+    setLoteNum('');
+    setLoteCaixas(Math.max(1, posicao.itens[0]?.totalCaixas ?? 1));
+    setLoteDataFab('');
+    setLoteDataVal('');
+    setDestinoMoverLote({});
+    setQtdMoverLote({});
     const map: Record<string, { fileiras: number; camadas: number; fixado: boolean }> = {};
     for (const item of posicao.itens) {
       map[item.id] = {
@@ -120,6 +151,28 @@ export function PosicaoDrawer({
     }
     setEdicoes(map);
   }, [posicao]);
+
+  useEffect(() => {
+    if (!formLoteAberto || !loteProdCodigo) {
+      setLotesErp([]);
+      return;
+    }
+    let cancelado = false;
+    setCarregandoLotesErp(true);
+    fetchLotesErpProduto(loteProdCodigo)
+      .then((lista) => {
+        if (!cancelado) setLotesErp(lista.slice(0, 6));
+      })
+      .catch(() => {
+        if (!cancelado) setLotesErp([]);
+      })
+      .finally(() => {
+        if (!cancelado) setCarregandoLotesErp(false);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [formLoteAberto, loteProdCodigo]);
 
   const destinosDisponiveis = useMemo(() => {
     if (!posicao) return [];
@@ -300,6 +353,84 @@ export function PosicaoDrawer({
       erroPadrao: 'Não foi possível remover a alocação.',
       aoConcluir: async () => {
         avisar(`${produtoCodigo} removido de ${posicao.codigo}.`, 'sucesso');
+        await onSaved();
+      },
+    });
+  };
+
+  const salvarNovoLote = async () => {
+    if (!loteProdCodigo || !loteNum.trim()) {
+      avisar('Selecione o produto e informe o número do lote.', 'erro');
+      return;
+    }
+    setSalvandoLote(true);
+    try {
+      await salvarLotePosicao(
+        {
+          posicaoId: posicao.id,
+          produtoCodigo: loteProdCodigo,
+          lote: loteNum.trim(),
+          caixas: Math.max(1, loteCaixas),
+          dataFabricacao: loteDataFab || null,
+          dataValidade: loteDataVal || null,
+          garantirAlocacao: true,
+        },
+        true,
+      );
+      avisar(`Lote #${loteNum.trim()} salvo em ${posicao.codigo}.`, 'sucesso');
+      setLoteNum('');
+      setLoteDataFab('');
+      setLoteDataVal('');
+      setFormLoteAberto(false);
+      await onSaved();
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'Erro ao salvar lote.', 'erro');
+    } finally {
+      setSalvandoLote(false);
+    }
+  };
+
+  const moverLote = async (loteId: string, maxCaixas: number) => {
+    const destId = destinoMoverLote[loteId];
+    if (!destId) {
+      avisar('Selecione o vão de destino do lote.', 'erro');
+      return;
+    }
+    const cx = Math.max(1, Math.min(maxCaixas, qtdMoverLote[loteId] ?? maxCaixas));
+    setMovendoLoteId(loteId);
+    try {
+      const res = await moverLotePosicao(
+        { loteId, destinoPosicaoId: destId, caixas: cx },
+        true,
+      );
+      avisar(
+        `Lote #${res.lote} movido para ${res.destinoPosicaoCodigo} (${res.caixasMovidas} cx).`,
+        'sucesso',
+      );
+      await onSaved();
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'Erro ao mover lote.', 'erro');
+    } finally {
+      setMovendoLoteId(null);
+    }
+  };
+
+  const removerLote = (loteId: string, lote: string, prodCod: string) => {
+    void pedirPrevia({
+      url: `/expedicao/alocacao/lotes/${encodeURIComponent(loteId)}`,
+      init: { method: 'DELETE' },
+      titulo: 'Remover registro de lote',
+      confirmarRotulo: 'Remover lote',
+      pedirMotivo: true,
+      linhas: () => [
+        {
+          titulo: `Lote #${lote} · ${prodCod}`,
+          detalhe: `Será removido do vão ${posicao.codigo}`,
+        },
+      ],
+      erroPadrao: 'Não foi possível remover o lote.',
+      aoConcluir: async () => {
+        avisar(`Lote #${lote} removido de ${posicao.codigo}.`, 'sucesso');
         await onSaved();
       },
     });
@@ -821,6 +952,231 @@ export function PosicaoDrawer({
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+
+        {/* Lotes FEFO neste vão */}
+        <div className="panel-card !p-3 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h4 className="font-bold text-zinc-800 uppercase tracking-wider text-[11px] inline-flex items-center gap-1.5">
+              <CalendarClock className="h-3.5 w-3.5" />
+              Lotes neste vão — FEFO ({posicao.lotes?.length ?? 0})
+            </h4>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => setFormLoteAberto((v) => !v)}
+                className="px-2.5 py-1 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 font-semibold text-zinc-800 inline-flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="h-3 w-3" />
+                {formLoteAberto ? 'Fechar' : 'Registrar lote'}
+              </button>
+            )}
+          </div>
+
+          {(posicao.lotes?.length ?? 0) === 0 ? (
+            <div className="text-[11px] text-zinc-500">
+              Nenhum lote cadastrado neste vão ainda.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {(posicao.lotes ?? []).map((l) => {
+                const varBadge =
+                  l.statusValidade === 'vencido' || l.statusValidade === 'critico_90d'
+                    ? 'critico'
+                    : l.statusValidade === 'atencao_180d'
+                      ? 'aguardando'
+                      : l.dataValidade
+                        ? 'saudavel'
+                        : 'descontinuado';
+                const lblBadge =
+                  l.statusValidade === 'vencido'
+                    ? 'Vencido'
+                    : l.diasParaVencer != null && l.diasParaVencer <= 180
+                      ? `${l.diasParaVencer}d`
+                      : l.dataValidade
+                        ? 'OK'
+                        : 'Sem data';
+                return (
+                  <div
+                    key={l.id}
+                    className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-2.5 space-y-2"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-mono font-bold text-zinc-900">Lote #{l.lote}</span>
+                        <span className="font-mono text-zinc-600">{l.produtoCodigo}</span>
+                        <StatusBadge variante={varBadge}>{lblBadge}</StatusBadge>
+                      </div>
+                      <span className="font-mono text-[11px] font-bold text-zinc-800">
+                        {l.caixas} cx · Val.{' '}
+                        {l.dataValidade
+                          ? l.dataValidade.split('-').reverse().join('/')
+                          : '—'}
+                      </span>
+                    </div>
+                    {canEdit && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <select
+                          aria-label={`Destino para mover lote ${l.lote}`}
+                          value={destinoMoverLote[l.id] ?? ''}
+                          onChange={(e) =>
+                            setDestinoMoverLote((m) => ({ ...m, [l.id]: e.target.value }))
+                          }
+                          className="flex-1 min-w-[130px] px-2 py-1 border border-zinc-200 rounded-lg bg-white font-mono text-[11px]"
+                        >
+                          <option value="">Mover lote para vão...</option>
+                          {destinosDisponiveis.map((d) => (
+                            <option key={`ml-${d.id}`} value={d.id}>
+                              {d.codigo} ({d.papel === 'pulmao' ? 'Pulmão' : 'Pick'})
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          min={1}
+                          max={l.caixas}
+                          value={qtdMoverLote[l.id] ?? l.caixas}
+                          onChange={(e) =>
+                            setQtdMoverLote((q) => ({
+                              ...q,
+                              [l.id]: Math.max(1, parseInt(e.target.value || '1', 10)),
+                            }))
+                          }
+                          className="w-14 px-2 py-1 border border-zinc-200 rounded-lg bg-white font-mono text-[11px]"
+                        />
+                        <button
+                          type="button"
+                          disabled={!destinoMoverLote[l.id] || movendoLoteId === l.id}
+                          onClick={() => moverLote(l.id, l.caixas)}
+                          className="px-2.5 py-1 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-100 font-semibold text-zinc-800 disabled:opacity-40 cursor-pointer"
+                        >
+                          Mover
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removerLote(l.id, l.lote, l.produtoCodigo)}
+                          className="p-1 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 cursor-pointer"
+                          title="Remover lote"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {canEdit && formLoteAberto && (
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-2.5 space-y-2.5">
+              <label className="block space-y-1">
+                <span className="font-semibold text-zinc-600 block">Produto</span>
+                <select
+                  value={loteProdCodigo}
+                  onChange={(e) => setLoteProdCodigo(e.target.value)}
+                  className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white text-xs"
+                >
+                  <option value="">Selecione o produto...</option>
+                  {posicao.itens.map((it) => (
+                    <option key={`lp-it-${it.id}`} value={it.produtoCodigo}>
+                      {it.produtoCodigo} — {it.produtoDescricao}
+                    </option>
+                  ))}
+                  {candidatos.slice(0, 60).map((p) => (
+                    <option key={`lp-cd-${p.codigo}`} value={p.codigo}>
+                      {p.codigo} — {p.descricao}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {loteProdCodigo && (carregandoLotesErp || lotesErp.length > 0) && (
+                <div className="space-y-1">
+                  <span className="text-[11px] font-semibold text-zinc-500 block">
+                    {carregandoLotesErp
+                      ? 'Buscando lotes do ERP...'
+                      : 'Lotes recentes do ERP (clique para preencher):'}
+                  </span>
+                  <div className="flex flex-wrap gap-1">
+                    {lotesErp.map((le) => (
+                      <button
+                        key={`erp-l-${le.lote}`}
+                        type="button"
+                        onClick={() => {
+                          setLoteNum(le.lote);
+                          setLoteDataFab(le.dataFabricacao ?? '');
+                          setLoteDataVal(le.dataValidadeSugerida ?? '');
+                        }}
+                        className="px-2 py-1 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-100 font-mono text-[11px] font-semibold text-zinc-800 cursor-pointer"
+                      >
+                        #{le.lote}
+                        {le.dataValidadeSugerida ? ` · val. ${le.dataValidadeSugerida}` : ''}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <label className="space-y-1">
+                  <span className="font-semibold text-zinc-600 block">Lote</span>
+                  <input
+                    type="text"
+                    value={loteNum}
+                    onChange={(e) => setLoteNum(e.target.value)}
+                    placeholder="Ex.: 15885"
+                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="font-semibold text-zinc-600 block">Caixas</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={loteCaixas}
+                    onChange={(e) => setLoteCaixas(Math.max(1, parseInt(e.target.value || '1', 10)))}
+                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="font-semibold text-zinc-600 block">Fabricação</span>
+                  <input
+                    type="date"
+                    value={loteDataFab}
+                    onChange={(e) => setLoteDataFab(e.target.value)}
+                    className="w-full px-2 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="font-semibold text-zinc-600 block">Validade</span>
+                  <input
+                    type="date"
+                    value={loteDataVal}
+                    onChange={(e) => setLoteDataVal(e.target.value)}
+                    className="w-full px-2 py-1.5 border border-zinc-200 rounded-lg bg-white font-mono"
+                  />
+                </label>
+              </div>
+              <div className="flex justify-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setFormLoteAberto(false)}
+                  className="px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-white text-zinc-600 font-semibold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={salvandoLote}
+                  onClick={salvarNovoLote}
+                  className="px-3 py-1.5 rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 font-semibold disabled:opacity-50 cursor-pointer"
+                >
+                  {salvandoLote ? 'Salvando...' : 'Salvar lote'}
+                </button>
+              </div>
             </div>
           )}
         </div>

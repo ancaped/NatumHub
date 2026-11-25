@@ -97,8 +97,35 @@ export interface AlocacaoItemView {
   pesoEstimadoKg?: number | null;
 }
 
+export interface AlocacaoLoteView {
+  id: string;
+  posicaoId: string;
+  posicaoCodigo: string;
+  papel: 'picking' | 'pulmao' | string;
+  andar: number;
+  produtoCodigo: string;
+  produtoDescricao: string;
+  lote: string;
+  caixas: number;
+  dataFabricacao: string | null;
+  dataValidade: string | null;
+  diasParaVencer: number | null;
+  statusValidade: 'vencido' | 'critico_90d' | 'atencao_180d' | 'ok' | 'sem_data' | string;
+  observacoes: string | null;
+}
+
+export interface LoteErpSugestao {
+  lote: string;
+  dataFabricacao: string | null;
+  dataValidadeSugerida: string | null;
+  quantidadeKg: number | null;
+  unidades: number | null;
+  resultado: string | null;
+}
+
 export interface PosicaoComItens extends Posicao {
   itens: AlocacaoItemView[];
+  lotes?: AlocacaoLoteView[];
   larguraOcupadaCm: number;
   larguraLivreCm: number;
   ocupacaoPct: number;
@@ -199,6 +226,8 @@ export interface PainelResumo {
   ocupacaoMediaPct: number;
   opsChegandoCount?: number;
   opsComAlertaEspaco?: number;
+  lotesAlocadosCount?: number;
+  alertasFefoCount?: number;
 }
 
 export interface PainelAlocacaoResponse {
@@ -296,6 +325,41 @@ export interface OpsChegandoResponse {
   estruturaAtivaId: string;
   resumo: OpsChegandoResumo;
   itens: OpChegandoItem[];
+}
+
+export interface TarefaReposicaoFefo {
+  tipo: 'violacao_fefo' | 'reposicao_picking' | string;
+  prioridade: number;
+  produtoCodigo: string;
+  produtoDescricao: string;
+  loteId: string;
+  lote: string;
+  dataValidade: string | null;
+  diasParaVencer: number | null;
+  origemPosicaoId: string;
+  origemPosicaoCodigo: string;
+  destinoPosicaoId: string;
+  destinoPosicaoCodigo: string;
+  caixasDisponiveis: number;
+  caixasSugeridas: number;
+  motivo: string;
+}
+
+export interface ReposicaoFefoResumo {
+  totalLotes: number;
+  totalCaixasEmLotes: number;
+  vencidos: number;
+  criticos90d: number;
+  atencao180d: number;
+  violacoesFefo: number;
+  reposicoesPendentes: number;
+}
+
+export interface ReposicaoFefoResponse {
+  estruturaAtivaId: string;
+  resumo: ReposicaoFefoResumo;
+  tarefas: TarefaReposicaoFefo[];
+  lotesValidade: AlocacaoLoteView[];
 }
 
 export interface SugestaoResultado {

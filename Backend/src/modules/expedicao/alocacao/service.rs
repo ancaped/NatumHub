@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use chrono::{Local, NaiveDate};
 use serde_json::{json, Value};
 use sqlx::{PgConnection, PgPool, Row};
 
@@ -14,10 +15,12 @@ use crate::modules::geral::auth::models::AuthContext;
 use super::calculo::{
     acesso_equipamento_por_cota, agrupar_insumos_caixa_nao_vinculados, aplicar_curva_abc, arred2,
     calcular_camadas_compat_vao, calcular_cotas_base_andares, calcular_geometria_alocacao,
-    calcular_necessidades_caixas, calcular_peso_caixa_estimado_kg, calcular_unidades_op,
-    classificar_espaco_op, classificar_empilhamento, definir_grupo_alocacao,
+    calcular_necessidades_caixas, calcular_peso_caixa_estimado_kg,
+    calcular_tarefas_reposicao_fefo, calcular_unidades_op, classificar_empilhamento,
+    classificar_espaco_op, classificar_validade_fefo, definir_grupo_alocacao,
     e_cliente_atacadista, elegibilidade_abc_efetiva, prioridade_etapa_op,
-    situacao_alocacao_produto, sugerir_alocacao, AlocacaoExistente, TARA_PALETE_PBR_KG,
+    situacao_alocacao_produto, sugerir_alocacao, sugerir_validade_padrao_24m,
+    AlocacaoExistente, TARA_PALETE_PBR_KG,
 };
 use super::models::*;
 
@@ -306,6 +309,71 @@ async fn carregar_atacadistas(pool: &PgPool) -> Result<Vec<Atacadista>, ErroApi>
             pedidos_encontrados: 0,
         })
         .collect())
+}
+
+fn parse_data_iso_leniente(raw: Option<&str>) -> Result<Option<NaiveDate>, ErroApi> {
+    let Some(s) = raw.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Ok(None);
+    };
+    let head = if s.len() >= 10 { &s[..10] } else { s };
+    NaiveDate::parse_from_str(head, "%Y-%m-%d")
+        .map(Some)
+        .map_err(|_| ErroApi::invalido(format!("Data inválida '{s}' (use AAAA-MM-DD).")))
+}
+
+fn parse_data_erp_opt(raw: Option<&str>) -> Option<NaiveDate> {
+    let s = raw?.trim();
+    if s.len() < 10 {
+        return None;
+    }
+    NaiveDate::parse_from_str(&s[..10], "%Y-%m-%d").ok()
+}
+
+async fn carregar_lotes_estrutura(
+    pool: &PgPool,
+    estrutura_id: &str,
+) -> Result<Vec<AlocacaoLoteView>, ErroApi> {
+    if estrutura_id.is_empty() {
+        return Ok(Vec::new());
+    }
+    let hoje = Local::now().date_naive();
+    let rows = sqlx::query(
+        "SELECT l.id, l.posicao_id, pos.codigo AS pos_codigo, pos.papel, pos.andar, \
+                l.produto_codigo, COALESCE(NULLIF(TRIM(p.descricao), ''), l.produto_codigo) AS prod_desc, \
+                l.lote, l.caixas, l.data_fabricacao, l.data_validade, l.observacoes \
+         FROM expedicao_alocacao_lotes l \
+         JOIN expedicao_posicoes pos ON pos.id = l.posicao_id \
+         LEFT JOIN produtos p ON p.codigo = l.produto_codigo \
+         WHERE pos.estrutura_id = $1 AND l.caixas > 0 \
+         ORDER BY l.data_validade ASC NULLS LAST, l.data_fabricacao ASC NULLS LAST, l.lote ASC",
+    )
+    .bind(estrutura_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let data_fab: Option<NaiveDate> = r.get("data_fabricacao");
+        let data_val: Option<NaiveDate> = r.get("data_validade");
+        let (dias_para_vencer, status_validade) = classificar_validade_fefo(data_val, hoje);
+        out.push(AlocacaoLoteView {
+            id: r.get("id"),
+            posicao_id: r.get("posicao_id"),
+            posicao_codigo: r.get("pos_codigo"),
+            papel: r.get("papel"),
+            andar: r.get("andar"),
+            produto_codigo: r.get("produto_codigo"),
+            produto_descricao: r.get("prod_desc"),
+            lote: r.get("lote"),
+            caixas: r.get("caixas"),
+            data_fabricacao: data_fab.map(|d| d.format("%Y-%m-%d").to_string()),
+            data_validade: data_val.map(|d| d.format("%Y-%m-%d").to_string()),
+            dias_para_vencer,
+            status_validade,
+            observacoes: r.get("observacoes"),
+        });
+    }
+    Ok(out)
 }
 
 #[derive(Debug, Clone)]
@@ -915,6 +983,15 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         itens_por_prod.entry(produto_codigo).or_default().push(view);
     }
 
+    let lotes_est = carregar_lotes_estrutura(pool, &estrutura_ativa_id).await?;
+    let mut lotes_por_pos: HashMap<String, Vec<AlocacaoLoteView>> = HashMap::new();
+    for l in &lotes_est {
+        lotes_por_pos
+            .entry(l.posicao_id.clone())
+            .or_default()
+            .push(l.clone());
+    }
+
     let cotas_base = calcular_cotas_base_andares(&posicoes);
     let mut posicoes_com_itens: Vec<PosicaoComItens> = Vec::with_capacity(posicoes.len());
     let mut posicoes_ocupadas = 0usize;
@@ -923,6 +1000,7 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
 
     for pos in posicoes {
         let itens = itens_por_pos.remove(&pos.id).unwrap_or_default();
+        let lotes = lotes_por_pos.remove(&pos.id).unwrap_or_default();
         let larg_itens_cm: f64 = itens.iter().map(|i| i.largura_ocupada_cm).sum();
         let (largura_ocupada_cm, ocupacao_pct, tem_estouro) =
             if itens.is_empty() && pos.tipo_ocupacao == "misto" {
@@ -966,6 +1044,7 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         posicoes_com_itens.push(PosicaoComItens {
             posicao: pos,
             itens,
+            lotes,
             largura_ocupada_cm,
             largura_livre_cm,
             ocupacao_pct,
@@ -1069,6 +1148,12 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         }
     }
 
+    let tarefas_fefo = calcular_tarefas_reposicao_fefo(&lotes_est, &posicoes_com_itens);
+    let alertas_validade_crit = lotes_est
+        .iter()
+        .filter(|l| l.status_validade == "vencido" || l.status_validade == "critico_90d")
+        .count();
+
     let resumo = PainelResumo {
         total_produtos: produtos.len(),
         alocados,
@@ -1085,6 +1170,8 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         },
         ops_chegando_count: ops_brutas.len(),
         ops_com_alerta_espaco,
+        lotes_alocados_count: lotes_est.len(),
+        alertas_fefo_count: tarefas_fefo.len() + alertas_validade_crit,
     };
 
     Ok(PainelAlocacaoResponse {
@@ -1100,6 +1187,442 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         insumos_caixa_erp,
         resumo,
     })
+}
+
+pub async fn listar_lotes_erp_produto(
+    pool: &PgPool,
+    produto_codigo: &str,
+) -> Result<Vec<LoteErpSugestao>, ErroApi> {
+    let cod = produto_codigo.trim();
+    if cod.is_empty() {
+        return Err(ErroApi::invalido("Informe o código do produto."));
+    }
+    let rows = sqlx::query(
+        "SELECT lote, data_envase, data_lote, quantidade_kg, unidades, resultado \
+         FROM erp_lotes_laudos \
+         WHERE product_code = $1 \
+         ORDER BY data_lote DESC NULLS LAST, lote DESC \
+         LIMIT 20",
+    )
+    .bind(cod)
+    .fetch_all(pool)
+    .await?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let dt_env: Option<String> = r.get("data_envase");
+        let dt_lote: Option<String> = r.get("data_lote");
+        let fab = parse_data_erp_opt(dt_env.as_deref())
+            .or_else(|| parse_data_erp_opt(dt_lote.as_deref()));
+        let val = sugerir_validade_padrao_24m(fab);
+        out.push(LoteErpSugestao {
+            lote: r.get("lote"),
+            data_fabricacao: fab.map(|d| d.format("%Y-%m-%d").to_string()),
+            data_validade_sugerida: val.map(|d| d.format("%Y-%m-%d").to_string()),
+            quantidade_kg: r.get("quantidade_kg"),
+            unidades: r.get("unidades"),
+            resultado: r.get("resultado"),
+        });
+    }
+    Ok(out)
+}
+
+pub async fn listar_reposicao_fefo(
+    pool: &PgPool,
+    q: &ReposicaoFefoQuery,
+) -> Result<ReposicaoFefoResponse, ErroApi> {
+    let painel = carregar_painel(
+        pool,
+        &PainelQuery {
+            estrutura_id: q.estrutura_id.clone(),
+            janela_meses: Some(12),
+            meta_meses: Some(2.0),
+            usar_meta_linha: Some(true),
+            incluir_inativos: Some(false),
+        },
+    )
+    .await?;
+
+    let mut lotes_validade: Vec<AlocacaoLoteView> = painel
+        .posicoes
+        .iter()
+        .flat_map(|p| p.lotes.iter().cloned())
+        .collect();
+    lotes_validade.sort_by(|a, b| {
+        let va = a.data_validade.as_deref().unwrap_or("9999-12-31");
+        let vb = b.data_validade.as_deref().unwrap_or("9999-12-31");
+        va.cmp(vb)
+            .then_with(|| a.produto_codigo.cmp(&b.produto_codigo))
+            .then_with(|| a.lote.cmp(&b.lote))
+    });
+
+    let tarefas = calcular_tarefas_reposicao_fefo(&lotes_validade, &painel.posicoes);
+
+    let mut total_caixas_em_lotes = 0i32;
+    let mut vencidos = 0usize;
+    let mut criticos_90d = 0usize;
+    let mut atencao_180d = 0usize;
+    for l in &lotes_validade {
+        total_caixas_em_lotes += l.caixas;
+        match l.status_validade.as_str() {
+            "vencido" => vencidos += 1,
+            "critico_90d" => criticos_90d += 1,
+            "atencao_180d" => atencao_180d += 1,
+            _ => {}
+        }
+    }
+    let violacoes_fefo = tarefas.iter().filter(|t| t.tipo == "violacao_fefo").count();
+    let reposicoes_pendentes = tarefas.len() - violacoes_fefo;
+
+    Ok(ReposicaoFefoResponse {
+        estrutura_ativa_id: painel.estrutura_ativa_id,
+        resumo: ReposicaoFefoResumo {
+            total_lotes: lotes_validade.len(),
+            total_caixas_em_lotes,
+            vencidos,
+            criticos_90d,
+            atencao_180d,
+            violacoes_fefo,
+            reposicoes_pendentes,
+        },
+        tarefas,
+        lotes_validade,
+    })
+}
+
+async fn garantir_alocacao_em_vao_tx(
+    tx: &mut PgConnection,
+    posicao_id: &str,
+    produto_codigo: &str,
+) -> Result<(), ErroApi> {
+    let ja_existe: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM expedicao_alocacoes WHERE posicao_id = $1 AND produto_codigo = $2)",
+    )
+    .bind(posicao_id)
+    .bind(produto_codigo)
+    .fetch_one(&mut *tx)
+    .await?;
+    if ja_existe {
+        return Ok(());
+    }
+    let pos_row = sqlx::query(
+        "SELECT altura_cm, COALESCE(tipo_ocupacao, 'padrao') AS tipo_ocupacao \
+         FROM expedicao_posicoes WHERE id = $1",
+    )
+    .bind(posicao_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(pos_row) = pos_row else {
+        return Ok(());
+    };
+    let tipo_ocup: String = pos_row.get("tipo_ocupacao");
+    if tipo_ocup != "padrao" {
+        return Ok(());
+    }
+    let altura_cm: f64 = pos_row.get("altura_cm");
+    let cx_map = carregar_mapa_caixas_produtos_tx(tx, &[produto_codigo.to_string()]).await?;
+    let cx_ref = cx_map.get(produto_codigo);
+    let cam = calcular_camadas_compat_vao(altura_cm, cx_ref, None, 1).max(1);
+    let aloc_id = slug_id("aloc");
+    sqlx::query(
+        "INSERT INTO expedicao_alocacoes \
+         (id, posicao_id, produto_codigo, fileiras_largura, camadas_altura, fixado, updated_at) \
+         VALUES ($1, $2, $3, 1, $4, FALSE, NOW()) \
+         ON CONFLICT (posicao_id, produto_codigo) DO NOTHING",
+    )
+    .bind(&aloc_id)
+    .bind(posicao_id)
+    .bind(produto_codigo)
+    .bind(cam)
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+pub async fn salvar_lote_posicao(
+    pool: &PgPool,
+    ctx: &AuthContext,
+    input: SalvarLotePosicaoInput,
+    confirmar: bool,
+) -> Result<RespostaAcao<Value>, ErroApi> {
+    let pos_id = str_trim(Some(&input.posicao_id))
+        .ok_or_else(|| ErroApi::invalido("Informe o vão de destino."))?;
+    let prod_cod = str_trim(Some(&input.produto_codigo))
+        .ok_or_else(|| ErroApi::invalido("Informe o código do produto."))?;
+    let lote = str_trim(Some(&input.lote))
+        .ok_or_else(|| ErroApi::invalido("Informe o número do lote."))?;
+    if input.caixas < 0 {
+        return Err(ErroApi::invalido("Quantidade de caixas não pode ser negativa."));
+    }
+    let dt_fab = parse_data_iso_leniente(input.data_fabricacao.as_deref())?;
+    let dt_val = parse_data_iso_leniente(input.data_validade.as_deref())?;
+    let obs = str_trim(input.observacoes.as_deref());
+    let garantir = input.garantir_alocacao.unwrap_or(false);
+
+    let pos_c = pos_id.clone();
+    let prod_c = prod_cod.clone();
+    let lote_c = lote.clone();
+    let r = executar_em_2_passos(pool, "salvar_lote_expedicao", confirmar, move |tx| {
+        Box::pin(async move {
+            let pos_cod: Option<String> =
+                sqlx::query_scalar("SELECT codigo FROM expedicao_posicoes WHERE id = $1")
+                    .bind(&pos_c)
+                    .fetch_optional(&mut **tx)
+                    .await?;
+            let Some(pos_cod) = pos_cod else {
+                return Err(ErroApi::nao_encontrado("Posição não encontrada."));
+            };
+            let prod_ok: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM produtos WHERE codigo = $1)")
+                    .bind(&prod_c)
+                    .fetch_one(&mut **tx)
+                    .await?;
+            if !prod_ok {
+                return Err(ErroApi::nao_encontrado(format!("Produto '{prod_c}' não encontrado.")));
+            }
+
+            let antes: Option<Value> = sqlx::query_scalar(
+                "SELECT to_jsonb(l) FROM expedicao_alocacao_lotes l \
+                 WHERE l.posicao_id = $1 AND l.produto_codigo = $2 AND l.lote = $3 FOR UPDATE",
+            )
+            .bind(&pos_c)
+            .bind(&prod_c)
+            .bind(&lote_c)
+            .fetch_optional(&mut **tx)
+            .await?
+            .flatten();
+
+            if input.caixas == 0 {
+                sqlx::query(
+                    "DELETE FROM expedicao_alocacao_lotes \
+                     WHERE posicao_id = $1 AND produto_codigo = $2 AND lote = $3",
+                )
+                .bind(&pos_c)
+                .bind(&prod_c)
+                .bind(&lote_c)
+                .execute(&mut **tx)
+                .await?;
+            } else {
+                let id = slug_id("lote");
+                sqlx::query(
+                    "INSERT INTO expedicao_alocacao_lotes \
+                     (id, posicao_id, produto_codigo, lote, caixas, data_fabricacao, data_validade, observacoes, updated_at) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) \
+                     ON CONFLICT (posicao_id, produto_codigo, lote) DO UPDATE SET \
+                        caixas = EXCLUDED.caixas, \
+                        data_fabricacao = COALESCE(EXCLUDED.data_fabricacao, expedicao_alocacao_lotes.data_fabricacao), \
+                        data_validade = COALESCE(EXCLUDED.data_validade, expedicao_alocacao_lotes.data_validade), \
+                        observacoes = COALESCE(EXCLUDED.observacoes, expedicao_alocacao_lotes.observacoes), \
+                        updated_at = NOW()",
+                )
+                .bind(&id)
+                .bind(&pos_c)
+                .bind(&prod_c)
+                .bind(&lote_c)
+                .bind(input.caixas)
+                .bind(dt_fab)
+                .bind(dt_val)
+                .bind(&obs)
+                .execute(&mut **tx)
+                .await?;
+
+                if garantir {
+                    garantir_alocacao_em_vao_tx(&mut **tx, &pos_c, &prod_c).await?;
+                }
+            }
+
+            Ok(json!({
+                "posicaoId": pos_c,
+                "posicaoCodigo": pos_cod,
+                "produtoCodigo": prod_c,
+                "lote": lote_c,
+                "caixas": input.caixas,
+                "dataFabricacao": dt_fab.map(|d| d.format("%Y-%m-%d").to_string()),
+                "dataValidade": dt_val.map(|d| d.format("%Y-%m-%d").to_string()),
+                "antes": antes,
+            }))
+        })
+    })
+    .await?;
+
+    if confirmar {
+        registrar_auditoria(
+            pool,
+            ctx,
+            "salvar_lote_expedicao",
+            "expedicao_alocacao_lote",
+            &format!("{pos_id}:{prod_cod}:{lote}"),
+            &format!(
+                "Lote #{lote} ({prod_cod}) em {} atualizado: {} cx",
+                r.resultado["posicaoCodigo"].as_str().unwrap_or(&pos_id),
+                input.caixas
+            ),
+            r.resultado.get("antes").cloned(),
+            Some(r.resultado.clone()),
+        )
+        .await;
+    }
+    Ok(r)
+}
+
+pub async fn mover_lote_posicao(
+    pool: &PgPool,
+    ctx: &AuthContext,
+    input: MoverLoteInput,
+    confirmar: bool,
+) -> Result<RespostaAcao<Value>, ErroApi> {
+    let lote_id = str_trim(Some(&input.lote_id))
+        .ok_or_else(|| ErroApi::invalido("Informe o lote de origem."))?;
+    let dest_id = str_trim(Some(&input.destino_posicao_id))
+        .ok_or_else(|| ErroApi::invalido("Informe o vão de destino."))?;
+    if let Some(cx) = input.caixas {
+        if cx < 1 {
+            return Err(ErroApi::invalido("Informe pelo menos 1 caixa para mover."));
+        }
+    }
+
+    let lote_id_c = lote_id.clone();
+    let dest_id_c = dest_id.clone();
+    let r = executar_em_2_passos(pool, "mover_lote_expedicao", confirmar, move |tx| {
+        Box::pin(async move {
+            let row = sqlx::query(
+                "SELECT l.id, l.posicao_id, l.produto_codigo, l.lote, l.caixas, \
+                        l.data_fabricacao, l.data_validade, l.observacoes, p.codigo AS orig_cod \
+                 FROM expedicao_alocacao_lotes l \
+                 JOIN expedicao_posicoes p ON p.id = l.posicao_id \
+                 WHERE l.id = $1 FOR UPDATE",
+            )
+            .bind(&lote_id_c)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| ErroApi::nao_encontrado("Registro de lote não encontrado."))?;
+
+            let orig_pos_id: String = row.get("posicao_id");
+            let orig_cod: String = row.get("orig_cod");
+            if orig_pos_id == dest_id_c {
+                return Err(ErroApi::regra("Origem e destino do lote são iguais."));
+            }
+
+            let dest_cod: Option<String> =
+                sqlx::query_scalar("SELECT codigo FROM expedicao_posicoes WHERE id = $1")
+                    .bind(&dest_id_c)
+                    .fetch_optional(&mut **tx)
+                    .await?;
+            let Some(dest_cod) = dest_cod else {
+                return Err(ErroApi::nao_encontrado("Vão de destino não encontrado."));
+            };
+
+            let prod_cod: String = row.get("produto_codigo");
+            let lote: String = row.get("lote");
+            let orig_caixas: i32 = row.get("caixas");
+            let dt_fab: Option<NaiveDate> = row.get("data_fabricacao");
+            let dt_val: Option<NaiveDate> = row.get("data_validade");
+            let obs: Option<String> = row.get("observacoes");
+
+            let qtd = input.caixas.unwrap_or(orig_caixas);
+            if qtd < 1 || qtd > orig_caixas {
+                return Err(ErroApi::invalido(format!(
+                    "Quantidade inválida ({qtd}); há {orig_caixas} cx disponíveis neste lote."
+                )));
+            }
+
+            if qtd == orig_caixas {
+                sqlx::query("DELETE FROM expedicao_alocacao_lotes WHERE id = $1")
+                    .bind(&lote_id_c)
+                    .execute(&mut **tx)
+                    .await?;
+            } else {
+                sqlx::query(
+                    "UPDATE expedicao_alocacao_lotes \
+                     SET caixas = caixas - $2, updated_at = NOW() WHERE id = $1",
+                )
+                .bind(&lote_id_c)
+                .bind(qtd)
+                .execute(&mut **tx)
+                .await?;
+            }
+
+            let novo_id = slug_id("lote");
+            sqlx::query(
+                "INSERT INTO expedicao_alocacao_lotes \
+                 (id, posicao_id, produto_codigo, lote, caixas, data_fabricacao, data_validade, observacoes, updated_at) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) \
+                 ON CONFLICT (posicao_id, produto_codigo, lote) DO UPDATE SET \
+                    caixas = expedicao_alocacao_lotes.caixas + EXCLUDED.caixas, \
+                    data_fabricacao = COALESCE(expedicao_alocacao_lotes.data_fabricacao, EXCLUDED.data_fabricacao), \
+                    data_validade = COALESCE(expedicao_alocacao_lotes.data_validade, EXCLUDED.data_validade), \
+                    updated_at = NOW()",
+            )
+            .bind(&novo_id)
+            .bind(&dest_id_c)
+            .bind(&prod_cod)
+            .bind(&lote)
+            .bind(qtd)
+            .bind(dt_fab)
+            .bind(dt_val)
+            .bind(&obs)
+            .execute(&mut **tx)
+            .await?;
+
+            garantir_alocacao_em_vao_tx(&mut **tx, &dest_id_c, &prod_cod).await?;
+
+            Ok(json!({
+                "loteId": lote_id_c,
+                "lote": lote,
+                "produtoCodigo": prod_cod,
+                "origemPosicaoCodigo": orig_cod,
+                "destinoPosicaoCodigo": dest_cod,
+                "caixasMovidas": qtd,
+                "restanteOrigem": orig_caixas - qtd,
+            }))
+        })
+    })
+    .await?;
+
+    if confirmar {
+        registrar_auditoria(
+            pool,
+            ctx,
+            "mover_lote_expedicao",
+            "expedicao_alocacao_lote",
+            &lote_id,
+            &format!(
+                "Lote #{} ({}) movido {} → {} ({} cx)",
+                r.resultado["lote"].as_str().unwrap_or(""),
+                r.resultado["produtoCodigo"].as_str().unwrap_or(""),
+                r.resultado["origemPosicaoCodigo"].as_str().unwrap_or(""),
+                r.resultado["destinoPosicaoCodigo"].as_str().unwrap_or(""),
+                r.resultado["caixasMovidas"].as_i64().unwrap_or(0)
+            ),
+            None,
+            Some(r.resultado.clone()),
+        )
+        .await;
+    }
+    Ok(r)
+}
+
+pub async fn excluir_lote_posicao(
+    pool: &PgPool,
+    ctx: &AuthContext,
+    id: &str,
+    motivo: Option<&str>,
+    confirmar: bool,
+) -> Result<RespostaAcao<Value>, ErroApi> {
+    excluir_em_2_passos(
+        pool,
+        ctx,
+        "excluir_lote_expedicao",
+        "expedicao_alocacao_lote",
+        "o registro de lote",
+        "Lote removido do vão da expedição",
+        id,
+        "SELECT to_jsonb(l) FROM expedicao_alocacao_lotes l WHERE l.id = $1 FOR UPDATE",
+        "DELETE FROM expedicao_alocacao_lotes WHERE id = $1",
+        motivo,
+        confirmar,
+    )
+    .await
 }
 
 pub async fn listar_ops_chegando(

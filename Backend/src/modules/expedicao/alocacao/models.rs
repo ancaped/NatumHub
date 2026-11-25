@@ -113,6 +113,7 @@ pub struct PosicaoComItens {
     #[serde(flatten)]
     pub posicao: Posicao,
     pub itens: Vec<AlocacaoItemView>,
+    pub lotes: Vec<AlocacaoLoteView>,
     pub largura_ocupada_cm: f64,
     pub largura_livre_cm: f64,
     pub ocupacao_pct: f64,
@@ -211,6 +212,8 @@ pub struct PainelResumo {
     pub ocupacao_media_pct: f64,
     pub ops_chegando_count: usize,
     pub ops_com_alerta_espaco: usize,
+    pub lotes_alocados_count: usize,
+    pub alertas_fefo_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -459,6 +462,104 @@ pub struct OpsChegandoResponse {
     pub estrutura_ativa_id: String,
     pub resumo: OpsChegandoResumo,
     pub itens: Vec<OpChegandoItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlocacaoLoteView {
+    pub id: String,
+    pub posicao_id: String,
+    pub posicao_codigo: String,
+    pub papel: String,
+    pub andar: i32,
+    pub produto_codigo: String,
+    pub produto_descricao: String,
+    pub lote: String,
+    pub caixas: i32,
+    pub data_fabricacao: Option<String>,
+    pub data_validade: Option<String>,
+    pub dias_para_vencer: Option<i64>,
+    pub status_validade: String,
+    pub observacoes: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoteErpSugestao {
+    pub lote: String,
+    pub data_fabricacao: Option<String>,
+    pub data_validade_sugerida: Option<String>,
+    pub quantidade_kg: Option<f64>,
+    pub unidades: Option<f64>,
+    pub resultado: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SalvarLotePosicaoInput {
+    pub posicao_id: String,
+    pub produto_codigo: String,
+    pub lote: String,
+    pub caixas: i32,
+    pub data_fabricacao: Option<String>,
+    pub data_validade: Option<String>,
+    pub observacoes: Option<String>,
+    pub garantir_alocacao: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoverLoteInput {
+    pub lote_id: String,
+    pub destino_posicao_id: String,
+    pub caixas: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReposicaoFefoQuery {
+    pub estrutura_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TarefaReposicaoFefo {
+    pub tipo: String,
+    pub prioridade: i32,
+    pub produto_codigo: String,
+    pub produto_descricao: String,
+    pub lote_id: String,
+    pub lote: String,
+    pub data_validade: Option<String>,
+    pub dias_para_vencer: Option<i64>,
+    pub origem_posicao_id: String,
+    pub origem_posicao_codigo: String,
+    pub destino_posicao_id: String,
+    pub destino_posicao_codigo: String,
+    pub caixas_disponiveis: i32,
+    pub caixas_sugeridas: i32,
+    pub motivo: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReposicaoFefoResumo {
+    pub total_lotes: usize,
+    pub total_caixas_em_lotes: i32,
+    pub vencidos: usize,
+    pub criticos_90d: usize,
+    pub atencao_180d: usize,
+    pub violacoes_fefo: usize,
+    pub reposicoes_pendentes: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReposicaoFefoResponse {
+    pub estrutura_ativa_id: String,
+    pub resumo: ReposicaoFefoResumo,
+    pub tarefas: Vec<TarefaReposicaoFefo>,
+    pub lotes_validade: Vec<AlocacaoLoteView>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
