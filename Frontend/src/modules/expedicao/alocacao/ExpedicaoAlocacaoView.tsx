@@ -188,11 +188,8 @@ export default function ExpedicaoAlocacaoView({
               onChangeEstrutura={setEstruturaId}
               posicoes={painel.posicoes}
               produtos={painel.produtos}
-              linhasConfigs={linhasConfigs}
-              canEdit={canEdit}
               onSelectPosicao={(pos) => setPosicaoIdSelecionada(pos.id)}
               onAbrirProduto={(p) => setProdutoCodigoSelecionado(p.codigo)}
-              onMoverAlocacao={(alocId, destId) => executarMovimento(alocId, destId, false)}
             />
           )}
 
