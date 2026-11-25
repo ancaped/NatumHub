@@ -946,3 +946,33 @@ export function gerarLayoutVao3d(params: {
     totalEstoqueVao,
   };
 }
+
+export interface ResumoTipoVao {
+  tipoVao: 'padrao' | 'misto' | 'reservado';
+  ehMistoVazio: boolean;
+  ehReservadoVazio: boolean;
+  pctMisto: number;
+  alturaMistoCm: number;
+}
+
+/** Normaliza o uso especial de um vão (Padrão, Palete Misto ou Reservado) e altura visual do bloco misto. */
+export function resumoTipoOcupacaoVao(
+  posicao: Pick<PosicaoComItens, 'tipoOcupacao' | 'ocupacaoManualPct' | 'alturaCm' | 'itens'>,
+  paleteH = 11,
+): ResumoTipoVao {
+  const tipoVao =
+    posicao.tipoOcupacao === 'misto' || posicao.tipoOcupacao === 'reservado'
+      ? posicao.tipoOcupacao
+      : 'padrao';
+  const semItens = posicao.itens.length === 0;
+  const pctMisto = Math.max(20, Math.min(100, posicao.ocupacaoManualPct ?? 50));
+  const hUtil = Math.max(18, (posicao.alturaCm || 74) - paleteH - 4);
+  const alturaMistoCm = Math.max(12, Math.min(hUtil, hUtil * (pctMisto / 100) * 0.85));
+  return {
+    tipoVao,
+    ehMistoVazio: semItens && tipoVao === 'misto',
+    ehReservadoVazio: semItens && tipoVao === 'reservado',
+    pctMisto,
+    alturaMistoCm,
+  };
+}

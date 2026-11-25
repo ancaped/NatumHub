@@ -63,6 +63,14 @@ export function PosicaoDrawer({
   const [aplicarAndar, setAplicarAndar] = useState(false);
   const [salvandoPos, setSalvandoPos] = useState(false);
 
+  const [tipoOcupacao, setTipoOcupacao] = useState<'padrao' | 'misto' | 'reservado'>('padrao');
+  const [ocupacaoManualPct, setOcupacaoManualPct] = useState<number>(50);
+  const [etiquetaLivre, setEtiquetaLivre] = useState('');
+  const [reservaMotivo, setReservaMotivo] = useState('');
+  const [reservaAte, setReservaAte] = useState('');
+  const [compartilhadoFracionado, setCompartilhadoFracionado] = useState(false);
+  const [salvandoUso, setSalvandoUso] = useState(false);
+
   const [buscaProd, setBuscaProd] = useState('');
   const [prodSelecionado, setProdSelecionado] = useState('');
   const [novoFileiras, setNovoFileiras] = useState(1);
@@ -84,6 +92,18 @@ export function PosicaoDrawer({
     setComprimentoCm(String(posicao.comprimentoCm));
     setPapel(posicao.papel === 'pulmao' ? 'pulmao' : 'picking');
     setAplicarAndar(false);
+    const tipoNorm =
+      posicao.tipoOcupacao === 'misto' || posicao.tipoOcupacao === 'reservado'
+        ? posicao.tipoOcupacao
+        : 'padrao';
+    setTipoOcupacao(tipoNorm);
+    setOcupacaoManualPct(
+      typeof posicao.ocupacaoManualPct === 'number' ? posicao.ocupacaoManualPct : 50,
+    );
+    setEtiquetaLivre(posicao.etiquetaLivre ?? '');
+    setReservaMotivo(posicao.reservaMotivo ?? '');
+    setReservaAte(posicao.reservaAte ?? '');
+    setCompartilhadoFracionado(Boolean(posicao.compartilhadoFracionado));
     setBuscaProd('');
     setProdSelecionado('');
     setNovoFileiras(1);
@@ -200,6 +220,34 @@ export function PosicaoDrawer({
     }
   };
 
+  const salvarUsoVao = async () => {
+    if (tipoOcupacao === 'reservado' && !reservaMotivo.trim()) {
+      avisar('Informe um motivo curto para a reserva deste vão.', 'erro');
+      return;
+    }
+    setSalvandoUso(true);
+    try {
+      await atualizarPosicao(
+        posicao.id,
+        {
+          tipoOcupacao,
+          ocupacaoManualPct: tipoOcupacao === 'misto' ? ocupacaoManualPct : null,
+          etiquetaLivre: tipoOcupacao === 'misto' ? etiquetaLivre.trim() : '',
+          reservaMotivo: tipoOcupacao === 'reservado' ? reservaMotivo.trim() : '',
+          reservaAte: tipoOcupacao === 'reservado' ? reservaAte.trim() : '',
+          compartilhadoFracionado,
+        },
+        true,
+      );
+      avisar(`Uso do vão ${posicao.codigo} atualizado.`, 'sucesso');
+      await onSaved();
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : 'Erro ao atualizar uso do vão.', 'erro');
+    } finally {
+      setSalvandoUso(false);
+    }
+  };
+
   const salvarItemExistente = async (itemId: string, produtoCodigo: string) => {
     const ed = edicoes[itemId];
     if (!ed) return;
@@ -295,6 +343,10 @@ export function PosicaoDrawer({
 
   const caixaMap = new Map(caixas.map((c) => [c.id, c]));
   const rotuloAndarSub = posicao.andar > 0 ? `Andar ${posicao.andar}` : 'Pátio';
+  const tipoVaoAtual =
+    posicao.tipoOcupacao === 'misto' || posicao.tipoOcupacao === 'reservado'
+      ? posicao.tipoOcupacao
+      : 'padrao';
 
   return (
     <Drawer
@@ -304,36 +356,95 @@ export function PosicaoDrawer({
       title={`Vão ${posicao.codigo}`}
       subtitle={`${rotuloAndarSub} · Vão ${posicao.nivel} · Palete ${posicao.larguraCm}×${posicao.comprimentoCm} cm · Vão livre ${posicao.alturaCm} cm`}
       badge={
-        <StatusBadge variante={posicao.papel === 'pulmao' ? 'aguardando' : 'saudavel'}>
-          {posicao.papel === 'pulmao' ? 'Pulmão' : 'Picking'}
-        </StatusBadge>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StatusBadge variante={posicao.papel === 'pulmao' ? 'aguardando' : 'saudavel'}>
+            {posicao.papel === 'pulmao' ? 'Pulmão' : 'Picking'}
+          </StatusBadge>
+          {tipoVaoAtual === 'misto' && (
+            <StatusBadge variante="descontinuado">Palete Misto</StatusBadge>
+          )}
+          {tipoVaoAtual === 'reservado' && (
+            <StatusBadge variante="aguardando">Reservado</StatusBadge>
+          )}
+          {posicao.compartilhadoFracionado && (
+            <StatusBadge variante="descontinuado">Compartilhado</StatusBadge>
+          )}
+        </div>
       }
     >
       <div className="p-4 sm:p-5 space-y-5 text-xs">
         {/* Ocupação atual */}
         <div className="panel-card !p-3 space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-bold text-zinc-700">
-              Ocupação na largura: {posicao.larguraOcupadaCm.toFixed(1)} / {posicao.larguraCm} cm (
-              {posicao.ocupacaoPct.toFixed(0)}%)
-            </span>
-            <span className="font-mono text-zinc-500">
-              Livre: {posicao.larguraLivreCm.toFixed(1)} cm · {posicao.totalCaixas} cx ·{' '}
-              {posicao.totalUnidades.toLocaleString('pt-BR')} un
-            </span>
-          </div>
-          <div className="h-2 w-full rounded-full bg-zinc-100 overflow-hidden">
-            <div
-              className={`h-full transition-all ${
-                posicao.temEstouro
-                  ? 'bg-red-500'
-                  : posicao.ocupacaoPct >= 90
-                    ? 'bg-amber-500'
-                    : 'bg-emerald-500'
-              }`}
-              style={{ width: `${Math.min(100, Math.max(0, posicao.ocupacaoPct))}%` }}
-            />
-          </div>
+          {posicao.itens.length === 0 && tipoVaoAtual === 'misto' ? (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-bold text-zinc-800">
+                  Palete Misto · ocupação estimada ~{(posicao.ocupacaoManualPct ?? 50).toFixed(0)}%
+                </span>
+                <span className="font-mono text-zinc-500">Sem SKU fixo</span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-zinc-100 overflow-hidden">
+                <div
+                  className="h-full transition-all bg-zinc-600"
+                  style={{
+                    width: `${Math.min(100, Math.max(0, posicao.ocupacaoManualPct ?? 50))}%`,
+                  }}
+                />
+              </div>
+              {posicao.etiquetaLivre && (
+                <p className="text-[11px] text-zinc-700 font-medium">
+                  {posicao.etiquetaLivre}
+                </p>
+              )}
+              <p className="text-[11px] text-zinc-500">
+                Vão marcado para carga mista / aleatória; ignorado pela sugestão automática.
+              </p>
+            </>
+          ) : posicao.itens.length === 0 && tipoVaoAtual === 'reservado' ? (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-bold text-amber-900">Vão reservado</span>
+                {posicao.reservaAte && (
+                  <span className="font-mono text-[11px] font-semibold text-amber-800">
+                    Prev. {posicao.reservaAte}
+                  </span>
+                )}
+              </div>
+              {posicao.reservaMotivo && (
+                <p className="text-[11px] text-zinc-800 font-medium">
+                  {posicao.reservaMotivo}
+                </p>
+              )}
+              <p className="text-[11px] text-zinc-500">
+                Não é consumido pela sugestão automática enquanto estiver reservado.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-bold text-zinc-700">
+                  Ocupação na largura: {posicao.larguraOcupadaCm.toFixed(1)} / {posicao.larguraCm} cm (
+                  {posicao.ocupacaoPct.toFixed(0)}%)
+                </span>
+                <span className="font-mono text-zinc-500">
+                  Livre: {posicao.larguraLivreCm.toFixed(1)} cm · {posicao.totalCaixas} cx ·{' '}
+                  {posicao.totalUnidades.toLocaleString('pt-BR')} un
+                </span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-zinc-100 overflow-hidden">
+                <div
+                  className={`h-full transition-all ${
+                    posicao.temEstouro
+                      ? 'bg-red-500'
+                      : posicao.ocupacaoPct >= 90
+                        ? 'bg-amber-500'
+                        : 'bg-emerald-500'
+                  }`}
+                  style={{ width: `${Math.min(100, Math.max(0, posicao.ocupacaoPct))}%` }}
+                />
+              </div>
+            </>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-600 pt-0.5">
             <span>
               Acesso:{' '}
@@ -345,6 +456,9 @@ export function PosicaoDrawer({
               <span className="font-mono text-zinc-500">
                 (base {((posicao.cotaBaseCm ?? 0) / 100).toFixed(2)} m)
               </span>
+              {posicao.compartilhadoFracionado && (
+                <span className="ml-2 text-zinc-500">· Compartilhado / Fracionado</span>
+              )}
             </span>
             {(posicao.pesoCargaKg ?? 0) > 0 && (
               <span className="font-mono text-zinc-700">
@@ -378,6 +492,138 @@ export function PosicaoDrawer({
             caixas={caixas}
           />
         </div>
+
+        {/* Tipo de uso / ocupação do vão */}
+        {canEdit && (
+          <div className="panel-card !p-3 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="font-bold text-zinc-800 uppercase tracking-wider text-[11px]">
+                Uso do vão
+              </h4>
+              {posicao.itens.length > 0 && tipoOcupacao !== 'padrao' && (
+                <span className="text-[11px] text-amber-700 font-semibold">
+                  Há itens vinculados: eles seguem visíveis até serem removidos.
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  { id: 'padrao', rotulo: 'Padrão' },
+                  { id: 'misto', rotulo: 'Palete Misto' },
+                  { id: 'reservado', rotulo: 'Reservado' },
+                ] as const
+              ).map((op) => {
+                const ativo = tipoOcupacao === op.id;
+                return (
+                  <button
+                    key={op.id}
+                    type="button"
+                    onClick={() => setTipoOcupacao(op.id)}
+                    className={`px-3 py-1.5 min-h-[38px] max-sm:min-h-[44px] rounded-xl border text-xs font-semibold cursor-pointer transition-colors ${
+                      ativo
+                        ? 'bg-zinc-900 text-white border-zinc-900'
+                        : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
+                    }`}
+                  >
+                    {op.rotulo}
+                  </button>
+                );
+              })}
+            </div>
+
+            {tipoOcupacao === 'misto' && (
+              <div className="space-y-2.5 rounded-xl border border-zinc-200 bg-zinc-50/70 p-2.5">
+                <label className="block space-y-1">
+                  <span className="font-semibold text-zinc-600 block">
+                    Descrição livre do palete
+                  </span>
+                  <input
+                    type="text"
+                    value={etiquetaLivre}
+                    onChange={(e) => setEtiquetaLivre(e.target.value)}
+                    placeholder="Ex.: Sobras de lote + material feira"
+                    className="w-full px-3 py-2 border border-zinc-200 rounded-xl bg-white text-xs"
+                  />
+                </label>
+                <div className="space-y-1">
+                  <span className="font-semibold text-zinc-600 block">
+                    Ocupação estimada do vão
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[25, 50, 75, 100].map((pct) => {
+                      const sel = Math.round(ocupacaoManualPct) === pct;
+                      return (
+                        <button
+                          key={`pct-${pct}`}
+                          type="button"
+                          onClick={() => setOcupacaoManualPct(pct)}
+                          className={`px-3 py-1.5 min-h-[36px] max-sm:min-h-[42px] rounded-lg border font-mono text-xs font-semibold cursor-pointer ${
+                            sel
+                              ? 'bg-zinc-900 text-white border-zinc-900'
+                              : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-100'
+                          }`}
+                        >
+                          {pct}%
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {tipoOcupacao === 'reservado' && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 rounded-xl border border-amber-200 bg-amber-50/50 p-2.5">
+                <label className="sm:col-span-2 space-y-1">
+                  <span className="font-semibold text-zinc-700 block">Motivo da reserva</span>
+                  <input
+                    type="text"
+                    value={reservaMotivo}
+                    onChange={(e) => setReservaMotivo(e.target.value)}
+                    placeholder="Ex.: Pedido Coloração #26936"
+                    className="w-full px-3 py-2 border border-zinc-200 rounded-xl bg-white text-xs"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="font-semibold text-zinc-700 block">Previsão (opcional)</span>
+                  <input
+                    type="text"
+                    value={reservaAte}
+                    onChange={(e) => setReservaAte(e.target.value)}
+                    placeholder="Ex.: 05/12"
+                    className="w-full px-3 py-2 border border-zinc-200 rounded-xl bg-white text-xs font-mono"
+                  />
+                </label>
+              </div>
+            )}
+
+            <label className="flex items-start gap-2 text-zinc-700 cursor-pointer pt-0.5">
+              <input
+                type="checkbox"
+                checked={compartilhadoFracionado}
+                onChange={(e) => setCompartilhadoFracionado(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <strong className="text-zinc-800">Compartilhado / Fracionado</strong>
+                <span className="block text-[11px] text-zinc-500">
+                  Prioriza Curva C, caixas abertas ou múltiplas nuances sem travar por soma rígida de largura.
+                </span>
+              </span>
+            </label>
+
+            <button
+              type="button"
+              disabled={salvandoUso}
+              onClick={salvarUsoVao}
+              className="px-3 py-2 min-h-[38px] max-sm:min-h-[44px] rounded-xl bg-zinc-900 text-white hover:bg-zinc-800 font-semibold disabled:opacity-50 cursor-pointer"
+            >
+              {salvandoUso ? 'Salvando uso...' : 'Salvar uso do vão'}
+            </button>
+          </div>
+        )}
 
         {/* Itens alocados */}
         <div className="space-y-2">
@@ -575,7 +821,13 @@ export function PosicaoDrawer({
 
         {/* Adicionar produto */}
         {canEdit && (
-          <div className="panel-card !p-3 space-y-3">
+          tipoVaoAtual !== 'padrao' && posicao.itens.length === 0 ? (
+            <div className="panel-card !p-3 text-zinc-500 text-xs">
+              Para vincular produtos cadastrados diretamente neste vão, altere o uso para{' '}
+              <strong className="text-zinc-800">Padrão</strong>.
+            </div>
+          ) : (
+            <div className="panel-card !p-3 space-y-3">
             <h4 className="font-bold text-zinc-800 uppercase tracking-wider text-[11px]">
               Adicionar produto neste vão
             </h4>
@@ -675,6 +927,7 @@ export function PosicaoDrawer({
               </div>
             )}
           </div>
+          )
         )}
 
         {/* Medidas e papel da posição */}

@@ -35,6 +35,12 @@ pub struct Posicao {
     pub altura_cm: f64,
     pub ativo: bool,
     pub observacoes: Option<String>,
+    pub tipo_ocupacao: String,
+    pub ocupacao_manual_pct: Option<f64>,
+    pub etiqueta_livre: Option<String>,
+    pub reserva_motivo: Option<String>,
+    pub reserva_ate: Option<String>,
+    pub compartilhado_fracionado: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -287,6 +293,12 @@ pub struct PosicaoUpdateInput {
     pub ativo: Option<bool>,
     pub observacoes: Option<String>,
     pub aplicar_ao_andar: Option<bool>,
+    pub tipo_ocupacao: Option<String>,
+    pub ocupacao_manual_pct: Option<f64>,
+    pub etiqueta_livre: Option<String>,
+    pub reserva_motivo: Option<String>,
+    pub reserva_ate: Option<String>,
+    pub compartilhado_fracionado: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

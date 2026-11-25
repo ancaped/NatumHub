@@ -134,6 +134,12 @@ export function atualizarPosicao(
     ativo?: boolean;
     observacoes?: string | null;
     aplicarAoAndar?: boolean;
+    tipoOcupacao?: 'padrao' | 'misto' | 'reservado';
+    ocupacaoManualPct?: number | null;
+    etiquetaLivre?: string | null;
+    reservaMotivo?: string | null;
+    reservaAte?: string | null;
+    compartilhadoFracionado?: boolean;
   },
   confirmar = true,
 ) {

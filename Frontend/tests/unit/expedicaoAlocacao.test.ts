@@ -7,6 +7,7 @@ import {
   calcularPaletizacao,
   calcularPlantaVao,
 } from '../../src/modules/expedicao/alocacao/paletizacao';
+import { resumoTipoOcupacaoVao } from '../../src/modules/expedicao/alocacao/caixas3d';
 import type { PainelAlocacaoResponse, PosicaoComItens } from '../../src/modules/expedicao/alocacao/types';
 
 test('montarWorkbookAlocacao gera as 4 abas esperadas com dados reais do painel', () => {
@@ -366,4 +367,38 @@ test('parsearPlanilhaMapa lê formato exportado do Nexus e formato Mapas_0309 (c
   assert.equal(byKey.get('E4:2.11.019'), 1);
   assert.equal(byKey.get('E4:2.14.032'), 1);
   assert.equal(byKey.get('D2:2.13.021'), 2);
+});
+
+test('resumoTipoOcupacaoVao diferencia padrao, misto e reservado com altura proporcional', () => {
+  const misto = resumoTipoOcupacaoVao({
+    tipoOcupacao: 'misto',
+    ocupacaoManualPct: 75,
+    alturaCm: 74,
+    itens: [],
+  });
+  assert.equal(misto.tipoVao, 'misto');
+  assert.equal(misto.ehMistoVazio, true);
+  assert.equal(misto.ehReservadoVazio, false);
+  assert.equal(misto.pctMisto, 75);
+  assert.ok(misto.alturaMistoCm > 30 && misto.alturaMistoCm < 65);
+
+  const reservado = resumoTipoOcupacaoVao({
+    tipoOcupacao: 'reservado',
+    ocupacaoManualPct: null,
+    alturaCm: 74,
+    itens: [],
+  });
+  assert.equal(reservado.tipoVao, 'reservado');
+  assert.equal(reservado.ehReservadoVazio, true);
+  assert.equal(reservado.ehMistoVazio, false);
+
+  const padrao = resumoTipoOcupacaoVao({
+    tipoOcupacao: undefined,
+    ocupacaoManualPct: null,
+    alturaCm: 74,
+    itens: [],
+  });
+  assert.equal(padrao.tipoVao, 'padrao');
+  assert.equal(padrao.ehMistoVazio, false);
+  assert.equal(padrao.ehReservadoVazio, false);
 });

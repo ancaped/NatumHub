@@ -77,9 +77,11 @@ export function MapaEstantesTab({
     const parciais: PosicaoComItens[] = [];
     for (const pos of posicoes) {
       const cod = pos.codigo.toLowerCase();
+      const etq = (pos.etiquetaLivre ?? '').toLowerCase();
+      const mot = (pos.reservaMotivo ?? '').toLowerCase();
       if (cod === termo) {
         exatas.push(pos);
-      } else if (cod.includes(termo)) {
+      } else if (cod.includes(termo) || etq.includes(termo) || mot.includes(termo)) {
         parciais.push(pos);
       }
     }
@@ -202,7 +204,15 @@ export function MapaEstantesTab({
                   <MapPin className="h-3 w-3 text-zinc-500" />
                   Vão {pos.codigo}
                   <span className="font-sans font-normal text-zinc-500">
-                    ({pos.andar}º · {pos.itens.length > 0 ? `${pos.totalCaixas} cx` : 'livre'})
+                    ({pos.andar}º ·{' '}
+                    {pos.itens.length > 0
+                      ? `${pos.totalCaixas} cx`
+                      : pos.tipoOcupacao === 'misto'
+                        ? `misto ${(pos.ocupacaoManualPct ?? 50).toFixed(0)}%`
+                        : pos.tipoOcupacao === 'reservado'
+                          ? 'reservado'
+                          : 'livre'}
+                    )
                   </span>
                 </button>
               ))}

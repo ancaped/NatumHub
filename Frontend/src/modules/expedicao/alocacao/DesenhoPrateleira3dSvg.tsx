@@ -4,6 +4,7 @@ import {
   distribuirEstoquePorAlocacao,
   gerarLayoutVao3d,
   ordenarCaixas3dPorCamera,
+  resumoTipoOcupacaoVao,
   type Caixa3dInstancia,
   type CoresItem3d,
 } from './caixas3d';
@@ -824,6 +825,8 @@ export function DesenhoPrateleira3dSvg({
                     const casaBusca =
                       termo !== '' &&
                       (pos.codigo.toLowerCase().includes(termo) ||
+                        (pos.etiquetaLivre ?? '').toLowerCase().includes(termo) ||
+                        (pos.reservaMotivo ?? '').toLowerCase().includes(termo) ||
                         pos.itens.some(
                           (it) =>
                             it.produtoCodigo.toLowerCase().includes(termo) ||
@@ -833,11 +836,19 @@ export function DesenhoPrateleira3dSvg({
                     const opVao = apagado ? 0.25 : 1;
 
                     const paleteH = 11;
+                    const {
+                      pctMisto,
+                      alturaMistoCm: altMisto,
+                      ehMistoVazio: slotMistoVazio,
+                      ehReservadoVazio: slotReservadoVazio,
+                    } = resumoTipoOcupacaoVao(pos, paleteH);
                     const pesoTxt =
                       (pos.pesoTotalComPaleteKg ?? 0) > 0
                         ? ` · ~${Math.round(pos.pesoTotalComPaleteKg ?? 0)} kg`
                         : '';
                     const pCodigo = toPt(sx + slotW * 0.24, 4, zTrayTop + 3);
+                    const pMistoLbl = toPt(sx + slotW * 0.5, 4, zTrayTop + paleteH + altMisto * 0.5);
+                    const pResLbl = toPt(sx + slotW * 0.5, pos.comprimentoCm * 0.32, zTrayTop + 4);
 
                     return (
                       <g
@@ -849,7 +860,13 @@ export function DesenhoPrateleira3dSvg({
                         opacity={opVao}
                       >
                         <title>
-                          {`Vão ${pos.codigo} · ${nivelUnico ? 'Pátio' : `Andar ${pos.andar}`} (${acessoTxt}) · ${pos.larguraOcupadaCm.toFixed(0)}/${pos.larguraCm}cm · ${pos.totalCaixas} cx${pesoTxt}`}
+                          {`Vão ${pos.codigo} · ${nivelUnico ? 'Pátio' : `Andar ${pos.andar}`} (${acessoTxt}) · ${
+                            slotMistoVazio
+                              ? `Palete Misto ~${pctMisto.toFixed(0)}%${pos.etiquetaLivre ? ` (${pos.etiquetaLivre})` : ''}`
+                              : slotReservadoVazio
+                                ? `Reservado${pos.reservaMotivo ? `: ${pos.reservaMotivo}` : ''}`
+                                : `${pos.larguraOcupadaCm.toFixed(0)}/${pos.larguraCm}cm · ${pos.totalCaixas} cx${pesoTxt}`
+                          }`}
                         </title>
 
                         {/* Contorno do vão */}
@@ -863,16 +880,85 @@ export function DesenhoPrateleira3dSvg({
                           fill={
                             pos.temEstouro
                               ? '#fef2f2'
-                              : casaBusca
+                              : casaBusca || slotReservadoVazio
                                 ? '#fef3c7'
                                 : '#ffffff'
                           }
-                          fillOpacity={pos.itens.length > 0 ? 0.45 : 0.28}
-                          stroke={casaBusca ? '#18181b' : '#d4d4d8'}
-                          strokeWidth={casaBusca ? 1.8 : 0.6}
+                          fillOpacity={
+                            slotReservadoVazio ? 0.72 : pos.itens.length > 0 || slotMistoVazio ? 0.45 : 0.28
+                          }
+                          stroke={
+                            casaBusca
+                              ? '#18181b'
+                              : slotReservadoVazio
+                                ? '#d97706'
+                                : pos.compartilhadoFracionado
+                                  ? '#71717a'
+                                  : '#d4d4d8'
+                          }
+                          strokeWidth={casaBusca ? 1.8 : slotReservadoVazio ? 1.1 : 0.65}
+                          strokeDasharray={
+                            slotReservadoVazio
+                              ? '3 2'
+                              : pos.compartilhadoFracionado
+                                ? '2 2'
+                                : undefined
+                          }
                         />
 
-                        {pos.itens.length === 0 ? (
+                        {slotMistoVazio ? (
+                          <>
+                            <Palete3D
+                              x={sx + 3}
+                              y={4}
+                              z={zTrayTop}
+                              dx={Math.max(20, slotW - 6)}
+                              dy={Math.max(40, pos.comprimentoCm - 8)}
+                              dz={paleteH}
+                            />
+                            <Box3D
+                              x={sx + 8}
+                              y={10}
+                              z={zTrayTop + paleteH}
+                              dx={Math.max(16, slotW - 16)}
+                              dy={Math.max(24, pos.comprimentoCm - 20)}
+                              dz={altMisto}
+                              colors={{
+                                top: '#e7e5e4',
+                                front: '#d6d3d1',
+                                side: '#a8a29e',
+                                stroke: '#57534e',
+                              }}
+                              strokeWidth={0.65}
+                              opacity={0.94}
+                            />
+                            <text
+                              x={pMistoLbl.x}
+                              y={pMistoLbl.y}
+                              textAnchor="middle"
+                              fontSize={6.5}
+                              fontFamily="ui-monospace, monospace"
+                              fontWeight={700}
+                              fill="#292524"
+                              className="pointer-events-none"
+                            >
+                              MISTO
+                            </text>
+                          </>
+                        ) : slotReservadoVazio ? (
+                          <text
+                            x={pResLbl.x}
+                            y={pResLbl.y}
+                            textAnchor="middle"
+                            fontSize={7.2}
+                            fontFamily="ui-monospace, monospace"
+                            fontWeight={700}
+                            fill="#b45309"
+                            className="pointer-events-none"
+                          >
+                            {!emFoco ? `${pos.codigo} · RES` : 'RESERVADO'}
+                          </text>
+                        ) : pos.itens.length === 0 ? (
                           !emFoco && (
                             <text
                               x={pCodigo.x}
@@ -1038,6 +1124,7 @@ export function DesenhoPrateleira3dSvg({
             <div className="flex items-center justify-between gap-2 border-b border-zinc-700/80 pb-1">
               <span className="font-mono font-bold">
                 Vão {hoveredSlot.pos.codigo}
+                {hoveredSlot.pos.compartilhadoFracionado ? ' · Comp.' : ''}
               </span>
               <span className="text-[11px] text-zinc-300">
                 {nivelUnico ? 'Pátio' : `Andar ${hoveredSlot.pos.andar}`} · {hoveredSlot.acessoTxt}
@@ -1045,9 +1132,29 @@ export function DesenhoPrateleira3dSvg({
             </div>
 
             {hoveredSlot.pos.itens.length === 0 ? (
-              <p className="pt-1 text-[11px] text-zinc-300">
-                Vão livre · clique para alocar
-              </p>
+              hoveredSlot.pos.tipoOcupacao === 'misto' ? (
+                <div className="pt-1.5 space-y-0.5 text-[11px]">
+                  <div className="font-semibold text-zinc-100">
+                    Palete Misto · ~{(hoveredSlot.pos.ocupacaoManualPct ?? 50).toFixed(0)}%
+                  </div>
+                  <div className="text-zinc-300">
+                    {hoveredSlot.pos.etiquetaLivre || 'Carga mista sem SKU fixo'}
+                  </div>
+                </div>
+              ) : hoveredSlot.pos.tipoOcupacao === 'reservado' ? (
+                <div className="pt-1.5 space-y-0.5 text-[11px]">
+                  <div className="font-semibold text-amber-300">
+                    Reservado{hoveredSlot.pos.reservaAte ? ` · prev. ${hoveredSlot.pos.reservaAte}` : ''}
+                  </div>
+                  <div className="text-zinc-200">
+                    {hoveredSlot.pos.reservaMotivo || 'Reserva manual do vão'}
+                  </div>
+                </div>
+              ) : (
+                <p className="pt-1 text-[11px] text-zinc-300">
+                  Vão livre · clique para alocar
+                </p>
+              )
             ) : (
               <div className="mt-1.5 space-y-1">
                 {(() => {
@@ -1133,6 +1240,12 @@ export function DesenhoPrateleira3dSvg({
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-3 h-2.5 bg-amber-100 border border-amber-500 rounded-xs" /> Coloração
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-2.5 bg-[#d6d3d1] border border-[#57534e] rounded-xs" /> Misto
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-3 h-2.5 bg-[#fef3c7] border border-dashed border-[#d97706] rounded-xs" /> Reservado
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-3 h-2.5 bg-red-50 border border-red-500 rounded-xs" /> Estouro

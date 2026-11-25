@@ -14,6 +14,8 @@ export interface Estrutura {
   ocupacaoMediaPct: number;
 }
 
+export type TipoOcupacaoVao = 'padrao' | 'misto' | 'reservado';
+
 export interface Posicao {
   id: string;
   estruturaId: string;
@@ -29,6 +31,12 @@ export interface Posicao {
   alturaCm: number;
   ativo: boolean;
   observacoes: string | null;
+  tipoOcupacao?: TipoOcupacaoVao | string;
+  ocupacaoManualPct?: number | null;
+  etiquetaLivre?: string | null;
+  reservaMotivo?: string | null;
+  reservaAte?: string | null;
+  compartilhadoFracionado?: boolean;
 }
 
 export interface Caixa {

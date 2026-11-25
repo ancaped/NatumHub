@@ -7,6 +7,7 @@ import {
   gerarLayoutVao3d,
   ordenarCaixas3dPorCamera,
   projetarPonto3d,
+  resumoTipoOcupacaoVao,
   type Caixa3dInstancia,
 } from './caixas3d';
 import type {
@@ -62,6 +63,8 @@ export function DesenhoPalete3dGiravel({
   const dVao = posicao.comprimentoCm > 0 ? posicao.comprimentoCm : 120;
   const hVao = posicao.alturaCm > 0 ? posicao.alturaCm : 74;
   const paleteH = 11;
+  const { ehMistoVazio, ehReservadoVazio, pctMisto, alturaMistoCm: altMisto } =
+    resumoTipoOcupacaoVao(posicao, paleteH);
 
   const prodPorCodigo = useMemo(() => {
     const m = new Map<string, ProdutoDimensao>();
@@ -487,47 +490,55 @@ export function DesenhoPalete3dGiravel({
       {/* Controles 3D girável */}
       <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px]">
         <div className="flex flex-wrap items-center gap-1">
-          <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5">
-            <button
-              type="button"
-              onClick={() => setModoQtd('estoque')}
-              className={`px-2 py-1 rounded-md font-semibold cursor-pointer ${
-                modoQtd === 'estoque' ? 'bg-zinc-900 text-white' : 'text-zinc-600'
-              }`}
-            >
-              Estoque
-            </button>
-            <button
-              type="button"
-              onClick={() => setModoQtd('capacidade')}
-              className={`px-2 py-1 rounded-md font-semibold cursor-pointer ${
-                modoQtd === 'capacidade' ? 'bg-zinc-900 text-white' : 'text-zinc-600'
-              }`}
-            >
-              Capacidade
-            </button>
-          </div>
+          {!ehMistoVazio && !ehReservadoVazio ? (
+            <>
+              <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setModoQtd('estoque')}
+                  className={`px-2 py-1 rounded-md font-semibold cursor-pointer ${
+                    modoQtd === 'estoque' ? 'bg-zinc-900 text-white' : 'text-zinc-600'
+                  }`}
+                >
+                  Estoque
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModoQtd('capacidade')}
+                  className={`px-2 py-1 rounded-md font-semibold cursor-pointer ${
+                    modoQtd === 'capacidade' ? 'bg-zinc-900 text-white' : 'text-zinc-600'
+                  }`}
+                >
+                  Capacidade
+                </button>
+              </div>
 
-          <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5">
-            <button
-              type="button"
-              onClick={() => setUsarAmarracao(true)}
-              className={`px-2 py-1 rounded-md font-semibold cursor-pointer ${
-                usarAmarracao ? 'bg-zinc-900 text-white' : 'text-zinc-600'
-              }`}
-            >
-              Amarração
-            </button>
-            <button
-              type="button"
-              onClick={() => setUsarAmarracao(false)}
-              className={`px-2 py-1 rounded-md font-semibold cursor-pointer ${
-                !usarAmarracao ? 'bg-zinc-900 text-white' : 'text-zinc-600'
-              }`}
-            >
-              Alinhado
-            </button>
-          </div>
+              <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setUsarAmarracao(true)}
+                  className={`px-2 py-1 rounded-md font-semibold cursor-pointer ${
+                    usarAmarracao ? 'bg-zinc-900 text-white' : 'text-zinc-600'
+                  }`}
+                >
+                  Amarração
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUsarAmarracao(false)}
+                  className={`px-2 py-1 rounded-md font-semibold cursor-pointer ${
+                    !usarAmarracao ? 'bg-zinc-900 text-white' : 'text-zinc-600'
+                  }`}
+                >
+                  Alinhado
+                </button>
+              </div>
+            </>
+          ) : (
+            <span className="px-2 py-1 rounded-lg bg-zinc-100 text-zinc-700 font-semibold">
+              {ehMistoVazio ? `Palete Misto · ~${pctMisto.toFixed(0)}%` : 'Vão reservado'}
+            </span>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-1">
@@ -637,9 +648,10 @@ export function DesenhoPalete3dGiravel({
               toPt(wVao + 2, dVao + 2, 0),
               toPt(-2, dVao + 2, 0),
             ])}
-            fill="#f4f4f5"
-            stroke="#d4d4d8"
-            strokeWidth={1}
+            fill={ehReservadoVazio ? '#fef3c7' : '#f4f4f5'}
+            stroke={ehReservadoVazio ? '#d97706' : '#d4d4d8'}
+            strokeWidth={ehReservadoVazio ? 1.3 : 1}
+            strokeDasharray={ehReservadoVazio ? '4 2' : undefined}
           />
 
           {/* Indicador de frente / corredor */}
@@ -724,7 +736,7 @@ export function DesenhoPalete3dGiravel({
           })}
 
           {/* Faixa livre restante */}
-          {larguraLivreCm > 1 && (
+          {!ehMistoVazio && !ehReservadoVazio && larguraLivreCm > 1 && (
             <polygon
               points={poly([
                 toPt(wVao - larguraLivreCm + 1, 2, paleteH + 0.1),
@@ -739,6 +751,92 @@ export function DesenhoPalete3dGiravel({
               strokeDasharray="3 2"
             />
           )}
+
+          {/* Volume neutro quando Palete Misto */}
+          {ehMistoVazio && (
+            <>
+              {renderBox(
+                {
+                  x: 8,
+                  y: 8,
+                  z: paleteH,
+                  dx: Math.max(20, wVao - 16),
+                  dy: Math.max(20, dVao - 16),
+                  dz: altMisto,
+                  ix: 0,
+                  iy: 0,
+                  iz: 0,
+                  rotacionada: false,
+                  cor: {
+                    top: '#e7e5e4',
+                    frontX: '#a8a29e',
+                    frontY: '#d6d3d1',
+                    stroke: '#57534e',
+                  },
+                },
+                'misto-vol',
+                0.85,
+              )}
+              {(() => {
+                const pCentro = toPt(wVao / 2, dVao / 2, paleteH + altMisto + 5);
+                return (
+                  <g transform={`translate(${pCentro.x.toFixed(1)}, ${pCentro.y.toFixed(1)})`}>
+                    <rect
+                      x={-34}
+                      y={-7}
+                      width={68}
+                      height={14}
+                      rx={4}
+                      fill="#18181b"
+                      fillOpacity={0.9}
+                    />
+                    <text
+                      x={0}
+                      y={3}
+                      textAnchor="middle"
+                      fontSize={7.8}
+                      fontFamily="ui-monospace, monospace"
+                      fontWeight={700}
+                      fill="#ffffff"
+                    >
+                      MISTO {pctMisto.toFixed(0)}%
+                    </text>
+                  </g>
+                );
+              })()}
+            </>
+          )}
+
+          {/* Selo central quando Reservado */}
+          {ehReservadoVazio &&
+            (() => {
+              const pCentro = toPt(wVao / 2, dVao / 2, paleteH + hVao * 0.35);
+              return (
+                <g transform={`translate(${pCentro.x.toFixed(1)}, ${pCentro.y.toFixed(1)})`}>
+                  <rect
+                    x={-36}
+                    y={-8}
+                    width={72}
+                    height={16}
+                    rx={4}
+                    fill="#fef3c7"
+                    stroke="#d97706"
+                    strokeWidth={1}
+                  />
+                  <text
+                    x={0}
+                    y={3.2}
+                    textAnchor="middle"
+                    fontSize={8}
+                    fontFamily="ui-monospace, monospace"
+                    fontWeight={700}
+                    fill="#92400e"
+                  >
+                    RESERVADO
+                  </text>
+                </g>
+              );
+            })()}
 
           {/* Caixas individuais com cores distintas por produto e clique para focar */}
           {caixasVisiveis.map((b, idx) => renderBox(b, `cx-g-${idx}`, 0.65))}
@@ -826,9 +924,21 @@ export function DesenhoPalete3dGiravel({
         <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-600">
           <div className="flex flex-wrap items-center gap-1.5">
             {itensInfo.length === 0 ? (
-              <span className="text-zinc-400">
-                Palete livre ({posicao.larguraCm}×{posicao.comprimentoCm} cm)
-              </span>
+              ehMistoVazio ? (
+                <span className="text-zinc-700 font-medium">
+                  Palete Misto (~{pctMisto.toFixed(0)}%)
+                  {posicao.etiquetaLivre ? ` · ${posicao.etiquetaLivre}` : ''}
+                </span>
+              ) : ehReservadoVazio ? (
+                <span className="text-amber-800 font-medium">
+                  Reservado{posicao.reservaAte ? ` (prev. ${posicao.reservaAte})` : ''}
+                  {posicao.reservaMotivo ? ` · ${posicao.reservaMotivo}` : ''}
+                </span>
+              ) : (
+                <span className="text-zinc-400">
+                  Palete livre ({posicao.larguraCm}×{posicao.comprimentoCm} cm)
+                </span>
+              )
             ) : (
               itensInfo.map((info) => {
                 const selecionado = itemFocadoId === info.item.id;
@@ -889,6 +999,7 @@ export function DesenhoPalete3dGiravel({
             )}
           </div>
           <span className="text-[10px] text-zinc-400">
+            {posicao.compartilhadoFracionado ? 'Compartilhado · ' : ''}
             {itensInfo.length >= 2 ? 'Clique no item para isolar · ' : ''}
             Arraste para girar 360°
           </span>

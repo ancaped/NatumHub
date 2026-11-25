@@ -448,6 +448,28 @@ pub struct AlocacaoExistente {
     pub largura_ocupada_cm: f64,
 }
 
+fn vao_elegivel_sugestao(pos: &Posicao, papel: &str) -> bool {
+    let tipo = pos.tipo_ocupacao.trim();
+    pos.ativo && pos.papel == papel && (tipo.is_empty() || tipo == "padrao")
+}
+
+/// Ajusta o score do vão conforme o perfil Curva A/C e o marcador `compartilhado_fracionado`.
+fn score_compartilhado(prod: &ProdutoDimensao, pos: &Posicao) -> i32 {
+    if pos.compartilhado_fracionado {
+        if !prod.eh_coloracao && prod.curva_abc == "A" {
+            4
+        } else {
+            0
+        }
+    } else if !prod.eh_coloracao && prod.curva_abc == "C" {
+        2
+    } else if prod.eh_coloracao {
+        1
+    } else {
+        0
+    }
+}
+
 /// Motor de sugestão híbrida: zona por linha (principal) + Curva ABC + Picking (níveis baixos) / Pulmão (níveis altos).
 pub fn sugerir_alocacao(
     estrutura_id: &str,
@@ -615,13 +637,13 @@ pub fn sugerir_alocacao(
 
     let mut picking_pos: Vec<&Posicao> = posicoes
         .iter()
-        .filter(|p| p.ativo && p.papel == "picking")
+        .filter(|p| vao_elegivel_sugestao(p, "picking"))
         .collect();
     picking_pos.sort_by_key(|p| (p.andar, p.coluna_ordem, p.lado, p.nivel));
 
     let mut pulmao_pos: Vec<&Posicao> = posicoes
         .iter()
-        .filter(|p| p.ativo && p.papel == "pulmao")
+        .filter(|p| vao_elegivel_sugestao(p, "pulmao"))
         .collect();
     pulmao_pos.sort_by_key(|p| (p.andar, p.coluna_ordem, p.lado, p.nivel));
 
@@ -695,7 +717,7 @@ pub fn sugerir_alocacao(
                     2
                 } else {
                     3
-                };
+                } + score_compartilhado(prod, pos);
                 let prio = if cabe_tudo { base_prio } else { base_prio + 10 };
                 let fil_escolhidas = desejadas.min(max_fil).max(1);
                 let cand = (prio, idx, fil_escolhidas, cam, comp);
@@ -783,7 +805,7 @@ pub fn sugerir_alocacao(
                         2
                     } else {
                         3
-                    };
+                    } + score_compartilhado(prod, pos);
                     let prio = if cabe_tudo { base_prio } else { base_prio + 10 };
                     let fil = desejadas.min(max_fil).max(1);
                     let cand = (prio, idx, fil, cam, comp);
@@ -961,6 +983,12 @@ mod tests {
             altura_cm,
             ativo: true,
             observacoes: None,
+            tipo_ocupacao: "padrao".into(),
+            ocupacao_manual_pct: None,
+            etiqueta_livre: None,
+            reserva_motivo: None,
+            reserva_ate: None,
+            compartilhado_fracionado: false,
         }
     }
 
@@ -1480,5 +1508,73 @@ mod tests {
         assert_eq!(acesso_equipamento_por_cota(0.0), "manual");
         assert_eq!(acesso_equipamento_por_cota(74.1), "manual");
         assert_eq!(acesso_equipamento_por_cota(148.1), "empilhadeira");
+    }
+
+    #[test]
+    fn sugestao_ignora_vaos_mistos_e_reservados() {
+        let cx9 = caixa_exemplo("9", 22.5, 19.5, 14.7, 4);
+        let mut misto = pos_exemplo("A1", 1, 1, "picking", 74.1);
+        misto.tipo_ocupacao = "misto".into();
+        let mut reservado = pos_exemplo("B1", 2, 1, "picking", 74.1);
+        reservado.tipo_ocupacao = "reservado".into();
+        let padrao = pos_exemplo("C1", 3, 1, "picking", 74.1);
+
+        let mut prods = vec![prod_teste_abc("2.11.001", "SHAMPOO HAIR", "2.11", Some("2"), 600.0, None)];
+        aplicar_curva_abc(&mut prods);
+
+        let res = sugerir_alocacao(
+            "est",
+            &[misto, reservado, padrao],
+            &[cx9],
+            &[],
+            &prods,
+            &[],
+            true,
+            true,
+        );
+        assert_eq!(res.propostas.len(), 1);
+        assert_eq!(res.propostas[0].posicao_codigo, "C1");
+    }
+
+    #[test]
+    fn sugestao_prioriza_dedicado_para_curva_a_e_compartilhado_para_curva_c() {
+        let cx9 = caixa_exemplo("9", 22.5, 19.5, 14.7, 4);
+        let mut comp = pos_exemplo("A1", 1, 1, "picking", 74.1);
+        comp.compartilhado_fracionado = true;
+        let dedicado = pos_exemplo("B1", 2, 1, "picking", 74.1);
+
+        let mut prods = vec![
+            prod_teste_abc("2.11.001", "SHAMPOO CURVA A", "2.11", Some("2"), 850.0, None),
+            prod_teste_abc("2.11.002", "COND CURVA B", "2.11", Some("2"), 120.0, None),
+            prod_teste_abc("2.11.003", "SERUM CURVA C", "2.11", Some("2"), 30.0, None),
+        ];
+        aplicar_curva_abc(&mut prods);
+        assert_eq!(prods[0].curva_abc, "A");
+        assert_eq!(prods[2].curva_abc, "C");
+
+        let posicoes = vec![comp, dedicado];
+        let res_a = sugerir_alocacao(
+            "est",
+            &posicoes,
+            &[cx9.clone()],
+            &[],
+            &[prods[0].clone()],
+            &[],
+            true,
+            true,
+        );
+        assert_eq!(res_a.propostas[0].posicao_codigo, "B1");
+
+        let res_c = sugerir_alocacao(
+            "est",
+            &posicoes,
+            &[cx9],
+            &[],
+            &[prods[2].clone()],
+            &[],
+            true,
+            true,
+        );
+        assert_eq!(res_c.propostas[0].posicao_codigo, "A1");
     }
 }

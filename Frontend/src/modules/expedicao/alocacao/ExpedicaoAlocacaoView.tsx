@@ -33,7 +33,7 @@ export default function ExpedicaoAlocacaoView({
   const [estruturaId, setEstruturaId] = useState<string>('');
   const [janelaMeses, setJanelaMeses] = useState<number>(12);
   const [metaMeses, setMetaMeses] = useState<number>(2);
-  const [usarMetaLinha, setUsarMetaLinha] = useState<boolean>(false);
+  const [usarMetaLinha, setUsarMetaLinha] = useState<boolean>(true);
   const [incluirInativos, setIncluirInativos] = useState<boolean>(false);
 
   const [painel, setPainel] = useState<PainelAlocacaoResponse | null>(null);

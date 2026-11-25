@@ -53,6 +53,16 @@ fn validar_papel(papel: &str) -> Result<String, ErroApi> {
     }
 }
 
+fn validar_tipo_ocupacao(raw: &str) -> Result<String, ErroApi> {
+    let t = raw.trim().to_ascii_lowercase();
+    match t.as_str() {
+        "padrao" | "misto" | "reservado" => Ok(t),
+        _ => Err(ErroApi::invalido(
+            "Tipo do vão deve ser 'padrao', 'misto' ou 'reservado'.",
+        )),
+    }
+}
+
 fn slug_id(prefix: &str) -> String {
     format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
 }
@@ -142,6 +152,8 @@ async fn carregar_estruturas(pool: &PgPool) -> Result<Vec<Estrutura>, ErroApi> {
 
     let pos_metric_rows = sqlx::query(
         "SELECT p.estrutura_id, p.largura_cm, \
+                COALESCE(p.tipo_ocupacao, 'padrao') AS tipo_ocupacao, \
+                p.ocupacao_manual_pct, \
                 COALESCE(SUM(a.fileiras_largura::double precision * COALESCE(c.largura_cm, 0)), 0)::double precision AS larg_ocupada, \
                 COUNT(a.id)::bigint AS itens_count \
          FROM expedicao_posicoes p \
@@ -149,7 +161,7 @@ async fn carregar_estruturas(pool: &PgPool) -> Result<Vec<Estrutura>, ErroApi> {
          LEFT JOIN expedicao_produto_caixa epc ON epc.produto_codigo = a.produto_codigo \
          LEFT JOIN expedicao_caixas c ON c.id = epc.caixa_id \
          WHERE p.ativo = TRUE \
-         GROUP BY p.id, p.estrutura_id, p.largura_cm",
+         GROUP BY p.id, p.estrutura_id, p.largura_cm, p.tipo_ocupacao, p.ocupacao_manual_pct",
     )
     .fetch_all(pool)
     .await?;
@@ -158,16 +170,22 @@ async fn carregar_estruturas(pool: &PgPool) -> Result<Vec<Estrutura>, ErroApi> {
     for mr in pos_metric_rows {
         let est_id: String = mr.get("estrutura_id");
         let larg_vao: f64 = mr.get("largura_cm");
+        let tipo_ocupacao: String = mr.get("tipo_ocupacao");
+        let ocupacao_manual_pct: Option<f64> = mr.get("ocupacao_manual_pct");
         let larg_ocupada: f64 = mr.get("larg_ocupada");
         let itens_count: i64 = mr.get("itens_count");
-        let pct = if larg_vao > 0.0 {
+        let pct = if itens_count == 0 && tipo_ocupacao == "misto" {
+            ocupacao_manual_pct.unwrap_or(50.0).clamp(0.0, 100.0)
+        } else if itens_count == 0 && tipo_ocupacao == "reservado" {
+            0.0
+        } else if larg_vao > 0.0 {
             ((larg_ocupada / larg_vao) * 100.0).min(100.0)
         } else {
             0.0
         };
         let entry = stats.entry(est_id).or_insert((0, 0, 0.0));
         entry.0 += 1;
-        if itens_count > 0 {
+        if itens_count > 0 || tipo_ocupacao == "misto" || tipo_ocupacao == "reservado" {
             entry.1 += 1;
         }
         entry.2 += pct;
@@ -206,7 +224,10 @@ async fn carregar_estruturas(pool: &PgPool) -> Result<Vec<Estrutura>, ErroApi> {
 async fn carregar_posicoes(pool: &PgPool, estrutura_id: &str) -> Result<Vec<Posicao>, ErroApi> {
     let rows = sqlx::query(
         "SELECT id, estrutura_id, codigo, coluna, coluna_ordem, nivel, andar, lado, papel, \
-                largura_cm, comprimento_cm, altura_cm, ativo, observacoes \
+                largura_cm, comprimento_cm, altura_cm, ativo, observacoes, \
+                COALESCE(tipo_ocupacao, 'padrao') AS tipo_ocupacao, \
+                ocupacao_manual_pct, etiqueta_livre, reserva_motivo, reserva_ate, \
+                COALESCE(compartilhado_fracionado, FALSE) AS compartilhado_fracionado \
          FROM expedicao_posicoes WHERE estrutura_id = $1 \
          ORDER BY andar ASC, coluna_ordem ASC, lado ASC, nivel ASC",
     )
@@ -230,6 +251,12 @@ async fn carregar_posicoes(pool: &PgPool, estrutura_id: &str) -> Result<Vec<Posi
             altura_cm: r.get("altura_cm"),
             ativo: r.get("ativo"),
             observacoes: r.get("observacoes"),
+            tipo_ocupacao: r.get("tipo_ocupacao"),
+            ocupacao_manual_pct: r.get("ocupacao_manual_pct"),
+            etiqueta_livre: r.get("etiqueta_livre"),
+            reserva_motivo: r.get("reserva_motivo"),
+            reserva_ate: r.get("reserva_ate"),
+            compartilhado_fracionado: r.get("compartilhado_fracionado"),
         })
         .collect())
 }
@@ -283,7 +310,7 @@ async fn carregar_atacadistas(pool: &PgPool) -> Result<Vec<Atacadista>, ErroApi>
 pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlocacaoResponse, ErroApi> {
     let janela_meses = q.janela_meses.unwrap_or(12).clamp(1, 36);
     let meta_meses = q.meta_meses.unwrap_or(2.0).clamp(0.25, 24.0);
-    let usar_meta_linha = q.usar_meta_linha.unwrap_or(false);
+    let usar_meta_linha = q.usar_meta_linha.unwrap_or(true);
     let incluir_inativos = q.incluir_inativos.unwrap_or(false);
 
     let estruturas = carregar_estruturas(pool).await?;
@@ -798,14 +825,26 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
 
     for pos in posicoes {
         let itens = itens_por_pos.remove(&pos.id).unwrap_or_default();
-        let largura_ocupada_cm: f64 = itens.iter().map(|i| i.largura_ocupada_cm).sum();
+        let larg_itens_cm: f64 = itens.iter().map(|i| i.largura_ocupada_cm).sum();
+        let (largura_ocupada_cm, ocupacao_pct, tem_estouro) =
+            if itens.is_empty() && pos.tipo_ocupacao == "misto" {
+                let pct = pos.ocupacao_manual_pct.unwrap_or(50.0).clamp(0.0, 100.0);
+                let larg = arred2(pos.largura_cm * (pct / 100.0));
+                (larg, pct, false)
+            } else if itens.is_empty() && pos.tipo_ocupacao == "reservado" {
+                (0.0, 0.0, false)
+            } else {
+                let pct = if pos.largura_cm > 0.0 {
+                    (larg_itens_cm / pos.largura_cm) * 100.0
+                } else {
+                    0.0
+                };
+                let estouro_larg =
+                    !pos.compartilhado_fracionado && larg_itens_cm > pos.largura_cm + 1e-6;
+                let estouro_alt = itens.iter().any(|i| i.estouro_altura);
+                (larg_itens_cm, pct, estouro_larg || estouro_alt)
+            };
         let largura_livre_cm = (pos.largura_cm - largura_ocupada_cm).max(0.0);
-        let ocupacao_pct = if pos.largura_cm > 0.0 {
-            (largura_ocupada_cm / pos.largura_cm) * 100.0
-        } else {
-            0.0
-        };
-        let tem_estouro = largura_ocupada_cm > pos.largura_cm + 1e-6 || itens.iter().any(|i| i.estouro_altura);
         let total_caixas: i32 = itens.iter().map(|i| i.total_caixas).sum();
         let total_unidades: i32 = itens.iter().map(|i| i.total_unidades).sum();
         let cota_base_cm = cotas_base.get(&pos.andar).copied().unwrap_or(0.0);
@@ -818,7 +857,10 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         };
         if pos.ativo {
             ativas_count += 1;
-            if !itens.is_empty() {
+            if !itens.is_empty()
+                || pos.tipo_ocupacao == "misto"
+                || pos.tipo_ocupacao == "reservado"
+            {
                 posicoes_ocupadas += 1;
             }
             soma_pct += ocupacao_pct.min(100.0);
@@ -1370,12 +1412,24 @@ pub async fn atualizar_posicao(
         Some(p) => Some(validar_papel(p)?),
         None => None,
     };
+    let tipo_opt = match input.tipo_ocupacao.as_deref() {
+        Some(t) => Some(validar_tipo_ocupacao(t)?),
+        None => None,
+    };
+    if let Some(pct) = input.ocupacao_manual_pct {
+        if !pct.is_finite() || !(0.0..=100.0).contains(&pct) {
+            return Err(ErroApi::invalido("Ocupação estimada deve estar entre 0% e 100%."));
+        }
+    }
 
     let id_c = id.to_string();
     let r = executar_em_2_passos(pool, "atualizar_posicao_expedicao", confirmar, move |tx| {
         Box::pin(async move {
             let row = sqlx::query(
-                "SELECT id, estrutura_id, codigo, andar, papel, largura_cm, comprimento_cm, altura_cm, ativo, observacoes \
+                "SELECT id, estrutura_id, codigo, andar, papel, largura_cm, comprimento_cm, altura_cm, ativo, observacoes, \
+                        COALESCE(tipo_ocupacao, 'padrao') AS tipo_ocupacao, \
+                        ocupacao_manual_pct, etiqueta_livre, reserva_motivo, reserva_ate, \
+                        COALESCE(compartilhado_fracionado, FALSE) AS compartilhado_fracionado \
                  FROM expedicao_posicoes WHERE id = $1 FOR UPDATE",
             )
             .bind(&id_c)
@@ -1392,6 +1446,12 @@ pub async fn atualizar_posicao(
             let antes_papel: String = row.get("papel");
             let antes_ativo: bool = row.get("ativo");
             let antes_obs: Option<String> = row.get("observacoes");
+            let antes_tipo: String = row.get("tipo_ocupacao");
+            let antes_ocup_pct: Option<f64> = row.get("ocupacao_manual_pct");
+            let antes_etiqueta: Option<String> = row.get("etiqueta_livre");
+            let antes_res_motivo: Option<String> = row.get("reserva_motivo");
+            let antes_res_ate: Option<String> = row.get("reserva_ate");
+            let antes_compart: bool = row.get("compartilhado_fracionado");
 
             let nova_altura = input.altura_cm.unwrap_or(antes_altura);
             let nova_largura = input.largura_cm.unwrap_or(antes_largura);
@@ -1403,11 +1463,35 @@ pub async fn atualizar_posicao(
             } else {
                 antes_obs.clone()
             };
+            let novo_tipo = tipo_opt.unwrap_or_else(|| antes_tipo.clone());
+            let nova_ocup_pct = if input.ocupacao_manual_pct.is_some() {
+                input.ocupacao_manual_pct
+            } else if novo_tipo == "misto" {
+                antes_ocup_pct.or(Some(50.0))
+            } else {
+                antes_ocup_pct
+            };
+            let nova_etiqueta = if input.etiqueta_livre.is_some() {
+                str_trim(input.etiqueta_livre.as_deref())
+            } else {
+                antes_etiqueta.clone()
+            };
+            let novo_res_motivo = if input.reserva_motivo.is_some() {
+                str_trim(input.reserva_motivo.as_deref())
+            } else {
+                antes_res_motivo.clone()
+            };
+            let novo_res_ate = if input.reserva_ate.is_some() {
+                str_trim(input.reserva_ate.as_deref())
+            } else {
+                antes_res_ate.clone()
+            };
+            let novo_compart = input.compartilhado_fracionado.unwrap_or(antes_compart);
 
             let afetadas = if input.aplicar_ao_andar.unwrap_or(false) {
                 sqlx::query(
                     "UPDATE expedicao_posicoes \
-                     SET altura_cm = $3, largura_cm = $4, comprimento_cm = $5, papel = $6 \
+                     SET altura_cm = $3, largura_cm = $4, comprimento_cm = $5, papel = $6, compartilhado_fracionado = $7 \
                      WHERE estrutura_id = $1 AND andar = $2",
                 )
                 .bind(&estrutura_id)
@@ -1416,13 +1500,16 @@ pub async fn atualizar_posicao(
                 .bind(nova_largura)
                 .bind(novo_comp)
                 .bind(&novo_papel)
+                .bind(novo_compart)
                 .execute(&mut **tx)
                 .await?
                 .rows_affected()
             } else {
                 sqlx::query(
                     "UPDATE expedicao_posicoes \
-                     SET altura_cm = $2, largura_cm = $3, comprimento_cm = $4, papel = $5, ativo = $6, observacoes = $7 \
+                     SET altura_cm = $2, largura_cm = $3, comprimento_cm = $4, papel = $5, ativo = $6, observacoes = $7, \
+                         tipo_ocupacao = $8, ocupacao_manual_pct = $9, etiqueta_livre = $10, \
+                         reserva_motivo = $11, reserva_ate = $12, compartilhado_fracionado = $13 \
                      WHERE id = $1",
                 )
                 .bind(&id_c)
@@ -1432,6 +1519,12 @@ pub async fn atualizar_posicao(
                 .bind(&novo_papel)
                 .bind(novo_ativo)
                 .bind(&nova_obs)
+                .bind(&novo_tipo)
+                .bind(nova_ocup_pct)
+                .bind(&nova_etiqueta)
+                .bind(&novo_res_motivo)
+                .bind(&novo_res_ate)
+                .bind(novo_compart)
                 .execute(&mut **tx)
                 .await?
                 .rows_affected()
@@ -1443,8 +1536,32 @@ pub async fn atualizar_posicao(
                 "andar": andar,
                 "aplicarAoAndar": input.aplicar_ao_andar.unwrap_or(false),
                 "posicoesAfetadas": afetadas,
-                "antes": { "alturaCm": antes_altura, "larguraCm": antes_largura, "comprimentoCm": antes_comp, "papel": antes_papel, "ativo": antes_ativo },
-                "depois": { "alturaCm": nova_altura, "larguraCm": nova_largura, "comprimentoCm": novo_comp, "papel": novo_papel, "ativo": novo_ativo }
+                "antes": {
+                    "alturaCm": antes_altura,
+                    "larguraCm": antes_largura,
+                    "comprimentoCm": antes_comp,
+                    "papel": antes_papel,
+                    "ativo": antes_ativo,
+                    "tipoOcupacao": antes_tipo,
+                    "ocupacaoManualPct": antes_ocup_pct,
+                    "etiquetaLivre": antes_etiqueta,
+                    "reservaMotivo": antes_res_motivo,
+                    "reservaAte": antes_res_ate,
+                    "compartilhadoFracionado": antes_compart
+                },
+                "depois": {
+                    "alturaCm": nova_altura,
+                    "larguraCm": nova_largura,
+                    "comprimentoCm": novo_comp,
+                    "papel": novo_papel,
+                    "ativo": novo_ativo,
+                    "tipoOcupacao": novo_tipo,
+                    "ocupacaoManualPct": nova_ocup_pct,
+                    "etiquetaLivre": nova_etiqueta,
+                    "reservaMotivo": novo_res_motivo,
+                    "reservaAte": novo_res_ate,
+                    "compartilhadoFracionado": novo_compart
+                }
             }))
         })
     })
@@ -2113,7 +2230,7 @@ async fn gravar_sugestao_tx(
         sqlx::query(
             "DELETE FROM expedicao_alocacoes a \
              USING expedicao_posicoes p \
-             WHERE a.posicao_id = p.id AND p.estrutura_id = $1",
+             WHERE a.posicao_id = p.id AND p.estrutura_id = $1 AND COALESCE(p.tipo_ocupacao, 'padrao') = 'padrao'",
         )
         .bind(estrutura_id)
         .execute(&mut *tx)
@@ -2122,7 +2239,7 @@ async fn gravar_sugestao_tx(
         sqlx::query(
             "DELETE FROM expedicao_alocacoes a \
              USING expedicao_posicoes p \
-             WHERE a.posicao_id = p.id AND p.estrutura_id = $1 AND a.fixado = FALSE",
+             WHERE a.posicao_id = p.id AND p.estrutura_id = $1 AND a.fixado = FALSE AND COALESCE(p.tipo_ocupacao, 'padrao') = 'padrao'",
         )
         .bind(estrutura_id)
         .execute(&mut *tx)

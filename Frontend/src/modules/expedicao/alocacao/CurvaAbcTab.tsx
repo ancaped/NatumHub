@@ -370,7 +370,7 @@ export function CurvaAbcTab({
               else onChangeMeta(Number(v), false);
             }}
             opcoes={[
-              { valor: 'linha', rotulo: 'Meta: da Linha' },
+              { valor: 'linha', rotulo: 'Meta: da linha (fallback 2m)' },
               { valor: '1', rotulo: 'Meta: 1 mês' },
               { valor: '2', rotulo: 'Meta: 2 meses' },
               { valor: '3', rotulo: 'Meta: 3 meses' },
