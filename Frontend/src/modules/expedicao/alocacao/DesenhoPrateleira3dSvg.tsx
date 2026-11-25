@@ -28,37 +28,26 @@ function coresCaixa(
   estouro: boolean,
   ehColoracao: boolean,
   ehKit: boolean,
+  rotacionada = false,
 ): CoresCaixa3d {
   if (estouro) {
-    return {
-      top: '#fee2e2',
-      front: '#fecaca',
-      side: '#fca5a5',
-      stroke: '#dc2626',
-    };
+    return rotacionada
+      ? { top: '#fecaca', front: '#fca5a5', side: '#f87171', stroke: '#dc2626' }
+      : { top: '#fee2e2', front: '#fecaca', side: '#fca5a5', stroke: '#dc2626' };
   }
   if (ehColoracao) {
-    return {
-      top: '#fef3c7',
-      front: '#fde68a',
-      side: '#fcd34d',
-      stroke: '#d97706',
-    };
+    return rotacionada
+      ? { top: '#fde9b4', front: '#fcd878', side: '#f6c33b', stroke: '#d97706' }
+      : { top: '#fef3c7', front: '#fde68a', side: '#fcd34d', stroke: '#d97706' };
   }
   if (ehKit) {
-    return {
-      top: '#e4e4e7',
-      front: '#d4d4d8',
-      side: '#a1a1aa',
-      stroke: '#3f3f46',
-    };
+    return rotacionada
+      ? { top: '#dcdce0', front: '#c8c8ce', side: '#9595a0', stroke: '#3f3f46' }
+      : { top: '#e4e4e7', front: '#d4d4d8', side: '#a1a1aa', stroke: '#3f3f46' };
   }
-  return {
-    top: '#f5ead6',
-    front: '#e6cfa9',
-    side: '#cfa974',
-    stroke: '#8c6d46',
-  };
+  return rotacionada
+    ? { top: '#eee0c5', front: '#ddc398', side: '#c49c66', stroke: '#8c6d46' }
+    : { top: '#f5ead6', front: '#e6cfa9', side: '#cfa974', stroke: '#8c6d46' };
 }
 
 /**
@@ -572,27 +561,22 @@ export function DesenhoPrateleira3dSvg({
     }
 
     const itemsOrdered = dirSign === 1 ? itemsLayout : [...itemsLayout].reverse();
-    const slotDepth = Math.max(24, pos.comprimentoCm - 12);
+    const slotDepth = Math.max(24, pos.comprimentoCm - 10);
 
-    return itemsOrdered.map(({ item, xStart, wItem, hItem, dItem }) => {
+    return itemsOrdered.map(({ item, xStart, wItem, hItem }) => {
       const saldo = saldos.get(item.id);
       const qtdAlvo =
         modoQtd === 'estoque'
           ? (saldo?.caixasEstoque ?? item.totalCaixas)
           : (saldo?.caixasCapacidade ?? item.totalCaixas);
       const prodMeta = prodPorCodigo.get(item.produtoCodigo);
-      const cor = coresCaixa(
-        item.estouroAltura || pos.temEstouro,
-        Boolean(prodMeta?.ehColoracao),
-        Boolean(prodMeta?.ehKit),
-      );
 
       const { caixas } = gerarCaixasItem3d({
         xStart,
         yStart: 6,
         zBase: zTrayTop + paleteH,
         maxWidthCm: wItem,
-        slotDepthCm: Math.min(slotDepth, dItem),
+        slotDepthCm: slotDepth,
         maxHeightCm: hItem,
         fileirasLargura: item.fileirasLargura,
         caixasComprimento: item.caixasComprimento,
@@ -605,6 +589,7 @@ export function DesenhoPrateleira3dSvg({
         qtdCaixasAlvo: qtdAlvo,
         dirSign,
         modoDetalhe: emFoco ? 'foco' : 'panorama',
+        usarAmarracao: true,
       });
 
       return (
@@ -618,9 +603,14 @@ export function DesenhoPrateleira3dSvg({
               dx={box.dx}
               dy={box.dy}
               dz={box.dz}
-              colors={cor}
+              colors={coresCaixa(
+                item.estouroAltura || pos.temEstouro,
+                Boolean(prodMeta?.ehColoracao),
+                Boolean(prodMeta?.ehKit),
+                box.rotacionada,
+              )}
               strokeWidth={emFoco ? 0.68 : 0.52}
-              drawTopFlap={emFoco && box.dx >= 10 && box.dy >= 12}
+              drawTopFlap={emFoco && box.dx >= 8 && box.dy >= 8}
             />
           ))}
         </g>
@@ -1099,11 +1089,38 @@ export function DesenhoPrateleira3dSvg({
                   const saldo = saldos.get(it.id);
                   const estCx = saldo?.caixasEstoque ?? it.totalCaixas;
                   const capCx = saldo?.caixasCapacidade ?? it.totalCaixas;
+                  const temAmarracao =
+                    Boolean(it.caixaLarguraCm && it.caixaComprimentoCm) &&
+                    gerarCaixasItem3d({
+                      xStart: 0,
+                      yStart: 0,
+                      zBase: 0,
+                      maxWidthCm: Math.max(12, it.larguraOcupadaCm || 25),
+                      slotDepthCm: Math.max(24, hoveredSlot.pos.comprimentoCm - 10),
+                      maxHeightCm: Math.max(12, it.alturaOcupadaCm || 50),
+                      fileirasLargura: it.fileirasLargura,
+                      caixasComprimento: it.caixasComprimento,
+                      camadasAltura: it.camadasAltura,
+                      larguraOcupadaCm: Math.max(12, it.larguraOcupadaCm || 25),
+                      alturaOcupadaCm: Math.max(12, it.alturaOcupadaCm || 50),
+                      caixaLarguraCm: it.caixaLarguraCm,
+                      caixaComprimentoCm: it.caixaComprimentoCm,
+                      caixaAlturaCm: it.caixaAlturaCm,
+                      qtdCaixasAlvo: capCx,
+                      dirSign: 1,
+                      modoDetalhe: 'foco',
+                      usarAmarracao: true,
+                    }).amarrado;
                   return (
                     <div key={`tip-${it.id}`} className="text-[11px] leading-snug">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono font-semibold text-zinc-100">
                           {it.produtoCodigo}
+                          {temAmarracao && (
+                            <span className="ml-1 font-sans text-[10px] font-normal text-zinc-400">
+                              · Amarração
+                            </span>
+                          )}
                         </span>
                         <span className="font-mono text-zinc-300 shrink-0">
                           {estCx}/{capCx} cx

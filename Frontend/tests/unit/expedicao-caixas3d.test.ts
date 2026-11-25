@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   distribuirEstoquePorAlocacao,
   gerarCaixasItem3d,
+  ordenarCaixas3dPorCamera,
 } from '../../src/modules/expedicao/alocacao/caixas3d';
 import type {
   AlocacaoItemView,
@@ -154,7 +155,6 @@ test('distribuirEstoquePorAlocacao prioriza picking antes de pulmão e limita pe
     totalCaixas: 18,
   });
 
-  // Pulmão vem antes na lista para garantir que a ordenação picking -> pulmão funciona
   const posicoes = [
     makePos('pos-a5', 'A5', 'pulmao', 3, [pulmaoItem]),
     makePos('pos-a1', 'A1', 'picking', 1, [pickingItem]),
@@ -243,19 +243,17 @@ test('gerarCaixasItem3d aplica hidden-box culling em bloco 3x3x3 e preserva folg
     qtdCaixasAlvo: 27,
     dirSign: 1,
     modoDetalhe: 'foco',
+    usarAmarracao: false,
   });
 
-  // Em 3x3x3 sólido visto de frente-topo-direita, 2*2*2 = 8 caixas traseiras/inferiores ficam 100% ocultas -> 19 visíveis
   assert.equal(res.caixas.length, 19);
 
-  // Verifica folga positiva entre caixas adjacentes em X na mesma fila (iy=0, iz=0)
   const filaFrente = res.caixas
     .filter((c) => c.iy === 0 && c.iz === 0)
     .sort((a, b) => a.ix - b.ix);
   assert.equal(filaFrente.length, 3);
   assert.ok(filaFrente[1].x > filaFrente[0].x + filaFrente[0].dx);
 
-  // Verifica folga positiva em Z
   const colFrente = res.caixas
     .filter((c) => c.ix === 0 && c.iy === 0)
     .sort((a, b) => a.iz - b.iz);
@@ -281,17 +279,15 @@ test('gerarCaixasItem3d preenche pilha parcial pela frente e respeita ordem pain
     caixaAlturaCm: 20,
     qtdCaixasAlvo: 5,
     modoDetalhe: 'foco' as const,
+    usarAmarracao: false,
   };
 
   const dirPos = gerarCaixasItem3d({ ...baseParams, dirSign: 1 });
   assert.equal(dirPos.caixas.length, 5);
-  // Nenhuma caixa na camada iz=1 quando só há 5 caixas numa base 3x2=6
   assert.ok(dirPos.caixas.every((c) => c.iz === 0));
-  // iy=1 (fundo) vem antes de iy=0 (frente)
   const firstFrenteIdx = dirPos.caixas.findIndex((c) => c.iy === 0);
   const lastFundoIdx = dirPos.caixas.reduce((acc, c, idx) => (c.iy === 1 ? idx : acc), -1);
   assert.ok(lastFundoIdx < firstFrenteIdx);
-  // Com dirSign=1, na mesma linha (iy=0), ix cresce
   const rowDirPos = dirPos.caixas.filter((c) => c.iy === 0).map((c) => c.ix);
   assert.deepEqual(rowDirPos, [0, 1, 2]);
 
@@ -318,6 +314,7 @@ test('gerarCaixasItem3d limita subdivisões conforme LOD panorama x foco', () =>
     caixaAlturaCm: 7.5,
     qtdCaixasAlvo: 800,
     dirSign: 1 as const,
+    usarAmarracao: false,
   };
 
   const pan = gerarCaixasItem3d({ ...comum, modoDetalhe: 'panorama' });
@@ -329,4 +326,98 @@ test('gerarCaixasItem3d limita subdivisões conforme LOD panorama x foco', () =>
   assert.equal(foco.nx, 8);
   assert.equal(foco.ny, 6);
   assert.equal(foco.nz, 8);
+});
+
+test('gerarCaixasItem3d calcula amarração real com espelhamento de camada e respeita limites', () => {
+  const res = gerarCaixasItem3d({
+    xStart: 5,
+    yStart: 6,
+    zBase: 11,
+    maxWidthCm: 100,
+    slotDepthCm: 120,
+    maxHeightCm: 63,
+    fileirasLargura: 4,
+    caixasComprimento: 3,
+    camadasAltura: 2,
+    larguraOcupadaCm: 100,
+    alturaOcupadaCm: 40,
+    caixaLarguraCm: 22,
+    caixaComprimentoCm: 35,
+    caixaAlturaCm: 20,
+    qtdCaixasAlvo: 26,
+    dirSign: 1,
+    modoDetalhe: 'foco',
+    usarAmarracao: true,
+    podeGirar: true,
+    aplicarCulling: false,
+  });
+
+  assert.equal(res.amarrado, true);
+  assert.equal(res.caixas.length, 26);
+
+  const c1 = res.caixas.filter((c) => c.camada === 1);
+  const c2 = res.caixas.filter((c) => c.camada === 2);
+  assert.equal(c1.length, 13);
+  assert.equal(c2.length, 13);
+  assert.ok(c1.some((c) => c.rotacionada) && c1.some((c) => !c.rotacionada));
+
+  // Camada 2 é espelhada em X/Y no palete em relação à camada 1
+  const minXRotC1 = Math.min(...c1.filter((c) => c.rotacionada).map((c) => c.x));
+  const minXRotC2 = Math.min(...c2.filter((c) => c.rotacionada).map((c) => c.x));
+  assert.notEqual(Math.round(minXRotC1), Math.round(minXRotC2));
+
+  // Nenhuma caixa ultrapassa o footprint do item
+  for (const b of res.caixas) {
+    assert.ok(b.x >= 5 && b.x + b.dx <= 5 + res.footprintW + 0.01);
+    assert.ok(b.y >= 6 && b.y + b.dy <= 6 + res.footprintD + 0.01);
+  }
+});
+
+test('gerarCaixasItem3d com podeGirar=false não rotaciona nenhuma caixa', () => {
+  const res = gerarCaixasItem3d({
+    xStart: 0,
+    yStart: 0,
+    zBase: 11,
+    maxWidthCm: 100,
+    slotDepthCm: 120,
+    maxHeightCm: 63,
+    fileirasLargura: 4,
+    caixasComprimento: 3,
+    camadasAltura: 2,
+    larguraOcupadaCm: 100,
+    alturaOcupadaCm: 40,
+    caixaLarguraCm: 22,
+    caixaComprimentoCm: 35,
+    caixaAlturaCm: 20,
+    qtdCaixasAlvo: 16,
+    dirSign: 1,
+    modoDetalhe: 'foco',
+    usarAmarracao: true,
+    podeGirar: false,
+    aplicarCulling: false,
+  });
+
+  assert.equal(res.amarrado, false);
+  assert.ok(res.caixas.every((c) => c.rotacionada === false));
+});
+
+test('ordenarCaixas3dPorCamera ordena profundidade e camadas corretamente em todos os quadrantes', () => {
+  const frente = { id: 'frente', x: 0, y: 0, z: 0, dx: 20, dy: 20, dz: 18 };
+  const fundo = { id: 'fundo', x: 0, y: 60, z: 0, dx: 20, dy: 20, dz: 18 };
+  const dir = { id: 'dir', x: 50, y: 0, z: 0, dx: 20, dy: 20, dz: 18 };
+  const topo = { id: 'topo', x: 0, y: 0, z: 20, dx: 20, dy: 20, dz: 18 };
+
+  const ord0 = ordenarCaixas3dPorCamera([frente, fundo], 0).map((c) => c.id);
+  assert.deepEqual(ord0, ['fundo', 'frente']);
+
+  const ord180 = ordenarCaixas3dPorCamera([frente, fundo], 180).map((c) => c.id);
+  assert.deepEqual(ord180, ['frente', 'fundo']);
+
+  const ord90 = ordenarCaixas3dPorCamera([frente, dir], 90).map((c) => c.id);
+  assert.deepEqual(ord90, ['frente', 'dir']);
+
+  for (const yaw of [0, 90, 180, 270]) {
+    const ordZ = ordenarCaixas3dPorCamera([topo, frente], yaw).map((c) => c.id);
+    assert.deepEqual(ordZ, ['frente', 'topo']);
+  }
 });

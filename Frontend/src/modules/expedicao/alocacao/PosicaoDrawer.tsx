@@ -20,8 +20,7 @@ import {
   rotuloGrupoAlocacao,
   salvarAlocacaoPosicao,
 } from './api';
-import { DesenhoPlantaVao } from './DesenhoPaleteSvg';
-import { calcularPlantaVao } from './paletizacao';
+import { DesenhoPalete3dGiravel } from './DesenhoPalete3dGiravel';
 import type { Caixa, Estrutura, PosicaoComItens, ProdutoDimensao } from './types';
 
 interface PosicaoDrawerProps {
@@ -164,17 +163,7 @@ export function PosicaoDrawer({
     setNovoFileiras(Math.max(1, fileirasCalc));
   }, [posicao, produtoEscolhido]);
 
-  const gruposPorCodigo = useMemo(() => {
-    const m = new Map<string, { ehKit?: boolean; ehColoracao?: boolean }>();
-    for (const p of produtos) m.set(p.codigo, { ehKit: p.ehKit, ehColoracao: p.ehColoracao });
-    return m;
-  }, [produtos]);
-  const plantaVao = useMemo(
-    () => (posicao ? calcularPlantaVao(posicao, gruposPorCodigo) : null),
-    [posicao, gruposPorCodigo],
-  );
-
-  if (!posicao || !plantaVao) return null;
+  if (!posicao) return null;
 
   const salvarPosicaoProps = async () => {
     const a = Number(alturaCm);
@@ -372,17 +361,22 @@ export function PosicaoDrawer({
           )}
         </div>
 
-        {/* Vista superior proporcional do palete no vão */}
-        <div className="panel-card !p-3 space-y-1.5">
+        {/* Palete 3D girável 360° do vão */}
+        <div className="panel-card !p-3 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h4 className="font-bold text-zinc-800 uppercase tracking-wider text-[11px]">
-              Planta do palete no vão
+              Palete 3D no vão
             </h4>
             <span className="font-mono text-[11px] text-zinc-500">
               {posicao.larguraCm}×{posicao.comprimentoCm} cm (Alt. livre {posicao.alturaCm} cm)
             </span>
           </div>
-          <DesenhoPlantaVao planta={plantaVao} />
+          <DesenhoPalete3dGiravel
+            posicao={posicao}
+            posicoes={posicoes}
+            produtos={produtos}
+            caixas={caixas}
+          />
         </div>
 
         {/* Itens alocados */}

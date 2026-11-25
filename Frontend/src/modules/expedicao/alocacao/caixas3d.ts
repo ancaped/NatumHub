@@ -1,3 +1,4 @@
+import { calcularPaletizacao, type CaixaNoPalete } from './paletizacao';
 import type { PosicaoComItens, ProdutoDimensao } from './types';
 
 export interface SaldoAlocacao {
@@ -17,6 +18,8 @@ export interface Caixa3dInstancia {
   ix: number;
   iy: number;
   iz: number;
+  rotacionada: boolean;
+  camada?: number;
 }
 
 export interface GerarCaixasItem3dParams {
@@ -37,6 +40,9 @@ export interface GerarCaixasItem3dParams {
   qtdCaixasAlvo: number;
   dirSign: 1 | -1;
   modoDetalhe: 'panorama' | 'foco';
+  usarAmarracao?: boolean;
+  podeGirar?: boolean;
+  aplicarCulling?: boolean;
 }
 
 export interface GerarCaixasItem3dResultado {
@@ -47,6 +53,173 @@ export interface GerarCaixasItem3dResultado {
   nx: number;
   ny: number;
   nz: number;
+  amarrado: boolean;
+}
+
+export interface Camera3d {
+  yawDeg: number;
+  pitchDeg: number;
+  ux: number;
+  uy: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  wx: number;
+  wy: number;
+  wz: number;
+}
+
+export function criarCamera3d(yawDeg: number, pitchDeg: number): Camera3d {
+  const yaw = (yawDeg * Math.PI) / 180;
+  const pitch = (pitchDeg * Math.PI) / 180;
+  const cosY = Math.cos(yaw);
+  const sinY = Math.sin(yaw);
+  const cosP = Math.cos(pitch);
+  const sinP = Math.sin(pitch);
+  return {
+    yawDeg,
+    pitchDeg,
+    ux: cosY,
+    uy: sinY,
+    vx: -sinY * sinP,
+    vy: cosY * sinP,
+    vz: cosP,
+    wx: sinY * cosP,
+    wy: -cosY * cosP,
+    wz: sinP,
+  };
+}
+
+export function projetarPonto3d(
+  cam: Camera3d,
+  x: number,
+  y: number,
+  z: number,
+  cx: number,
+  cy: number,
+  cz: number,
+): { px: number; py: number; depth: number } {
+  const dx = x - cx;
+  const dy = y - cy;
+  const dz = z - cz;
+  return {
+    px: dx * cam.ux + dy * cam.uy,
+    py: -(dx * cam.vx + dy * cam.vy + dz * cam.vz),
+    depth: dx * cam.wx + dy * cam.wy + dz * cam.wz,
+  };
+}
+
+/**
+ * Ordenação topológica painter's algorithm para caixas ortogonais em qualquer ângulo yaw 0..360°.
+ */
+export function ordenarCaixas3dPorCamera<
+  T extends { x: number; y: number; z: number; dx: number; dy: number; dz: number },
+>(caixas: T[], yawDeg: number): T[] {
+  const n = caixas.length;
+  if (n <= 1) return [...caixas];
+
+  const yaw = (yawDeg * Math.PI) / 180;
+  const wx = Math.sin(yaw);
+  const wy = -Math.cos(yaw);
+  const EPS = 0.05;
+
+  const camSignX = Math.abs(wx) > 1e-4 ? (wx > 0 ? 1 : -1) : 0;
+  const camSignY = Math.abs(wy) > 1e-4 ? (wy > 0 ? 1 : -1) : 0;
+
+  const adj: number[][] = Array.from({ length: n }, () => []);
+  const indeg = new Int32Array(n);
+
+  const depth = caixas.map(
+    (c) => (c.x + c.dx * 0.5) * wx + (c.y + c.dy * 0.5) * wy + (c.z + c.dz * 0.5) * 0.45,
+  );
+
+  for (let i = 0; i < n; i++) {
+    const a = caixas[i];
+    for (let j = i + 1; j < n; j++) {
+      const b = caixas[j];
+
+      if (a.z + a.dz <= b.z + EPS) {
+        adj[i].push(j);
+        indeg[j]++;
+        continue;
+      }
+      if (b.z + b.dz <= a.z + EPS) {
+        adj[j].push(i);
+        indeg[i]++;
+        continue;
+      }
+
+      const xSepA =
+        camSignX === 1
+          ? a.x + a.dx <= b.x + EPS
+          : camSignX === -1
+            ? a.x >= b.x + b.dx - EPS
+            : false;
+      const xSepB =
+        camSignX === 1
+          ? b.x + b.dx <= a.x + EPS
+          : camSignX === -1
+            ? b.x >= a.x + a.dx - EPS
+            : false;
+
+      const ySepA =
+        camSignY === 1
+          ? a.y + a.dy <= b.y + EPS
+          : camSignY === -1
+            ? a.y >= b.y + b.dy - EPS
+            : false;
+      const ySepB =
+        camSignY === 1
+          ? b.y + b.dy <= a.y + EPS
+          : camSignY === -1
+            ? b.y >= a.y + a.dy - EPS
+            : false;
+
+      const aBeforeB = (xSepA && !ySepB) || (ySepA && !xSepB);
+      const bBeforeA = (xSepB && !ySepA) || (ySepB && !xSepA);
+
+      if (aBeforeB && !bBeforeA) {
+        adj[i].push(j);
+        indeg[j]++;
+      } else if (bBeforeA && !aBeforeB) {
+        adj[j].push(i);
+        indeg[i]++;
+      }
+    }
+  }
+
+  const ready: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (indeg[i] === 0) ready.push(i);
+  }
+  ready.sort((a, b) => depth[a] - depth[b]);
+
+  const ordered: T[] = [];
+  const emitted = new Uint8Array(n);
+
+  while (ready.length > 0) {
+    const u = ready.shift()!;
+    emitted[u] = 1;
+    ordered.push(caixas[u]);
+    for (const v of adj[u]) {
+      indeg[v]--;
+      if (indeg[v] === 0) {
+        ready.push(v);
+        ready.sort((a, b) => depth[a] - depth[b]);
+      }
+    }
+  }
+
+  if (ordered.length < n) {
+    const rest: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (!emitted[i]) rest.push(i);
+    }
+    rest.sort((a, b) => depth[a] - depth[b]);
+    for (const idx of rest) ordered.push(caixas[idx]);
+  }
+
+  return ordered;
 }
 
 /**
@@ -124,8 +297,8 @@ export function distribuirEstoquePorAlocacao(
 }
 
 /**
- * Gera instâncias individuais de caixas 3D com folga real entre unidades,
- * nível de detalhe automático (LOD), hidden-box culling e ordem painter's algorithm.
+ * Gera instâncias individuais de caixas 3D com folga real, amarração calculada
+ * por camada (ímpar × par), nível de detalhe automático (LOD) e ordenação por câmera.
  */
 export function gerarCaixasItem3d(
   params: GerarCaixasItem3dParams,
@@ -148,6 +321,9 @@ export function gerarCaixasItem3d(
     qtdCaixasAlvo,
     dirSign,
     modoDetalhe,
+    usarAmarracao = true,
+    podeGirar = true,
+    aplicarCulling = true,
   } = params;
 
   const rawNx = Math.max(1, Math.round(fileirasLargura || 1));
@@ -158,9 +334,9 @@ export function gerarCaixasItem3d(
   const capY = modoDetalhe === 'panorama' ? 4 : 6;
   const capZ = modoDetalhe === 'panorama' ? 5 : 8;
 
-  const nx = Math.min(rawNx, capX);
-  const ny = Math.min(rawNy, capY);
-  const nz = Math.min(rawNz, capZ);
+  const nx = aplicarCulling ? Math.min(rawNx, capX) : rawNx;
+  const ny = aplicarCulling ? Math.min(rawNy, capY) : rawNy;
+  const nz = aplicarCulling ? Math.min(rawNz, capZ) : rawNz;
 
   const rawW =
     caixaLarguraCm && caixaLarguraCm > 0
@@ -179,39 +355,151 @@ export function gerarCaixasItem3d(
     maxWidthCm,
     Math.max(8, larguraOcupadaCm > 0 ? larguraOcupadaCm : rawW),
   );
-  const footprintD = Math.min(slotDepthCm, Math.max(14, rawD));
+  const footprintDBase = Math.min(slotDepthCm, Math.max(14, rawD));
   const heightMax = Math.min(
     maxHeightCm,
     Math.max(8, alturaOcupadaCm > 0 ? alturaOcupadaCm : rawH),
   );
 
+  const qtdAlvoLimpo = Math.max(0, Math.round(qtdCaixasAlvo));
+  if (qtdAlvoLimpo === 0) {
+    return {
+      caixas: [],
+      footprintW,
+      footprintD: footprintDBase,
+      heightMax,
+      nx,
+      ny,
+      nz,
+      amarrado: false,
+    };
+  }
+
+  const gapZ = nz > 1 ? Math.min(1.4, (heightMax / nz) * 0.08) : 0;
+  const boxH = Math.max(2.2, (heightMax - gapZ * (nz - 1)) / nz);
+
+  // Tenta calcular amarração real quando a caixa tem dimensões válidas e pode girar
+  let camadaImpar: CaixaNoPalete[] | null = null;
+  let camadaPar: CaixaNoPalete[] | null = null;
+  let amarrado = false;
+  let footprintD = footprintDBase;
+
+  if (
+    usarAmarracao &&
+    podeGirar &&
+    caixaLarguraCm &&
+    caixaLarguraCm > 0 &&
+    caixaComprimentoCm &&
+    caixaComprimentoCm > 0
+  ) {
+    const depthDisponivel = Math.max(footprintDBase, slotDepthCm);
+    const resPal = calcularPaletizacao(
+      {
+        alturaCm: caixaAlturaCm && caixaAlturaCm > 0 ? caixaAlturaCm : boxH,
+        comprimentoCm: caixaComprimentoCm,
+        larguraCm: caixaLarguraCm,
+        empilhamentoMax: rawNz,
+        podeGirar: true,
+      },
+      footprintW,
+      depthDisponivel,
+      heightMax,
+    );
+
+    if (resPal.amarracao.temAmarracaoReal && resPal.amarracao.caixasPorLastro > 0) {
+      camadaImpar = resPal.amarracao.caixasImpar;
+      camadaPar = resPal.amarracao.caixasPar;
+      amarrado = true;
+      footprintD = depthDisponivel;
+    } else if (
+      resPal.rotacionado &&
+      resPal.rotacionado.caixasPorLastro > 0 &&
+      resPal.normal.caixasPorLastro > 0 &&
+      Math.abs(caixaLarguraCm - caixaComprimentoCm) > 0.5 &&
+      resPal.rotacionado.caixasPorLastro >= Math.floor(resPal.normal.caixasPorLastro * 0.85)
+    ) {
+      camadaImpar = resPal.normal.caixasImpar;
+      camadaPar = resPal.rotacionado.caixasImpar;
+      amarrado = nz > 1;
+      footprintD = depthDisponivel;
+    }
+  }
+
+  const usarLayoutAmarrado =
+    camadaImpar !== null &&
+    camadaPar !== null &&
+    !(modoDetalhe === 'panorama' && aplicarCulling && camadaImpar.length > 20);
+
+  if (usarLayoutAmarrado && camadaImpar && camadaPar) {
+    const capPorLastro = Math.max(camadaImpar.length, camadaPar.length);
+    const capAmarradoTotal = capPorLastro * nz;
+    const capBruto = Math.max(capAmarradoTotal, rawNx * rawNy * rawNz);
+    const qtdVisual =
+      aplicarCulling && nz < rawNz
+        ? Math.min(
+            capAmarradoTotal,
+            Math.max(1, Math.round((qtdAlvoLimpo / capBruto) * capAmarradoTotal)),
+          )
+        : Math.min(capAmarradoTotal, qtdAlvoLimpo);
+
+    const brutas: Caixa3dInstancia[] = [];
+    let restantes = qtdVisual;
+
+    for (let iz = 0; iz < nz && restantes > 0; iz++) {
+      const molde = [...(iz % 2 === 0 ? camadaImpar : camadaPar)].sort(
+        (a, b) => a.y - b.y || a.x - b.x,
+      );
+      for (let idx = 0; idx < molde.length && restantes > 0; idx++) {
+        const c = molde[idx];
+        const insetX = Math.min(0.75, c.w * 0.045);
+        const insetY = Math.min(0.75, c.h * 0.045);
+        brutas.push({
+          x: xStart + c.x + insetX,
+          y: yStart + c.y + insetY,
+          z: zBase + iz * (boxH + gapZ),
+          dx: Math.max(2.2, c.w - 2 * insetX),
+          dy: Math.max(2.6, c.h - 2 * insetY),
+          dz: boxH,
+          ix: idx,
+          iy: 0,
+          iz,
+          rotacionada: c.rotacionada,
+          camada: iz + 1,
+        });
+        restantes--;
+      }
+    }
+
+    const caixas = ordenarCaixas3dPorCamera(brutas, dirSign === 1 ? 35 : -35);
+    return {
+      caixas,
+      footprintW,
+      footprintD,
+      heightMax,
+      nx,
+      ny,
+      nz,
+      amarrado,
+    };
+  }
+
+  // Fallback de grade uniforme (com LOD e culling opcional)
   const capRaw = rawNx * rawNy * rawNz;
   const capVisual = nx * ny * nz;
-
-  const qtdAlvoLimpo = Math.max(0, Math.round(qtdCaixasAlvo));
   const qtdVisual =
-    qtdAlvoLimpo <= 0
-      ? 0
-      : capVisual < capRaw
-        ? Math.min(
-            capVisual,
-            Math.max(1, Math.round((qtdAlvoLimpo / capRaw) * capVisual)),
-          )
-        : Math.min(capVisual, qtdAlvoLimpo);
-
-  if (qtdVisual === 0) {
-    return { caixas: [], footprintW, footprintD, heightMax, nx, ny, nz };
-  }
+    capVisual < capRaw
+      ? Math.min(
+          capVisual,
+          Math.max(1, Math.round((qtdAlvoLimpo / capRaw) * capVisual)),
+        )
+      : Math.min(capVisual, qtdAlvoLimpo);
 
   const gapX = nx > 1 ? Math.min(1.8, (footprintW / nx) * 0.1) : 0;
   const gapY = ny > 1 ? Math.min(2.0, (footprintD / ny) * 0.1) : 0;
-  const gapZ = nz > 1 ? Math.min(1.4, (heightMax / nz) * 0.08) : 0;
 
   const boxW = Math.max(2.2, (footprintW - gapX * (nx - 1)) / nx);
   const boxD = Math.max(2.6, (footprintD - gapY * (ny - 1)) / ny);
-  const boxH = Math.max(2.2, (heightMax - gapZ * (nz - 1)) / nz);
 
-  // Matriz 3D [iz][iy][ix] preenchida de baixo para cima e frente para trás
   const occ: boolean[][][] = Array.from({ length: nz }, () =>
     Array.from({ length: ny }, () => Array<boolean>(nx).fill(false)),
   );
@@ -233,12 +521,14 @@ export function gerarCaixasItem3d(
         const ix = dirSign === 1 ? step : nx - 1 - step;
         if (!occ[iz][iy][ix]) continue;
 
-        const frontExposed = iy === 0 || !occ[iz][iy - 1][ix];
-        const topExposed = iz === nz - 1 || !occ[iz + 1][iy][ix];
-        const sideIx = ix + dirSign;
-        const sideExposed = sideIx < 0 || sideIx >= nx || !occ[iz][iy][sideIx];
-
-        if (!frontExposed && !topExposed && !sideExposed) continue;
+        if (aplicarCulling) {
+          const frontExposed = iy === 0 || !occ[iz][iy - 1][ix];
+          const topExposed = iz === nz - 1 || !occ[iz + 1][iy][ix];
+          const sideIx = ix + dirSign;
+          const sideExposed =
+            sideIx < 0 || sideIx >= nx || !occ[iz][iy][sideIx];
+          if (!frontExposed && !topExposed && !sideExposed) continue;
+        }
 
         caixas.push({
           x: xStart + ix * (boxW + gapX),
@@ -250,10 +540,21 @@ export function gerarCaixasItem3d(
           ix,
           iy,
           iz,
+          rotacionada: false,
+          camada: iz + 1,
         });
       }
     }
   }
 
-  return { caixas, footprintW, footprintD, heightMax, nx, ny, nz };
+  return {
+    caixas,
+    footprintW,
+    footprintD,
+    heightMax,
+    nx,
+    ny,
+    nz,
+    amarrado: false,
+  };
 }
