@@ -276,6 +276,19 @@ export function SugestaoDrawer({
               </div>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-600">
                 <span>
+                  Largura útil:{' '}
+                  <strong className="font-mono text-zinc-900">
+                    {Math.max(
+                      1,
+                      (estruturaAtiva?.estradoLarguraCm ?? 100) -
+                        (previa.resumo.folgaLarguraPaleteCm ??
+                          estruturaAtiva?.folgaLarguraPaleteCm ??
+                          5),
+                    ).toFixed(0)}{' '}
+                    cm
+                  </strong>
+                </span>
+                <span>
                   Cubagem média:{' '}
                   <strong className="font-mono text-zinc-900">
                     {(previa.resumo.cubagemMediaPct ?? 0).toFixed(0)}%

@@ -7,6 +7,7 @@ export interface Estrutura {
   linhasPermitidas: string[];
   estradoLarguraCm: number;
   estradoComprimentoCm: number;
+  folgaLarguraPaleteCm?: number;
   ordem: number;
   ativo: boolean;
   totalPosicoes: number;
@@ -310,6 +311,7 @@ export interface SugestaoResumo {
   paletesAmarradosCount?: number;
   itensEmpilhadosMistosCount?: number;
   itensSoAtacadoNoPulmao?: number;
+  folgaLarguraPaleteCm?: number;
 }
 
 export interface OpChegandoItem {

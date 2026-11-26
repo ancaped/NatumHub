@@ -80,6 +80,7 @@ export function GalpoesTab({
   const [estLinhas, setEstLinhas] = useState<Set<string>>(() => new Set());
   const [estLarg, setEstLarg] = useState('100');
   const [estComp, setEstComp] = useState('120');
+  const [estFolga, setEstFolga] = useState('5');
   const [salvandoEst, setSalvandoEst] = useState(false);
 
   // --- Drawer Configurar Grade ---
@@ -166,6 +167,7 @@ export function GalpoesTab({
     setEstLinhas(new Set());
     setEstLarg('100');
     setEstComp('120');
+    setEstFolga('5');
     setDrawerEstOpen(true);
   };
 
@@ -177,6 +179,7 @@ export function GalpoesTab({
     setEstLinhas(new Set(e.linhasPermitidas));
     setEstLarg(String(e.estradoLarguraCm));
     setEstComp(String(e.estradoComprimentoCm));
+    setEstFolga(String(e.folgaLarguraPaleteCm ?? 5));
     onChangeEstrutura(e.id);
     setDrawerEstOpen(true);
   };
@@ -210,6 +213,9 @@ export function GalpoesTab({
           linhasPermitidas: Array.from(estLinhas),
           estradoLarguraCm: Number(estLarg) || 100,
           estradoComprimentoCm: Number(estComp) || 120,
+          folgaLarguraPaleteCm: Number.isFinite(Number(estFolga))
+            ? Math.max(0, Math.min(30, Number(estFolga)))
+            : 5,
           ordem: existente?.ordem ?? estruturas.length + 1,
           ativo: existente?.ativo ?? true,
         },
@@ -382,7 +388,9 @@ export function GalpoesTab({
                     <td>
                       <div className="font-bold text-zinc-900">{e.nome}</div>
                       <div className="text-[11px] font-mono text-zinc-500">
-                        Estrado {e.estradoLarguraCm}×{e.estradoComprimentoCm} cm
+                        Estrado {e.estradoLarguraCm}×{e.estradoComprimentoCm} cm · útil{' '}
+                        {Math.max(1, e.estradoLarguraCm - (e.folgaLarguraPaleteCm ?? 5)).toFixed(0)}{' '}
+                        cm
                       </div>
                     </td>
                     <td>
@@ -740,6 +748,33 @@ export function GalpoesTab({
                 onChange={(e) => setEstComp(e.target.value)}
                 className="w-full px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono"
               />
+            </label>
+            <label className="space-y-1 sm:col-span-2">
+              <span className="font-semibold text-zinc-600 block">
+                Folga útil na largura (cm) — padrão 5 cm
+              </span>
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  step="0.5"
+                  value={estFolga}
+                  onChange={(e) => setEstFolga(e.target.value)}
+                  className="w-32 px-2.5 py-2 border border-zinc-200 rounded-lg bg-white font-mono"
+                />
+                <span className="text-[11px] font-mono text-zinc-600">
+                  Largura útil p/ otimização:{' '}
+                  <strong>
+                    {Math.max(
+                      1,
+                      (Number(estLarg) || 100) -
+                        Math.max(0, Math.min(30, Number(estFolga) || 0)),
+                    ).toFixed(1)}{' '}
+                    cm
+                  </strong>
+                </span>
+              </div>
             </label>
           </div>
 

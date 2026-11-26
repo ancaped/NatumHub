@@ -11,6 +11,7 @@ pub struct Estrutura {
     pub linhas_permitidas: Vec<String>,
     pub estrado_largura_cm: f64,
     pub estrado_comprimento_cm: f64,
+    pub folga_largura_palete_cm: f64,
     pub ordem: i32,
     pub ativo: bool,
     pub total_posicoes: usize,
@@ -283,6 +284,7 @@ pub struct EstruturaInput {
     pub linhas_permitidas: Option<Vec<String>>,
     pub estrado_largura_cm: Option<f64>,
     pub estrado_comprimento_cm: Option<f64>,
+    pub folga_largura_palete_cm: Option<f64>,
     pub ordem: Option<i32>,
     pub ativo: Option<bool>,
 }
@@ -434,6 +436,7 @@ pub struct SugestaoResumo {
     pub paletes_amarrados_count: usize,
     pub itens_empilhados_mistos_count: usize,
     pub itens_so_atacado_no_pulmao: usize,
+    pub folga_largura_palete_cm: f64,
 }
 
 #[derive(Debug, Deserialize)]

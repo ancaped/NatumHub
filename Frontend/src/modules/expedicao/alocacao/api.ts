@@ -286,6 +286,7 @@ export function salvarEstrutura(
     linhasPermitidas?: string[];
     estradoLarguraCm: number;
     estradoComprimentoCm: number;
+    folgaLarguraPaleteCm?: number;
     ordem: number;
     ativo: boolean;
   },

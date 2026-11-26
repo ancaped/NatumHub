@@ -15,13 +15,14 @@ use crate::modules::geral::auth::models::AuthContext;
 use super::calculo::{
     acesso_equipamento_por_cota, agrupar_insumos_caixa_nao_vinculados, aplicar_curva_abc, arred2,
     avaliar_estabilidade_vao, calcular_camadas_compat_vao, calcular_cotas_base_andares,
-    calcular_geometria_alocacao_com_modo, calcular_necessidades_caixas,
+    calcular_geometria_alocacao_com_modo_e_folga, calcular_necessidades_caixas,
     calcular_peso_caixa_estimado_kg, calcular_tarefas_reposicao_fefo, calcular_unidades_op,
     classificar_empilhamento, classificar_espaco_op, classificar_validade_fefo,
     definir_grupo_alocacao, e_cliente_atacadista, elegibilidade_abc_efetiva,
     extrair_campo_details_erp, normalizar_orientacao_modo, parse_unidades_details_erp,
-    rotulo_e_ordem_status_erp, situacao_alocacao_produto, status_erp_op_aberto, sugerir_alocacao,
-    sugerir_validade_padrao_24m, AlocacaoExistente, TARA_PALETE_PBR_KG,
+    rotulo_e_ordem_status_erp, situacao_alocacao_produto, status_erp_op_aberto,
+    sugerir_alocacao_com_folga, sugerir_validade_padrao_24m, AlocacaoExistente,
+    FOLGA_LARGURA_PALETE_PADRAO_CM, TARA_PALETE_PBR_KG,
 };
 use super::models::*;
 
@@ -149,7 +150,9 @@ async fn excluir_em_2_passos(
 async fn carregar_estruturas(pool: &PgPool) -> Result<Vec<Estrutura>, ErroApi> {
     let rows = sqlx::query(
         "SELECT id, nome, descricao, galpao, zona, linhas_permitidas, \
-                estrado_largura_cm, estrado_comprimento_cm, ordem, ativo \
+                estrado_largura_cm, estrado_comprimento_cm, \
+                COALESCE(folga_largura_palete_cm, 5.0)::double precision AS folga_largura_palete_cm, \
+                ordem, ativo \
          FROM expedicao_estruturas ORDER BY ordem ASC, nome ASC",
     )
     .fetch_all(pool)
@@ -216,6 +219,7 @@ async fn carregar_estruturas(pool: &PgPool) -> Result<Vec<Estrutura>, ErroApi> {
                 linhas_permitidas: r.get::<Option<Vec<String>>, _>("linhas_permitidas").unwrap_or_default(),
                 estrado_largura_cm: r.get("estrado_largura_cm"),
                 estrado_comprimento_cm: r.get("estrado_comprimento_cm"),
+                folga_largura_palete_cm: r.get("folga_largura_palete_cm"),
                 ordem: r.get("ordem"),
                 ativo: r.get("ativo"),
                 total_posicoes,
@@ -503,6 +507,11 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
     } else {
         carregar_posicoes(pool, &estrutura_ativa_id).await?
     };
+    let folga_ativa = estruturas
+        .iter()
+        .find(|e| e.id == estrutura_ativa_id)
+        .map(|e| e.folga_largura_palete_cm)
+        .unwrap_or(FOLGA_LARGURA_PALETE_PADRAO_CM);
     let caixas = carregar_caixas(pool).await?;
     let mut atacadistas = carregar_atacadistas(pool).await?;
     let ops_brutas = carregar_ops_ativas_brutas(pool).await?;
@@ -1030,7 +1039,7 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             pos.clone()
         };
 
-        let geom = calcular_geometria_alocacao_com_modo(
+        let geom = calcular_geometria_alocacao_com_modo_e_folga(
             &pos_efetiva,
             cx_ref,
             fileiras_largura,
@@ -1039,6 +1048,7 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             fb.media_total,
             &orientacao_modo,
             palete_inteiro,
+            folga_ativa,
         );
 
         if empilhado_sobre.is_none() {
@@ -1992,6 +2002,10 @@ pub async fn criar_estrutura(
     if largura <= 0.0 || comp <= 0.0 {
         return Err(ErroApi::invalido("Largura e comprimento do estrado devem ser positivos."));
     }
+    let folga_largura = input
+        .folga_largura_palete_cm
+        .unwrap_or(FOLGA_LARGURA_PALETE_PADRAO_CM)
+        .clamp(0.0, 30.0);
     let desc = str_trim(input.descricao.as_deref());
     let zona = normalizar_zona(input.zona.as_deref());
     let galpao = str_trim(input.galpao.as_deref()).unwrap_or_else(|| {
@@ -2016,8 +2030,8 @@ pub async fn criar_estrutura(
         Box::pin(async move {
             sqlx::query(
                 "INSERT INTO expedicao_estruturas \
-                 (id, nome, descricao, galpao, zona, linhas_permitidas, estrado_largura_cm, estrado_comprimento_cm, ordem, ativo) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                 (id, nome, descricao, galpao, zona, linhas_permitidas, estrado_largura_cm, estrado_comprimento_cm, folga_largura_palete_cm, ordem, ativo) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
             )
             .bind(&id_c)
             .bind(&nome_c)
@@ -2027,6 +2041,7 @@ pub async fn criar_estrutura(
             .bind(&linhas_c)
             .bind(largura)
             .bind(comp)
+            .bind(folga_largura)
             .bind(ordem)
             .bind(ativo)
             .execute(&mut **tx)
@@ -2073,6 +2088,10 @@ pub async fn atualizar_estrutura(
     if largura <= 0.0 || comp <= 0.0 {
         return Err(ErroApi::invalido("Largura e comprimento do estrado devem ser positivos."));
     }
+    let folga_largura = input
+        .folga_largura_palete_cm
+        .unwrap_or(FOLGA_LARGURA_PALETE_PADRAO_CM)
+        .clamp(0.0, 30.0);
     let desc = str_trim(input.descricao.as_deref());
     let zona = normalizar_zona(input.zona.as_deref());
     let galpao = str_trim(input.galpao.as_deref()).unwrap_or_else(|| {
@@ -2106,7 +2125,7 @@ pub async fn atualizar_estrutura(
             sqlx::query(
                 "UPDATE expedicao_estruturas \
                  SET nome = $2, descricao = $3, galpao = $4, zona = $5, linhas_permitidas = $6, \
-                     estrado_largura_cm = $7, estrado_comprimento_cm = $8, ordem = $9, ativo = $10, updated_at = NOW() \
+                     estrado_largura_cm = $7, estrado_comprimento_cm = $8, folga_largura_palete_cm = $9, ordem = $10, ativo = $11, updated_at = NOW() \
                  WHERE id = $1",
             )
             .bind(&id_c)
@@ -2117,6 +2136,7 @@ pub async fn atualizar_estrutura(
             .bind(&linhas_c)
             .bind(largura)
             .bind(comp)
+            .bind(folga_largura)
             .bind(ordem)
             .bind(ativo)
             .execute(&mut **tx)
@@ -2132,6 +2152,7 @@ pub async fn atualizar_estrutura(
                     "linhasPermitidas": linhas_c,
                     "estradoLarguraCm": largura,
                     "estradoComprimentoCm": comp,
+                    "folgaLarguraPaleteCm": folga_largura,
                     "ordem": ordem,
                     "ativo": ativo,
                 }
@@ -3391,14 +3412,18 @@ pub async fn aplicar_sugestao(
         })
         .collect();
 
-    let linhas_permitidas: Vec<String> = painel
+    let estrutura_opt = painel
         .estruturas
         .iter()
-        .find(|e| e.id == painel.estrutura_ativa_id)
+        .find(|e| e.id == painel.estrutura_ativa_id);
+    let linhas_permitidas: Vec<String> = estrutura_opt
         .map(|e| e.linhas_permitidas.clone())
         .unwrap_or_default();
+    let folga_largura_cm = estrutura_opt
+        .map(|e| e.folga_largura_palete_cm)
+        .unwrap_or(FOLGA_LARGURA_PALETE_PADRAO_CM);
 
-    let res_sug = sugerir_alocacao(
+    let res_sug = sugerir_alocacao_com_folga(
         &painel.estrutura_ativa_id,
         &posicoes_raw,
         &painel.caixas,
@@ -3408,6 +3433,7 @@ pub async fn aplicar_sugestao(
         manter_fixados,
         limpar_nao_fixados,
         considerar_ops_chegando,
+        folga_largura_cm,
     );
 
     let est_id = painel.estrutura_ativa_id.clone();
