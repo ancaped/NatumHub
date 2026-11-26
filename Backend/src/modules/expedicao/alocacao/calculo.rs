@@ -135,27 +135,53 @@ struct Rect2d {
     h: f64,
 }
 
-fn apoio_espelhado_retangulos(rects: &[Rect2d], pal_w: f64, pal_d: f64) -> f64 {
-    if rects.is_empty() {
-        return 0.0;
+fn layouts_diferentes(a: &[Rect2d], b: &[Rect2d]) -> bool {
+    if a.len() != b.len() {
+        return true;
     }
-    let espelhados: Vec<Rect2d> = rects
-        .iter()
-        .map(|r| Rect2d {
-            x: (pal_w - (r.x + r.w)).max(0.0),
-            y: (pal_d - (r.y + r.h)).max(0.0),
-            w: r.w,
-            h: r.h,
-        })
-        .collect();
-    let mut min_apoio = 100.0_f64;
-    for t in &espelhados {
+    let sort_key = |r: &Rect2d| (
+        (r.x * 100.0).round() as i64,
+        (r.y * 100.0).round() as i64,
+        (r.w * 100.0).round() as i64,
+        (r.h * 100.0).round() as i64,
+    );
+    let mut sa: Vec<&Rect2d> = a.iter().collect();
+    let mut sb: Vec<&Rect2d> = b.iter().collect();
+    sa.sort_by_key(|r| sort_key(r));
+    sb.sort_by_key(|r| sort_key(r));
+    sa.iter().zip(sb.iter()).any(|(u, v)| {
+        (u.x - v.x).abs() > 0.2
+            || (u.y - v.y).abs() > 0.2
+            || (u.w - v.w).abs() > 0.2
+            || (u.h - v.h).abs() > 0.2
+    })
+}
+
+fn verificar_apoio_camada(base: &[Rect2d], topo: &[Rect2d], min_apoio: f64) -> bool {
+    if base.is_empty() || topo.is_empty() {
+        return false;
+    }
+    let base_min_x = base.iter().map(|r| r.x).fold(f64::INFINITY, f64::min);
+    let base_max_x = base.iter().map(|r| r.x + r.w).fold(f64::NEG_INFINITY, f64::max);
+    let base_min_y = base.iter().map(|r| r.y).fold(f64::INFINITY, f64::min);
+    let base_max_y = base.iter().map(|r| r.y + r.h).fold(f64::NEG_INFINITY, f64::max);
+
+    for t in topo {
+        let balanco_x = (t.w * 0.25).max(1.5);
+        let balanco_y = (t.h * 0.25).max(1.5);
+        if t.x < base_min_x - balanco_x
+            || t.x + t.w > base_max_x + balanco_x
+            || t.y < base_min_y - balanco_y
+            || t.y + t.h > base_max_y + balanco_y
+        {
+            return false;
+        }
         let area_t = t.w * t.h;
         if area_t <= EPS {
-            return 0.0;
+            return false;
         }
         let mut overlap = 0.0;
-        for b in rects {
+        for b in base {
             let ix = (t.x + t.w).min(b.x + b.w) - t.x.max(b.x);
             if ix <= 0.0 {
                 continue;
@@ -166,9 +192,68 @@ fn apoio_espelhado_retangulos(rects: &[Rect2d], pal_w: f64, pal_d: f64) -> f64 {
             }
             overlap += ix * iy;
         }
-        min_apoio = min_apoio.min((overlap / area_t) * 100.0);
+        if overlap / area_t < min_apoio - 1e-6 {
+            return false;
+        }
     }
-    min_apoio
+    true
+}
+
+fn espelhar_eixo_rect(rects: &[Rect2d], max_x: f64, max_y: f64, mirror_x: bool, mirror_y: bool) -> Vec<Rect2d> {
+    rects
+        .iter()
+        .map(|r| Rect2d {
+            x: if mirror_x { (max_x - (r.x + r.w)).max(0.0) } else { r.x },
+            y: if mirror_y { (max_y - (r.y + r.h)).max(0.0) } else { r.y },
+            w: r.w,
+            h: r.h,
+        })
+        .collect()
+}
+
+fn apoio_espelhado_retangulos(rects: &[Rect2d]) -> bool {
+    if rects.is_empty() {
+        return false;
+    }
+    let max_x = rects.iter().map(|r| r.x + r.w).fold(0.0_f64, f64::max);
+    let max_y = rects.iter().map(|r| r.y + r.h).fold(0.0_f64, f64::max);
+    if max_x <= EPS || max_y <= EPS {
+        return false;
+    }
+    for &(mx, my) in &[(true, true), (true, false), (false, true)] {
+        let par = espelhar_eixo_rect(rects, max_x, max_y, mx, my);
+        if layouts_diferentes(rects, &par)
+            && verificar_apoio_camada(rects, &par, 0.75)
+            && verificar_apoio_camada(&par, rects, 0.75)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn centralizar_grade_sobre(rects: &[Rect2d], ref_max_x: f64, ref_max_y: f64, lim_w: f64, lim_d: f64) -> Option<Vec<Rect2d>> {
+    if rects.is_empty() {
+        return None;
+    }
+    let m_max_x = rects.iter().map(|r| r.x + r.w).fold(0.0_f64, f64::max);
+    let m_max_y = rects.iter().map(|r| r.y + r.h).fold(0.0_f64, f64::max);
+    let dx = ((ref_max_x - m_max_x) / 2.0).min(lim_w - m_max_x).max(0.0);
+    let dy = ((ref_max_y - m_max_y) / 2.0).min(lim_d - m_max_y).max(0.0);
+    let out: Vec<Rect2d> = rects
+        .iter()
+        .map(|r| Rect2d {
+            x: r.x + dx,
+            y: r.y + dy,
+            w: r.w,
+            h: r.h,
+        })
+        .collect();
+    if out.iter().all(|r| r.x >= -EPS && r.x + r.w <= lim_w + EPS && r.y >= -EPS && r.y + r.h <= lim_d + EPS) {
+        Some(out)
+    } else {
+        None
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -181,7 +266,8 @@ pub struct MelhorLastro {
     pub amarrado: bool,
 }
 
-/// Avalia orientações (0°, 90° e amarração mista em faixas) dentro da largura e profundidade do vão.
+/// Avalia orientações (0°, 90° e amarração mista em faixas / alternância 0°-90°) dentro da largura e profundidade do vão.
+/// Em modo `"auto"`, NUNCA promove silenciosamente `"normal"` para `"rotacionado"` (evita estouro em vãos multi-produto).
 pub fn calcular_melhor_lastro_faixa(
     largura_disponivel_cm: f64,
     profundidade_vao_cm: f64,
@@ -211,7 +297,7 @@ pub fn calcular_melhor_lastro_faixa(
         0
     };
 
-    // Partições de amarração em faixas (mesmo algoritmo de paletizacao.ts) quando palete_inteiro ou pedido explícito
+    // Partições de amarração em faixas (centralizadas e validadas em torno do bounding box real) + alternância 0°/90°
     let mut best_amar_qtd = 0i32;
     let mut best_amar_mista = false;
     if cx.pode_girar && (palete_inteiro || modo == "amarracao") && largura_disponivel_cm > EPS && profundidade_vao_cm > EPS {
@@ -220,57 +306,77 @@ pub fn calcular_melhor_lastro_faixa(
         let ny_rot_full = ((profundidade_vao_cm + EPS) / cx.largura_cm.max(EPS)).floor() as i32;
         let nx_rot_full = ((largura_disponivel_cm + EPS) / cx.comprimento_cm.max(EPS)).floor() as i32;
 
-        for nx_n in 0..=max_nx_norm.max(0) {
+        // 1) Faixas verticais (k colunas normal + resto girado 90°), centralizadas em Y
+        for nx_n in 1..max_nx_norm.max(0) {
             let x_base = (nx_n as f64) * cx.largura_cm;
             let nx_r = (((largura_disponivel_cm - x_base) + EPS) / cx.comprimento_cm.max(EPS)).floor() as i32;
+            if nx_r <= 0 || max_ny_norm <= 0 || ny_rot_full <= 0 {
+                continue;
+            }
+            let d_norm = (max_ny_norm as f64) * cx.comprimento_cm;
+            let d_rot = (ny_rot_full as f64) * cx.largura_cm;
+            let max_d = d_norm.max(d_rot);
+            let dy_norm = ((max_d - d_norm) / 2.0).max(0.0);
+            let dy_rot = ((max_d - d_rot) / 2.0).max(0.0);
+
             let mut rects = Vec::new();
             for ix in 0..nx_n {
                 for iy in 0..max_ny_norm {
                     rects.push(Rect2d {
                         x: (ix as f64) * cx.largura_cm,
-                        y: (iy as f64) * cx.comprimento_cm,
+                        y: dy_norm + (iy as f64) * cx.comprimento_cm,
                         w: cx.largura_cm,
                         h: cx.comprimento_cm,
                     });
                 }
             }
-            for rx in 0..nx_r.max(0) {
-                for ry in 0..ny_rot_full.max(0) {
+            for rx in 0..nx_r {
+                for ry in 0..ny_rot_full {
                     rects.push(Rect2d {
                         x: x_base + (rx as f64) * cx.comprimento_cm,
-                        y: (ry as f64) * cx.largura_cm,
+                        y: dy_rot + (ry as f64) * cx.largura_cm,
                         w: cx.comprimento_cm,
                         h: cx.largura_cm,
                     });
                 }
             }
             let q = rects.len() as i32;
-            let mista = nx_n > 0 && nx_r > 0 && ny_rot_full > 0 && max_ny_norm > 0;
-            if q > 0 && apoio_espelhado_retangulos(&rects, largura_disponivel_cm, profundidade_vao_cm) >= 80.0 {
-                if q > best_amar_qtd || (q == best_amar_qtd && mista && !best_amar_mista) {
+            if q > 0 && apoio_espelhado_retangulos(&rects) {
+                if q > best_amar_qtd || (q == best_amar_qtd && !best_amar_mista) {
                     best_amar_qtd = q;
-                    best_amar_mista = mista;
+                    best_amar_mista = true;
                 }
             }
         }
-        for ny_n in 0..=max_ny_norm.max(0) {
+
+        // 2) Faixas horizontais (k fileiras em Y normal + resto girado 90°), centralizadas em X
+        for ny_n in 1..max_ny_norm.max(0) {
             let y_base = (ny_n as f64) * cx.comprimento_cm;
             let ny_r = (((profundidade_vao_cm - y_base) + EPS) / cx.largura_cm.max(EPS)).floor() as i32;
+            if ny_r <= 0 || max_nx_norm <= 0 || nx_rot_full <= 0 {
+                continue;
+            }
+            let w_norm = (max_nx_norm as f64) * cx.largura_cm;
+            let w_rot = (nx_rot_full as f64) * cx.comprimento_cm;
+            let max_w = w_norm.max(w_rot);
+            let dx_norm = ((max_w - w_norm) / 2.0).max(0.0);
+            let dx_rot = ((max_w - w_rot) / 2.0).max(0.0);
+
             let mut rects = Vec::new();
             for iy in 0..ny_n {
                 for ix in 0..max_nx_norm {
                     rects.push(Rect2d {
-                        x: (ix as f64) * cx.largura_cm,
+                        x: dx_norm + (ix as f64) * cx.largura_cm,
                         y: (iy as f64) * cx.comprimento_cm,
                         w: cx.largura_cm,
                         h: cx.comprimento_cm,
                     });
                 }
             }
-            for ry in 0..ny_r.max(0) {
-                for rx in 0..nx_rot_full.max(0) {
+            for ry in 0..ny_r {
+                for rx in 0..nx_rot_full {
                     rects.push(Rect2d {
-                        x: (rx as f64) * cx.comprimento_cm,
+                        x: dx_rot + (rx as f64) * cx.comprimento_cm,
                         y: y_base + (ry as f64) * cx.largura_cm,
                         w: cx.comprimento_cm,
                         h: cx.largura_cm,
@@ -278,11 +384,49 @@ pub fn calcular_melhor_lastro_faixa(
                 }
             }
             let q = rects.len() as i32;
-            let mista = ny_n > 0 && ny_r > 0 && nx_rot_full > 0 && max_nx_norm > 0;
-            if q > 0 && apoio_espelhado_retangulos(&rects, largura_disponivel_cm, profundidade_vao_cm) >= 80.0 {
-                if q > best_amar_qtd || (q == best_amar_qtd && mista && !best_amar_mista) {
+            if q > 0 && apoio_espelhado_retangulos(&rects) {
+                if q > best_amar_qtd || (q == best_amar_qtd && !best_amar_mista) {
                     best_amar_qtd = q;
-                    best_amar_mista = mista;
+                    best_amar_mista = true;
+                }
+            }
+        }
+
+        // 3) Alternância clássica camada ímpar 0° × camada par 90° (para caixas retangulares)
+        if (cx.comprimento_cm - cx.largura_cm).abs() > 0.5 && max_nx_norm > 0 && max_ny_norm > 0 && nx_rot_full > 0 && ny_rot_full > 0 {
+            let cap_n_full = max_nx_norm * max_ny_norm;
+            let cap_r_full = nx_rot_full * ny_rot_full;
+            let cap_alt = cap_n_full.min(cap_r_full);
+            if cap_alt > best_amar_qtd {
+                let mut norm_rects = Vec::new();
+                for ix in 0..max_nx_norm {
+                    for iy in 0..max_ny_norm {
+                        norm_rects.push(Rect2d {
+                            x: (ix as f64) * cx.largura_cm,
+                            y: (iy as f64) * cx.comprimento_cm,
+                            w: cx.largura_cm,
+                            h: cx.comprimento_cm,
+                        });
+                    }
+                }
+                let mut rot_rects = Vec::new();
+                for rx in 0..nx_rot_full {
+                    for ry in 0..ny_rot_full {
+                        rot_rects.push(Rect2d {
+                            x: (rx as f64) * cx.comprimento_cm,
+                            y: (ry as f64) * cx.largura_cm,
+                            w: cx.comprimento_cm,
+                            h: cx.largura_cm,
+                        });
+                    }
+                }
+                let n_max_x = (max_nx_norm as f64) * cx.largura_cm;
+                let n_max_y = (max_ny_norm as f64) * cx.comprimento_cm;
+                if let Some(rot_cent) = centralizar_grade_sobre(&rot_rects, n_max_x, n_max_y, largura_disponivel_cm, profundidade_vao_cm) {
+                    if verificar_apoio_camada(&norm_rects, &rot_cent, 0.75) && verificar_apoio_camada(&rot_cent, &norm_rects, 0.75) {
+                        best_amar_qtd = cap_alt;
+                        best_amar_mista = true;
+                    }
                 }
             }
         }
@@ -293,10 +437,9 @@ pub fn calcular_melhor_lastro_faixa(
         "rotacionado" if cx.pode_girar && cap_rot > 0 => "rotacionado",
         "amarracao" if cx.pode_girar && best_amar_qtd > 0 => "amarracao",
         _ => {
-            if palete_inteiro && cx.pode_girar && best_amar_qtd >= cap_norm.max(cap_rot) && best_amar_qtd > 0 {
+            let piso_auto = ((cap_norm.max(cap_rot) as f64) * 0.85).floor() as i32;
+            if palete_inteiro && cx.pode_girar && best_amar_qtd > 0 && best_amar_qtd >= piso_auto {
                 "amarracao"
-            } else if cx.pode_girar && cap_rot > cap_norm {
-                "rotacionado"
             } else {
                 "normal"
             }
@@ -306,11 +449,11 @@ pub fn calcular_melhor_lastro_faixa(
     match escolhido {
         "amarracao" => MelhorLastro {
             orientacao_efetiva: "amarracao".into(),
-            caixas_por_lastro: best_amar_qtd.max(cap_norm),
-            caixas_comp: (best_amar_qtd.max(cap_norm) / fil).max(1),
+            caixas_por_lastro: best_amar_qtd.max(1),
+            caixas_comp: (best_amar_qtd.max(1) / fil).max(1),
             largura_caixa_efetiva_cm: cx.largura_cm,
             profundidade_caixa_efetiva_cm: cx.comprimento_cm,
-            amarrado: best_amar_mista || best_amar_qtd > 0,
+            amarrado: best_amar_mista,
         },
         "rotacionado" => MelhorLastro {
             orientacao_efetiva: "rotacionado".into(),
@@ -374,8 +517,14 @@ pub fn calcular_geometria_alocacao_com_modo(
     let fileiras_eff = fileiras_largura.max(1);
     let max_cam = max_camadas(pos.altura_cm, cx.altura_cm, cx.empilhamento_max);
     let camadas_eff = camadas_altura.max(1);
+    let modo_norm = normalizar_orientacao_modo(Some(orientacao_modo));
+    let largura_para_lastro = if !palete_inteiro && modo_norm == "amarracao" {
+        ((fileiras_eff as f64) * cx.largura_cm).min(pos.largura_cm)
+    } else {
+        pos.largura_cm
+    };
     let lastro = calcular_melhor_lastro_faixa(
-        pos.largura_cm,
+        largura_para_lastro,
         pos.comprimento_cm,
         cx,
         fileiras_eff,
@@ -389,7 +538,11 @@ pub fn calcular_geometria_alocacao_com_modo(
     };
     let total_unidades = qtde_cx.filter(|&q| q > 0).map(|q| total_caixas * q).unwrap_or(0);
     let largura_ocupada_cm = if lastro.orientacao_efetiva == "amarracao" {
-        ((fileiras_eff as f64) * cx.largura_cm).min(pos.largura_cm)
+        if palete_inteiro {
+            pos.largura_cm
+        } else {
+            ((fileiras_eff as f64) * cx.largura_cm).min(pos.largura_cm)
+        }
     } else {
         (fileiras_eff as f64) * lastro.largura_caixa_efetiva_cm
     };
@@ -1147,6 +1300,7 @@ fn escolher_melhor_encaixe_lastro(
     } else {
         &["normal"]
     };
+    let vol_un = (cx.altura_cm * cx.comprimento_cm * cx.largura_cm) / 1_000_000.0;
 
     for &ori in orientations {
         let (w_cx, d_cx) = if ori == "rotacionado" {
@@ -1169,51 +1323,83 @@ fn escolher_melhor_encaixe_lastro(
         let desejadas = ((qtd_desejada.max(1) as f64) / (cap_fil as f64))
             .ceil()
             .max(1.0) as i32;
-        let fil = desejadas.min(max_fil).max(1);
-        let larg_add = (fil as f64) * w_cx;
+        let mut fil = desejadas.min(max_fil).max(1);
+        let mut larg_add = (fil as f64) * w_cx;
 
-        // Se o item fica praticamente com o palete inteiro (vazio e ocupa ≥ 75% ou todas fileiras de um palete fechado no pulmão)
-        let vai_palete_inteiro = usada_cm <= EPS
-            && cx.pode_girar
-            && ((larg_add >= pos.largura_cm * 0.72) || (papel == "pulmao" && desejadas >= max_fil));
-
-        if vai_palete_inteiro {
+        // Amarração de palete inteiro (somente quando o vão está vazio na base e tem >= 2 camadas)
+        if ori == "normal" && usada_cm <= EPS && cam >= 2 && cx.pode_girar {
+            let max_fil_full = ((pos.largura_cm + EPS) / cx.largura_cm.max(EPS)).floor() as i32;
             let lastro_amar = calcular_melhor_lastro_faixa(
                 pos.largura_cm,
                 pos.comprimento_cm,
                 cx,
-                fil,
+                max_fil_full.max(1),
                 "amarracao",
                 true,
             );
             let tot_amar = lastro_amar.caixas_por_lastro * cam;
-            let tot_norm = fil * comp * cam;
-            if lastro_amar.amarrado && tot_amar >= tot_norm {
-                let vol_un = (cx.altura_cm * cx.comprimento_cm * cx.largura_cm) / 1_000_000.0;
+            let cap_norm_full = max_fil_full.max(1) * comp;
+            let min_lastro_aceitavel = ((cap_norm_full as f64) * 0.80).floor() as i32;
+            let vai_palete_inteiro = (larg_add >= pos.largura_cm * 0.65)
+                || (papel == "pulmao" && desejadas >= max_fil)
+                || (qtd_desejada >= lastro_amar.caixas_por_lastro * 2
+                    && (larg_add >= pos.largura_cm * 0.60 || papel == "pulmao"));
+
+            if vai_palete_inteiro
+                && lastro_amar.amarrado
+                && lastro_amar.caixas_por_lastro >= min_lastro_aceitavel.max(1)
+            {
                 opcoes.push(EscolhaLastroVao {
                     orientacao_modo: "amarracao".into(),
-                    fileiras: max_fil.max(fil),
+                    fileiras: max_fil_full.max(1),
                     camadas: cam,
                     total_caixas: tot_amar,
-                    largura_ocupada_cm: ((max_fil.max(fil) as f64) * cx.largura_cm).min(pos.largura_cm),
+                    // Palete amarrado ocupa a largura inteira do vão para nenhum outro produto invadir e estourar 100 cm.
+                    largura_ocupada_cm: pos.largura_cm,
                     profundidade_ocupada_cm: pos.comprimento_cm,
-                    altura_ocupada_cm: (cam as f64) * cx.altura_cm,
-                    amarrado: cam >= 2,
+                    altura_ocupada_cm: arred2((cam as f64) * cx.altura_cm),
+                    amarrado: true,
                     volume_ocupado_m3: arred4((tot_amar as f64) * vol_un),
                 });
             }
         }
 
-        let tot = fil * comp * cam;
-        let vol_un = (cx.altura_cm * cx.comprimento_cm * cx.largura_cm) / 1_000_000.0;
+        // Previne alerta de esbeltez (cam >= 3 e altura / menor_lado > 2,3x sem amarração)
+        let d_occ = (comp as f64) * d_cx;
+        let mut cam_eff = cam;
+        if cam_eff >= 3 {
+            let menor_atual = larg_add.min(d_occ).max(1.0);
+            if ((cam_eff as f64) * cx.altura_cm) / menor_atual > 2.3 {
+                if let Some(f2) = (fil + 1..=max_fil).find(|&f| {
+                    let w2 = (f as f64) * w_cx;
+                    w2 <= livre_cm + EPS
+                        && ((cam_eff as f64) * cx.altura_cm) / w2.min(d_occ).max(1.0) <= 2.3
+                }) {
+                    fil = f2;
+                    larg_add = (fil as f64) * w_cx;
+                } else {
+                    while cam_eff >= 3
+                        && ((cam_eff as f64) * cx.altura_cm) / larg_add.min(d_occ).max(1.0) > 2.3
+                    {
+                        cam_eff -= 1;
+                    }
+                }
+            }
+        }
+
+        if larg_add > livre_cm + EPS {
+            continue;
+        }
+        let tot = fil * comp * cam_eff;
+        let modo_salvo = if ori == "normal" { "auto" } else { "rotacionado" };
         opcoes.push(EscolhaLastroVao {
-            orientacao_modo: ori.into(),
+            orientacao_modo: modo_salvo.into(),
             fileiras: fil,
-            camadas: cam,
+            camadas: cam_eff,
             total_caixas: tot,
-            largura_ocupada_cm: arred2(larg_add),
-            profundidade_ocupada_cm: arred2((comp as f64) * d_cx),
-            altura_ocupada_cm: arred2((cam as f64) * cx.altura_cm),
+            largura_ocupada_cm: arred2(larg_add).min(livre_cm),
+            profundidade_ocupada_cm: arred2(d_occ),
+            altura_ocupada_cm: arred2((cam_eff as f64) * cx.altura_cm),
             amarrado: false,
             volume_ocupado_m3: arred4((tot as f64) * vol_un),
         });
@@ -1271,6 +1457,14 @@ pub fn sugerir_alocacao(
     let pos_map: HashMap<&str, &Posicao> =
         posicoes.iter().map(|p| (p.id.as_str(), p)).collect();
 
+    let mut base_count_ex: HashMap<String, usize> = HashMap::new();
+    for ex in existentes {
+        let manter = if ex.fixado { manter_fixados } else { !limpar_nao_fixados };
+        if manter && ex.empilhado_sobre.is_none() {
+            *base_count_ex.entry(ex.posicao_id.clone()).or_insert(0) += 1;
+        }
+    }
+
     for ex in existentes {
         let manter = if ex.fixado {
             manter_fixados
@@ -1305,6 +1499,9 @@ pub fn sugerir_alocacao(
             if let Some(pos) = pos_map.get(ex.posicao_id.as_str()) {
                 if let Some(cid) = &prod.caixa_id {
                     if let Some(cx) = caixa_map.get(cid.as_str()) {
+                        let unico_ex = ex.empilhado_sobre.is_none()
+                            && base_count_ex.get(&ex.posicao_id).copied().unwrap_or(0) == 1
+                            && ex.orientacao_modo == "amarracao";
                         let g = calcular_geometria_alocacao_com_modo(
                             pos,
                             Some(cx),
@@ -1313,7 +1510,7 @@ pub fn sugerir_alocacao(
                             prod.qtde_cx_efetiva,
                             prod.media_total,
                             &ex.orientacao_modo,
-                            false,
+                            unico_ex,
                         );
                         *volume_usado_pos.entry(pos.id.clone()).or_insert(0.0) += g.volume_ocupado_m3;
                         if pos.papel == "picking" {
@@ -1331,13 +1528,18 @@ pub fn sugerir_alocacao(
                             } else {
                                 cx.comprimento_cm
                             };
+                            let base_d = if unico_ex && g.amarrado {
+                                pos.comprimento_cm
+                            } else {
+                                ((g.caixas_comp.max(1) as f64) * prof_cx).min(pos.comprimento_cm)
+                            };
                             bases_por_posicao.entry(pos.id.clone()).or_default().push(BasePilhaSnapshot {
                                 produto_codigo: prod.codigo.clone(),
                                 grupo_alocacao: prod.grupo_alocacao.clone(),
                                 peso_caixa_kg: prod.peso_caixa_estimado_kg,
                                 classe_empilhamento: prod.classe_empilhamento.clone(),
-                                w_cm: g.largura_ocupada_cm,
-                                d_cm: ((g.caixas_comp.max(1) as f64) * prof_cx).min(pos.comprimento_cm),
+                                w_cm: g.largura_ocupada_cm.min(pos.largura_cm),
+                                d_cm: base_d,
                                 h_ocupada_cm: g.altura_ocupada_cm,
                                 ja_tem_topo: false,
                             });
@@ -1616,7 +1818,7 @@ pub fn sugerir_alocacao(
                         if base.ja_tem_topo || base.produto_codigo == prod.codigo {
                             continue;
                         }
-                        let h_livre = pos.altura_cm - base.h_ocupada_cm;
+                        let h_livre = pos.altura_cm - base.h_ocupada_cm - 0.05;
                         if h_livre + EPS < cx.altura_cm {
                             continue;
                         }
@@ -1630,7 +1832,7 @@ pub fn sugerir_alocacao(
                             } else {
                                 (cx.largura_cm, cx.comprimento_cm)
                             };
-                            if tw_cx <= EPS || td_cx <= EPS || tw_cx > base.w_cm + 3.0 {
+                            if tw_cx <= EPS || td_cx <= EPS || tw_cx > base.w_cm + EPS {
                                 continue;
                             }
                             let max_fil_top = ((base.w_cm + EPS) / tw_cx).floor() as i32;
@@ -1646,6 +1848,9 @@ pub fn sugerir_alocacao(
                             let tw = (fil_top as f64) * tw_cx;
                             let td = (comp_top as f64) * td_cx;
                             let th = (max_cam_top as f64) * cx.altura_cm;
+                            if tw > base.w_cm + EPS || td > base.d_cm + EPS || base.h_ocupada_cm + th > pos.altura_cm - 0.01 {
+                                continue;
+                            }
                             let (ok, _apoio, _) = validar_empilhamento_misto(
                                 base.w_cm,
                                 base.d_cm,
@@ -1666,13 +1871,14 @@ pub fn sugerir_alocacao(
                             let prio = mesmo_grupo + (pos_idx as i32);
                             let tot_cx = fil_top * comp_top * max_cam_top;
                             let vol_un = (cx.altura_cm * cx.comprimento_cm * cx.largura_cm) / 1_000_000.0;
+                            let modo_salvo = if ori == "normal" { "auto" } else { "rotacionado" };
                             let enc = EscolhaLastroVao {
-                                orientacao_modo: ori.into(),
+                                orientacao_modo: modo_salvo.into(),
                                 fileiras: fil_top,
                                 camadas: max_cam_top,
                                 total_caixas: tot_cx,
-                                largura_ocupada_cm: arred2(tw),
-                                profundidade_ocupada_cm: arred2(td),
+                                largura_ocupada_cm: arred2(tw).min(base.w_cm),
+                                profundidade_ocupada_cm: arred2(td).min(base.d_cm),
                                 altura_ocupada_cm: arred2(th),
                                 amarrado: false,
                                 volume_ocupado_m3: arred4((tot_cx as f64) * vol_un),
@@ -1834,7 +2040,7 @@ pub fn sugerir_alocacao(
                         if base.ja_tem_topo || base.produto_codigo == prod.codigo {
                             continue;
                         }
-                        let h_livre = pos.altura_cm - base.h_ocupada_cm;
+                        let h_livre = pos.altura_cm - base.h_ocupada_cm - 0.05;
                         if h_livre + EPS < cx.altura_cm {
                             continue;
                         }
@@ -1848,7 +2054,7 @@ pub fn sugerir_alocacao(
                             } else {
                                 (cx.largura_cm, cx.comprimento_cm)
                             };
-                            if tw_cx <= EPS || td_cx <= EPS || tw_cx > base.w_cm + 3.0 {
+                            if tw_cx <= EPS || td_cx <= EPS || tw_cx > base.w_cm + EPS {
                                 continue;
                             }
                             let max_fil_top = ((base.w_cm + EPS) / tw_cx).floor() as i32;
@@ -1864,6 +2070,9 @@ pub fn sugerir_alocacao(
                             let tw = (fil_top as f64) * tw_cx;
                             let td = (comp_top as f64) * td_cx;
                             let th = (max_cam_top as f64) * cx.altura_cm;
+                            if tw > base.w_cm + EPS || td > base.d_cm + EPS || base.h_ocupada_cm + th > pos.altura_cm - 0.01 {
+                                continue;
+                            }
                             let (ok, _apoio, _) = validar_empilhamento_misto(
                                 base.w_cm,
                                 base.d_cm,
@@ -1884,13 +2093,14 @@ pub fn sugerir_alocacao(
                             let prio = mesmo_grupo + (pos_idx as i32);
                             let tot_cx = fil_top * comp_top * max_cam_top;
                             let vol_un = (cx.altura_cm * cx.comprimento_cm * cx.largura_cm) / 1_000_000.0;
+                            let modo_salvo = if ori == "normal" { "auto" } else { "rotacionado" };
                             let enc = EscolhaLastroVao {
-                                orientacao_modo: ori.into(),
+                                orientacao_modo: modo_salvo.into(),
                                 fileiras: fil_top,
                                 camadas: max_cam_top,
                                 total_caixas: tot_cx,
-                                largura_ocupada_cm: arred2(tw),
-                                profundidade_ocupada_cm: arred2(td),
+                                largura_ocupada_cm: arred2(tw).min(base.w_cm),
+                                profundidade_ocupada_cm: arred2(td).min(base.d_cm),
                                 altura_ocupada_cm: arred2(th),
                                 amarrado: false,
                                 volume_ocupado_m3: arred4((tot_cx as f64) * vol_un),
@@ -3295,5 +3505,196 @@ mod tests {
             .unwrap();
         assert_eq!(prop_topo.empilhado_sobre.as_deref(), Some("2.11.100"));
         assert_eq!(res.resumo.itens_empilhados_mistos_count, 1);
+    }
+
+    #[test]
+    fn auto_nao_estoura_vao_multi_produto_por_rotacao() {
+        // Caixa 24 real: 15.8 x 26.8 x 24.7 cm. Em vão de 100 cm com 2 produtos de 3 fileiras cada:
+        // 3 * 15.8 = 47.4 cm por produto -> 94.8 cm total (cabe com folga!).
+        // Antes do fix, modo "auto" rotacionava silenciosamente para 3 * 26.8 = 80.4 cm cada -> 160.8 cm (estouro!).
+        let cx24 = caixa_exemplo("cx24", 24.7, 26.8, 15.8, 4);
+        let pos = pos_exemplo("A1", 1, 1, "picking", 74.1);
+        let g1 = calcular_geometria_alocacao_com_modo(&pos, Some(&cx24), 3, 3, Some(12), 100.0, "auto", false);
+        let g2 = calcular_geometria_alocacao_com_modo(&pos, Some(&cx24), 3, 3, Some(12), 100.0, "auto", false);
+        assert_eq!(g1.orientacao_efetiva, "normal");
+        assert_eq!(g2.orientacao_efetiva, "normal");
+        let soma_larg = g1.largura_ocupada_cm + g2.largura_ocupada_cm;
+        assert!(soma_larg <= pos.largura_cm + EPS, "soma_larg={soma_larg}");
+    }
+
+    #[test]
+    fn sugerir_alocacao_garante_zero_estouros_e_amarracao_real() {
+        let cx14 = caixa_exemplo("cx14", 24.0, 27.0, 19.0, 4);
+        let cx16 = caixa_exemplo("cx16", 24.0, 30.0, 19.5, 4);
+        let cx19 = caixa_exemplo("cx19", 24.0, 36.0, 26.0, 4);
+        let cx24 = caixa_exemplo("cx24", 24.7, 26.8, 15.8, 4);
+        let cx01 = caixa_exemplo("cx01", 26.0, 48.0, 32.0, 4);
+        let caixas = vec![cx14.clone(), cx16.clone(), cx19.clone(), cx24.clone(), cx01.clone()];
+
+        let mut posicoes = Vec::new();
+        for c in 1..=6 {
+            posicoes.push(pos_exemplo(&format!("{}1", (b'A' + (c as u8 - 1)) as char), c, 1, "picking", 74.1));
+            posicoes.push(pos_exemplo(&format!("{}3", (b'A' + (c as u8 - 1)) as char), c, 3, "picking", 74.1));
+            let mut pulm = pos_exemplo(&format!("{}5", (b'A' + (c as u8 - 1)) as char), c, 5, "pulmao", 115.0);
+            pulm.andar = 3;
+            posicoes.push(pulm);
+        }
+
+        let specs = [
+            ("2.11.001", "PRODUTO ATACADO GRANDE", &cx14, 1500.0, 2200.0, 18, 90),
+            ("2.11.002", "PRODUTO MEDIO A", &cx16, 800.0, 1400.0, 16, 65),
+            ("2.11.003", "PRODUTO MEDIO B", &cx19, 500.0, 900.0, 12, 48),
+            ("2.11.004", "PRODUTO VAREJO A", &cx24, 900.0, 100.0, 30, 8),
+            ("2.11.005", "PRODUTO VAREJO B", &cx24, 600.0, 50.0, 22, 4),
+            ("2.11.006", "PRODUTO PESADO C", &cx01, 200.0, 400.0, 8, 25),
+            ("2.11.007", "PRODUTO PEQUENO", &cx24, 80.0, 0.0, 6, 0),
+        ];
+
+        let mut prods = Vec::new();
+        for (cod, desc, cx, v_var, v_ata, pick_cx, pulm_cx) in specs {
+            let mut p = prod_teste_abc(cod, desc, "2.11", Some("2"), v_var + v_ata, None);
+            p.caixa_id = Some(cx.id.clone());
+            p.caixa_codigo = Some(cx.codigo.clone());
+            p.caixa_altura_cm = Some(cx.altura_cm);
+            p.caixa_comprimento_cm = Some(cx.comprimento_cm);
+            p.caixa_largura_cm = Some(cx.largura_cm);
+            p.empilhamento_max = Some(cx.empilhamento_max);
+            p.vendas_varejo = v_var;
+            p.media_varejo = v_var / 12.0;
+            p.vendas_atacado = v_ata;
+            p.media_atacado = v_ata / 12.0;
+            p.caixas_necessarias_picking = pick_cx;
+            p.caixas_necessarias_pulmao = pulm_cx;
+            p.caixas_necessarias_total = pick_cx + pulm_cx;
+            prods.push(p);
+        }
+        aplicar_curva_abc(&mut prods);
+
+        let res = sugerir_alocacao("est", &posicoes, &caixas, &[], &prods, &[], false, true, true);
+        assert!(res.resumo.paletes_amarrados_count > 0, "deve gerar paletes amarrados");
+
+        let pos_map: HashMap<&str, &Posicao> = posicoes.iter().map(|p| (p.id.as_str(), p)).collect();
+        let cx_map: HashMap<&str, &Caixa> = caixas.iter().map(|c| (c.id.as_str(), c)).collect();
+        let prod_map: HashMap<&str, &ProdutoDimensao> = prods.iter().map(|p| (p.codigo.as_str(), p)).collect();
+
+        let mut por_pos: HashMap<&str, Vec<&SugestaoProposta>> = HashMap::new();
+        for pr in &res.propostas {
+            por_pos.entry(pr.posicao_id.as_str()).or_default().push(pr);
+        }
+
+        for (pid, list) in por_pos {
+            let pos = pos_map[pid];
+            let base_count = list.iter().filter(|p| p.empilhado_sobre.is_none()).count();
+            let mut soma_larg = 0.0;
+            let mut views = Vec::new();
+            let mut bases_dim: HashMap<&str, (f64, f64)> = HashMap::new();
+
+            for pr in list.iter().filter(|p| p.empilhado_sobre.is_none()) {
+                let prod = prod_map[pr.produto_codigo.as_str()];
+                let cx = cx_map[prod.caixa_id.as_deref().unwrap()];
+                let pal_int = base_count == 1 && (pr.orientacao_modo == "amarracao" || pr.largura_ocupada_cm >= pos.largura_cm * 0.65);
+                let g = calcular_geometria_alocacao_com_modo(pos, Some(cx), pr.fileiras_largura, pr.camadas_altura, prod.qtde_cx_efetiva, prod.media_total, &pr.orientacao_modo, pal_int);
+                soma_larg += g.largura_ocupada_cm;
+                let prof_cx = if g.orientacao_efetiva == "rotacionado" { cx.largura_cm } else { cx.comprimento_cm };
+                let bd = if pal_int && g.amarrado { pos.comprimento_cm } else { ((g.caixas_comp.max(1) as f64) * prof_cx).min(pos.comprimento_cm) };
+                bases_dim.insert(pr.produto_codigo.as_str(), (g.largura_ocupada_cm, bd));
+                views.push(AlocacaoItemView {
+                    id: pr.produto_codigo.clone(),
+                    posicao_id: pos.id.clone(),
+                    posicao_codigo: pos.codigo.clone(),
+                    estrutura_id: pos.estrutura_id.clone(),
+                    papel: pos.papel.clone(),
+                    andar: pos.andar,
+                    nivel: pos.nivel,
+                    produto_codigo: pr.produto_codigo.clone(),
+                    produto_descricao: pr.produto_descricao.clone(),
+                    linha_prefix: pr.linha_prefix.clone(),
+                    nome_linha: "".into(),
+                    fileiras_largura: pr.fileiras_largura,
+                    camadas_altura: pr.camadas_altura,
+                    fixado: false,
+                    observacoes: None,
+                    caixa_id: Some(cx.id.clone()),
+                    caixa_codigo: Some(cx.codigo.clone()),
+                    caixa_altura_cm: Some(cx.altura_cm),
+                    caixa_comprimento_cm: Some(cx.comprimento_cm),
+                    caixa_largura_cm: Some(cx.largura_cm),
+                    caixas_comprimento: g.caixas_comp,
+                    max_camadas: g.max_cam,
+                    total_caixas: g.total_caixas,
+                    qtde_cx: prod.qtde_cx_efetiva,
+                    total_unidades: g.total_unidades,
+                    largura_ocupada_cm: g.largura_ocupada_cm,
+                    altura_ocupada_cm: g.altura_ocupada_cm,
+                    altura_vao_cm: pos.altura_cm,
+                    estouro_altura: g.estouro_altura,
+                    cobertura_meses: g.cobertura_meses,
+                    peso_estimado_kg: None,
+                    orientacao_modo: pr.orientacao_modo.clone(),
+                    orientacao_efetiva: g.orientacao_efetiva,
+                    empilhado_sobre: None,
+                    z_base_cm: 0.0,
+                    volume_ocupado_m3: g.volume_ocupado_m3,
+                    amarrado: g.amarrado,
+                    apoio_pct: None,
+                    alerta_estabilidade: None,
+                });
+            }
+            for pr in list.iter().filter(|p| p.empilhado_sobre.is_some()) {
+                let prod = prod_map[pr.produto_codigo.as_str()];
+                let cx = cx_map[prod.caixa_id.as_deref().unwrap()];
+                let (bw, bd) = bases_dim[pr.empilhado_sobre.as_deref().unwrap()];
+                let pos_topo = Posicao { largura_cm: pos.largura_cm.min(bw), comprimento_cm: pos.comprimento_cm.min(bd), ..pos.clone() };
+                let g = calcular_geometria_alocacao_com_modo(&pos_topo, Some(cx), pr.fileiras_largura, pr.camadas_altura, prod.qtde_cx_efetiva, prod.media_total, &pr.orientacao_modo, false);
+                views.push(AlocacaoItemView {
+                    id: pr.produto_codigo.clone(),
+                    posicao_id: pos.id.clone(),
+                    posicao_codigo: pos.codigo.clone(),
+                    estrutura_id: pos.estrutura_id.clone(),
+                    papel: pos.papel.clone(),
+                    andar: pos.andar,
+                    nivel: pos.nivel,
+                    produto_codigo: pr.produto_codigo.clone(),
+                    produto_descricao: pr.produto_descricao.clone(),
+                    linha_prefix: pr.linha_prefix.clone(),
+                    nome_linha: "".into(),
+                    fileiras_largura: pr.fileiras_largura,
+                    camadas_altura: pr.camadas_altura,
+                    fixado: false,
+                    observacoes: None,
+                    caixa_id: Some(cx.id.clone()),
+                    caixa_codigo: Some(cx.codigo.clone()),
+                    caixa_altura_cm: Some(cx.altura_cm),
+                    caixa_comprimento_cm: Some(cx.comprimento_cm),
+                    caixa_largura_cm: Some(cx.largura_cm),
+                    caixas_comprimento: g.caixas_comp,
+                    max_camadas: g.max_cam,
+                    total_caixas: g.total_caixas,
+                    qtde_cx: prod.qtde_cx_efetiva,
+                    total_unidades: g.total_unidades,
+                    largura_ocupada_cm: g.largura_ocupada_cm,
+                    altura_ocupada_cm: g.altura_ocupada_cm,
+                    altura_vao_cm: pos.altura_cm,
+                    estouro_altura: g.estouro_altura,
+                    cobertura_meses: g.cobertura_meses,
+                    peso_estimado_kg: None,
+                    orientacao_modo: pr.orientacao_modo.clone(),
+                    orientacao_efetiva: g.orientacao_efetiva,
+                    empilhado_sobre: pr.empilhado_sobre.clone(),
+                    z_base_cm: 0.0,
+                    volume_ocupado_m3: g.volume_ocupado_m3,
+                    amarrado: g.amarrado,
+                    apoio_pct: None,
+                    alerta_estabilidade: None,
+                });
+            }
+
+            assert!(soma_larg <= pos.largura_cm + 0.05, "estouro de largura em {}: {}", pos.codigo, soma_larg);
+            let peso_m = HashMap::new();
+            let classe_m = HashMap::new();
+            let (_, _, _, _, status, resumo_est) = avaliar_estabilidade_vao(pos, &mut views, &peso_m, &classe_m);
+            assert!(views.iter().all(|v| !v.estouro_altura), "estouro de altura em {}", pos.codigo);
+            assert_ne!(status, "alerta", "alerta em {}: {}", pos.codigo, resumo_est);
+        }
     }
 }

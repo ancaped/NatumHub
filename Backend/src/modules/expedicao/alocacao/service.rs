@@ -932,6 +932,7 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
 
     let mut itens_por_pos: HashMap<String, Vec<AlocacaoItemView>> = HashMap::new();
     let mut itens_por_prod: HashMap<String, Vec<AlocacaoItemView>> = HashMap::new();
+    let mut base_dims_por_pos: HashMap<(String, String), (f64, f64)> = HashMap::new();
 
     for r in aloc_rows {
         let id: String = r.get("id");
@@ -957,11 +958,36 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
         };
         let cx_ref = fb.caixa_id.as_ref().and_then(|cid| caixa_por_id.get(cid)).copied();
         let unico_na_base = base_count_por_pos.get(&posicao_id).copied().unwrap_or(0) == 1 && empilhado_sobre.is_none();
-        let palete_inteiro = orientacao_modo == "amarracao"
-            || (unico_na_base
-                && cx_ref.is_some_and(|c| (fileiras_largura as f64) * c.largura_cm >= pos.largura_cm * 0.72));
+        let palete_inteiro = unico_na_base
+            && (orientacao_modo == "amarracao"
+                || (orientacao_modo == "auto"
+                    && cx_ref.is_some_and(|c| {
+                        let w_norm = (fileiras_largura as f64) * c.largura_cm;
+                        let max_fil = if c.largura_cm > 1e-6 {
+                            ((pos.largura_cm + 1e-6) / c.largura_cm).floor() as i32
+                        } else {
+                            1
+                        };
+                        w_norm >= pos.largura_cm * 0.65 || fileiras_largura >= max_fil
+                    })));
+
+        // Itens empilhados sobre uma base calculam caixas_comp dentro da profundidade e largura reais da base (aloc_rows já vem ordenado com bases antes).
+        let pos_efetiva = if let Some(ref base_cod) = empilhado_sobre {
+            if let Some(&(bw, bd)) = base_dims_por_pos.get(&(posicao_id.clone(), base_cod.clone())) {
+                Posicao {
+                    largura_cm: pos.largura_cm.min(bw),
+                    comprimento_cm: pos.comprimento_cm.min(bd),
+                    ..pos.clone()
+                }
+            } else {
+                pos.clone()
+            }
+        } else {
+            pos.clone()
+        };
+
         let geom = calcular_geometria_alocacao_com_modo(
-            pos,
+            &pos_efetiva,
             cx_ref,
             fileiras_largura,
             camadas_altura,
@@ -970,6 +996,22 @@ pub async fn carregar_painel(pool: &PgPool, q: &PainelQuery) -> Result<PainelAlo
             &orientacao_modo,
             palete_inteiro,
         );
+
+        if empilhado_sobre.is_none() {
+            let prof_cx = match geom.orientacao_efetiva.as_str() {
+                "rotacionado" => cx_ref.map(|c| c.largura_cm).unwrap_or(20.0),
+                _ => cx_ref.map(|c| c.comprimento_cm).unwrap_or(20.0),
+            };
+            let base_d = if palete_inteiro && geom.amarrado {
+                pos.comprimento_cm
+            } else {
+                ((geom.caixas_comp.max(1) as f64) * prof_cx).min(pos.comprimento_cm)
+            };
+            base_dims_por_pos.insert(
+                (posicao_id.clone(), produto_codigo.clone()),
+                (geom.largura_ocupada_cm.min(pos.largura_cm), base_d),
+            );
+        }
 
         let peso_estimado_kg = fb
             .peso_caixa_estimado_kg

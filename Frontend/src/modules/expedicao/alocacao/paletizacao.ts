@@ -103,8 +103,8 @@ function espelharCamada(
 export function verificarApoioCamada(
   base: CaixaNoPalete[],
   topo: CaixaNoPalete[],
-  minApoioPct = 0.85,
-  maxBalancoCm = 1.5,
+  minApoioPct = 0.75,
+  maxBalancoCm?: number,
 ): boolean {
   if (base.length === 0 || topo.length === 0) return false;
   const baseMinX = base.reduce((m, c) => Math.min(m, c.x), Infinity);
@@ -113,11 +113,13 @@ export function verificarApoioCamada(
   const baseMaxY = base.reduce((m, c) => Math.max(m, c.y + c.h), -Infinity);
 
   for (const t of topo) {
+    const balX = maxBalancoCm !== undefined ? maxBalancoCm : Math.max(1.5, t.w * 0.25);
+    const balY = maxBalancoCm !== undefined ? maxBalancoCm : Math.max(1.5, t.h * 0.25);
     if (
-      t.x < baseMinX - maxBalancoCm ||
-      t.x + t.w > baseMaxX + maxBalancoCm ||
-      t.y < baseMinY - maxBalancoCm ||
-      t.y + t.h > baseMaxY + maxBalancoCm
+      t.x < baseMinX - balX ||
+      t.x + t.w > baseMaxX + balX ||
+      t.y < baseMinY - balY ||
+      t.y + t.h > baseMaxY + balY
     ) {
       return false;
     }
@@ -131,7 +133,7 @@ export function verificarApoioCamada(
       if (iy <= 0) continue;
       overlap += ix * iy;
     }
-    if (overlap / areaT < minApoioPct) {
+    if (overlap / areaT < minApoioPct - 1e-6) {
       return false;
     }
   }
@@ -213,38 +215,90 @@ function montarLayout(
   };
 }
 
+function particaoEstavelPorEspelho(cand: CaixaNoPalete[]): boolean {
+  if (cand.length === 0) return false;
+  const maxX = cand.reduce((m, c) => Math.max(m, c.x + c.w), 0);
+  const maxY = cand.reduce((m, c) => Math.max(m, c.y + c.h), 0);
+  if (maxX <= EPS || maxY <= EPS) return false;
+  const sortFn = (u: CaixaNoPalete, v: CaixaNoPalete) =>
+    u.x - v.x || u.y - v.y || u.w - v.w || u.h - v.h;
+  const orig = [...cand].sort(sortFn);
+  for (const [mx, my] of [
+    [true, true],
+    [true, false],
+    [false, true],
+  ] as const) {
+    const par = cand.map((c) => ({
+      x: mx ? arred(Math.max(0, maxX - (c.x + c.w))) : c.x,
+      y: my ? arred(Math.max(0, maxY - (c.y + c.h))) : c.y,
+      w: c.w,
+      h: c.h,
+      rotacionada: c.rotacionada,
+    }));
+    const parOrd = [...par].sort(sortFn);
+    const dif = orig.some(
+      (c, i) =>
+        Math.abs(c.x - parOrd[i].x) > 0.2 ||
+        Math.abs(c.y - parOrd[i].y) > 0.2 ||
+        Math.abs(c.w - parOrd[i].w) > 0.2 ||
+        Math.abs(c.h - parOrd[i].h) > 0.2,
+    );
+    if (dif && verificarApoioCamada(cand, par, 0.75) && verificarApoioCamada(par, cand, 0.75)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function melhorParticaoAmarracao(
   largBox: number,
   compBox: number,
   wPalete: number,
   dPalete: number,
 ): CaixaNoPalete[] {
-  let melhor: CaixaNoPalete[] = [];
-  let melhorQtd = -1;
-  let melhorMista = false;
+  let melhorEstavel: CaixaNoPalete[] = [];
+  let melhorEstavelQtd = -1;
+  let melhorBruto: CaixaNoPalete[] = [];
+  let melhorBrutoQtd = -1;
+  let melhorBrutoMista = false;
 
   const avaliar = (cand: CaixaNoPalete[]) => {
     const qtd = cand.length;
+    if (qtd === 0) return;
     const norm = cand.filter((c) => !c.rotacionada).length;
     const rot = qtd - norm;
     const mista = norm > 0 && rot > 0;
-    if (qtd > melhorQtd || (qtd === melhorQtd && mista && !melhorMista)) {
-      melhor = cand;
-      melhorQtd = qtd;
-      melhorMista = mista;
+    if (mista && particaoEstavelPorEspelho(cand)) {
+      if (qtd > melhorEstavelQtd) {
+        melhorEstavel = cand;
+        melhorEstavelQtd = qtd;
+      }
+    }
+    if (qtd > melhorBrutoQtd || (qtd === melhorBrutoQtd && mista && !melhorBrutoMista)) {
+      melhorBruto = cand;
+      melhorBrutoQtd = qtd;
+      melhorBrutoMista = mista;
     }
   };
 
-  // 1) Faixas horizontais ao longo do comprimento (Y): k fileiras normais + resto girado 90°
+  // 1) Faixas horizontais ao longo do comprimento (Y): k fileiras normais + resto girado 90°, centralizadas em X
   const maxNy = Math.floor((dPalete + EPS) / compBox);
   const nxNormal = Math.floor((wPalete + EPS) / largBox);
   const nxRot = Math.floor((wPalete + EPS) / compBox);
   for (let k = 0; k <= maxNy; k++) {
+    const yBase = k * compBox;
+    const nyRot = Math.floor((dPalete - yBase + EPS) / largBox);
+    const wNorm = nxNormal * largBox;
+    const wRot = nxRot * compBox;
+    const maxW = Math.max(k > 0 ? wNorm : 0, nyRot > 0 ? wRot : 0);
+    const dxNorm = k > 0 && nyRot > 0 ? Math.max(0, (maxW - wNorm) / 2) : 0;
+    const dxRot = k > 0 && nyRot > 0 ? Math.max(0, (maxW - wRot) / 2) : 0;
+
     const list: CaixaNoPalete[] = [];
     for (let iy = 0; iy < k; iy++) {
       for (let ix = 0; ix < nxNormal; ix++) {
         list.push({
-          x: arred(ix * largBox),
+          x: arred(dxNorm + ix * largBox),
           y: arred(iy * compBox),
           w: arred(largBox),
           h: arred(compBox),
@@ -252,12 +306,10 @@ function melhorParticaoAmarracao(
         });
       }
     }
-    const yBase = k * compBox;
-    const nyRot = Math.floor((dPalete - yBase + EPS) / largBox);
     for (let ry = 0; ry < nyRot; ry++) {
       for (let rx = 0; rx < nxRot; rx++) {
         list.push({
-          x: arred(rx * compBox),
+          x: arred(dxRot + rx * compBox),
           y: arred(yBase + ry * largBox),
           w: arred(compBox),
           h: arred(largBox),
@@ -268,30 +320,36 @@ function melhorParticaoAmarracao(
     avaliar(list);
   }
 
-  // 2) Faixas verticais ao longo da largura (X): k colunas normais + resto girado 90°
+  // 2) Faixas verticais ao longo da largura (X): k colunas normais + resto girado 90°, centralizadas em Y
   const maxNx = Math.floor((wPalete + EPS) / largBox);
   const nyNormal = Math.floor((dPalete + EPS) / compBox);
   const nyRot = Math.floor((dPalete + EPS) / largBox);
   for (let k = 0; k <= maxNx; k++) {
+    const xBase = k * largBox;
+    const nxRotRem = Math.floor((wPalete - xBase + EPS) / compBox);
+    const dNorm = nyNormal * compBox;
+    const dRot = nyRot * largBox;
+    const maxD = Math.max(k > 0 ? dNorm : 0, nxRotRem > 0 ? dRot : 0);
+    const dyNorm = k > 0 && nxRotRem > 0 ? Math.max(0, (maxD - dNorm) / 2) : 0;
+    const dyRot = k > 0 && nxRotRem > 0 ? Math.max(0, (maxD - dRot) / 2) : 0;
+
     const list: CaixaNoPalete[] = [];
     for (let ix = 0; ix < k; ix++) {
       for (let iy = 0; iy < nyNormal; iy++) {
         list.push({
           x: arred(ix * largBox),
-          y: arred(iy * compBox),
+          y: arred(dyNorm + iy * compBox),
           w: arred(largBox),
           h: arred(compBox),
           rotacionada: false,
         });
       }
     }
-    const xBase = k * largBox;
-    const nxRotRem = Math.floor((wPalete - xBase + EPS) / compBox);
     for (let rx = 0; rx < nxRotRem; rx++) {
       for (let ry = 0; ry < nyRot; ry++) {
         list.push({
           x: arred(xBase + rx * compBox),
-          y: arred(ry * largBox),
+          y: arred(dyRot + ry * largBox),
           w: arred(compBox),
           h: arred(largBox),
           rotacionada: true,
@@ -301,7 +359,10 @@ function melhorParticaoAmarracao(
     avaliar(list);
   }
 
-  return melhor;
+  if (melhorEstavel.length > 0 && melhorEstavelQtd >= Math.floor(Math.max(1, melhorBrutoQtd) * 0.8)) {
+    return melhorEstavel;
+  }
+  return melhorBruto;
 }
 
 /**

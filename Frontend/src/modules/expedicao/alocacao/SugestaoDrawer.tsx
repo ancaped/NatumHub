@@ -14,6 +14,7 @@ interface SugestaoDrawerProps {
   metaMeses: number;
   usarMetaLinha: boolean;
   linhasConfigs: LinhaBase[];
+  vaosFixadosComEstouro?: number;
   onClose: () => void;
   onApplied: () => Promise<void>;
   avisar: (msg: string, tipo?: TipoAviso) => void;
@@ -27,6 +28,7 @@ export function SugestaoDrawer({
   metaMeses,
   usarMetaLinha,
   linhasConfigs,
+  vaosFixadosComEstouro = 0,
   onClose,
   onApplied,
   avisar,
@@ -232,6 +234,25 @@ export function SugestaoDrawer({
             </div>
           </div>
         </div>
+
+        {manterFixados && vaosFixadosComEstouro > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 flex flex-wrap items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-700" />
+              <span>
+                <strong>{vaosFixadosComEstouro}</strong> vão(s) travado(s) já têm estouro e serão
+                mantidos assim.
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setManterFixados(false)}
+              className="px-2.5 py-1.5 min-h-[36px] text-[11px] font-bold rounded-lg bg-amber-900 text-white hover:bg-amber-800 cursor-pointer shrink-0"
+            >
+              Destravar e simular
+            </button>
+          </div>
+        )}
 
         {calculando ? (
           <div className="p-8 text-center text-zinc-500 font-semibold">

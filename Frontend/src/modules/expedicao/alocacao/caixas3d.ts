@@ -58,8 +58,8 @@ function centralizarSobre(
 }
 
 function parEstavel(impar: CaixaNoPalete[], par: CaixaNoPalete[], nz: number): boolean {
-  if (!verificarApoioCamada(impar, par, 0.85, 1.5)) return false;
-  if (nz >= 3 && !verificarApoioCamada(par, impar, 0.85, 1.5)) return false;
+  if (!verificarApoioCamada(impar, par, 0.75)) return false;
+  if (nz >= 3 && !verificarApoioCamada(par, impar, 0.75)) return false;
   return true;
 }
 import type {
@@ -485,22 +485,21 @@ export function gerarCaixasItem3d(
         (cand) => !layoutsIguais(impar, cand) && parEstavel(impar, cand, nz),
       );
 
-      camadaImpar = impar;
       if (parEscolhido) {
+        camadaImpar = impar;
         camadaPar = parEscolhido;
         amarrado = true;
-      } else {
-        camadaPar = impar;
-        amarrado = false;
+        footprintD = depthDisponivel;
       }
-      footprintD = depthDisponivel;
-    } else if (
+    }
+    if (
+      !amarrado &&
       nz > 1 &&
       resPal.rotacionado &&
       resPal.rotacionado.caixasPorLastro > 0 &&
       resPal.normal.caixasPorLastro > 0 &&
       Math.abs(caixaLarguraCm - caixaComprimentoCm) > 0.5 &&
-      resPal.rotacionado.caixasPorLastro >= Math.floor(resPal.normal.caixasPorLastro * 0.85)
+      resPal.rotacionado.caixasPorLastro >= Math.floor(resPal.normal.caixasPorLastro * 0.8)
     ) {
       const impar = resPal.normal.caixasImpar;
       const maxX = impar.reduce((m, c) => Math.max(m, c.x + c.w), 0);
@@ -878,6 +877,7 @@ export function gerarLayoutVao3d(params: {
     { x0: number; y0: number; footprintW: number; footprintD: number; zTop: number }
   >();
 
+  const baseCount = posicao.itens.filter((i) => !i.empilhadoSobre).length;
   const ordenados = posicao.itens
     .map((item, itemIndex) => ({ item, itemIndex }))
     .sort((a, b) => Number(Boolean(a.item.empilhadoSobre)) - Number(Boolean(b.item.empilhadoSobre)));
@@ -896,9 +896,11 @@ export function gerarLayoutVao3d(params: {
     const cxComp = isRot ? item.caixaLarguraCm : item.caixaComprimentoCm;
 
     const wEstimado =
-      item.larguraOcupadaCm > 0
-        ? item.larguraOcupadaCm
-        : Math.max(1, item.fileirasLargura) * (cxLarg ?? 20);
+      !ehSobreposto && baseCount === 1 && (modoItem === 'amarracao' || item.amarrado)
+        ? disp
+        : item.larguraOcupadaCm > 0
+          ? item.larguraOcupadaCm
+          : Math.max(1, item.fileirasLargura) * (cxLarg ?? 20);
     const wItem = Math.min(disp, Math.max(8, wEstimado));
 
     const saldo = saldos.get(item.id);
@@ -908,14 +910,9 @@ export function gerarLayoutVao3d(params: {
 
     const qtdAlvo = modoQtd === 'estoque' ? estCx : capCx;
     const cxPodeGirar = caixaPorId.get(item.caixaId ?? '')?.podeGirar !== false;
-    const usarAmarracaoItem =
-      modoItem === 'normal' || modoItem === 'rotacionado'
-        ? false
-        : modoItem === 'amarracao'
-          ? usarAmarracao && cxPodeGirar
-          : usarAmarracao && (Boolean(item.amarrado) || oriEfetiva === 'amarracao' || posicao.itens.length === 1);
-    const podeGirarItem =
-      modoItem === 'normal' || modoItem === 'rotacionado' ? false : cxPodeGirar;
+    const forcouSemAmarracao = modoItem === 'normal' || modoItem === 'rotacionado';
+    const usarAmarracaoItem = !forcouSemAmarracao && usarAmarracao && cxPodeGirar;
+    const podeGirarItem = !forcouSemAmarracao && cxPodeGirar;
 
     const zBaseItem = baseAlvo ? baseAlvo.zTop + 0.6 : zBase;
     const hDispTotal = hBase + (item.estouroAltura || posicao.temEstouro ? 10 : 0);

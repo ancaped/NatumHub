@@ -345,6 +345,9 @@ export default function ExpedicaoAlocacaoView({
         metaMeses={metaMeses}
         usarMetaLinha={usarMetaLinha}
         linhasConfigs={linhasConfigs}
+        vaosFixadosComEstouro={
+          painel?.posicoes.filter((p) => p.temEstouro && p.itens.some((i) => i.fixado)).length ?? 0
+        }
         onClose={() => setSugestaoOpen(false)}
         onApplied={carregar}
         avisar={avisar}

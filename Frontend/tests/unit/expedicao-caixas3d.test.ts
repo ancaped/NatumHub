@@ -580,3 +580,60 @@ test('ordenarCaixas3dPorCamera ordena profundidade e camadas corretamente em tod
     assert.deepEqual(ordZ, ['frente', 'topo']);
   }
 });
+
+test('gerarLayoutVao3d ativa amarração real em vãos multi-produto em modo auto (ex.: Vão F6)', () => {
+  const itemF6A = makeItem({
+    id: 'al-f6a',
+    produtoCodigo: '2.11.010',
+    fileirasLargura: 2,
+    caixasComprimento: 4,
+    camadasAltura: 3,
+    caixaId: 'cx-24',
+    caixaLarguraCm: 15.8,
+    caixaComprimentoCm: 26.8,
+    caixaAlturaCm: 24.7,
+    larguraOcupadaCm: 31.6,
+    alturaOcupadaCm: 74.1,
+    totalCaixas: 24,
+    orientacaoModo: 'auto',
+    orientacaoEfetiva: 'normal',
+    amarrado: false,
+  });
+  const itemF6B = makeItem({
+    id: 'al-f6b',
+    produtoCodigo: '2.11.011',
+    fileirasLargura: 2,
+    caixasComprimento: 4,
+    camadasAltura: 3,
+    caixaId: 'cx-24',
+    caixaLarguraCm: 15.8,
+    caixaComprimentoCm: 26.8,
+    caixaAlturaCm: 24.7,
+    larguraOcupadaCm: 31.6,
+    alturaOcupadaCm: 74.1,
+    totalCaixas: 24,
+    orientacaoModo: 'auto',
+    orientacaoEfetiva: 'normal',
+    amarrado: false,
+  });
+  const posF6 = makePos('p-f6', 'F6', 'picking', 3, [itemF6A, itemF6B]);
+  const prods = new Map<string, ProdutoDimensao>([
+    ['2.11.010', makeProd({ codigo: '2.11.010', estoqueCaixas: 30 })],
+    ['2.11.011', makeProd({ codigo: '2.11.011', estoqueCaixas: 30 })],
+  ]);
+  const saldos = distribuirEstoquePorAlocacao([posF6], prods);
+  const res = gerarLayoutVao3d({
+    posicao: posF6,
+    saldos,
+    caixaPorId: new Map(),
+    modoQtd: 'capacidade',
+    usarAmarracao: true,
+    aplicarCulling: false,
+    dirSign: 1,
+  });
+
+  assert.equal(res.itens[0].amarrado, true);
+  assert.equal(res.itens[1].amarrado, true);
+  assert.ok(res.itens[0].caixas.some((c) => c.rotacionada));
+  assert.ok(res.itens[0].caixas.some((c) => !c.rotacionada));
+});
