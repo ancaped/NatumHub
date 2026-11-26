@@ -448,6 +448,7 @@ pub struct OpsChegandoQuery {
 #[serde(rename_all = "camelCase")]
 pub struct OpChegandoItem {
     pub lote_number: String,
+    pub status_erp: String,
     pub etapa: String,
     pub etapa_ordem: i32,
     pub produto_codigo: String,
@@ -464,6 +465,7 @@ pub struct OpChegandoItem {
     pub situacao_espaco: String,
     pub enderecos_picking: Vec<String>,
     pub enderecos_pulmao: Vec<String>,
+    pub data_lote: Option<String>,
     pub data_previsao: Option<String>,
     pub motivo_espera: Option<String>,
 }
@@ -516,6 +518,7 @@ pub struct LoteErpSugestao {
     pub quantidade_kg: Option<f64>,
     pub unidades: Option<f64>,
     pub resultado: Option<String>,
+    pub status_erp: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

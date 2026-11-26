@@ -129,6 +129,7 @@ export interface LoteErpSugestao {
   quantidadeKg: number | null;
   unidades: number | null;
   resultado: string | null;
+  statusErp?: string | null;
 }
 
 export interface PosicaoComItens extends Posicao {
@@ -313,6 +314,7 @@ export interface SugestaoResumo {
 
 export interface OpChegandoItem {
   loteNumber: string;
+  statusErp?: string;
   etapa: string;
   etapaOrdem: number;
   produtoCodigo: string;
@@ -329,6 +331,7 @@ export interface OpChegandoItem {
   situacaoEspaco: 'ok' | 'falta_espaco' | 'sem_endereco' | 'sem_qtde_cx' | string;
   enderecosPicking: string[];
   enderecosPulmao: string[];
+  dataLote?: string | null;
   dataPrevisao: string | null;
   motivoEspera: string | null;
 }

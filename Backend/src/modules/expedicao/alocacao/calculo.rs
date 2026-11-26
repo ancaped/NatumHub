@@ -1123,13 +1123,66 @@ pub struct AlocacaoExistente {
     pub empilhado_sobre: Option<String>,
 }
 
+/// Extrai o valor de um campo `"Chave: Valor"` dentro de `stock_movements.details` separado por `|`.
+pub fn extrair_campo_details_erp(details: &str, chave: &str) -> Option<String> {
+    let prefixo = format!("{}:", chave.trim()).to_ascii_lowercase();
+    for part in details.split('|') {
+        let p = part.trim();
+        let p_low = p.to_ascii_lowercase();
+        if p_low.starts_with(&prefixo) {
+            let val = p[prefixo.len()..].trim();
+            if !val.is_empty() {
+                return Some(val.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Lê `"Unidades: N"` de `stock_movements.details`, aceitando apenas `N > 1` (regra canônica: `1` é placeholder do ERP).
+pub fn parse_unidades_details_erp(details: &str) -> Option<f64> {
+    let raw = extrair_campo_details_erp(details, "Unidades")?;
+    let val = raw.replace(',', ".").parse::<f64>().ok()?;
+    if val.is_finite() && val > 1.0 {
+        Some(val)
+    } else {
+        None
+    }
+}
+
+/// Retorna true apenas para ordens ainda em aberto no ERP (`EN`, `PR`, `PP`, `PG`).
+/// Exclui `EA` (finalizada/estoque atualizado), `CA` (cancelada), `FI`, `FP`, `CF`, `RP`, `LF`.
+pub fn status_erp_op_aberto(status_erp: &str) -> bool {
+    matches!(
+        status_erp.trim().to_ascii_uppercase().as_str(),
+        "EN" | "PR" | "PP" | "PG"
+    )
+}
+
+/// Converte o código oficial de status do ERP em rótulo amigável e prioridade (1 = mais próxima da expedição).
+pub fn rotulo_e_ordem_status_erp(status_erp: &str) -> (&'static str, i32) {
+    match status_erp.trim().to_ascii_uppercase().as_str() {
+        "EN" => ("Em Envase (EN)", 1),
+        "PR" => ("Em Produção (PR)", 2),
+        "PP" => ("Pré-Produção (PP)", 3),
+        "PG" => ("Em Pesagem (PG)", 3),
+        _ => ("Em Aberto", 9),
+    }
+}
+
 /// Prioridade da etapa da OP para ordenação na Expedição (1 = mais próxima de chegar).
 pub fn prioridade_etapa_op(etapa: &str) -> i32 {
-    match etapa.trim() {
-        "Envase" | "Ordem Parcial" | "Rotulagem" => 1,
-        "Liberado para Envase" => 2,
-        "Produzido" => 3,
-        _ => 9,
+    let s = etapa.trim();
+    match s.to_ascii_uppercase().as_str() {
+        "EN" => 1,
+        "PR" => 2,
+        "PP" | "PG" => 3,
+        _ => match s {
+            "Em Envase (EN)" | "Em Envase" | "Envase" | "Ordem Parcial" | "Rotulagem" => 1,
+            "Em Produção (PR)" | "Em Produção" | "Liberado para Envase" => 2,
+            "Pré-Produção (PP)" | "Pré-Produção" | "Em Pesagem (PG)" | "Em Pesagem" | "Produzido" => 3,
+            _ => 9,
+        },
     }
 }
 
@@ -3696,5 +3749,30 @@ mod tests {
             assert!(views.iter().all(|v| !v.estouro_altura), "estouro de altura em {}", pos.codigo);
             assert_ne!(status, "alerta", "alerta em {}: {}", pos.codigo, resumo_est);
         }
+    }
+
+    #[test]
+    fn extrair_status_e_unidades_details_erp_exclui_ea_e_ca() {
+        assert_eq!(
+            extrair_campo_details_erp("Status: EA | Fab: JOAO | Unidades: 1500", "Status").as_deref(),
+            Some("EA")
+        );
+        assert_eq!(
+            extrair_campo_details_erp("Status: EN | Fab:  | Unidades: 1", "Status").as_deref(),
+            Some("EN")
+        );
+        assert!(!status_erp_op_aberto("EA"));
+        assert!(!status_erp_op_aberto("CA"));
+        assert!(!status_erp_op_aberto("FI"));
+        assert!(status_erp_op_aberto("EN"));
+        assert!(status_erp_op_aberto("PR"));
+        assert!(status_erp_op_aberto("PP"));
+        assert!(status_erp_op_aberto("PG"));
+
+        assert_eq!(parse_unidades_details_erp("Status: EN | Unidades: 1"), None);
+        assert_eq!(parse_unidades_details_erp("Status: PG | Unidades: 200"), Some(200.0));
+        assert_eq!(rotulo_e_ordem_status_erp("EN"), ("Em Envase (EN)", 1));
+        assert_eq!(rotulo_e_ordem_status_erp("PR"), ("Em Produção (PR)", 2));
+        assert_eq!(rotulo_e_ordem_status_erp("PG"), ("Em Pesagem (PG)", 3));
     }
 }

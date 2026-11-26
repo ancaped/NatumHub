@@ -21,7 +21,20 @@ interface OpsChegandoDrawerProps {
 
 type FiltroModo = 'TODAS' | 'ALERTAS' | 'ENVASE' | 'LIBERADO' | 'PRODUZIDO';
 
-function badgeEtapa(etapa: string) {
+function badgeEtapa(etapa: string, statusErp?: string) {
+  const sig = (statusErp ?? '').toUpperCase();
+  if (sig === 'EN' || etapa.includes('(EN)')) {
+    return <StatusBadge variante="saudavel">EN · Em Envase</StatusBadge>;
+  }
+  if (sig === 'PR' || etapa.includes('(PR)')) {
+    return <StatusBadge variante="aguardando">PR · Em Produção</StatusBadge>;
+  }
+  if (sig === 'PP' || etapa.includes('(PP)')) {
+    return <StatusBadge variante="descontinuado">PP · Pré-Produção</StatusBadge>;
+  }
+  if (sig === 'PG' || etapa.includes('(PG)')) {
+    return <StatusBadge variante="descontinuado">PG · Em Pesagem</StatusBadge>;
+  }
   if (etapa === 'Envase' || etapa === 'Ordem Parcial' || etapa === 'Rotulagem') {
     return <StatusBadge variante="saudavel">{etapa}</StatusBadge>;
   }
@@ -151,6 +164,8 @@ export function OpsChegandoDrawer({
       if (!q) return true;
       return (
         it.loteNumber.toLowerCase().includes(q) ||
+        (it.statusErp ?? '').toLowerCase().includes(q) ||
+        it.etapa.toLowerCase().includes(q) ||
         it.produtoCodigo.toLowerCase().includes(q) ||
         it.produtoDescricao.toLowerCase().includes(q) ||
         it.grupoAlocacaoNome.toLowerCase().includes(q)
@@ -169,7 +184,7 @@ export function OpsChegandoDrawer({
       onClose={onClose}
       size="lg"
       title="OPs chegando da Produção"
-      subtitle="Lotes em Envase, Rotulagem, Liberado para Envase e Produzido x espaço na estante"
+      subtitle="Ordens abertas direto do ERP (EN, PR, PP, PG — exclui EA finalizadas e CA canceladas)"
       badge={
         resumo ? (
           <StatusBadge variante={totalAlertas > 0 ? 'aguardando' : 'saudavel'}>
@@ -199,13 +214,13 @@ export function OpsChegandoDrawer({
                 {resumo.totalOps} lotes ativos
               </span>
               <span>
-                Envase/Rot.: <strong className="font-mono">{resumo.emEnvaseRotulagem}</strong>
+                Envase (EN): <strong className="font-mono">{resumo.emEnvaseRotulagem}</strong>
               </span>
               <span>
-                Liberados: <strong className="font-mono">{resumo.liberadoEnvase}</strong>
+                Produção (PR): <strong className="font-mono">{resumo.liberadoEnvase}</strong>
               </span>
               <span>
-                Produzidos: <strong className="font-mono">{resumo.produzido}</strong>
+                Pesagem/Pré (PG/PP): <strong className="font-mono">{resumo.produzido}</strong>
               </span>
               <span>
                 Sem endereço: <strong className="font-mono text-red-700">{resumo.semEndereco}</strong>
@@ -246,9 +261,9 @@ export function OpsChegandoDrawer({
               [
                 { id: 'TODAS', rotulo: 'Todas' },
                 { id: 'ALERTAS', rotulo: `Alertas (${totalAlertas})` },
-                { id: 'ENVASE', rotulo: 'Envase' },
-                { id: 'LIBERADO', rotulo: 'Liberado' },
-                { id: 'PRODUZIDO', rotulo: 'Produzido' },
+                { id: 'ENVASE', rotulo: 'Envase (EN)' },
+                { id: 'LIBERADO', rotulo: 'Produção (PR)' },
+                { id: 'PRODUZIDO', rotulo: 'Pesagem/Pré' },
               ] as const
             ).map((f) => (
               <button
@@ -289,7 +304,12 @@ export function OpsChegandoDrawer({
                         <span className="font-mono font-bold text-zinc-900">
                           Lote #{it.loteNumber}
                         </span>
-                        {badgeEtapa(it.etapa)}
+                        {badgeEtapa(it.etapa, it.statusErp)}
+                        {it.dataLote && (
+                          <span className="font-mono text-[10px] text-zinc-500">
+                            ERP {it.dataLote}
+                          </span>
+                        )}
                         {it.dataPrevisao && (
                           <span className="font-mono text-[10px] text-zinc-500">
                             Prev. {it.dataPrevisao}

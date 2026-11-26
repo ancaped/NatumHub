@@ -19,7 +19,8 @@ use super::calculo::{
     calcular_peso_caixa_estimado_kg, calcular_tarefas_reposicao_fefo, calcular_unidades_op,
     classificar_empilhamento, classificar_espaco_op, classificar_validade_fefo,
     definir_grupo_alocacao, e_cliente_atacadista, elegibilidade_abc_efetiva,
-    normalizar_orientacao_modo, prioridade_etapa_op, situacao_alocacao_produto, sugerir_alocacao,
+    extrair_campo_details_erp, normalizar_orientacao_modo, parse_unidades_details_erp,
+    rotulo_e_ordem_status_erp, situacao_alocacao_produto, status_erp_op_aberto, sugerir_alocacao,
     sugerir_validade_padrao_24m, AlocacaoExistente, TARA_PALETE_PBR_KG,
 };
 use super::models::*;
@@ -379,6 +380,7 @@ async fn carregar_lotes_estrutura(
 #[derive(Debug, Clone)]
 struct OpBrutaRow {
     lote_number: String,
+    status_erp: String,
     etapa: String,
     etapa_ordem: i32,
     produto_codigo: String,
@@ -386,50 +388,92 @@ struct OpBrutaRow {
     quantidade_kg: f64,
     prog_envase_un: Option<f64>,
     envasado_parcial: f64,
+    data_lote: Option<String>,
     data_previsao: Option<String>,
     motivo_espera: Option<String>,
 }
 
 async fn carregar_ops_ativas_brutas(pool: &PgPool) -> Result<Vec<OpBrutaRow>, ErroApi> {
     let rows = sqlx::query(
-        "SELECT lcs.lote_number, lcs.custom_status, sm.item_code, \
-                COALESCE(NULLIF(TRIM(p.descricao), ''), sm.item_code) AS prod_desc, \
+        "SELECT DISTINCT ON (sm.document_number, TRIM(sm.item_code)) \
+                sm.document_number AS lote_number, \
+                TRIM(sm.item_code) AS item_code, \
+                COALESCE(NULLIF(TRIM(p.descricao), ''), TRIM(sm.item_code)) AS prod_desc, \
                 COALESCE(sm.quantity, 0)::double precision AS quantidade_kg, \
+                COALESCE(sm.details, '') AS details, \
+                NULLIF(SUBSTRING(COALESCE(sm.date, '') FROM 1 FOR 10), '') AS data_lote, \
                 pe.pe_qty::double precision AS prog_envase_un, \
                 COALESCE(lcs.quantidade_envasada_parcial, 0)::double precision AS envasado_parcial, \
                 to_char(lcs.data_previsao AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY') AS data_prev, \
                 NULLIF(TRIM(lcs.motivo_espera), '') AS motivo_espera \
-         FROM lote_custom_status lcs \
-         JOIN stock_movements sm \
-           ON sm.document_number = lcs.lote_number \
-          AND sm.item_type = 'produto' \
-          AND sm.movement_type = 'entrada' \
-         LEFT JOIN produtos p ON p.codigo = sm.item_code \
+         FROM stock_movements sm \
+         LEFT JOIN produtos p ON p.codigo = TRIM(sm.item_code) \
+         LEFT JOIN lote_custom_status lcs ON lcs.lote_number = sm.document_number \
          LEFT JOIN ( \
              SELECT lote_number, product_code, MAX(quantity) AS pe_qty \
              FROM programacao_envase \
              WHERE status_envase <> 'CONCLUIDO' \
              GROUP BY lote_number, product_code \
-         ) pe ON pe.lote_number = lcs.lote_number AND pe.product_code = sm.item_code \
-         WHERE lcs.custom_status IN ('Envase', 'Ordem Parcial', 'Rotulagem', 'Liberado para Envase', 'Produzido') \
-           AND sm.quantity > 0",
+         ) pe ON pe.lote_number = sm.document_number AND pe.product_code = TRIM(sm.item_code) \
+         WHERE sm.item_type = 'produto' \
+           AND sm.movement_type = 'entrada' \
+           AND COALESCE(sm.document_number, '') <> '' \
+           AND sm.details IS NOT NULL \
+           AND sm.quantity > 0 \
+           AND TRIM(sm.item_code) NOT LIKE '%.36.%' \
+           AND ( \
+               sm.details LIKE '%Status: EN%' \
+               OR sm.details LIKE '%Status: PR%' \
+               OR sm.details LIKE '%Status: PP%' \
+               OR sm.details LIKE '%Status: PG%' \
+           ) \
+           AND sm.details NOT LIKE '%Status: EA%' \
+           AND sm.details NOT LIKE '%Status: CA%' \
+           AND sm.details NOT LIKE '%Status: FI%' \
+           AND sm.details NOT LIKE '%Status: FP%' \
+           AND sm.details NOT LIKE '%Status: CF%' \
+           AND (sm.date IS NULL OR sm.date = '' OR sm.date >= TO_CHAR(CURRENT_DATE - INTERVAL '60 days', 'YYYY-MM-DD')) \
+         ORDER BY sm.document_number, TRIM(sm.item_code), sm.ctid DESC",
     )
     .fetch_all(pool)
     .await?;
 
     let mut out = Vec::with_capacity(rows.len());
     for r in rows {
-        let etapa: String = r.get("custom_status");
-        let etapa_ordem = prioridade_etapa_op(&etapa);
+        let details: String = r.get("details");
+        let status_erp = extrair_campo_details_erp(&details, "Status")
+            .unwrap_or_default()
+            .to_ascii_uppercase();
+        if !status_erp_op_aberto(&status_erp) {
+            continue;
+        }
+        let item_code: String = r.get("item_code");
+        let prod_desc: String = r.get("prod_desc");
+        if e_base(&item_code, &prod_desc, "") {
+            continue;
+        }
+        let (etapa_rotulo, etapa_ordem) = rotulo_e_ordem_status_erp(&status_erp);
+        let prog_envase_un = r
+            .get::<Option<f64>, _>("prog_envase_un")
+            .filter(|&v| v.is_finite() && v > 1.0)
+            .or_else(|| parse_unidades_details_erp(&details));
+        let data_lote_raw: Option<String> = r.get("data_lote");
+        let data_lote = data_lote_raw.as_deref().and_then(|s| {
+            NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d")
+                .ok()
+                .map(|d| d.format("%d/%m/%Y").to_string())
+        });
         out.push(OpBrutaRow {
             lote_number: r.get("lote_number"),
-            etapa,
+            status_erp,
+            etapa: etapa_rotulo.to_string(),
             etapa_ordem,
-            produto_codigo: r.get("item_code"),
-            produto_descricao: r.get("prod_desc"),
+            produto_codigo: item_code,
+            produto_descricao: prod_desc,
             quantidade_kg: r.get("quantidade_kg"),
-            prog_envase_un: r.get("prog_envase_un"),
+            prog_envase_un,
             envasado_parcial: r.get("envasado_parcial"),
+            data_lote,
             data_previsao: r.get("data_prev"),
             motivo_espera: r.get("motivo_espera"),
         });
@@ -1302,18 +1346,37 @@ pub async fn listar_lotes_erp_produto(
         return Err(ErroApi::invalido("Informe o código do produto."));
     }
     let rows = sqlx::query(
-        "SELECT lote, data_envase, data_lote, quantidade_kg, unidades, resultado \
-         FROM erp_lotes_laudos \
-         WHERE product_code = $1 \
-         ORDER BY data_lote DESC NULLS LAST, lote DESC \
-         LIMIT 20",
+        "SELECT ell.lote, ell.data_envase, ell.data_lote, ell.quantidade_kg, ell.unidades, ell.resultado, \
+                sm.details AS erp_details \
+         FROM erp_lotes_laudos ell \
+         LEFT JOIN LATERAL ( \
+             SELECT s.details \
+             FROM stock_movements s \
+             WHERE s.document_number = ell.lote \
+               AND TRIM(s.item_code) = TRIM(ell.product_code) \
+               AND s.item_type = 'produto' \
+               AND s.movement_type = 'entrada' \
+             ORDER BY s.ctid DESC \
+             LIMIT 1 \
+         ) sm ON TRUE \
+         WHERE ell.product_code = $1 \
+         ORDER BY ell.data_lote DESC NULLS LAST, ell.lote DESC \
+         LIMIT 30",
     )
     .bind(cod)
     .fetch_all(pool)
     .await?;
 
-    let mut out = Vec::with_capacity(rows.len());
+    let mut out = Vec::with_capacity(rows.len().min(20));
     for r in rows {
+        let details: Option<String> = r.get("erp_details");
+        let status_erp = details
+            .as_deref()
+            .and_then(|d| extrair_campo_details_erp(d, "Status"))
+            .map(|s| s.to_ascii_uppercase());
+        if status_erp.as_deref() == Some("CA") {
+            continue;
+        }
         let dt_env: Option<String> = r.get("data_envase");
         let dt_lote: Option<String> = r.get("data_lote");
         let fab = parse_data_erp_opt(dt_env.as_deref())
@@ -1326,7 +1389,11 @@ pub async fn listar_lotes_erp_produto(
             quantidade_kg: r.get("quantidade_kg"),
             unidades: r.get("unidades"),
             resultado: r.get("resultado"),
+            status_erp,
         });
+        if out.len() >= 20 {
+            break;
+        }
     }
     Ok(out)
 }
@@ -1799,7 +1866,7 @@ pub async fn listar_ops_chegando(
         total_caixas_chegando += caixas_chegando;
 
         if let Some(ref ef) = etapa_filtro {
-            if op.etapa.to_ascii_lowercase() != *ef {
+            if op.etapa.to_ascii_lowercase() != *ef && op.status_erp.to_ascii_lowercase() != *ef {
                 continue;
             }
         }
@@ -1809,6 +1876,7 @@ pub async fn listar_ops_chegando(
 
         itens.push(OpChegandoItem {
             lote_number: op.lote_number,
+            status_erp: op.status_erp,
             etapa: op.etapa,
             etapa_ordem: op.etapa_ordem,
             produto_codigo: op.produto_codigo,
@@ -1831,6 +1899,7 @@ pub async fn listar_ops_chegando(
             situacao_espaco,
             enderecos_picking: prod.map(|p| p.enderecos_picking.clone()).unwrap_or_default(),
             enderecos_pulmao: prod.map(|p| p.enderecos_pulmao.clone()).unwrap_or_default(),
+            data_lote: op.data_lote,
             data_previsao: op.data_previsao,
             motivo_espera: op.motivo_espera,
         });

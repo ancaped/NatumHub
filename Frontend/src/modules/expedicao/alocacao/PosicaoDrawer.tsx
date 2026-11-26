@@ -1240,10 +1240,21 @@ export function PosicaoDrawer({
                           setLoteDataFab(le.dataFabricacao ?? '');
                           setLoteDataVal(le.dataValidadeSugerida ?? '');
                         }}
-                        className="px-2 py-1 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-100 font-mono text-[11px] font-semibold text-zinc-800 cursor-pointer"
+                        className="px-2 py-1 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-100 font-mono text-[11px] font-semibold text-zinc-800 cursor-pointer inline-flex items-center gap-1"
                       >
-                        #{le.lote}
-                        {le.dataValidadeSugerida ? ` · val. ${le.dataValidadeSugerida}` : ''}
+                        <span>
+                          #{le.lote}
+                          {le.dataValidadeSugerida ? ` · val. ${le.dataValidadeSugerida}` : ''}
+                        </span>
+                        {le.statusErp && (
+                          <span
+                            className={`text-[10px] font-bold ${
+                              le.statusErp === 'EA' ? 'text-emerald-700' : 'text-zinc-500'
+                            }`}
+                          >
+                            {le.statusErp}
+                          </span>
+                        )}
                       </button>
                     ))}
                   </div>
