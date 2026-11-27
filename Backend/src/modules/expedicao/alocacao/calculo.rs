@@ -1362,12 +1362,185 @@ fn score_compartilhado(prod: &ProdutoDimensao, pos: &Posicao) -> i32 {
 struct BasePilhaSnapshot {
     produto_codigo: String,
     grupo_alocacao: String,
+    familia: &'static str,
     peso_caixa_kg: Option<f64>,
     classe_empilhamento: String,
     w_cm: f64,
     d_cm: f64,
     h_ocupada_cm: f64,
     ja_tem_topo: bool,
+}
+
+/// Classifica o produto por família operacional para agrupar itens semelhantes
+/// (ex.: shampoos 300ml, óleos 45/60/90ml, máscaras, bottox, kits) lado a lado no mesmo bloco.
+pub fn familia_produto_alocacao(prod: &ProdutoDimensao) -> &'static str {
+    let d = normalizar_texto(&prod.descricao);
+    if prod.eh_coloracao
+        || contem_palavra_inteira(&d, "COLORACAO")
+        || contem_palavra_inteira(&d, "TINTURA")
+    {
+        return "coloracao";
+    }
+    if prod.eh_kit || d.starts_with("KIT ") || d.contains(" KIT ") {
+        return "kit";
+    }
+    if d.contains("SACHE") || d.contains("AMPOLA") {
+        return "sache";
+    }
+    if contem_palavra_inteira(&d, "AOX")
+        || d.contains("OXIDANTE")
+        || d.contains("AGUA OXIGENADA")
+        || d.contains("DESCOLORANTE")
+    {
+        return "oxidante_po";
+    }
+    if d.contains("OLEO")
+        || contem_palavra_inteira(&d, "OIL")
+        || d.contains("REPARADOR")
+        || d.contains("SERUM")
+        || d.contains("ELIXIR")
+        || contem_palavra_inteira(&d, "GOTAS")
+    {
+        return "oleo_reparador";
+    }
+    if d.starts_with("SH ") || d.starts_with("SH.") || d.contains("SHAMPOO") {
+        return "shampoo";
+    }
+    if d.starts_with("COND ") || d.starts_with("COND.") || d.contains("CONDICIONADOR") {
+        return "condicionador";
+    }
+    if d.starts_with("MASC ") || d.starts_with("MASC.") || d.contains("MASCARA") {
+        return "mascara";
+    }
+    if d.contains("BOTTOX")
+        || d.contains("BOTOX")
+        || d.contains("SELANTE")
+        || d.contains("ALISANTE")
+        || d.contains("PROGRESSIVA")
+        || d.contains("BTOX")
+        || d.contains("SELAGEM")
+    {
+        return "bottox_alisante";
+    }
+    if d.contains("LEAVE-IN")
+        || d.contains("LEAVE IN")
+        || d.contains("LEAVEIN")
+        || d.contains("FINALIZ")
+        || d.contains("BB CREAM")
+        || d.contains("FLUIDO")
+        || d.contains("SPRAY")
+        || d.contains("PROTETOR")
+        || d.contains("ATIVADOR")
+        || d.contains("POMADA")
+        || d.contains("PERFUME")
+        || contem_palavra_inteira(&d, "GEL")
+        || d.contains("TONICO")
+        || d.contains("MOUSSE")
+        || d.starts_with("CREME ")
+    {
+        return "finalizador_leavein";
+    }
+    if d.contains("SABONETE")
+        || d.contains("HIDRATANTE")
+        || d.contains("LOCAO")
+        || d.contains("ESFOLIANTE")
+        || d.contains("DESODORANTE")
+    {
+        return "corporal";
+    }
+    "outros"
+}
+
+fn rotulo_familia_alocacao(fam: &str) -> &'static str {
+    match fam {
+        "coloracao" => "Coloração",
+        "kit" => "Kit",
+        "sache" => "Sachê/Ampola",
+        "oxidante_po" => "AOX/Descolorante",
+        "oleo_reparador" => "Óleo/Reparador",
+        "shampoo" => "Shampoo",
+        "condicionador" => "Condicionador",
+        "mascara" => "Máscara",
+        "bottox_alisante" => "Bottox/Alisante",
+        "finalizador_leavein" => "Finalizador",
+        "corporal" => "Corporal",
+        _ => "",
+    }
+}
+
+fn score_vizinhanca_picking(coords: Option<&Vec<(i32, i32, i32)>>, pos: &Posicao) -> i32 {
+    let Some(lista) = coords else {
+        return 0;
+    };
+    if lista.is_empty() {
+        return 0;
+    }
+    let mut melhor = i32::MAX;
+    for &(a0, c0, _) in lista {
+        let da = (pos.andar - a0).abs();
+        let dc = (pos.coluna_ordem - c0).abs();
+        let s = if da == 0 && dc == 0 {
+            -5
+        } else if da == 0 && dc == 1 {
+            -3
+        } else if da == 1 && dc == 0 {
+            -2
+        } else {
+            (dc - 1).clamp(0, 4)
+        };
+        if s < melhor {
+            melhor = s;
+        }
+    }
+    melhor
+}
+
+fn tem_mesmo_par_vao(coords: Option<&Vec<(i32, i32, i32)>>, pos: &Posicao) -> bool {
+    coords.is_some_and(|lista| {
+        lista
+            .iter()
+            .any(|&(a0, c0, _)| a0 == pos.andar && c0 == pos.coluna_ordem)
+    })
+}
+
+fn score_contiguity_pulmao(
+    coords: Option<&Vec<(i32, i32, i32)>>,
+    pos: &Posicao,
+    peso_mesmo_par: i32,
+    peso_mesmo_andar_lado: i32,
+    peso_mesma_col_adj: i32,
+    penalidade_longe_max: i32,
+) -> (i32, bool) {
+    let Some(lista) = coords else {
+        return (0, false);
+    };
+    if lista.is_empty() {
+        return (0, false);
+    }
+    let mut melhor = i32::MAX;
+    let mut contiguo = false;
+    for &(a0, c0, _) in lista {
+        let da = (pos.andar - a0).abs();
+        let dc = (pos.coluna_ordem - c0).abs();
+        if (da == 0 && dc <= 1) || (dc == 0 && da <= 1) {
+            contiguo = true;
+        }
+        let s = if da == 0 && dc == 0 {
+            peso_mesmo_par
+        } else if da == 0 && dc == 1 {
+            peso_mesmo_andar_lado
+        } else if da == 1 && dc == 0 {
+            peso_mesma_col_adj
+        } else if penalidade_longe_max > 0 {
+            (dc * 3 + da * 2).min(penalidade_longe_max)
+        } else {
+            0
+        };
+        if s < melhor {
+            melhor = s;
+        }
+    }
+    (melhor, contiguo)
 }
 
 #[derive(Debug, Clone)]
@@ -1581,10 +1754,20 @@ pub fn sugerir_alocacao_com_folga(
     let mut volume_usado_pos: HashMap<String, f64> = HashMap::new();
     let mut linhas_na_posicao: HashMap<String, HashSet<String>> = HashMap::new();
     let mut caixas_na_posicao: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut familias_na_posicao: HashMap<String, HashSet<&'static str>> = HashMap::new();
     let mut pares_ocupados: HashSet<(String, String)> = HashSet::new();
     let mut picking_fixo_caixas: HashMap<String, i32> = HashMap::new();
     let mut pulmao_fixo_caixas: HashMap<String, i32> = HashMap::new();
     let mut picking_colunas_por_prod: HashMap<String, HashSet<i32>> = HashMap::new();
+    let mut picking_pos_por_familia: HashMap<(String, &'static str), Vec<(i32, i32, i32)>> =
+        HashMap::new();
+    let mut picking_pos_por_familia_caixa: HashMap<
+        (String, &'static str, String),
+        Vec<(i32, i32, i32)>,
+    > = HashMap::new();
+    let mut pulmao_pos_do_prod: HashMap<String, Vec<(i32, i32, i32)>> = HashMap::new();
+    let mut pulmao_pos_por_familia: HashMap<(String, &'static str), Vec<(i32, i32, i32)>> =
+        HashMap::new();
     let mut produtos_ja_alocados: HashSet<String> = HashSet::new();
     let mut bases_por_posicao: HashMap<String, Vec<BasePilhaSnapshot>> = HashMap::new();
 
@@ -1622,10 +1805,15 @@ pub fn sugerir_alocacao_com_folga(
                 .linha_principal
                 .clone()
                 .unwrap_or_else(|| prod.linha_prefix.clone());
+            let fam = familia_produto_alocacao(prod);
             linhas_na_posicao
                 .entry(ex.posicao_id.clone())
                 .or_default()
-                .insert(lg);
+                .insert(lg.clone());
+            familias_na_posicao
+                .entry(ex.posicao_id.clone())
+                .or_default()
+                .insert(fam);
             if let Some(cid) = &prod.caixa_id {
                 caixas_na_posicao
                     .entry(ex.posicao_id.clone())
@@ -1658,10 +1846,26 @@ pub fn sugerir_alocacao_com_folga(
                                 .entry(prod.codigo.clone())
                                 .or_default()
                                 .insert(pos.coluna_ordem);
+                            picking_pos_por_familia
+                                .entry((lg.clone(), fam))
+                                .or_default()
+                                .push((pos.andar, pos.coluna_ordem, pos.nivel));
+                            picking_pos_por_familia_caixa
+                                .entry((lg, fam, cid.clone()))
+                                .or_default()
+                                .push((pos.andar, pos.coluna_ordem, pos.nivel));
                         } else {
                             *pulmao_fixo_caixas
                                 .entry(prod.codigo.clone())
                                 .or_insert(0) += g.total_caixas;
+                            pulmao_pos_do_prod
+                                .entry(prod.codigo.clone())
+                                .or_default()
+                                .push((pos.andar, pos.coluna_ordem, pos.nivel));
+                            pulmao_pos_por_familia
+                                .entry((lg, fam))
+                                .or_default()
+                                .push((pos.andar, pos.coluna_ordem, pos.nivel));
                         }
                         if ex.empilhado_sobre.is_none() {
                             let prof_cx = if g.orientacao_efetiva == "rotacionado" {
@@ -1677,6 +1881,7 @@ pub fn sugerir_alocacao_com_folga(
                             bases_por_posicao.entry(pos.id.clone()).or_default().push(BasePilhaSnapshot {
                                 produto_codigo: prod.codigo.clone(),
                                 grupo_alocacao: prod.grupo_alocacao.clone(),
+                                familia: fam,
                                 peso_caixa_kg: prod.peso_caixa_estimado_kg,
                                 classe_empilhamento: prod.classe_empilhamento.clone(),
                                 w_cm: g.largura_ocupada_cm.min(pos.largura_cm),
@@ -1763,6 +1968,28 @@ pub fn sugerir_alocacao_com_folga(
         _ => 2,
     };
 
+    let mut demanda_familia: HashMap<(String, bool, &'static str), f64> = HashMap::new();
+    let mut demanda_familia_caixa: HashMap<(String, bool, &'static str, String), f64> =
+        HashMap::new();
+    for p in &candidatos {
+        let base = if p.eh_coloracao {
+            "coloracao".to_string()
+        } else {
+            p.linha_principal
+                .as_deref()
+                .unwrap_or(&p.linha_prefix)
+                .to_string()
+        };
+        let fam = familia_produto_alocacao(p);
+        let dem = p.media_total.max(0.0);
+        *demanda_familia.entry((base.clone(), p.eh_kit, fam)).or_insert(0.0) += dem;
+        if let Some(ref cid) = p.caixa_id {
+            *demanda_familia_caixa
+                .entry((base, p.eh_kit, fam, cid.clone()))
+                .or_insert(0.0) += dem;
+        }
+    }
+
     candidatos.sort_by(|a, b| {
         let base_a = if a.eh_coloracao {
             "coloracao"
@@ -1774,23 +2001,50 @@ pub fn sugerir_alocacao_com_folga(
         } else {
             b.linha_principal.as_deref().unwrap_or(&b.linha_prefix)
         };
+        let fam_a = familia_produto_alocacao(a);
+        let fam_b = familia_produto_alocacao(b);
+        let cid_a = a.caixa_id.as_deref().unwrap_or("");
+        let cid_b = b.caixa_id.as_deref().unwrap_or("");
         let da = demanda_linha.get(base_a).copied().unwrap_or(0.0);
         let db = demanda_linha.get(base_b).copied().unwrap_or(0.0);
+        let df_a = demanda_familia
+            .get(&(base_a.to_string(), a.eh_kit, fam_a))
+            .copied()
+            .unwrap_or(0.0);
+        let df_b = demanda_familia
+            .get(&(base_b.to_string(), b.eh_kit, fam_b))
+            .copied()
+            .unwrap_or(0.0);
+        let dfc_a = demanda_familia_caixa
+            .get(&(base_a.to_string(), a.eh_kit, fam_a, cid_a.to_string()))
+            .copied()
+            .unwrap_or(0.0);
+        let dfc_b = demanda_familia_caixa
+            .get(&(base_b.to_string(), b.eh_kit, fam_b, cid_b.to_string()))
+            .copied()
+            .unwrap_or(0.0);
         db.partial_cmp(&da)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| base_a.cmp(base_b))
             // Linha principal vem primeiro; Kits da mesma linha vêm logo em seguida (próximos)
             .then_with(|| a.eh_kit.cmp(&b.eh_kit))
+            // Bloco por família operacional (shampoos, óleos 45/60/90ml, máscaras, etc.)
+            .then_with(|| {
+                df_b.partial_cmp(&df_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| fam_a.cmp(fam_b))
+            // Sub-bloco por mesma caixa/cubagem dentro da família
+            .then_with(|| {
+                dfc_b
+                    .partial_cmp(&dfc_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| cid_a.cmp(cid_b))
             .then_with(|| abc_rank(&a.curva_abc).cmp(&abc_rank(&b.curva_abc)))
             .then_with(|| {
                 b.media_total
                     .partial_cmp(&a.media_total)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .then_with(|| {
-                b.caixa_altura_cm
-                    .unwrap_or(0.0)
-                    .partial_cmp(&a.caixa_altura_cm.unwrap_or(0.0))
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
             .then_with(|| a.codigo.cmp(&b.codigo))
@@ -1849,10 +2103,17 @@ pub fn sugerir_alocacao_com_folga(
         };
         let mut cap_pick_total = fix_pick;
         let rest_pick = (min_pick - fix_pick).max(0);
-        let mut precisa_picking = precisa_varejo && (fix_pick == 0 || rest_pick > 0);
+        // 1 único vão por SKU no Picking: se já existe posição travada no Picking, não duplica em outro vão
+        let mut precisa_picking = precisa_varejo && fix_pick == 0;
+        let fam = familia_produto_alocacao(prod);
+        let fam_rotulo = rotulo_familia_alocacao(fam);
 
-        // 1) Picking (Varejo / andares manuais): 1 vão por SKU com folga útil; empilhamento misto no Picking só p/ giro baixo (Curva C)
+        // 1) Picking (Varejo / andares manuais): 1 vão por SKU agrupado por família/cubagem; empilhamento misto no Picking só p/ giro baixo (Curva C)
         if precisa_picking && !picking_pos.is_empty() {
+            let key_fam = (lg.clone(), fam);
+            let key_fam_cx = (lg.clone(), fam, cid.clone());
+            let coords_fam_pick = picking_pos_por_familia.get(&key_fam);
+            let coords_fam_cx_pick = picking_pos_por_familia_caixa.get(&key_fam_cx);
             let mut melhor_lastro: Option<(i32, usize, EscolhaLastroVao)> = None;
             for (idx, pos) in picking_pos.iter().enumerate() {
                 if pares_ocupados.contains(&(pos.id.clone(), prod.codigo.clone())) {
@@ -1876,19 +2137,35 @@ pub fn sugerir_alocacao_com_folga(
                 let max_fil_v = ((livre + EPS) / cx.largura_cm.min(cx.comprimento_cm).max(1.0)).floor() as i32;
                 let cabe_tudo = encaixe.total_caixas >= rest_pick.max(1) || max_fil_v >= encaixe.fileiras;
                 let mesma_linha = linhas_na_posicao.get(&pos.id).is_some_and(|s| s.contains(&lg));
+                let mesma_familia = familias_na_posicao.get(&pos.id).is_some_and(|s| s.contains(&fam));
                 let mesma_caixa = caixas_na_posicao.get(&pos.id).is_some_and(|s| s.contains(cid));
                 let vazio = usada <= EPS;
                 let cota = cotas_base.get(&pos.andar).copied().unwrap_or(0.0);
 
-                let base_prio = if mesma_linha && mesma_caixa {
+                let score_conteudo = if mesma_linha && mesma_familia && mesma_caixa {
+                    -8
+                } else if mesma_linha && mesma_familia {
+                    -4
+                } else if vazio {
                     0
-                } else if mesma_linha {
-                    1
-                } else if vazio || mesma_caixa {
-                    2
-                } else {
+                } else if mesma_linha && mesma_caixa {
                     3
-                } + score_compartilhado(prod, pos)
+                } else if mesma_linha {
+                    7
+                } else {
+                    10
+                };
+                let bonus_cx_mesma_col = if tem_mesmo_par_vao(coords_fam_cx_pick, pos) {
+                    -2
+                } else {
+                    0
+                };
+                let score_vizinhanca =
+                    score_vizinhanca_picking(coords_fam_pick, pos) + bonus_cx_mesma_col;
+
+                let base_prio = score_conteudo
+                    + score_vizinhanca
+                    + score_compartilhado(prod, pos)
                     + score_ergonomia_paleteira(prod, cota, "picking");
                 let prio = if cabe_tudo { base_prio } else { base_prio + 10 };
                 let melhor = melhor_lastro
@@ -1905,14 +2182,24 @@ pub fn sugerir_alocacao_com_folga(
                 *volume_usado_pos.entry(pos.id.clone()).or_insert(0.0) += enc.volume_ocupado_m3;
                 linhas_na_posicao.entry(pos.id.clone()).or_default().insert(lg.clone());
                 caixas_na_posicao.entry(pos.id.clone()).or_default().insert(cid.clone());
+                familias_na_posicao.entry(pos.id.clone()).or_default().insert(fam);
                 pares_ocupados.insert((pos.id.clone(), prod.codigo.clone()));
                 picking_colunas_por_prod
                     .entry(prod.codigo.clone())
                     .or_default()
                     .insert(pos.coluna_ordem);
+                picking_pos_por_familia
+                    .entry((lg.clone(), fam))
+                    .or_default()
+                    .push((pos.andar, pos.coluna_ordem, pos.nivel));
+                picking_pos_por_familia_caixa
+                    .entry((lg.clone(), fam, cid.clone()))
+                    .or_default()
+                    .push((pos.andar, pos.coluna_ordem, pos.nivel));
                 bases_por_posicao.entry(pos.id.clone()).or_default().push(BasePilhaSnapshot {
                     produto_codigo: prod.codigo.clone(),
                     grupo_alocacao: prod.grupo_alocacao.clone(),
+                    familia: fam,
                     peso_caixa_kg: prod.peso_caixa_estimado_kg,
                     classe_empilhamento: prod.classe_empilhamento.clone(),
                     w_cm: enc.largura_ocupada_cm,
@@ -1926,6 +2213,9 @@ pub fn sugerir_alocacao_com_folga(
                 let mut motivo = descrever_motivo_escolha(prod, pos, &acesso, "picking", considerar_ops_chegando);
                 if enc.amarrado {
                     motivo = format!("{motivo} · amarrado");
+                }
+                if !fam_rotulo.is_empty() {
+                    motivo = format!("{motivo} · {fam_rotulo}");
                 }
                 let tot_un = enc.total_caixas * qtde_cx;
                 cap_pick_total += enc.total_caixas;
@@ -2014,7 +2304,13 @@ pub fn sugerir_alocacao_com_folga(
                             if !ok {
                                 continue;
                             }
-                            let mesmo_grupo = if base.grupo_alocacao == prod.grupo_alocacao { 0 } else { 2 };
+                            let mesmo_grupo = if base.familia == fam {
+                                -3
+                            } else if base.grupo_alocacao == prod.grupo_alocacao {
+                                0
+                            } else {
+                                3
+                            };
                             let prio = mesmo_grupo + (pos_idx as i32);
                             let tot_cx = fil_top * comp_top * max_cam_top;
                             let vol_un = (cx.altura_cm * cx.comprimento_cm * cx.largura_cm) / 1_000_000.0;
@@ -2092,7 +2388,7 @@ pub fn sugerir_alocacao_com_folga(
             itens_so_atacado_no_pulmao += 1;
         }
 
-        // 2) Pulmão (atacadistas, excedentes e OPs chegando): afinidade vertical + 4º andar p/ +1 camada + folga útil
+        // 2) Pulmão (atacadistas, excedentes e OPs chegando): anti-fragmentação + contiguidade + família + 4º andar seletivo
         let mut faltou_pulmao = false;
         if rest_pulm > 0 {
             let mut rem = rest_pulm;
@@ -2100,7 +2396,8 @@ pub fn sugerir_alocacao_com_folga(
                 .iter()
                 .any(|p| ganha_camada_no_vao_alto(cx, p.altura_cm, altura_padrao_pulmao));
             while rem > 0 {
-                let mut escolhido: Option<(i32, usize, EscolhaLastroVao)> = None;
+                let mut candidatos_pulm: Vec<(usize, &Posicao, EscolhaLastroVao, f64, f64)> =
+                    Vec::new();
                 for (idx, pos) in pulmao_pos.iter().enumerate() {
                     if pares_ocupados.contains(&(pos.id.clone(), prod.codigo.clone())) {
                         continue;
@@ -2120,11 +2417,55 @@ pub fn sugerir_alocacao_com_folga(
                     ) else {
                         continue;
                     };
+                    candidatos_pulm.push((idx, pos, encaixe, usada, larg_util));
+                }
+
+                let max_cap_vao = candidatos_pulm
+                    .iter()
+                    .map(|(_, _, e, _, _)| e.total_caixas)
+                    .max()
+                    .unwrap_or(0);
+                let existe_cabe_tudo = candidatos_pulm
+                    .iter()
+                    .any(|(_, _, e, _, _)| e.total_caixas >= rem);
+
+                let ja_tem_pulmao = pulmao_pos_do_prod
+                    .get(&prod.codigo)
+                    .is_some_and(|v| !v.is_empty());
+                let coords_sku_pulm = pulmao_pos_do_prod.get(&prod.codigo);
+                let coords_fam_pulm = pulmao_pos_por_familia.get(&(lg.clone(), fam));
+
+                let mut escolhido: Option<((i32, i32, usize), EscolhaLastroVao, bool)> = None;
+                for (idx, pos, encaixe, usada, larg_util) in candidatos_pulm {
                     let cabe_tudo = encaixe.total_caixas >= rem;
                     let mesma_linha = linhas_na_posicao.get(&pos.id).is_some_and(|s| s.contains(&lg));
+                    let mesma_familia = familias_na_posicao.get(&pos.id).is_some_and(|s| s.contains(&fam));
                     let mesma_caixa = caixas_na_posicao.get(&pos.id).is_some_and(|s| s.contains(cid));
                     let vazio = usada <= EPS;
                     let cota = cotas_base.get(&pos.andar).copied().unwrap_or(0.0);
+
+                    // Anti-fragmentação: nunca picota SKU que cabe num vão só nem belisca resto quando precisa de multi-palete
+                    let score_frag = if existe_cabe_tudo && !cabe_tudo {
+                        25
+                    } else if !cabe_tudo {
+                        let mut p = 0;
+                        if !vazio {
+                            p += 20;
+                        }
+                        if max_cap_vao > 0 && encaixe.total_caixas * 100 < max_cap_vao * 80 {
+                            p += 15;
+                        }
+                        p
+                    } else {
+                        0
+                    };
+
+                    // Contiguidade forte entre paletes do mesmo SKU no Pulmão
+                    let (score_contiguo_sku, contiguo_sku) = if ja_tem_pulmao {
+                        score_contiguity_pulmao(coords_sku_pulm, pos, -12, -8, -5, 12)
+                    } else {
+                        (0, false)
+                    };
 
                     let eh_vao_alto = pos.altura_cm > altura_padrao_pulmao + 5.0;
                     let score_vao_alto = if eh_vao_alto {
@@ -2132,14 +2473,15 @@ pub fn sugerir_alocacao_com_folga(
                             if prod.curva_abc == "C" { -3 } else { -5 }
                         } else {
                             // Não ganha camada em 100 cm -> preserva 4º andar para quem realmente ganha
-                            6
+                            8
                         }
                     } else {
                         0
                     };
-                    let score_afinidade = if let Some(cols) = picking_colunas_por_prod.get(&prod.codigo) {
+
+                    let score_afinidade_pick = if let Some(cols) = picking_colunas_por_prod.get(&prod.codigo) {
                         if cols.contains(&pos.coluna_ordem) {
-                            -3
+                            -4
                         } else if cols.iter().any(|&c| (c - pos.coluna_ordem).abs() == 1) {
                             -1
                         } else {
@@ -2149,39 +2491,74 @@ pub fn sugerir_alocacao_com_folga(
                         0
                     };
 
-                    // Curva A/B com grande volume prefere palete vazio fechado com amarração
-                    let pref_palete_fechado = (prod.curva_abc == "A" || prod.curva_abc == "B")
+                    // Curva A/B ou multi-palete prefere palete vazio fechado com amarração
+                    let pref_palete_fechado = ((prod.curva_abc == "A" || prod.curva_abc == "B") || !cabe_tudo)
                         && encaixe.largura_ocupada_cm >= larg_util * 0.65;
-                    let base_prio = if pref_palete_fechado {
-                        if vazio { 0 } else if mesma_linha { 2 } else { 4 }
-                    } else if mesma_linha && mesma_caixa {
+                    let score_conteudo_pulm = if pref_palete_fechado {
+                        if vazio {
+                            -2
+                        } else if mesma_linha && mesma_familia {
+                            2
+                        } else {
+                            6
+                        }
+                    } else if mesma_linha && mesma_familia && mesma_caixa {
+                        -6
+                    } else if mesma_linha && mesma_familia {
+                        -3
+                    } else if vazio {
                         0
-                    } else if mesma_linha {
-                        1
-                    } else if vazio || mesma_caixa {
+                    } else if mesma_linha && mesma_caixa {
                         2
+                    } else if mesma_linha {
+                        6
                     } else {
-                        3
-                    } + score_compartilhado(prod, pos)
-                        + score_ergonomia_paleteira(prod, cota, "pulmao")
+                        9
+                    };
+
+                    let score_viz_fam = if !ja_tem_pulmao {
+                        score_contiguity_pulmao(coords_fam_pulm, pos, -3, -2, -1, 0).0
+                    } else {
+                        0
+                    };
+
+                    let prio = score_frag
+                        + score_contiguo_sku
+                        + score_conteudo_pulm
+                        + score_viz_fam
+                        + score_afinidade_pick
                         + score_vao_alto
-                        + score_afinidade;
-                    let prio = if cabe_tudo { base_prio } else { base_prio + 10 };
-                    if escolhido.as_ref().map_or(true, |m| (prio, idx) < (m.0, m.1)) {
-                        escolhido = Some((prio, idx, encaixe));
+                        + score_compartilhado(prod, pos)
+                        + score_ergonomia_paleteira(prod, cota, "pulmao");
+
+                    // Quando precisa dividir em múltiplos vãos, desempata pela maior capacidade em caixas no vão
+                    let inv_cap = if cabe_tudo { 0 } else { -encaixe.total_caixas };
+                    let chave = (prio, inv_cap, idx);
+                    if escolhido.as_ref().map_or(true, |m| chave < m.0) {
+                        escolhido = Some((chave, encaixe, contiguo_sku));
                     }
                 }
 
-                if let Some((_, idx, enc)) = escolhido {
+                if let Some(((_, _, idx), enc, contiguo_sku)) = escolhido {
                     let pos = pulmao_pos[idx];
                     *largura_usada.entry(pos.id.clone()).or_insert(0.0) += enc.largura_ocupada_cm;
                     *volume_usado_pos.entry(pos.id.clone()).or_insert(0.0) += enc.volume_ocupado_m3;
                     linhas_na_posicao.entry(pos.id.clone()).or_default().insert(lg.clone());
                     caixas_na_posicao.entry(pos.id.clone()).or_default().insert(cid.clone());
+                    familias_na_posicao.entry(pos.id.clone()).or_default().insert(fam);
                     pares_ocupados.insert((pos.id.clone(), prod.codigo.clone()));
+                    pulmao_pos_do_prod
+                        .entry(prod.codigo.clone())
+                        .or_default()
+                        .push((pos.andar, pos.coluna_ordem, pos.nivel));
+                    pulmao_pos_por_familia
+                        .entry((lg.clone(), fam))
+                        .or_default()
+                        .push((pos.andar, pos.coluna_ordem, pos.nivel));
                     bases_por_posicao.entry(pos.id.clone()).or_default().push(BasePilhaSnapshot {
                         produto_codigo: prod.codigo.clone(),
                         grupo_alocacao: prod.grupo_alocacao.clone(),
+                        familia: fam,
                         peso_caixa_kg: prod.peso_caixa_estimado_kg,
                         classe_empilhamento: prod.classe_empilhamento.clone(),
                         w_cm: enc.largura_ocupada_cm,
@@ -2195,6 +2572,12 @@ pub fn sugerir_alocacao_com_folga(
                     let mut motivo = descrever_motivo_escolha(prod, pos, &acesso, "pulmao", considerar_ops_chegando);
                     if enc.amarrado {
                         motivo = format!("{motivo} · amarrado");
+                    }
+                    if contiguo_sku {
+                        motivo = format!("{motivo} · contíguo");
+                    }
+                    if !fam_rotulo.is_empty() {
+                        motivo = format!("{motivo} · {fam_rotulo}");
                     }
                     if picking_colunas_por_prod
                         .get(&prod.codigo)
@@ -2295,7 +2678,13 @@ pub fn sugerir_alocacao_com_folga(
                             if !ok {
                                 continue;
                             }
-                            let mesmo_grupo = if base.grupo_alocacao == prod.grupo_alocacao { 0 } else { 2 };
+                            let mesmo_grupo = if base.familia == fam {
+                                -3
+                            } else if base.grupo_alocacao == prod.grupo_alocacao {
+                                0
+                            } else {
+                                3
+                            };
                             let prio = mesmo_grupo + (pos_idx as i32);
                             let tot_cx = fil_top * comp_top * max_cam_top;
                             let vol_un = (cx.altura_cm * cx.comprimento_cm * cx.largura_cm) / 1_000_000.0;
@@ -4213,5 +4602,237 @@ mod tests {
         );
         assert_eq!(res.resumo.itens_empilhados_mistos_count, 0);
         assert!(res.nao_alocados.iter().any(|n| n.produto_codigo == "2.11.301"));
+    }
+
+    #[test]
+    fn familia_produto_classifica_shampoo_oleos_mascara_kits() {
+        let mk = |cod: &str, desc: &str, kit: bool, col: bool| {
+            let mut p = prod_teste_abc(cod, desc, "2.11", Some("2"), 100.0, None);
+            p.eh_kit = kit;
+            p.eh_coloracao = col;
+            p
+        };
+        assert_eq!(familia_produto_alocacao(&mk("2.11.018", "SH ARGAN 300 ML HAIR EXTRATTUS", false, false)), "shampoo");
+        assert_eq!(familia_produto_alocacao(&mk("2.11.033", "SH ANTIRRES BOTTOX VINTAGE 300 ML", false, false)), "shampoo");
+        assert_eq!(familia_produto_alocacao(&mk("2.14.008", "ARGAN OIL 45 ML HAIR EXTRATTUS", false, false)), "oleo_reparador");
+        assert_eq!(familia_produto_alocacao(&mk("2.14.039", "ARGAN OIL 60 ML HAIR EXTRATTUS", false, false)), "oleo_reparador");
+        assert_eq!(familia_produto_alocacao(&mk("2.14.040", "ARGAN OIL 90 ML HAIR EXTRATTUS", false, false)), "oleo_reparador");
+        assert_eq!(familia_produto_alocacao(&mk("2.14.036", "REPARADOR DE PONTAS 60 ML", false, false)), "oleo_reparador");
+        assert_eq!(familia_produto_alocacao(&mk("2.14.009", "SERUM POS PROGRESS 45 ML", false, false)), "oleo_reparador");
+        assert_eq!(familia_produto_alocacao(&mk("2.13.059", "MASC BABOSA 250 GR", false, false)), "mascara");
+        assert_eq!(familia_produto_alocacao(&mk("2.13.012", "SACHE MASC MANDIOCA 10 GR", false, false)), "sache");
+        assert_eq!(familia_produto_alocacao(&mk("2.13.036", "BOTTOX VINTAGE 100 GR", false, false)), "bottox_alisante");
+        assert_eq!(familia_produto_alocacao(&mk("2.12.052", "KIT MAIS LISO SH 900ML / COND 800ML", true, false)), "kit");
+        assert_eq!(familia_produto_alocacao(&mk("2.41.001", "COLORACAO LOURO", false, true)), "coloracao");
+    }
+
+    #[test]
+    fn agrupa_shampoos_mesma_cubagem_e_oleos_45_60_90_no_picking() {
+        let mut cx9 = caixa_exemplo("cx9", 22.5, 19.5, 14.7, 4);
+        cx9.pode_girar = false;
+        let mut cx7 = caixa_exemplo("cx7", 17.7, 14.7, 13.0, 4);
+        cx7.pode_girar = false;
+        let mut cx29 = caixa_exemplo("cx29", 20.0, 23.0, 15.0, 4);
+        cx29.pode_girar = false;
+        let mut cx24 = caixa_exemplo("cx24", 24.7, 26.8, 15.8, 4);
+        cx24.pode_girar = false;
+        let caixas = vec![cx9.clone(), cx7.clone(), cx29.clone(), cx24.clone()];
+
+        let posicoes = vec![
+            pos_exemplo("A1", 1, 1, "picking", 74.1),
+            pos_exemplo("A2", 1, 2, "picking", 74.1),
+            pos_exemplo("B1", 2, 1, "picking", 74.1),
+            pos_exemplo("B2", 2, 2, "picking", 74.1),
+            pos_exemplo("C1", 3, 1, "picking", 74.1),
+            pos_exemplo("C2", 3, 2, "picking", 74.1),
+        ];
+
+        let mk_pick = |cod: &str, desc: &str, cx: &Caixa, vendas: f64, pick_cx: i32| {
+            let mut p = prod_teste_abc(cod, desc, "2.11", Some("2"), vendas, None);
+            p.caixa_id = Some(cx.id.clone());
+            p.caixa_codigo = Some(cx.codigo.clone());
+            p.caixa_altura_cm = Some(cx.altura_cm);
+            p.caixa_comprimento_cm = Some(cx.comprimento_cm);
+            p.caixa_largura_cm = Some(cx.largura_cm);
+            p.empilhamento_max = Some(cx.empilhamento_max);
+            p.caixas_necessarias_picking = pick_cx;
+            p.caixas_necessarias_pulmao = 0;
+            p.caixas_necessarias_total = pick_cx;
+            p
+        };
+
+        // Mix intercalado em demanda ABC: óleos 45/60/90ml (Cx 7 e Cx 29), shampoos 300ml (Cx 9), máscaras 250g (Cx 24)
+        let mut prods = vec![
+            mk_pick("2.14.036", "REPARADOR DE PONTAS 60 ML", &cx7, 1400.0, 16),
+            mk_pick("2.11.018", "SH ARGAN 300 ML", &cx9, 1300.0, 12),
+            mk_pick("2.13.034", "MASC PLATINUM 250 GR", &cx24, 1250.0, 12),
+            mk_pick("2.14.007", "REPARADOR DE PONTAS 45 ML", &cx7, 900.0, 16),
+            mk_pick("2.11.024", "SH POS PROGRESSIVA 300 ML", &cx9, 600.0, 12),
+            mk_pick("2.14.039", "ARGAN OIL 60 ML", &cx7, 500.0, 12),
+            mk_pick("2.13.023", "MASC BLOND 250 GR", &cx24, 300.0, 12),
+            mk_pick("2.14.040", "ARGAN OIL 90 ML", &cx29, 200.0, 10),
+            mk_pick("2.11.017", "SH MANDIOCA 300 ML", &cx9, 100.0, 10),
+        ];
+        aplicar_curva_abc(&mut prods);
+
+        let res = sugerir_alocacao("est", &posicoes, &caixas, &[], &prods, &[], false, true, false);
+        assert_eq!(res.propostas.len(), prods.len());
+
+        let mut fams_por_pos: HashMap<&str, HashSet<&'static str>> = HashMap::new();
+        let mut larg_por_pos: HashMap<&str, f64> = HashMap::new();
+        let prod_map: HashMap<&str, &ProdutoDimensao> =
+            prods.iter().map(|p| (p.codigo.as_str(), p)).collect();
+        for pr in &res.propostas {
+            let fam = familia_produto_alocacao(prod_map[pr.produto_codigo.as_str()]);
+            fams_por_pos.entry(pr.posicao_codigo.as_str()).or_default().insert(fam);
+            *larg_por_pos.entry(pr.posicao_codigo.as_str()).or_insert(0.0) += pr.largura_ocupada_cm;
+        }
+
+        // Nenhum vão estoura os 95 cm úteis e cada família ocupa blocos dedicados sem misturar shampoo/óleo/máscara
+        for (pos_cod, larg) in &larg_por_pos {
+            assert!(*larg <= 95.0 + 0.05, "estouro em {pos_cod}: {larg}");
+        }
+        for (pos_cod, fams) in &fams_por_pos {
+            assert_eq!(fams.len(), 1, "vão {pos_cod} misturou famílias diferentes: {fams:?}");
+        }
+    }
+
+    #[test]
+    fn pulmao_multi_palete_consolida_em_vaos_contiguos_sem_picotar() {
+        let mut cx12 = caixa_exemplo("cx12", 32.3, 30.3, 20.3, 4);
+        cx12.pode_girar = false;
+
+        // C5 e D5 já têm um item pequeno ocupando 70 cm (restam 25 cm livres cada = picote de 1 fileira = 8 cx).
+        // A7, A8, B7, B8 (4º andar, 100 cm) estão totalmente livres -> comportam 4 fileiras * 4 comp * 3 cam = 48 cx cada.
+        let mut pos_c5 = pos_exemplo("C5", 3, 5, "pulmao", 100.0);
+        pos_c5.andar = 3;
+        let mut pos_d5 = pos_exemplo("D5", 4, 5, "pulmao", 100.0);
+        pos_d5.andar = 3;
+        let mut a7 = pos_exemplo("A7", 1, 7, "pulmao", 100.0);
+        a7.andar = 3;
+        let mut a8 = pos_exemplo("A8", 1, 8, "pulmao", 100.0);
+        a8.andar = 3;
+        let mut b7 = pos_exemplo("B7", 2, 7, "pulmao", 100.0);
+        b7.andar = 3;
+        let mut b8 = pos_exemplo("B8", 2, 8, "pulmao", 100.0);
+        b8.andar = 3;
+        let posicoes = vec![pos_c5.clone(), pos_d5.clone(), a7, a8, b7, b8];
+
+        let mut p_atac = prod_teste_abc("2.13.099", "PRODUTO ATACADO GRANDE", "2.13", Some("2"), 5000.0, None);
+        p_atac.caixa_id = Some("cx12".into());
+        p_atac.caixa_codigo = Some("cx12".into());
+        p_atac.caixa_altura_cm = Some(32.3);
+        p_atac.caixa_comprimento_cm = Some(30.3);
+        p_atac.caixa_largura_cm = Some(20.3);
+        p_atac.empilhamento_max = Some(4);
+        p_atac.vendas_varejo = 0.0;
+        p_atac.media_varejo = 0.0;
+        p_atac.vendas_atacado = 5000.0;
+        p_atac.media_atacado = 416.6;
+        p_atac.caixas_necessarias_picking = 0;
+        p_atac.caixas_necessarias_pulmao = 100; // 3 paletes cheios/contíguos (36 + 36 + 28 cx)
+        p_atac.caixas_necessarias_total = 100;
+
+        let existentes = vec![
+            AlocacaoExistente {
+                id: "ex1".into(),
+                posicao_id: pos_c5.id.clone(),
+                produto_codigo: "2.99.901".into(),
+                fileiras_largura: 2,
+                camadas_altura: 2,
+                largura_ocupada_cm: 70.0,
+                orientacao_modo: "auto".into(),
+                empilhado_sobre: None,
+                fixado: true,
+            },
+            AlocacaoExistente {
+                id: "ex2".into(),
+                posicao_id: pos_d5.id.clone(),
+                produto_codigo: "2.99.902".into(),
+                fileiras_largura: 2,
+                camadas_altura: 2,
+                largura_ocupada_cm: 70.0,
+                orientacao_modo: "auto".into(),
+                empilhado_sobre: None,
+                fixado: true,
+            },
+        ];
+
+        let mut prods = vec![p_atac];
+        aplicar_curva_abc(&mut prods);
+
+        let res = sugerir_alocacao(
+            "est",
+            &posicoes,
+            &[cx12],
+            &existentes,
+            &prods,
+            &[],
+            true,
+            true,
+            false,
+        );
+        let props: Vec<_> = res
+            .propostas
+            .iter()
+            .filter(|p| p.produto_codigo == "2.13.099")
+            .collect();
+        // Consolida no mínimo possível de vãos (3: A7, A8, B7), nunca picotando C5/D5
+        assert_eq!(props.len(), 3, "propostas: {:?}", props);
+        assert!(props.iter().all(|p| p.posicao_codigo != "C5" && p.posicao_codigo != "D5"));
+        let cods: HashSet<&str> = props.iter().map(|p| p.posicao_codigo.as_str()).collect();
+        assert!(cods.contains("A7") && cods.contains("A8"), "deve parear A7 e A8 antes de expandir: {cods:?}");
+    }
+
+    #[test]
+    fn sku_com_picking_fixado_nao_duplica_em_segundo_vao_de_picking() {
+        let mut cx9 = caixa_exemplo("cx9", 22.5, 19.5, 14.7, 4);
+        cx9.pode_girar = false;
+
+        let a1 = pos_exemplo("A1", 1, 1, "picking", 74.1);
+        let a2 = pos_exemplo("A2", 1, 2, "picking", 74.1);
+        let mut a7 = pos_exemplo("A7", 1, 7, "pulmao", 100.0);
+        a7.andar = 3;
+
+        let mut p = prod_teste_abc("2.11.018", "SH ARGAN 300 ML", "2.11", Some("2"), 1200.0, None);
+        p.caixa_id = Some("cx9".into());
+        p.caixa_codigo = Some("cx9".into());
+        p.caixa_altura_cm = Some(22.5);
+        p.caixa_comprimento_cm = Some(19.5);
+        p.caixa_largura_cm = Some(14.7);
+        p.empilhamento_max = Some(4);
+        p.caixas_necessarias_picking = 40;
+        p.caixas_necessarias_pulmao = 10;
+        p.caixas_necessarias_total = 50;
+
+        let existentes = vec![AlocacaoExistente {
+            id: "ex3".into(),
+            posicao_id: a1.id.clone(),
+            produto_codigo: "2.11.018".into(),
+            fileiras_largura: 1,
+            camadas_altura: 3,
+            largura_ocupada_cm: 14.7,
+            orientacao_modo: "auto".into(),
+            empilhado_sobre: None,
+            fixado: true,
+        }];
+
+        let mut prods = vec![p];
+        aplicar_curva_abc(&mut prods);
+
+        let res = sugerir_alocacao(
+            "est",
+            &[a1, a2, a7],
+            &[cx9],
+            &existentes,
+            &prods,
+            &[],
+            true,
+            true,
+            false,
+        );
+        // Zero novas propostas em Picking (A2 fica livre!), déficit do Picking travado vai pro Pulmão (A7)
+        assert!(res.propostas.iter().all(|pr| pr.papel != "picking"));
+        assert!(res.propostas.iter().any(|pr| pr.papel == "pulmao" && pr.posicao_codigo == "A7"));
     }
 }
